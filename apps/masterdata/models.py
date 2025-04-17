@@ -152,13 +152,22 @@ class Location(TimeStampedModel):
     
 
 class Product(TimeStampedModel):
+    
+    
+    STATUS_CHOICES = (
+        ('ACTIVE', 'ACTIVE'),
+        ('INACTIVE', 'INACTIVE'),
+        ('OBSOLETE', 'OBSOLETE'),
+    )
+    
+    
     reference = models.CharField(unique=True)
     Short_Description = models.CharField(max_length=100)
     Barcode = models.CharField(unique=True,max_length=30,null=True,blank=True)
     Product_Group = models.CharField(max_length=10)
     Stock_Unit = models.CharField(max_length=3)
-    Product_Status = models.CharField(10)
-    Internal_Product_Code = models.CharField(20)
+    Product_Status = models.CharField(choices=STATUS_CHOICES)
+    Internal_Product_Code = models.CharField(max_length=20)
     Product_Family = models.ForeignKey(Family,on_delete=models.CASCADE)
     parent_product = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True)
     Is_Variant = models.BooleanField()
