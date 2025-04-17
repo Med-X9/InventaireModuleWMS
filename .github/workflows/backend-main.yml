@@ -1,0 +1,44 @@
+name: Backend CD - Main Branch
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**.py'
+      - 'Dockerfile'
+      - 'docker-compose.yml'
+      - '.github/workflows/cd-main.yml'
+      - 'requirements.txt'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add VPS to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Authenticate Docker with Docker Hub
+        run: |
+          echo ${{ secrets.DOCKER_USERNAME }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+
+      - name: Deploy to VPS via SSH
+        run: |
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+            cd /chemin/vers/ton/projet-sur-vps
+            git pull origin main
+            docker compose pull
+            docker compose down
+            docker compose up -d --build
+          EOF
