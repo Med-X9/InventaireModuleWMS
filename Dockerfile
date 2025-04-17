@@ -1,16 +1,14 @@
 FROM python:3.12.10-slim
 
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-
 WORKDIR /app
 
-# Installer les dépendances
-COPY requirements.txt .
-RUN pip install --upgrade pip && pip install -r requirements.txt
+COPY requirements.txt /app/
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copier tout le code
-COPY . .
+COPY . /app/
 
-# Lancer le serveur avec gunicorn (production)
-CMD ["gunicorn", "monapp.wsgi:application", "--bind", "0.0.0.0:8000"]
+EXPOSE 8000
+
+ENV PYTHONUNBUFFERED 1
+
+CMD ["sh", "-c", "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"]
