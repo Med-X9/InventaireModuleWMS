@@ -28,6 +28,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),  # Corrigé pour être plus explicite
     path('web/api/', include('apps.inventory.urls')),
     path('mobile/api/', include('apps.mobile.urls')),  # Ajout du slash manquant
+    path('api/auth/', include('apps.users.urls')),  # URLs d'authentification
     path('set_language/', set_language, name='set_language'),
     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
     path('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
