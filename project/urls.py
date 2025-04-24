@@ -1,55 +1,39 @@
 """
-URL configuration for project project.
+URL configuration for the project.
 
 The `urlpatterns` list routes URLs to views. For more information please see:
     https://docs.djangoproject.com/en/5.2/topics/http/urls/
-Examples:
-Function views
-    1. Add an import:  from my_app import views
-    2. Add a URL to urlpatterns:  path('', views.home, name='home')
-Class-based views
-    1. Add an import:  from other_app.views import Home
-    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
-Including another URLconf
-    1. Import the include() function: from django.urls import include, path
-    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
 from django.urls import include, path
+from django.contrib.auth import views as auth_views
 from rest_framework import permissions
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
 from django.views.i18n import set_language
-from django.conf.urls.i18n import i18n_patterns
-
-
-
-
+from django.conf import settings
+from django.conf.urls.static import static
 
 schema_view = get_schema_view(
-   openapi.Info(
-      title="API Documentation",
-      default_version='v1',
-      description="Documentation de l'API avec Swagger",
-   ),
-   public=True,
-   permission_classes=(permissions.AllowAny,),
+    openapi.Info(
+        title="API Documentation",
+        default_version='v1',
+        description="Documentation de l'API avec Swagger",
+    ),
+    public=True,
+    permission_classes=(permissions.AllowAny,),
 )
 
 urlpatterns = [
-    path('', admin.site.urls),
+    path('admin/', admin.site.urls),  # Corrigé pour être plus explicite
     path('web/api/', include('apps.inventory.urls')),
-    path('mobile/api', include('apps.mobile.urls')),
+    path('mobile/api/', include('apps.mobile.urls')),  # Ajout du slash manquant
     path('set_language/', set_language, name='set_language'),
-    
-    
-    
-    
-    
     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
     path('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
 ]
-urlpatterns += i18n_patterns(
-    path('admin/', admin.site.urls),
-    # tes autres routes ici si nécessaire
-)
+
+# Ajout des URLs pour les fichiers statiques et médias en mode développement
+if settings.DEBUG:
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
