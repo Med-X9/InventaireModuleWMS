@@ -1,10 +1,10 @@
 from django.db import models
 from simple_history.models import HistoricalRecords
-from apps.masterdata.models import Account,Warehouse,Location,Product
+from apps.masterdata.models import Account, TimeStampedModel,Warehouse,Location,Product
 # Create your models here.
 
 
-class Inventory(models.Model):
+class Inventory(TimeStampedModel):
     
     STATUS_CHOICES = (
         ('PENDING', 'Pending'),
@@ -28,7 +28,7 @@ class Inventory(models.Model):
     
     
 
-class Setting(models.Model):
+class Setting(TimeStampedModel):
     account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name='awi_links')
     warehouse = models.ForeignKey('masterdata.Warehouse', on_delete=models.CASCADE, related_name='awi_links')
     inventory = models.ForeignKey(Inventory, on_delete=models.CASCADE, related_name='awi_links')
@@ -37,7 +37,7 @@ class Setting(models.Model):
         return f"{self.account} - {self.warehouse} - {self.inventory}"
 
 
-class Planning(models.Model):
+class Planning(TimeStampedModel):
     reference = models.CharField(unique=True,max_length=20)
     start_date = models.DateTimeField()
     end_date = models.DateTimeField()
@@ -48,7 +48,7 @@ class Planning(models.Model):
         return f"{self.warehouse} - {self.inventory}"
     
     
-class Counting(models.Model):
+class Counting(TimeStampedModel):
     STATUS_CHOICES = (
         ('LAUNCH', 'Launch'), 
         ('END', 'End'),
@@ -71,7 +71,7 @@ class Counting(models.Model):
         return self.reference
 
 
-class Job(models.Model):
+class Job(TimeStampedModel):
     
     STATUS_CHOICES = (
         ('LAUNCH', 'Launch'),  
@@ -95,7 +95,7 @@ class Job(models.Model):
 
 
 
-class Pda(models.Model):
+class Pda(TimeStampedModel):
     reference = models.CharField(unique=True,max_length=20)
     lebel = models.CharField(max_length=200)
     history = HistoricalRecords()
@@ -104,7 +104,7 @@ class Pda(models.Model):
         return self.lebel
     
     
-class Personne(models.Model):
+class Personne(TimeStampedModel):
     nom = models.CharField(max_length=200)
     prenom = models.CharField(max_length=200)
     history = HistoricalRecords()    
@@ -113,7 +113,7 @@ class Personne(models.Model):
     
     
 
-class JobDetail(models.Model): 
+class JobDetail(TimeStampedModel): 
 
     pda = models.ForeignKey('Pda', on_delete=models.CASCADE)
     location = models.ForeignKey('masterdata.Location', on_delete=models.CASCADE)
@@ -129,7 +129,7 @@ class JobDetail(models.Model):
     
     
 
-class InventoryDetail(models.Model):
+class InventoryDetail(TimeStampedModel):
     quantity_inventoried = models.IntegerField()
     product = models.ForeignKey('masterdata.Product',on_delete=models.CASCADE)
     location = models.ForeignKey('masterdata.Location',on_delete=models.CASCADE)
@@ -138,7 +138,7 @@ class InventoryDetail(models.Model):
     
     
     
-class EcartComptage(models.Model):  # Nom de classe corrigé selon PEP8
+class EcartComptage(TimeStampedModel):  # Nom de classe corrigé selon PEP8
 
     ligne_comptage_1 = models.ForeignKey(InventoryDetail, on_delete=models.CASCADE, related_name='ecart_ligne_1')
     ligne_comptage_2 = models.ForeignKey(InventoryDetail, on_delete=models.CASCADE, related_name='ecart_ligne_2')

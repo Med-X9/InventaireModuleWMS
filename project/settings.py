@@ -102,15 +102,15 @@ WSGI_APPLICATION = 'project.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('POSTGRES_DB'),
-        'USER': config('POSTGRES_USER'),
-        'PASSWORD': config('POSTGRES_PASSWORD'),
-        'HOST': 'db',
-        'PORT': '5432',
+        'NAME': config('DB_NAME', default='InventaireModuleWMS'),
+        'USER': config('DB_USER', default='postgres'),
+        'PASSWORD': config('DB_PASSWORD', default='root'),
+        'HOST': config('DB_HOST', default='127.0.0.1'),
+        'PORT': config('DB_PORT', default='5432'),
 
     }
 }
-
+DEFAULT_CHARSET = 'utf-8'
 AUTH_USER_MODEL = 'users.UserWeb'
 
 
@@ -156,14 +156,14 @@ LANGUAGE_CODE = 'en'
 
 
 # Static files (CSS, JavaScript, Images)
-STATIC_URL = 'staticfiles/'
+STATIC_URL = '/static/'
 
 # Répertoire où Django collecte les fichiers statiques
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 # Si vous avez des fichiers statiques personnalisés dans votre projet (ex : CSS ou JS spécifiques)
 STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, 'staticfiles'),  # Répertoire contenant tes fichiers statiques personnalisés
+    os.path.join(BASE_DIR, 'static'),  # Répertoire contenant tes fichiers statiques personnalisés
 ]
 
 
