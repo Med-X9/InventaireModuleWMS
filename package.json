@@ -1,0 +1,12 @@
+{
+  "name": "inventory-module",
+  "version": "1.0.0",
+  "description": "Inventory Module WMS",
+  "dependencies": {
+    "bootstrap": "^5.3.0",
+    "@fortawesome/fontawesome-free": "^6.4.0",
+    "admin-lte": "^3.2.0",
+    "jquery": "^3.6.0",
+    "sass": "^1.62.0"
+  }
+} 

@@ -117,9 +117,10 @@ class Zone(TimeStampedModel):
     )
     
     zone_code = models.CharField(unique=True,max_length=20)
-    warehouse_id = models.ForeignKey(Warehouse,on_delete=models.CASCADE)
+
+    warehouse = models.ForeignKey(Warehouse,on_delete=models.CASCADE)
     zone_name = models.CharField(max_length=100)
-    zone_type_id = models.ForeignKey(ZoneType,models.CASCADE)
+    zone_type = models.ForeignKey(ZoneType,models.CASCADE)
     description = models.TextField(max_length=100,null=True,blank=True)
     zone_status = models.CharField(choices=STATUS_CHOICES)
     history = HistoricalRecords()
@@ -140,8 +141,9 @@ class LocationType(TimeStampedModel):
 
 class Location(TimeStampedModel):
     location_code = models.CharField(unique=True,max_length=20)
-    zone_id = models.ForeignKey(Zone,on_delete=models.CASCADE)
-    location_type_id = models.ForeignKey(LocationType,on_delete=models.CASCADE)
+
+    zone = models.ForeignKey(Zone,on_delete=models.CASCADE)
+    location_type = models.ForeignKey(LocationType,on_delete=models.CASCADE)
     capacity = models.IntegerField(null=True,blank=True,validators=[MinValueValidator(0)])
     is_active = models.BooleanField(default=True)
     description = models.TextField(max_length=100,null=True,blank=True)
@@ -178,7 +180,7 @@ class Product(TimeStampedModel):
     
 
 class UnitOfMeasure(TimeStampedModel):
-    reference = models.CharField(unique=True)
+
     code = models.CharField(max_length=20,unique=True)
     name = models.CharField(max_length=50)
     description = models.TextField(max_length=100,null=True,blank=True)
@@ -189,3 +191,12 @@ class UnitOfMeasure(TimeStampedModel):
     
     
 
+class Stock(models.Model):
+    location = models.ForeignKey(Location,on_delete=models.CASCADE)
+    product = models.ForeignKey(Product,on_delete=models.CASCADE)
+    quantity_available = models.DecimalField(max_digits=12,decimal_places=3,validators=[MinValueValidator(0)])
+    quantity_reserved = models.DecimalField(max_digits=12,decimal_places=3,validators=[MinValueValidator(0)],blank=True,null=True)
+    quantity_in_transit = models.DecimalField(max_digits=12,decimal_places=3,validators=[MinValueValidator(0)],blank=True,null=True)
+    quantity_in_receiving = models.DecimalField(max_digits=12,decimal_places=3,validators=[MinValueValidator(0)],blank=True,null=True)
+    unit_of_measure = models.ForeignKey(UnitOfMeasure,on_delete=models.CASCADE)
+    history = HistoricalRecords()
