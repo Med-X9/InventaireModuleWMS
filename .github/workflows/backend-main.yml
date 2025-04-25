@@ -6,10 +6,11 @@ on:
       - main
     paths:
       - '**.py'
-      - 'Dockerfile'
-      - 'docker-compose.yml'
-      - '.github/workflows/cd-main.yml'
+      - 'Dockerfile.prod'
+      - 'docker-compose.prod.yml'
+      - 'nginx/**'
       - 'requirements.txt'
+      - '.env.prod'
 
 jobs:
   deploy:
@@ -17,7 +18,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up SSH
         uses: webfactory/ssh-agent@v0.7.0
@@ -30,15 +31,98 @@ jobs:
           ssh-keyscan ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
 
       - name: Authenticate Docker with Docker Hub
-        run: |
-          echo ${{ secrets.DOCKER_USERNAME }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Build and push Docker images
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.prod
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/inventaire-wms:latest
 
       - name: Deploy to VPS via SSH
         run: |
           ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
-            cd /chemin/vers/ton/projet-sur-vps
+            cd /opt/inventaire-wms
+            
+            # Mise à jour du code
             git pull origin main
-            docker compose pull
-            docker compose down
-            docker compose up -d --build
+            
+            # Copie du fichier .env.prod
+            cat > .env.prod << 'ENV'
+            DJANGO_SETTINGS_MODULE=${{ secrets.DJANGO_SETTINGS_MODULE }}
+            DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}
+            DJANGO_DEBUG=False
+            DJANGO_ALLOWED_HOSTS=${{ secrets.DJANGO_ALLOWED_HOSTS }}
+            
+            POSTGRES_DB=${{ secrets.POSTGRES_DB }}
+            POSTGRES_USER=${{ secrets.POSTGRES_USER }}
+            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+            DB_HOST=db
+            DB_PORT=5432
+            
+            DJANGO_STATIC_ROOT=/app/static
+            DJANGO_MEDIA_ROOT=/app/media
+            DJANGO_STATIC_URL=/static/
+            DJANGO_MEDIA_URL=/media/
+            
+            DJANGO_CSRF_TRUSTED_ORIGINS=${{ secrets.DJANGO_CSRF_TRUSTED_ORIGINS }}
+            DJANGO_SECURE_SSL_REDIRECT=True
+            DJANGO_SESSION_COOKIE_SECURE=True
+            DJANGO_CSRF_COOKIE_SECURE=True
+            DJANGO_SECURE_HSTS_SECONDS=31536000
+            DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS=True
+            DJANGO_SECURE_HSTS_PRELOAD=True
+            
+            
+            DJANGO_LOG_LEVEL=INFO
+            
+            # CORS Settings
+            CORS_ALLOW_ALL_ORIGINS=False
+            CORS_ALLOWED_ORIGINS=${{ secrets.CORS_ALLOWED_ORIGINS }}
+            CORS_ALLOW_CREDENTIALS=True
+            
+            # Nginx Settings
+            NGINX_HOST=${{ secrets.NGINX_HOST }}
+            NGINX_PORT=80
+            NGINX_SSL_PORT=443
+            
+            # Docker Settings
+            DOCKER_REGISTRY=${{ secrets.DOCKER_REGISTRY }}
+            DOCKER_IMAGE_NAME=inventaire-wms
+            DOCKER_IMAGE_TAG=latest
+            
+            # Health Check Settings
+            HEALTH_CHECK_URL=/health/
+            HEALTH_CHECK_TIMEOUT=30
+            HEALTH_CHECK_INTERVAL=60
+            ENV
+            
+            # Arrêt des conteneurs existants
+            docker-compose -f docker-compose.prod.yml down
+            
+            # Mise à jour des images
+            docker-compose -f docker-compose.prod.yml pull
+            
+            # Démarrage des services
+            docker-compose -f docker-compose.prod.yml up -d
+            
+            # Attente que les services soient prêts
+            sleep 30
+            
+            # Application des migrations
+            docker-compose -f docker-compose.prod.yml exec -T web python manage.py migrate --noinput
+            
+            # Collecte des fichiers statiques
+            docker-compose -f docker-compose.prod.yml exec -T web python manage.py collectstatic --noinput
+            
+            # Renouvellement des certificats SSL si nécessaire
+            docker-compose -f docker-compose.prod.yml run --rm nginx certbot renew
+            
+            # Redémarrage de Nginx pour appliquer les changements
+            docker-compose -f docker-compose.prod.yml restart nginx
           EOF
