@@ -26,7 +26,13 @@ class LogoutView(APIView):
             refresh_token = request.data["refresh_token"]
             token = RefreshToken(refresh_token)
             token.blacklist()
-            return Response(status=status.HTTP_205_RESET_CONTENT)
-        except Exception:
-            return Response(status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"message": "Déconnexion réussie"},
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+            return Response(
+                {"error": "Erreur lors de la déconnexion"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
