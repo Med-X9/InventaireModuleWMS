@@ -2,7 +2,7 @@ from django.core.management.base import BaseCommand
 from faker import Faker
 from apps.masterdata.models import (
     Account, Warehouse, Zone, ZoneType, Location, LocationType,
-    Product, Family, UnitOfMeasure, Stock
+    Product, Family, UnitOfMeasure, Stock,SousZone
 )
 import hashlib
 from datetime import datetime
@@ -39,6 +39,7 @@ class Command(BaseCommand):
         unit_codes = set()
         product_codes = set()
         stock_codes = set()
+        sous_zone_codes = set()
         
         # Création des comptes
         accounts = []
@@ -106,6 +107,19 @@ class Command(BaseCommand):
                 )
                 zones.append(zone)
                 self.stdout.write(self.style.SUCCESS(f'Zone créée: {zone.zone_name}'))
+        # Création des sous zones
+        sous_zones = []
+        for zone in zones:
+            for _ in range(3):
+                sous_zone = SousZone.objects.create(
+                    sous_zone_code=self.generate_unique_code('SZ', sous_zone_codes),
+                    zone=zone,
+                    sous_zone_name=fake.word(),
+                    description=fake.text(max_nb_chars=200),
+                    sous_zone_status='ACTIVE'
+                )
+                sous_zones.append(sous_zone)
+                self.stdout.write(self.style.SUCCESS(f'Zone créée: {zone.zone_name}'))
 
         # Création des types d'emplacements
         location_types = []
@@ -121,11 +135,16 @@ class Command(BaseCommand):
 
         # Création des emplacements
         locations = []
-        for zone in zones:
+        for sous_zone in sous_zones:
             for _ in range(5):
+                timestamp = int(datetime.now().timestamp())
+                random_str = fake.bothify('????').upper()
+                location_reference = f"LOC-{timestamp}-{random_str}"
+                
                 location = Location.objects.create(
                     location_code=self.generate_unique_code('LOC', location_codes),
-                    zone=zone,
+                    location_reference=location_reference,
+                    sous_zone=sous_zone,
                     location_type=fake.random_element(location_types),
                     capacity=fake.random_int(min=10, max=100),
                     is_active=True,

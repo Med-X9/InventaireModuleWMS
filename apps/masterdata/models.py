@@ -4,6 +4,7 @@ from simple_history.models import HistoricalRecords
 import hashlib
 from django.utils import timezone
 from apps.masterdata.mixins import CodeGeneratorMixin
+from django.apps import apps
 
 class ReferenceMixin:
     """
@@ -157,6 +158,28 @@ class Zone(CodeGeneratorMixin, TimeStampedModel):
     def __str__(self):
         return self.zone_name
 
+class SousZone(CodeGeneratorMixin, TimeStampedModel):
+    """
+    Modèle pour les sous zones
+    """
+    CODE_PREFIX = 'SZ'
+    
+    STATUS_CHOICES = (
+        ('ACTIVE', 'ACTIVE'),
+        ('INACTIVE', 'INACTIVE'),
+        ('BLOCKED', 'BLOCKED'),
+    )
+    
+    sous_zone_code = models.CharField(unique=True, max_length=20)
+    sous_zone_name = models.CharField(max_length=100)
+    zone = models.ForeignKey(Zone, models.CASCADE)
+    description = models.TextField(max_length=100, null=True, blank=True)
+    sous_zone_status = models.CharField(choices=STATUS_CHOICES)
+    history = HistoricalRecords()
+    
+    def __str__(self):
+        return self.sous_zone_name
+
 class LocationType(CodeGeneratorMixin, TimeStampedModel):
     """
     Modèle pour les types d'emplacements
@@ -179,7 +202,8 @@ class Location(CodeGeneratorMixin, TimeStampedModel):
     CODE_PREFIX = 'LOC'
     
     location_code = models.CharField(unique=True, max_length=20)
-    zone = models.ForeignKey(Zone, on_delete=models.CASCADE)
+    location_reference = models.CharField(unique=True, max_length=30)
+    sous_zone = models.ForeignKey(SousZone, on_delete=models.CASCADE)
     location_type = models.ForeignKey(LocationType, on_delete=models.CASCADE)
     capacity = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(0)])
     is_active = models.BooleanField(default=True)
@@ -187,7 +211,7 @@ class Location(CodeGeneratorMixin, TimeStampedModel):
     history = HistoricalRecords()
     
     def __str__(self):
-        return self.location_code
+        return self.location_reference
 
 class Product(CodeGeneratorMixin, TimeStampedModel):
     """

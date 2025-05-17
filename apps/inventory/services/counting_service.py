@@ -3,7 +3,7 @@ Service pour la gestion des comptages d'inventaire.
 """
 from typing import Dict, Any, List
 from django.utils import timezone
-from ..interfaces import ICountingService
+from ..interfaces.inventory_interface import ICountingService
 from ..repositories import InventoryRepository
 from ..exceptions import CountingValidationError
 from ..models import Counting, Inventory
@@ -24,22 +24,17 @@ class CountingService(ICountingService):
         Raises:
             CountingValidationError: Si les données sont invalides
         """
-        if not data.get('inventory_id'):
-            raise CountingValidationError("L'ID de l'inventaire est obligatoire")
+        errors = []
         
         if not data.get('order'):
-            raise CountingValidationError("L'ordre du comptage est obligatoire")
+            errors.append("L'ordre du comptage est obligatoire")
         
         if not data.get('count_mode'):
-            raise CountingValidationError("Le mode de comptage est obligatoire")
-        
-        # Vérification de l'existence de l'inventaire
-        try:
-            inventory = self.repository.get_by_id(data['inventory_id'])
-            if inventory.status != 'PENDING':
-                raise CountingValidationError("L'inventaire n'est pas en statut PENDING")
-        except Inventory.DoesNotExist:
-            raise CountingValidationError("L'inventaire spécifié n'existe pas")
+            errors.append("Le mode de comptage est obligatoire")
+        else:
+            valid_modes = ["Liste d'emplacement", "Liste emplacement et article", "Etat de stock", "Hybride"]
+            if data['count_mode'] not in valid_modes:
+                errors.append(f"Mode de comptage invalide: {data['count_mode']}")
         
         # Validation des champs selon le mode de comptage
         count_mode = data.get('count_mode')
@@ -47,42 +42,94 @@ class CountingService(ICountingService):
         entry_quantity = data.get('entry_quantity', False)
         stock_situation = data.get('stock_situation', False)
         is_variant = data.get('is_variant', False)
-        
+        quantity_show = data.get('quantity_show', False)
+
         if count_mode == "Liste d'emplacement":
             if not (unit_scanned or entry_quantity):
-                raise CountingValidationError("Pour le mode 'Liste d'emplacement', au moins un des champs unit_scanned ou entry_quantity doit être true")
+                errors.append("Pour le mode 'Liste d'emplacement', au moins un des champs unit_scanned ou entry_quantity doit être true")
+            if unit_scanned and entry_quantity:
+                errors.append("Pour le mode 'Liste d'emplacement', un seul des champs unit_scanned ou entry_quantity doit être true")
             if stock_situation:
-                raise CountingValidationError("Pour le mode 'Liste d'emplacement', le champ stock_situation doit être false")
+                errors.append("Pour le mode 'Liste d'emplacement', le champ stock_situation doit être false")
             if is_variant:
-                raise CountingValidationError("Pour le mode 'Liste d'emplacement', le champ is_variant doit être false")
+                errors.append("Pour le mode 'Liste d'emplacement', le champ is_variant doit être false")
+            if quantity_show:
+                errors.append("Pour le mode 'Liste d'emplacement', le champ quantity_show doit être false")
                 
         elif count_mode == "Etat de stock":
             if not stock_situation:
-                raise CountingValidationError("Pour le mode 'Etat de stock', le champ stock_situation doit être true")
+                errors.append("Pour le mode 'Etat de stock', le champ stock_situation doit être true")
             if unit_scanned:
-                raise CountingValidationError("Pour le mode 'Etat de stock', le champ unit_scanned doit être false")
+                errors.append("Pour le mode 'Etat de stock', le champ unit_scanned doit être false")
             if entry_quantity:
-                raise CountingValidationError("Pour le mode 'Etat de stock', le champ entry_quantity doit être false")
+                errors.append("Pour le mode 'Etat de stock', le champ entry_quantity doit être false")
             if is_variant:
-                raise CountingValidationError("Pour le mode 'Etat de stock', le champ is_variant doit être false")
+                errors.append("Pour le mode 'Etat de stock', le champ is_variant doit être false")
+            if quantity_show:
+                errors.append("Pour le mode 'Liste d'emplacement', le champ quantity_show doit être false")
                 
         elif count_mode == "Liste emplacement et article":
             if unit_scanned:
-                raise CountingValidationError("Pour le mode 'Liste emplacement et article', le champ unit_scanned doit être false")
+                errors.append("Pour le mode 'Liste emplacement et article', le champ unit_scanned doit être false")
             if entry_quantity:
-                raise CountingValidationError("Pour le mode 'Liste emplacement et article', le champ entry_quantity doit être false")
+                errors.append("Pour le mode 'Liste emplacement et article', le champ entry_quantity doit être false")
             if stock_situation:
-                raise CountingValidationError("Pour le mode 'Liste emplacement et article', le champ stock_situation doit être false")
+                errors.append("Pour le mode 'Liste emplacement et article', le champ stock_situation doit être false")
+            # if not is_variant:
+            #     errors.append("Pour le mode 'Liste emplacement et article', le champ is_variant doit être true")
                 
         elif count_mode == "Hybride":
             if unit_scanned:
-                raise CountingValidationError("Pour le mode 'Hybride', le champ unit_scanned doit être false")
+                errors.append("Pour le mode 'Hybride', le champ unit_scanned doit être false")
             if entry_quantity:
-                raise CountingValidationError("Pour le mode 'Hybride', le champ entry_quantity doit être false")
+                errors.append("Pour le mode 'Hybride', le champ entry_quantity doit être false")
             if stock_situation:
-                raise CountingValidationError("Pour le mode 'Hybride', le champ stock_situation doit être false")
-            if is_variant:
-                raise CountingValidationError("Pour le mode 'Hybride', le champ is_variant doit être false")
+                errors.append("Pour le mode 'Hybride', le champ stock_situation doit être false")
+            if quantity_show:
+                errors.append("Pour le mode 'Liste d'emplacement', le champ quantity_show doit être false")
+            
+        
+        if errors:
+            raise CountingValidationError(" | ".join(errors))
+
+    def validate_countings_consistency(self, comptages: List[Dict[str, Any]]) -> None:
+        """
+        Valide la cohérence des modes de comptage entre les comptages.
+        
+        Args:
+            comptages: Liste des comptages à valider
+            
+        Raises:
+            CountingValidationError: Si les modes de comptage ne sont pas cohérents
+        """
+        if len(comptages) < 3:
+            return
+
+        # Trier les comptages par ordre
+        sorted_comptages = sorted(comptages, key=lambda x: x.get('order', 0))
+        
+        # Vérifier le mode du troisième comptage
+        third_counting = sorted_comptages[2]
+        first_counting = sorted_comptages[0]
+        second_counting = sorted_comptages[1]
+
+        # Si le premier comptage est en mode "Etat de stock"
+        if first_counting.get('count_mode') == "Etat de stock":
+            # Le troisième comptage doit avoir le même mode que le deuxième
+            if third_counting.get('count_mode') != second_counting.get('count_mode'):
+                raise CountingValidationError(
+                    "Si le premier comptage est en mode 'Etat de stock', "
+                    "le troisième comptage doit avoir le même mode que le deuxième comptage"
+                )
+        else:
+            # Sinon, le troisième comptage doit avoir le même mode que le premier ou le deuxième
+            valid_modes = [first_counting.get('count_mode'), second_counting.get('count_mode')]
+            if third_counting.get('count_mode') not in valid_modes:
+                raise CountingValidationError(
+                    f"Le troisième comptage doit avoir le même mode que le premier ({first_counting.get('count_mode')}) "
+                    f"ou le deuxième comptage ({second_counting.get('count_mode')}). "
+                    f"Mode actuel: {third_counting.get('count_mode')}"
+                )
     
     def create_counting(self, data: Dict[str, Any]) -> Counting:
         """
@@ -106,7 +153,6 @@ class CountingService(ICountingService):
             order=data['order'],
             count_mode=data['count_mode'],
             status='PENDING',
-            pending_status_date=timezone.now(),
             unit_scanned=data.get('unit_scanned', False),
             entry_quantity=data.get('entry_quantity', False),
             stock_situation=data.get('stock_situation', False),
@@ -114,6 +160,31 @@ class CountingService(ICountingService):
         )
         
         return counting
+
+    def create_countings(self, inventory_id: int, comptages_data: List[Dict[str, Any]]) -> List[Counting]:
+        """
+        Crée plusieurs comptages pour un inventaire.
+        
+        Args:
+            inventory_id: L'ID de l'inventaire
+            comptages_data: Liste des données des comptages
+            
+        Returns:
+            List[Counting]: Liste des comptages créés
+            
+        Raises:
+            CountingValidationError: Si les données sont invalides
+        """
+        # Validation de la cohérence des modes de comptage
+        self.validate_countings_consistency(comptages_data)
+        
+        countings = []
+        for comptage_data in comptages_data:
+            comptage_data['inventory_id'] = inventory_id
+            counting = self.create_counting(comptage_data)
+            countings.append(counting)
+        
+        return countings
     
     def update_counting_status(self, counting_id: int, status: str) -> Counting:
         """

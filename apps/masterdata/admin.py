@@ -8,7 +8,7 @@ from import_export.formats.base_formats import XLSX, CSV, XLS
 
 from .models import (
     Account, Family, Warehouse, ZoneType, Zone,
-    LocationType, Location, Product, UnitOfMeasure,Stock
+    LocationType, Location, Product, UnitOfMeasure,Stock,SousZone
 )
 from django.contrib.auth.admin import UserAdmin
 from apps.users.models import UserWeb
@@ -83,7 +83,7 @@ class ZoneResource(resources.ModelResource):
     )
 
     class Meta:
-        model = Zone  # À corriger si c’est censé être Zone et non Family
+        model = Zone  # À corriger si c'est censé être Zone et non Family
         fields = ('zone_name', 'zone_status','description','zone_type_id','warehouse_id')
         exclude = ('id',)
         import_id_fields = ()
@@ -100,7 +100,35 @@ class ZoneResource(resources.ModelResource):
 
 
     
+
+
+
+class SousZoneResource(resources.ModelResource):
+    sous_zone_name = fields.Field(column_name='sous zone name', attribute='sous_zone_name', widget=widgets.CharWidget())
+    sous_zone_status = fields.Field(column_name='sous zone status', attribute='sous_zone_status', widget=widgets.CharWidget())
+    description = fields.Field(column_name='description', attribute='description', widget=widgets.CharWidget())
+    zone_id = fields.Field(
+        column_name='zone',
+        attribute='zone_id',
+        widget=widgets.ForeignKeyWidget(Zone, 'zone_name')
+    )
     
+    class Meta:
+        model = SousZone  # À corriger si c'est censé être Zone et non Family
+        fields = ('sous_zone_name', 'sous_zone_status','description','zone_id')
+        exclude = ('id',)
+        import_id_fields = ()
+
+    def before_import_row(self, row, **kwargs):
+        zone_name = row.get('zone')
+
+        if not Zone.objects.filter(zone_name=zone_name).exists():
+            raise ValueError(f"La zone '{zone_name}' n'existe pas dans la base de données.")
+
+        
+
+
+
     
     
     
@@ -119,21 +147,21 @@ class LocationResource(resources.ModelResource):
             attribute='location_type_id',
             widget=widgets.ForeignKeyWidget(LocationType, 'name')
         )
-    zone_id = fields.Field(
-        column_name='zone',
-        attribute='zone_id',
-        widget=widgets.ForeignKeyWidget(Zone, 'zone_name')
+    sous_zone_id = fields.Field(
+        column_name='sous zone',
+        attribute='sous_zone_id',
+        widget=widgets.ForeignKeyWidget(SousZone, 'sous_zone_name')
     )
     class Meta:
         model = Location
-        fields = ('capacity', 'is_active','description','location_type_id','zone_id')
+        fields = ('capacity', 'is_active','description','location_type_id','sous_zone_id')
         exclude = ('id',)
         import_id_fields = ()
 
     def before_import_row(self, row, **kwargs):
         # S'assurer que les noms des types de zone et entrepôt existent
         location_type_id = row.get('location type')
-        zone_id = row.get('zone')
+        sous_zone_id = row.get('sous zone')
 
         try:
             LocationType.objects.get(name=location_type_id)
@@ -141,9 +169,9 @@ class LocationResource(resources.ModelResource):
             raise ValueError(f"Le type de location '{location_type_id}' n'existe pas dans la base de données.")
 
         try:
-            Zone.objects.get(zone_name=zone_id)
-        except Zone.DoesNotExist:
-            raise ValueError(f"L'entrepôt '{zone_id}' n'existe pas dans la base de données.")
+            SousZone.objects.get(sous_zone_name=sous_zone_id)
+        except SousZone.DoesNotExist:
+            raise ValueError(f"La sous zone '{sous_zone_id}' n'existe pas dans la base de données.")
 
 class ProductResource(resources.ModelResource):
     reference = fields.Field(column_name='reference', attribute='reference', widget=widgets.CharWidget())
@@ -293,7 +321,7 @@ class UserWebAdmin(UserAdmin):
 
     filter_horizontal = ('groups', 'user_permissions')
 
-    # Champs à afficher dans le formulaire d’édition
+    # Champs à afficher dans le formulaire d'édition
     fieldsets = (
         (None, {'fields': ('username', 'email', 'password')}),
         ('Informations personnelles', {'fields': ('nom', 'prenom', 'role', 'type')}),
@@ -370,6 +398,15 @@ class ZoneAdmin(ImportExportModelAdmin):
     exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted')
 
 
+@admin.register(SousZone)
+class SousZoneAdmin(ImportExportModelAdmin):
+    resource_class = SousZoneResource
+    list_display = ('sous_zone_code', 'sous_zone_name', 'zone_id', 'sous_zone_status')
+    search_fields = ('sous_zone_code', 'sous_zone_name', 'sous_zone_status')
+    list_filter = ('sous_zone_status', 'zone_id')
+    exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted')
+
+
 @admin.register(LocationType)
 class LocationTypeAdmin(ImportExportModelAdmin):
     resource_class = LocationTypeResource
@@ -382,9 +419,9 @@ class LocationTypeAdmin(ImportExportModelAdmin):
 @admin.register(Location)
 class LocationAdmin(ImportExportModelAdmin):
     resource_class = LocationResource
-    list_display = ('location_code', 'zone_id', 'location_type_id', 'capacity', 'is_active')
+    list_display = ('location_code', 'sous_zone_id', 'location_type_id', 'capacity', 'is_active')
     search_fields = ('location_code',)
-    list_filter = ('zone_id', 'location_type_id', 'is_active')
+    list_filter = ('sous_zone_id', 'location_type_id', 'is_active')
     exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted')
 
 

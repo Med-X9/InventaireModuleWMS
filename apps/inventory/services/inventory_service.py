@@ -3,21 +3,24 @@ Service pour la gestion des inventaires.
 """
 from typing import Dict, Any, List
 from django.utils import timezone
-from ..interfaces import IInventoryService
+from ..interfaces.inventory_interface import IInventoryRepository
 from ..repositories import InventoryRepository
-from ..exceptions import InventoryValidationError
-from ..models import Inventory, Setting, Counting
+from ..exceptions import InventoryValidationError, InventoryNotFoundError
+from ..models import Inventory, Setting, Counting, InventoryDetail
 from django.db import IntegrityError
 import logging
+from .counting_service import CountingService
+from apps.masterdata.models import Warehouse
 
 # Configuration du logger
 logger = logging.getLogger(__name__)
 
-class InventoryService(IInventoryService):
+class InventoryService:
     """Service pour la gestion des inventaires."""
     
     def __init__(self, repository: InventoryRepository = None):
         self.repository = repository or InventoryRepository()
+        self.counting_service = CountingService()
     
     def validate_inventory_data(self, data: Dict[str, Any]) -> None:
         """
@@ -47,82 +50,37 @@ class InventoryService(IInventoryService):
         if not comptages:
             errors.append("Les comptages sont obligatoires")
         else:
-            # Validation des comptages
-            counting_errors = self._validate_countings(comptages)
-            if counting_errors:
-                errors.extend(counting_errors)
-            
-            mode_errors = self.validate_counting_modes(comptages)
-            if mode_errors:
-                errors.extend(mode_errors)
+            # Validation des comptages avec le service de comptage
+            try:
+                # Validation de la cohérence des modes de comptage
+                self.counting_service.validate_countings_consistency(comptages)
+                
+                # Validation de chaque comptage individuellement
+                for comptage in comptages:
+                    self.counting_service.validate_counting_data(comptage)
+            except Exception as e:
+                errors.append(str(e))
         
         if errors:
             raise InventoryValidationError(" | ".join(errors))
-    
-    def _validate_countings(self, countings: List[Dict[str, Any]]) -> List[str]:
-        """
-        Valide les données des comptages.
-        
-        Args:
-            countings: Liste des données de comptage
-            
-        Returns:
-            List[str]: Liste des erreurs de validation
-        """
+
+    def _validate_countings(self, comptages: List[Dict[str, Any]]) -> List[str]:
+        """Valide les comptages."""
         errors = []
-        
-        for i, counting in enumerate(countings, 1):
-            if not counting.get('order'):
-                errors.append(f"Comptage {i}: L'ordre du comptage est obligatoire")
-            
-            if not counting.get('count_mode'):
-                errors.append(f"Comptage {i}: Le mode de comptage est obligatoire")
-            
-            # Validation des champs selon le mode de comptage
-            count_mode = counting.get('count_mode')
-            unit_scanned = counting.get('unit_scanned', False)
-            entry_quantity = counting.get('entry_quantity', False)
-            stock_situation = counting.get('stock_situation', False)
-            is_variant = counting.get('is_variant', False)
-            
-            if count_mode == "Liste d'emplacement":
-                if not unit_scanned and not entry_quantity:
-                    errors.append(f"Comptage {i}: Pour le mode 'Liste d'emplacement', un des champs unit_scanned ou entry_quantity doit être true")
-                if unit_scanned and entry_quantity:
-                    errors.append(f"Comptage {i}: Pour le mode 'Liste d'emplacement', un seul des champs unit_scanned ou entry_quantity doit être true")
-                if stock_situation:
-                    errors.append(f"Comptage {i}: Pour le mode 'Liste d'emplacement', le champ stock_situation doit être false")
-                if is_variant:
-                    errors.append(f"Comptage {i}: Pour le mode 'Liste d'emplacement', le champ is_variant doit être false")
-                    
-            elif count_mode == "Etat de stock":
-                if not stock_situation:
-                    errors.append(f"Comptage {i}: Pour le mode 'Etat de stock', le champ stock_situation doit être true")
-                if unit_scanned:
-                    errors.append(f"Comptage {i}: Pour le mode 'Etat de stock', le champ unit_scanned doit être false")
-                if entry_quantity:
-                    errors.append(f"Comptage {i}: Pour le mode 'Etat de stock', le champ entry_quantity doit être false")
-                if is_variant:
-                    errors.append(f"Comptage {i}: Pour le mode 'Etat de stock', le champ is_variant doit être false")
-                    
-            elif count_mode == "Liste emplacement et article":
-                if unit_scanned:
-                    errors.append(f"Comptage {i}: Pour le mode 'Liste emplacement et article', le champ unit_scanned doit être false")
-                if entry_quantity:
-                    errors.append(f"Comptage {i}: Pour le mode 'Liste emplacement et article', le champ entry_quantity doit être false")
-                if stock_situation:
-                    errors.append(f"Comptage {i}: Pour le mode 'Liste emplacement et article', le champ stock_situation doit être false")
-                    
-            elif count_mode == "Hybride":
-                if unit_scanned:
-                    errors.append(f"Comptage {i}: Pour le mode 'Hybride', le champ unit_scanned doit être false")
-                if entry_quantity:
-                    errors.append(f"Comptage {i}: Pour le mode 'Hybride', le champ entry_quantity doit être false")
-                if stock_situation:
-                    errors.append(f"Comptage {i}: Pour le mode 'Hybride', le champ stock_situation doit être false")
-                if is_variant:
-                    errors.append(f"Comptage {i}: Pour le mode 'Hybride', le champ is_variant doit être false")
-        
+        for i, comptage in enumerate(comptages, 1):
+            if not comptage.get('order'):
+                errors.append(f"L'ordre est obligatoire pour le comptage {i}")
+            if not comptage.get('count_mode'):
+                errors.append(f"Le mode de comptage est obligatoire pour le comptage {i}")
+        return errors
+
+    def validate_counting_modes(self, comptages: List[Dict[str, Any]]) -> List[str]:
+        """Valide les modes de comptage."""
+        errors = []
+        valid_modes = ['Liste d\'emplacement', 'Liste emplacement et article']
+        for i, comptage in enumerate(comptages, 1):
+            if comptage.get('count_mode') not in valid_modes:
+                errors.append(f"Mode de comptage invalide pour le comptage {i}")
         return errors
     
     def create_inventory(self, data: Dict[str, Any]) -> Inventory:
@@ -149,8 +107,8 @@ class InventoryService(IInventoryService):
         comptages_data = data['comptages']
         
         try:
-            # Création de l'inventaire
-            inventory = self.repository.create(
+            # Création de l'inventaire avec les champs status et pending_status_date
+            inventory = Inventory.objects.create(
                 label=label,
                 date=date,
                 status='PENDING',
@@ -165,7 +123,135 @@ class InventoryService(IInventoryService):
                     inventory=inventory
                 )
             
-            # Création des comptages
+            # Création des comptages via le service de comptage
+            self.counting_service.create_countings(inventory.id, comptages_data)
+            
+            return inventory
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de la création de l'inventaire: {str(e)}", exc_info=True)
+            raise InventoryValidationError(f"Erreur lors de la création de l'inventaire: {str(e)}")
+
+    def delete_inventory(self, inventory_id: int) -> None:
+        """
+        Effectue un soft delete d'un inventaire si son statut est en attente.
+        
+        Args:
+            inventory_id: L'ID de l'inventaire à supprimer
+            
+        Raises:
+            InventoryNotFoundError: Si l'inventaire n'existe pas
+            InventoryValidationError: Si l'inventaire ne peut pas être supprimé
+        """
+        try:
+            inventory = self.repository.get_by_id(inventory_id)
+            
+            if inventory.status != 'PENDING':
+                raise InventoryValidationError(
+                    "Seuls les inventaires en attente peuvent être supprimés"
+                )
+            
+            # Soft delete de l'inventaire
+            inventory.soft_delete()
+            
+            # Soft delete des entités associées
+            # Soft delete des settings
+            for setting in inventory.awi_links.all():
+                setting.soft_delete()
+            
+            # Soft delete des comptages
+            for counting in inventory.countings.all():
+                counting.soft_delete()
+            
+            # Soft delete des PDAs
+            for pda in inventory.pdas.all():
+                pda.soft_delete()
+            
+        except InventoryNotFoundError:
+            raise
+        except InventoryValidationError:
+            raise
+        except Exception as e:
+            logger.error(f"Erreur lors de la suppression de l'inventaire: {str(e)}", exc_info=True)
+            raise InventoryValidationError(f"Erreur lors de la suppression de l'inventaire: {str(e)}")
+
+    def get_inventory_by_id(self, inventory_id: int) -> Inventory:
+        """
+        Récupère un inventaire par son ID.
+        
+        Args:
+            inventory_id: L'ID de l'inventaire à récupérer
+            
+        Returns:
+            Inventory: L'inventaire trouvé
+            
+        Raises:
+            InventoryNotFoundError: Si l'inventaire n'existe pas
+        """
+        try:
+            return self.repository.get_by_id(inventory_id)
+        except Inventory.DoesNotExist:
+            logger.error(f"Inventaire non trouvé avec l'ID: {inventory_id}")
+            raise InventoryNotFoundError("L'inventaire demandé n'existe pas")
+
+    def update_inventory(self, inventory_id: int, data: Dict[str, Any]) -> Inventory:
+        """
+        Met à jour un inventaire.
+        
+        Args:
+            inventory_id: L'ID de l'inventaire à mettre à jour
+            data: Les nouvelles données de l'inventaire
+            
+        Returns:
+            Inventory: L'inventaire mis à jour
+            
+        Raises:
+            InventoryNotFoundError: Si l'inventaire n'existe pas
+            InventoryValidationError: Si les données sont invalides
+        """
+        try:
+            # Récupération de l'inventaire
+            inventory = self.get_inventory_by_id(inventory_id)
+            
+            # Préparation des données pour la validation
+            validation_data = {
+                'label': data.get('label'),
+                'date': data.get('date'),
+                'account': data.get('account_id'),
+                'warehouse': data.get('warehouse_ids'),
+                'comptages': data.get('comptages', [])
+            }
+            
+            # Validation des données
+            self.validate_inventory_data(validation_data)
+            
+            # Extraction des données
+            label = data['label']
+            date = data['date']
+            account_id = data['account_id']
+            warehouse_ids = data['warehouse_ids']
+            comptages_data = data['comptages']
+            
+            # Mise à jour de l'inventaire
+            inventory.label = label
+            inventory.date = date
+            inventory.save()
+            
+            # Suppression des anciens paramètres
+            Setting.objects.filter(inventory=inventory).delete()
+            
+            # Création des nouveaux paramètres
+            for warehouse_id in warehouse_ids:
+                Setting.objects.create(
+                    account_id=account_id,
+                    warehouse_id=warehouse_id,
+                    inventory=inventory
+                )
+            
+            # Suppression des anciens comptages
+            Counting.objects.filter(inventory=inventory).delete()
+            
+            # Création des nouveaux comptages
             for comptage_data in comptages_data:
                 Counting.objects.create(
                     inventory=inventory,
@@ -174,44 +260,213 @@ class InventoryService(IInventoryService):
             
             return inventory
             
+        except InventoryNotFoundError:
+            raise
+        except InventoryValidationError:
+            raise
         except IntegrityError as e:
-            # En cas d'erreur d'intégrité, on supprime l'inventaire s'il a été créé
-            if 'inventory' in locals():
-                inventory.delete()
-            # On log l'erreur détaillée dans le terminal
-            logger.error(f"Erreur d'intégrité lors de la création de l'inventaire: {str(e)}")
-            # On relance uniquement les erreurs de validation
+            logger.error(f"Erreur d'intégrité lors de la mise à jour de l'inventaire: {str(e)}")
             raise InventoryValidationError("Erreur de validation des données")
         except Exception as e:
-            # En cas d'erreur, on supprime l'inventaire s'il a été créé
-            if 'inventory' in locals():
-                inventory.delete()
-            # On log l'erreur détaillée dans le terminal
-            logger.error(f"Erreur inattendue lors de la création de l'inventaire: {str(e)}")
-            raise InventoryValidationError("Une erreur inattendue s'est produite")
+            logger.error(f"Erreur inattendue lors de la mise à jour de l'inventaire: {str(e)}")
+            raise InventoryValidationError(str(e))
 
-    @staticmethod
-    def validate_counting_modes(comptages) -> List[str]:
+    def _check_stocks_exist(self, warehouses: List[Warehouse]) -> bool:
         """
-        Valide les modes de comptage
+        Vérifie si des stocks existent pour les entrepôts donnés.
         
+        Args:
+            warehouses: Liste des entrepôts à vérifier
+            
         Returns:
-            List[str]: Liste des erreurs de validation
+            bool: True si des stocks existent, False sinon
         """
-        errors = []
+        from apps.masterdata.models import Stock
         
-        if len(comptages) < 3:
-            errors.append("Il doit y avoir au moins 3 comptages")
-        else:
-            first_mode = comptages[0]['count_mode']
-            second_mode = comptages[1]['count_mode']
-            third_mode = comptages[2]['count_mode']
+        for warehouse in warehouses:
+            stocks_count = Stock.objects.filter(
+                location__sous_zone__zone__warehouse=warehouse,
+                location__is_active=True,
+                location__sous_zone__zone__zone_status='ACTIVE',
+                is_deleted=False
+            ).count()
+            
+            logger.info(f"Nombre de stocks trouvés pour l'entrepôt {warehouse.warehouse_name}: {stocks_count}")
+            
+            if stocks_count > 0:
+                return True
+        return False
 
-            if first_mode == "Etat de stock":
-                if third_mode != second_mode:
-                    errors.append("Le mode du troisième comptage doit être identique au deuxième quand le premier est 'Etat de stock'")
-            else:
-                if third_mode != first_mode and third_mode != second_mode:
-                    errors.append("Le mode du troisième comptage doit être identique au premier ou au deuxième")
+    def _create_inventory_details_from_stocks(self, counting: Counting, warehouses: List[Warehouse]) -> None:
+        """
+        Crée les détails d'inventaire à partir des stocks existants.
         
-        return errors 
+        Args:
+            counting: Le comptage pour lequel créer les détails
+            warehouses: Liste des entrepôts à traiter
+        """
+        from apps.masterdata.models import Stock
+        
+        for warehouse in warehouses:
+            stocks = Stock.objects.filter(
+                location__sous_zone__zone__warehouse=warehouse,
+                location__is_active=True,
+                location__sous_zone__zone__zone_status='ACTIVE',
+                is_deleted=False
+            ).select_related('product', 'location', 'location__sous_zone', 'location__sous_zone__zone')
+            
+            stocks_count = stocks.count()
+            logger.info(f"Création de {stocks_count} détails d'inventaire pour l'entrepôt {warehouse.warehouse_name}")
+            
+            for stock in stocks:
+                quantity = int(stock.quantity_available)
+                InventoryDetail.objects.create(
+                    counting=counting,
+                    product=stock.product,
+                    location=stock.location,
+                    quantity_inventoried=quantity
+                )
+
+    def _handle_etat_stock_mode(self, first_counting: Counting, warehouses: List[Warehouse]) -> None:
+        """
+        Gère le mode "Etat de stock" pour le premier comptage.
+        
+        Args:
+            first_counting: Le premier comptage
+            warehouses: Liste des entrepôts à traiter
+            
+        Raises:
+            InventoryValidationError: Si aucun stock n'est trouvé
+        """
+        if not self._check_stocks_exist(warehouses):
+            warehouse_names = [w.warehouse_name for w in warehouses]
+            logger.warning(f"Aucun stock trouvé pour les entrepôts: {', '.join(warehouse_names)}")
+            raise InventoryValidationError(
+                "Aucun stock trouvé pour les entrepôts de cet inventaire"
+            )
+        
+        self._create_inventory_details_from_stocks(first_counting, warehouses)
+        
+        # Mettre à jour le statut du premier comptage en END
+        first_counting.status = 'END'
+        first_counting.date_status_end = timezone.now()
+        first_counting.save()
+
+    def _handle_liste_emplacement_article_mode(self, warehouses: List[Warehouse]) -> None:
+        """
+        Gère le mode "Liste emplacement et article" pour tous les comptages.
+        
+        Args:
+            warehouses: Liste des entrepôts à traiter
+            
+        Raises:
+            InventoryValidationError: Si aucun stock n'est trouvé
+        """
+        if not self._check_stocks_exist(warehouses):
+            warehouse_names = [w.warehouse_name for w in warehouses]
+            logger.warning(f"Aucun stock trouvé pour les entrepôts: {', '.join(warehouse_names)}")
+            raise InventoryValidationError(
+                "Aucun stock trouvé pour les entrepôts de cet inventaire"
+            )
+
+    def launch_inventory(self, inventory_id: int) -> None:
+        """
+        Lance un inventaire en vérifiant le mode de comptage et en remplissant les détails si nécessaire.
+        
+        Args:
+            inventory_id: L'ID de l'inventaire à lancer
+            
+        Raises:
+            InventoryNotFoundError: Si l'inventaire n'existe pas
+            InventoryValidationError: Si l'inventaire ne peut pas être lancé
+        """
+        try:
+            # Récupérer l'inventaire
+            inventory = self.repository.get_by_id(inventory_id)
+            
+            # Vérifier si l'inventaire est en attente
+            if inventory.status != 'PENDING':
+                raise InventoryValidationError(
+                    "Seuls les inventaires en attente peuvent être lancés"
+                )
+            
+            # Récupérer le premier comptage
+            first_counting = inventory.countings.filter(order=1).first()
+            if not first_counting:
+                raise InventoryValidationError("Aucun comptage trouvé pour cet inventaire")
+            
+            # Récupérer les entrepôts de l'inventaire
+            warehouses = [link.warehouse for link in inventory.awi_links.all()]
+            
+            # Si le premier comptage est en mode "Etat de stock"
+            if first_counting.count_mode == "Etat de stock":
+                self._handle_etat_stock_mode(first_counting, warehouses)
+            
+            # Vérifier tous les comptages pour le mode "Liste emplacement et article"
+            article_countings = inventory.countings.filter(count_mode="Liste emplacement et article")
+            if article_countings.exists():
+                self._handle_liste_emplacement_article_mode(warehouses)
+            
+            # Si on arrive ici, soit le premier comptage est en mode "Etat de stock" et les stocks existent,
+            # soit il y a des comptages en mode "Liste emplacement et article" et les stocks existent
+            # On peut donc lancer l'inventaire
+            inventory.status = 'LAUNCH'
+            inventory.lunch_status_date = timezone.now()
+            inventory.save()
+            
+        except InventoryNotFoundError:
+            raise
+        except InventoryValidationError:
+            raise
+        except Exception as e:
+            logger.error(f"Erreur lors du lancement de l'inventaire: {str(e)}", exc_info=True)
+            raise InventoryValidationError(f"Erreur lors du lancement de l'inventaire: {str(e)}")
+
+    def cancel_inventory(self, inventory_id: int) -> None:
+        """
+        Annule le lancement d'un inventaire si son statut est 'LAUNCH'.
+        Si le premier comptage est en mode 'Etat de stock', vide la table InventoryDetail.
+        
+        Args:
+            inventory_id: L'ID de l'inventaire à annuler
+            
+        Raises:
+            InventoryNotFoundError: Si l'inventaire n'existe pas
+            InventoryValidationError: Si l'inventaire ne peut pas être annulé
+        """
+        try:
+            # Récupérer l'inventaire
+            inventory = self.repository.get_by_id(inventory_id)
+            
+            # Vérifier si l'inventaire est en statut LAUNCH
+            if inventory.status != 'LAUNCH':
+                raise InventoryValidationError(
+                    "Seuls les inventaires en statut 'LAUNCH' peuvent être annulés"
+                )
+            
+            # Récupérer le premier comptage
+            first_counting = inventory.countings.filter(order=1).first()
+            if not first_counting:
+                raise InventoryValidationError("Aucun comptage trouvé pour cet inventaire")
+            
+            # Si le mode est "Etat de stock", vider la table InventoryDetail
+            if first_counting.count_mode == "Etat de stock":
+                InventoryDetail.objects.filter(counting=first_counting).delete()
+            
+            # Mettre à jour le statut de l'inventaire
+            inventory.status = 'PENDING'
+            inventory.lunch_status_date = None
+            inventory.save()
+            
+            # Mettre à jour le statut du premier comptage
+            first_counting.status = 'PENDING'
+            first_counting.date_status_lunch = None
+            first_counting.save()
+            
+        except InventoryNotFoundError:
+            raise
+        except InventoryValidationError:
+            raise
+        except Exception as e:
+            logger.error(f"Erreur lors de l'annulation de l'inventaire: {str(e)}", exc_info=True)
+            raise InventoryValidationError(f"Erreur lors de l'annulation de l'inventaire: {str(e)}") 

@@ -7,7 +7,7 @@ class InventoryError(Exception):
     pass
 
 class InventoryValidationError(InventoryError):
-    """Exception levée lors d'une erreur de validation."""
+    """Exception levée lors de la validation des données d'inventaire."""
     pass
 
 class InventoryNotFoundError(InventoryError):
@@ -20,4 +20,16 @@ class CountingError(InventoryError):
 
 class CountingValidationError(CountingError):
     """Exception levée lors d'une erreur de validation d'un comptage."""
+    pass
+
+class InventoryCreationError(Exception):
+    """Exception levée lors d'une erreur de création d'inventaire"""
+    pass
+
+class InventoryStatusError(Exception):
+    """Exception levée lors d'une erreur de statut d'inventaire"""
+    pass
+
+class InventoryDateError(Exception):
+    """Exception levée lors d'une erreur de date dans l'inventaire"""
     pass 
