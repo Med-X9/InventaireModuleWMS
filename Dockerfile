@@ -1,33 +1,67 @@
-FROM python:3.12.1-slim
+# Stage 1: Builder
+FROM python:3.11-slim as builder
 
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+# Définir les variables d'environnement
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    POETRY_VERSION=1.7.1 \
+    POETRY_HOME="/opt/poetry" \
+    POETRY_VIRTUALENVS_CREATE=false
 
-WORKDIR /app
-
-# Installer les dépendances système
+# Installer les dépendances système nécessaires
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Installer les dépendances Python
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Installer poetry
+RUN pip install "poetry==$POETRY_VERSION"
 
-# Copier le reste du code
+# Créer et définir le répertoire de travail
+WORKDIR /app
+
+# Copier les fichiers de dépendances
+COPY pyproject.toml poetry.lock ./
+
+# Installer les dépendances
+RUN poetry install --no-dev --no-root
+
+# Stage 2: Runtime
+FROM python:3.11-slim
+
+# Définir les variables d'environnement
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    DJANGO_SETTINGS_MODULE=project.settings
+
+# Installer les dépendances système nécessaires pour PostgreSQL
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Créer un utilisateur non-root
+RUN useradd -m -s /bin/bash app
+
+# Créer et définir le répertoire de travail
+WORKDIR /app
+
+# Copier les dépendances du builder
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+# Copier le code source
 COPY . .
 
-# Créer les dossiers nécessaires
-RUN mkdir -p /app/static /app/media /app/logs
+# Créer les répertoires nécessaires et donner les permissions
+RUN mkdir -p static media logs \
+    && chown -R app:app /app \
+    && chmod -R 755 /app
 
-# Donner les droits avant de changer d'utilisateur
-RUN chmod -R 777 /app/logs && \
-    chmod -R 755 /app/static /app/media
+# Passer à l'utilisateur non-root
+USER app
 
+# Exposer le port
 EXPOSE 8000
 
-# Commandes pour le mode développement
-CMD ["sh", "-c", "python manage.py migrate && python manage.py runserver 0.0.0.0:8000 --noreload"]
+# Commande par défaut
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "120", "project.wsgi:application"] 

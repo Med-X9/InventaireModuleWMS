@@ -1,0 +1,39 @@
+[tool.poetry]
+name = "inventaire-module-wms"
+version = "1.0.0"
+description = "Module WMS pour la gestion d'inventaire"
+authors = ["SM@TCH"]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+Django = "^5.0"
+djangorestframework = "^3.14.0"
+psycopg2-binary = "^2.9.9"
+python-decouple = "^3.8"
+gunicorn = "^21.2.0"
+django-cors-headers = "^4.3.1"
+djangorestframework-simplejwt = "^5.3.1"
+drf-yasg = "^1.21.7"
+django-jazzmin = "^2.6.0"
+django-simple-history = "^3.4.0"
+django-import-export = "^3.3.6"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.3"
+pytest-django = "^4.7.0"
+black = "^23.12.1"
+flake8 = "^7.0.0"
+isort = "^5.13.2"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 88
+target-version = ['py311']
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3 
