@@ -6,43 +6,50 @@ services:
     command: >
       sh -c "
         python manage.py migrate &&
-        python manage.py runserver 0.0.0.0:8000 --noreload
+        python manage.py collectstatic --noinput &&
+        gunicorn --bind 0.0.0.0:8000 --workers 3 --timeout 120 inventaire.wsgi:application
       "
     volumes:
-      - .:/app
       - ./static:/app/static
       - ./media:/app/media
-    ports:
-      - "8000:8000"
+    expose:
+      - 8000
     env_file: .env
-    depends_on:
-      - db
     restart: unless-stopped
     environment:
       DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE}
-      DJANGO_DEBUG: "True"
+      DJANGO_DEBUG: "False"
       DJANGO_STATIC_ROOT: ${DJANGO_STATIC_ROOT}
       DJANGO_MEDIA_ROOT: ${DJANGO_MEDIA_ROOT}
       DJANGO_STATICFILES_DIRS: ${DJANGO_STATICFILES_DIRS}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS}
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
-      CORS_ALLOW_ALL_ORIGINS: "True"
+      CORS_ALLOW_ALL_ORIGINS: "False"
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
-
-  db:
-    image: postgres:15
-    volumes:
-      - postgres_data:/var/lib/postgresql/data/
-    env_file: .env
-    environment:
+      DATABASE_URL: ${DATABASE_URL}
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_HOST: ${POSTGRES_HOST}
-      POSTGRES_PORT: ${POSTGRES_PORT}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+
+  nginx:
+    build: ./nginx
+    volumes:
+      - ./static:/app/static
+      - ./media:/app/media
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
     ports:
-      - "5432:5432"
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - web
     restart: unless-stopped
 
-volumes:
-  postgres_data:
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
