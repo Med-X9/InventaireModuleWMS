@@ -1,0 +1,1 @@
+# Ce fichier est vide car les serializers ont été déplacés dans le package serializers 
