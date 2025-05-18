@@ -1,67 +1,58 @@
 # Stage 1: Builder
-FROM python:3.11-slim as builder
+FROM python:3.12.1-slim as builder
 
-# Définir les variables d'environnement
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    POETRY_VERSION=1.7.1 \
-    POETRY_HOME="/opt/poetry" \
-    POETRY_VIRTUALENVS_CREATE=false
+# Variables d'environnement pour Python
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Installer les dépendances système nécessaires
+WORKDIR /app
+
+# Installation des dépendances système pour la compilation
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Installer poetry
-RUN pip install "poetry==$POETRY_VERSION"
+# Installation des dépendances Python dans un environnement virtuel
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
-# Créer et définir le répertoire de travail
-WORKDIR /app
-
-# Copier les fichiers de dépendances
-COPY pyproject.toml poetry.lock ./
-
-# Installer les dépendances
-RUN poetry install --no-dev --no-root
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt gunicorn
 
 # Stage 2: Runtime
-FROM python:3.11-slim
+FROM python:3.12.1-slim
 
-# Définir les variables d'environnement
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    DJANGO_SETTINGS_MODULE=project.settings
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1
 
-# Installer les dépendances système nécessaires pour PostgreSQL
+WORKDIR /app
+
+# Installation des dépendances système minimales
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
-# Créer un utilisateur non-root
-RUN useradd -m -s /bin/bash app
+# Copie de l'environnement virtuel du builder
+COPY --from=builder /opt/venv /opt/venv
 
-# Créer et définir le répertoire de travail
-WORKDIR /app
-
-# Copier les dépendances du builder
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
-
-# Copier le code source
+# Copie du code de l'application
 COPY . .
 
-# Créer les répertoires nécessaires et donner les permissions
-RUN mkdir -p static media logs \
-    && chown -R app:app /app \
-    && chmod -R 755 /app
+# Création des dossiers nécessaires
+RUN mkdir -p /app/static /app/media /app/logs \
+    && chmod -R 755 /app/static /app/media \
+    && chmod -R 777 /app/logs \
+    && useradd -U app_user \
+    && chown -R app_user:app_user /app
 
-# Passer à l'utilisateur non-root
-USER app
+# Passage à l'utilisateur non-root
+USER app_user
 
-# Exposer le port
+# Exposition du port
 EXPOSE 8000
 
-# Commande par défaut
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "120", "project.wsgi:application"] 
+# Commande par défaut pour la production
+CMD ["gunicorn", "project.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "120"] 
