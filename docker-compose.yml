@@ -12,6 +12,7 @@ services:
       "
     volumes:
       - ./static:/app/static
+      - ./staticfiles:/app/staticfiles
       - ./media:/app/media
     expose:
       - 8000
@@ -39,6 +40,7 @@ services:
     build: ./nginx
     volumes:
       - ./static:/app/static
+      - ./staticfiles:/app/staticfiles
       - ./media:/app/media
     ports:
       - "80:80"
