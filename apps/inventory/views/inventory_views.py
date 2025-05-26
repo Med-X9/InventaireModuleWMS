@@ -7,15 +7,16 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
-from ..models import Inventory
+from ..models import Inventory, Pda
 from ..services.inventory_service import InventoryService
 from ..serializers.inventory_serializer import (
     InventoryCreateSerializer, 
     InventoryDetailSerializer,
-    InventoryGetByIdSerializer
+    InventoryGetByIdSerializer,
+    InventoryTeamSerializer
 )
 from ..exceptions import InventoryValidationError, InventoryNotFoundError
-from apps.inventory.filters import InventoryFilter
+from ..filters import InventoryFilter
 from ..repositories import InventoryRepository
 from ..interfaces import IInventoryRepository
 
@@ -131,7 +132,7 @@ class InventoryDetailView(APIView):
         """
         try:
             inventory = self.repository.get_with_related_data(pk)
-            serializer = InventoryGetByIdSerializer(inventory)
+            serializer = InventoryDetailSerializer(inventory)
             return Response({
                 "message": "Détails de l'inventaire récupérés avec succès",
                 "data": serializer.data
@@ -267,4 +268,41 @@ class InventoryCancelView(APIView):
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             logger.error(f"Erreur lors de l'annulation de l'inventaire: {str(e)}", exc_info=True)
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class InventoryTeamView(APIView):
+    """
+    Vue pour récupérer l'équipe d'un inventaire.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.repository = InventoryRepository()
+
+    def get(self, request, pk, *args, **kwargs):
+        """
+        Récupère l'équipe d'un inventaire.
+        """
+        try:
+            # Vérifier si l'inventaire existe et récupérer toutes les données associées
+            inventory = self.repository.get_with_related_data(pk)
+            
+            # Sérialiser les données avec InventoryDetailSerializer qui inclut toutes les informations
+            serializer = InventoryDetailSerializer(inventory)
+            
+            return Response({
+                "message": "Détails de l'inventaire récupérés avec succès",
+                "data": serializer.data
+            })
+
+        except InventoryNotFoundError as e:
+            logger.warning(f"Inventaire non trouvé: {str(e)}")
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des détails de l'inventaire: {str(e)}", exc_info=True)
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            ) 

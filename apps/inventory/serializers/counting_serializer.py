@@ -11,7 +11,7 @@ class CountingDetailSerializer(serializers.ModelSerializer):
     """Serializer pour les détails des comptages."""
     class Meta:
         model = Counting
-        fields = ['order', 'count_mode', 'unit_scanned', 'entry_quantity', 'stock_situation', 'is_variant']
+        fields = ['order', 'count_mode', 'unit_scanned', 'entry_quantity', 'stock_situation', 'is_variant','status']
 
 class CountingSerializer(serializers.ModelSerializer):
     class Meta:

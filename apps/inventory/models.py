@@ -49,20 +49,23 @@ class Inventory(TimeStampedModel, ReferenceMixin):
     REFERENCE_PREFIX = 'INV'
     
     STATUS_CHOICES = (
-        ('PENDING', 'Pending'),
-        ('CURRENT', 'Current'),
-        ('LAUNCH', 'LAUNCH'),  
-        ('END', 'End'),
+        ('EN ATTENTE', 'EN ATTENTE'),
+        ('EN PREPARATION', 'EN PREPARATION'),
+        ('EN REALISATION', 'EN REALISATION'),
+        ('TERMINE', 'TERMINE'),  
+        ('CLOTURE', 'CLOTURE'),
     )
 
     reference = models.CharField(max_length=50, unique=True, null=False)
     label = models.CharField(max_length=200)  
     date = models.DateTimeField()
-    status = models.CharField(max_length=10, choices=STATUS_CHOICES)  
-    pending_status_date = models.DateTimeField(null=True, blank=True)
-    current_status_date = models.DateTimeField(null=True, blank=True)
-    lunch_status_date = models.DateTimeField(null=True, blank=True)
-    end_status_date = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=50, choices=STATUS_CHOICES)  
+    en_attente_status_date = models.DateTimeField(null=True, blank=True)
+    en_preparation_status_date = models.DateTimeField(null=True, blank=True)
+    en_realisation_status_date = models.DateTimeField(null=True, blank=True)
+    ternime_status_date = models.DateTimeField(null=True, blank=True)
+    cloture_status_date = models.DateTimeField(null=True, blank=True)
+
     history = HistoricalRecords()
 
     def __str__(self):
@@ -98,7 +101,8 @@ class Counting(TimeStampedModel, ReferenceMixin):
     REFERENCE_PREFIX = 'CNT'
     
     STATUS_CHOICES = (
-        ('LAUNCH', 'Launch'), 
+        ('LAUNCH', 'Launch'),  
+        ('START', 'Start'),
         ('END', 'End'),
     )
 
@@ -124,16 +128,22 @@ class Job(TimeStampedModel, ReferenceMixin):
     REFERENCE_PREFIX = 'JOB'
     
     STATUS_CHOICES = (
-        ('LAUNCH', 'Launch'),  
-        ('START', 'Start'),
-        ('END', 'End'),
+        ('EN ATTENTE', 'EN ATTENTE'),
+        ('LANCE', 'LANCE'),
+        ('TRANSFERT', 'TRANSFERT'), 
+        ('ENTAME', 'ENTAME'),
+        ('CLOTURE', 'CLOTURE'),
     )
+   
     
     reference = models.CharField(max_length=20, unique=True, null=False)
-    status = models.CharField(max_length=10, choices=STATUS_CHOICES)  
-    start_date = models.DateTimeField(null=True, blank=True)
-    end_date = models.DateTimeField(null=True, blank=True)
-    lunch_date = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES)
+    date_estime = models.DateTimeField(null=True, blank=True)
+    transfert_date = models.DateTimeField(null=True, blank=True)
+    cloture_date = models.DateTimeField(null=True, blank=True)
+    lance_date = models.DateTimeField(null=True, blank=True)
+    en_attente_date = models.DateTimeField(null=True, blank=True)
+    entame_date = models.DateTimeField(null=True, blank=True)
     is_lunch = models.BooleanField(default=False)
     warehouse = models.ForeignKey('masterdata.Warehouse', on_delete=models.CASCADE)
     counting = models.ForeignKey('Counting', on_delete=models.CASCADE,blank=True,null=True)
@@ -193,6 +203,7 @@ class InventoryDetail(TimeStampedModel, ReferenceMixin):
     product = models.ForeignKey('masterdata.Product',on_delete=models.CASCADE,blank=True,null=True)
     location = models.ForeignKey('masterdata.Location',on_delete=models.CASCADE)
     counting = models.ForeignKey(Counting,on_delete=models.CASCADE)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
     history = HistoricalRecords()
     
     

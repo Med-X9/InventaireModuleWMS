@@ -266,6 +266,7 @@ class Stock(TimeStampedModel):
     quantity_in_transit = models.DecimalField(max_digits=12, decimal_places=3, validators=[MinValueValidator(0)], blank=True, null=True)
     quantity_in_receiving = models.DecimalField(max_digits=12, decimal_places=3, validators=[MinValueValidator(0)], blank=True, null=True)
     unit_of_measure = models.ForeignKey(UnitOfMeasure, on_delete=models.CASCADE)
+    inventory = models.ForeignKey('inventory.Inventory', on_delete=models.CASCADE)
     history = HistoricalRecords()
 
     def save(self, *args, **kwargs):
@@ -279,3 +280,26 @@ class Stock(TimeStampedModel):
 
     def __str__(self):
         return f"{self.product.Short_Description} - {self.location.location_code}"
+    
+
+
+class Ressource(CodeGeneratorMixin, TimeStampedModel):
+    STATUS_CHOICES = (
+        ('ACTIVE', 'ACTIVE'),
+        ('INACTIVE', 'INACTIVE'),
+    )
+    CODE_PREFIX = 'RES'
+    reference = models.CharField(unique=True, max_length=20)
+    libelle = models.CharField(max_length=100)
+    description = models.TextField(max_length=100, null=True, blank=True)
+    status = models.CharField(choices=STATUS_CHOICES)
+    history = HistoricalRecords()
+
+    def __str__(self):
+        return self.libelle
+
+
+class Procedure(CodeGeneratorMixin, TimeStampedModel):
+    """
+    Modèle pour les procédures
+    """

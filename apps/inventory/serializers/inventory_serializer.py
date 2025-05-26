@@ -2,11 +2,12 @@
 Serializers pour l'application inventory.
 """
 from rest_framework import serializers
-from ..models import Inventory, Counting, Setting
+from ..models import Inventory, Counting, Setting, Pda
 from ..services.inventory_service import InventoryService
 from ..exceptions import InventoryValidationError
 from apps.masterdata.models import Account, Warehouse
 from .counting_serializer import CountingCreateSerializer, CountingDetailSerializer, CountingSerializer
+from apps.users.serializers import UserWebSerializer
 
 class InventoryCreateSerializer(serializers.Serializer):
     label = serializers.CharField()
@@ -57,6 +58,14 @@ class InventoryGetByIdSerializer(serializers.ModelSerializer):
         countings = Counting.objects.filter(inventory=obj).order_by('order')
         return CountingDetailSerializer(countings, many=True).data
 
+class PdaTeamSerializer(serializers.ModelSerializer):
+    """Serializer pour les membres de l'équipe PDA"""
+    user = UserWebSerializer(source='session', read_only=True)
+
+    class Meta:
+        model = Pda
+        fields = ['id', 'lebel', 'user']
+
 class InventoryDetailSerializer(serializers.ModelSerializer):
     """
     Sérialiseur pour les détails d'un inventaire.
@@ -64,13 +73,16 @@ class InventoryDetailSerializer(serializers.ModelSerializer):
     account_name = serializers.SerializerMethodField()
     warehouse_name = serializers.SerializerMethodField()
     comptages = serializers.SerializerMethodField()
+    equipe = serializers.SerializerMethodField()
 
     class Meta:
         model = Inventory
         fields = [
-            'id', 'label', 'date', 'status', 'end_status_date',
-            'lunch_status_date', 'current_status_date', 'pending_status_date',
-            'account_name', 'warehouse_name', 'comptages'
+            'id', 'label', 'date', 'status',
+            'en_attente_status_date', 'en_preparation_status_date',
+            'en_realisation_status_date', 'ternime_status_date',
+            'cloture_status_date', 'account_name', 'warehouse_name',
+            'comptages', 'equipe'
         ]
 
     def get_account_name(self, obj):
@@ -85,17 +97,22 @@ class InventoryDetailSerializer(serializers.ModelSerializer):
         countings = Counting.objects.filter(inventory=obj).order_by('order')
         return CountingDetailSerializer(countings, many=True).data
 
+    def get_equipe(self, obj):
+        pdas = Pda.objects.filter(inventory=obj)
+        return PdaTeamSerializer(pdas, many=True).data
+
 class InventorySerializer(serializers.ModelSerializer):
     account_name = serializers.SerializerMethodField()
     warehouse_name = serializers.SerializerMethodField()
     comptages = serializers.SerializerMethodField()
+    equipe = serializers.SerializerMethodField()
 
     class Meta:
         model = Inventory
         fields = [
             'id', 'label', 'date', 'status', 'end_status_date',
             'lunch_status_date', 'current_status_date', 'pending_status_date',
-            'account_name', 'warehouse_name', 'comptages'
+            'account_name', 'warehouse_name', 'comptages', 'equipe'
         ]
 
     def get_account_name(self, obj):
@@ -108,4 +125,16 @@ class InventorySerializer(serializers.ModelSerializer):
 
     def get_comptages(self, obj):
         countings = Counting.objects.filter(inventory=obj).order_by('order')
-        return CountingSerializer(countings, many=True).data 
+        return CountingSerializer(countings, many=True).data
+
+    def get_equipe(self, obj):
+        pdas = Pda.objects.filter(inventory=obj)
+        return PdaTeamSerializer(pdas, many=True).data
+
+class InventoryTeamSerializer(serializers.ModelSerializer):
+    """Serializer pour récupérer l'équipe d'un inventaire"""
+    user = UserWebSerializer(source='session', read_only=True)
+
+    class Meta:
+        model = Pda
+        fields = ['id', 'lebel', 'user'] 

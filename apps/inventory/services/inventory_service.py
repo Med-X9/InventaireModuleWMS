@@ -111,7 +111,7 @@ class InventoryService:
             inventory = Inventory.objects.create(
                 label=label,
                 date=date,
-                status='PENDING',
+                status='EN ATTENTE',
                 pending_status_date=timezone.now()
             )
             
@@ -146,7 +146,7 @@ class InventoryService:
         try:
             inventory = self.repository.get_by_id(inventory_id)
             
-            if inventory.status != 'PENDING':
+            if inventory.status != 'EN ATTENTE':
                 raise InventoryValidationError(
                     "Seuls les inventaires en attente peuvent être supprimés"
                 )
@@ -271,12 +271,13 @@ class InventoryService:
             logger.error(f"Erreur inattendue lors de la mise à jour de l'inventaire: {str(e)}")
             raise InventoryValidationError(str(e))
 
-    def _check_stocks_exist(self, warehouses: List[Warehouse]) -> bool:
+    def _check_stocks_exist(self, warehouses: List[Warehouse], inventory_id: int) -> bool:
         """
         Vérifie si des stocks existent pour les entrepôts donnés.
         
         Args:
             warehouses: Liste des entrepôts à vérifier
+            inventory_id: L'ID de l'inventaire
             
         Returns:
             bool: True si des stocks existent, False sinon
@@ -288,7 +289,8 @@ class InventoryService:
                 location__sous_zone__zone__warehouse=warehouse,
                 location__is_active=True,
                 location__sous_zone__zone__zone_status='ACTIVE',
-                is_deleted=False
+                is_deleted=False,
+                inventory_id=inventory_id
             ).count()
             
             logger.info(f"Nombre de stocks trouvés pour l'entrepôt {warehouse.warehouse_name}: {stocks_count}")
@@ -297,13 +299,14 @@ class InventoryService:
                 return True
         return False
 
-    def _create_inventory_details_from_stocks(self, counting: Counting, warehouses: List[Warehouse]) -> None:
+    def _create_inventory_details_from_stocks(self, counting: Counting, warehouses: List[Warehouse], inventory_id: int) -> None:
         """
         Crée les détails d'inventaire à partir des stocks existants.
         
         Args:
             counting: Le comptage pour lequel créer les détails
             warehouses: Liste des entrepôts à traiter
+            inventory_id: L'ID de l'inventaire
         """
         from apps.masterdata.models import Stock
         
@@ -312,7 +315,8 @@ class InventoryService:
                 location__sous_zone__zone__warehouse=warehouse,
                 location__is_active=True,
                 location__sous_zone__zone__zone_status='ACTIVE',
-                is_deleted=False
+                is_deleted=False,
+                inventory_id=inventory_id
             ).select_related('product', 'location', 'location__sous_zone', 'location__sous_zone__zone')
             
             stocks_count = stocks.count()
@@ -327,47 +331,48 @@ class InventoryService:
                     quantity_inventoried=quantity
                 )
 
-    def _handle_etat_stock_mode(self, first_counting: Counting, warehouses: List[Warehouse]) -> None:
+    def _handle_etat_stock_mode(self, first_counting: Counting, warehouses: List[Warehouse], inventory_id: int) -> None:
         """
         Gère le mode "Etat de stock" pour le premier comptage.
         
         Args:
             first_counting: Le premier comptage
             warehouses: Liste des entrepôts à traiter
+            inventory_id: L'ID de l'inventaire
             
         Raises:
             InventoryValidationError: Si aucun stock n'est trouvé
         """
-        if not self._check_stocks_exist(warehouses):
+        if not self._check_stocks_exist(warehouses, inventory_id):
             warehouse_names = [w.warehouse_name for w in warehouses]
             logger.warning(f"Aucun stock trouvé pour les entrepôts: {', '.join(warehouse_names)}")
             raise InventoryValidationError(
                 "Aucun stock trouvé pour les entrepôts de cet inventaire"
             )
         
-        self._create_inventory_details_from_stocks(first_counting, warehouses)
+        self._create_inventory_details_from_stocks(first_counting, warehouses, inventory_id)
         
         # Mettre à jour le statut du premier comptage en END
         first_counting.status = 'END'
         first_counting.date_status_end = timezone.now()
         first_counting.save()
 
-    def _handle_liste_emplacement_article_mode(self, warehouses: List[Warehouse]) -> None:
-        """
-        Gère le mode "Liste emplacement et article" pour tous les comptages.
+    # def _handle_liste_emplacement_article_mode(self, warehouses: List[Warehouse]) -> None:
+    #     """
+    #     Gère le mode "Liste emplacement et article" pour tous les comptages.
         
-        Args:
-            warehouses: Liste des entrepôts à traiter
+    #     Args:
+    #         warehouses: Liste des entrepôts à traiter
             
-        Raises:
-            InventoryValidationError: Si aucun stock n'est trouvé
-        """
-        if not self._check_stocks_exist(warehouses):
-            warehouse_names = [w.warehouse_name for w in warehouses]
-            logger.warning(f"Aucun stock trouvé pour les entrepôts: {', '.join(warehouse_names)}")
-            raise InventoryValidationError(
-                "Aucun stock trouvé pour les entrepôts de cet inventaire"
-            )
+    #     Raises:
+    #         InventoryValidationError: Si aucun stock n'est trouvé
+    #     """
+    #     if not self._check_stocks_exist(warehouses):
+    #         warehouse_names = [w.warehouse_name for w in warehouses]
+    #         logger.warning(f"Aucun stock trouvé pour les entrepôts: {', '.join(warehouse_names)}")
+    #         raise InventoryValidationError(
+    #             "Aucun stock trouvé pour les entrepôts de cet inventaire"
+    #         )
 
     def launch_inventory(self, inventory_id: int) -> None:
         """
@@ -385,7 +390,7 @@ class InventoryService:
             inventory = self.repository.get_by_id(inventory_id)
             
             # Vérifier si l'inventaire est en attente
-            if inventory.status != 'PENDING':
+            if inventory.status != 'EN PREPARATION':
                 raise InventoryValidationError(
                     "Seuls les inventaires en attente peuvent être lancés"
                 )
@@ -400,17 +405,17 @@ class InventoryService:
             
             # Si le premier comptage est en mode "Etat de stock"
             if first_counting.count_mode == "Etat de stock":
-                self._handle_etat_stock_mode(first_counting, warehouses)
+                self._handle_etat_stock_mode(first_counting, warehouses, inventory_id)
             
             # Vérifier tous les comptages pour le mode "Liste emplacement et article"
-            article_countings = inventory.countings.filter(count_mode="Liste emplacement et article")
-            if article_countings.exists():
-                self._handle_liste_emplacement_article_mode(warehouses)
+            # article_countings = inventory.countings.filter(count_mode="Liste emplacement et article")
+            # if article_countings.exists():
+            #     self._handle_liste_emplacement_article_mode(warehouses)
             
             # Si on arrive ici, soit le premier comptage est en mode "Etat de stock" et les stocks existent,
             # soit il y a des comptages en mode "Liste emplacement et article" et les stocks existent
             # On peut donc lancer l'inventaire
-            inventory.status = 'LAUNCH'
+            inventory.status = 'EN REALISATION'
             inventory.lunch_status_date = timezone.now()
             inventory.save()
             
@@ -439,9 +444,9 @@ class InventoryService:
             inventory = self.repository.get_by_id(inventory_id)
             
             # Vérifier si l'inventaire est en statut LAUNCH
-            if inventory.status != 'LAUNCH':
+            if inventory.status != 'EN REALISATION':
                 raise InventoryValidationError(
-                    "Seuls les inventaires en statut 'LAUNCH' peuvent être annulés"
+                    "Seuls les inventaires en statut 'EN REALISATION' peuvent être annulés"
                 )
             
             # Récupérer le premier comptage
@@ -454,12 +459,12 @@ class InventoryService:
                 InventoryDetail.objects.filter(counting=first_counting).delete()
             
             # Mettre à jour le statut de l'inventaire
-            inventory.status = 'PENDING'
+            inventory.status = 'EN PREPARATION'
             inventory.lunch_status_date = None
             inventory.save()
             
             # Mettre à jour le statut du premier comptage
-            first_counting.status = 'PENDING'
+            first_counting.status = 'EN PREPARATION'
             first_counting.date_status_lunch = None
             first_counting.save()
             
@@ -469,4 +474,6 @@ class InventoryService:
             raise
         except Exception as e:
             logger.error(f"Erreur lors de l'annulation de l'inventaire: {str(e)}", exc_info=True)
-            raise InventoryValidationError(f"Erreur lors de l'annulation de l'inventaire: {str(e)}") 
+            raise InventoryValidationError(f"Erreur lors de l'annulation de l'inventaire: {str(e)}")
+
+    

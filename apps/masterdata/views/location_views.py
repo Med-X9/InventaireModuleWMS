@@ -3,6 +3,8 @@ from rest_framework.response import Response
 from rest_framework import status
 from ..services.location_service import LocationService
 from ..serializers.location_serializer import LocationSerializer
+from rest_framework.permissions import IsAuthenticated
+from ..models import Location, SousZone
 import logging
 
 logger = logging.getLogger(__name__)
@@ -73,4 +75,41 @@ class WarehouseJobLocationsView(APIView):
                 'status': 'error',
                 'message': 'Une erreur inattendue est survenue lors de la récupération des locations par job',
                 'data': []
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class SousZoneLocationsView(APIView):
+    """
+    Vue pour récupérer toutes les locations d'une sous-zone spécifique.
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, sous_zone_id):
+        """
+        Récupère toutes les locations d'une sous-zone spécifique.
+        
+        Args:
+            sous_zone_id: ID de la sous-zone dont on veut récupérer les locations
+        """
+        try:
+            # Vérifier si la sous-zone existe
+            SousZone.objects.get(pk=sous_zone_id)
+            
+            # Récupérer les locations de cette sous-zone
+            locations = Location.objects.filter(
+                sous_zone_id=sous_zone_id,
+                is_active=True
+            ).order_by('location_reference')
+            
+            serializer = LocationSerializer(locations, many=True)
+            return Response(serializer.data)
+            
+        except SousZone.DoesNotExist:
+            return Response(
+                {"error": "Sous-zone non trouvée"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            ) 

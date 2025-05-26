@@ -1,4 +1,5 @@
 from django.utils import timezone
+from datetime import datetime
 from ..models import Job, Planning, Pda, JobDetail, Location, Inventory, Warehouse
 from apps.users.models import UserWeb
 from ..exceptions import (
@@ -7,9 +8,10 @@ from ..exceptions import (
     PdaCreationError,
     JobDetailCreationError
 )
-from ..serializers.job_serializer import InventoryJobRetrieveSerializer
+from ..serializers.job_serializer import InventoryJobRetrieveSerializer, PendingJobSerializer
 import logging
 from django.db import connection, transaction
+from ..filters.job_filters import JobFilter
 
 logger = logging.getLogger(__name__)
 
@@ -95,8 +97,8 @@ class JobService:
                 job_detail_objects = []
                 for job_data in data['jobs']:
                     job = Job.objects.create(
-                        status='LAUNCH',
-                        lunch_date=timezone.now(),
+                        status='EN ATTENTE',
+                        en_attente_date=timezone.now(),
                         warehouse=warehouse
                     )
                     jobs.append(job)
@@ -233,8 +235,8 @@ class JobService:
             for job_data in data['jobs']:
                 try:
                     job = Job.objects.create(
-                        status='LAUNCH',
-                        lunch_date=timezone.now(),
+                        status='EN ATTENTE',
+                        en_attente_date=timezone.now(),
                         warehouse=warehouse
                     )
                     jobs.append(job)
@@ -359,4 +361,186 @@ class JobService:
         except Warehouse.DoesNotExist:
             raise JobCreationError(f"Warehouse avec l'ID {warehouse_id} non trouvé")
         except Exception as e:
-            raise JobCreationError(f"Erreur lors de la suppression des jobs: {str(e)}") 
+            raise JobCreationError(f"Erreur lors de la suppression des jobs: {str(e)}")
+
+    @staticmethod
+    def assign_jobs_to_team(data):
+        """
+        Affecte des jobs à plusieurs équipes
+        
+        Args:
+            data: Les données d'affectation contenant les assignments pour plusieurs équipes
+            
+        Returns:
+            dict: Les données des jobs affectés
+            
+        Raises:
+            JobCreationError: Si une erreur survient lors de l'affectation
+        """
+        try:
+            assignments = data.get('assignments', [])
+            if not assignments:
+                raise JobCreationError("Aucune affectation fournie")
+
+            results = []
+            # Traiter chaque affectation (équipe)
+            for assignment in assignments:
+                equipe_id = assignment.get('equipe')
+                jobs_data = assignment.get('jobs', [])
+                
+                if not jobs_data:
+                    raise JobCreationError(f"Aucun job fourni pour l'équipe {equipe_id}")
+
+                # Vérifier que le PDA existe
+                try:
+                    pda = Pda.objects.get(id=equipe_id)
+                except Pda.DoesNotExist:
+                    raise JobCreationError(f"PDA avec l'ID {equipe_id} non trouvé")
+
+                # Effectuer les affectations pour cette équipe
+                for job_data in jobs_data:
+                    job_id = job_data['id']
+                    date_str = job_data['date']
+
+                    try:
+                        # Convertir la date du format DD-MM-YYYY en YYYY-MM-DD HH:MM:SS
+                        date_obj = datetime.strptime(date_str, '%d-%m-%Y')
+                        estimated_date = date_obj.strftime('%Y-%m-%d %H:%M:%S')
+                    except ValueError:
+                        raise JobCreationError(f"Format de date invalide pour le job {job_id}. Format attendu: DD-MM-YYYY")
+
+                    try:
+                        job = Job.objects.get(id=job_id)
+                    except Job.DoesNotExist:
+                        raise JobCreationError(f"Job avec l'ID {job_id} non trouvé")
+                    
+                    # Mettre à jour le job avec la date d'estimation
+                    job.date_estime = estimated_date
+                    job.save()
+                    
+                    # Mettre à jour les job details
+                    job_details = JobDetail.objects.filter(job=job)
+                    for job_detail in job_details:
+                        job_detail.pda = pda
+                        job_detail.save()
+
+                # Ajouter les résultats pour cette équipe
+                results.append({
+                    "equipe": equipe_id,
+                    "jobs": jobs_data
+                })
+
+            return {
+                "message": "Jobs affectés avec succès",
+                "assignments": results
+            }
+
+        except JobCreationError:
+            raise
+        except Exception as e:
+            raise JobCreationError(f"Erreur lors de l'affectation des jobs: {str(e)}")
+
+    @staticmethod
+    def get_pending_jobs(warehouse_id, filters=None, page=1, page_size=10):
+        """
+        Récupère les jobs en attente d'un warehouse avec pagination et filtrage
+        
+        Args:
+            warehouse_id: L'ID du warehouse
+            filters: Dictionnaire de filtres (date_estime, equipe_id, status, reference)
+            page: Numéro de la page
+            page_size: Nombre d'éléments par page
+            
+        Returns:
+            dict: Les données des jobs en attente avec pagination
+            
+        Raises:
+            JobCreationError: Si une erreur survient lors de la récupération
+        """
+        try:
+            # Vérifier que le warehouse existe
+            try:
+                warehouse = Warehouse.objects.get(id=warehouse_id)
+            except Warehouse.DoesNotExist:
+                raise JobCreationError(f"Warehouse avec l'ID {warehouse_id} non trouvé")
+
+            # Construire la requête de base
+            query = Job.objects.filter(
+                warehouse=warehouse,
+                status='EN ATTENTE',
+                is_deleted=False
+            ).prefetch_related('jobdetail_set', 'jobdetail_set__pda')
+
+            # Appliquer les filtres
+            if filters:
+                job_filter = JobFilter(filters, queryset=query)
+                query = job_filter.qs
+
+            # Calculer la pagination
+            total = query.count()
+            start = (page - 1) * page_size
+            end = start + page_size
+
+            # Récupérer les jobs paginés
+            jobs = query[start:end]
+
+            # Sérialiser les données
+            serializer = PendingJobSerializer(jobs, many=True)
+
+            return {
+                'total': total,
+                'page': page,
+                'page_size': page_size,
+                'total_pages': (total + page_size - 1) // page_size,
+                'results': serializer.data
+            }
+
+        except JobCreationError:
+            raise
+        except Exception as e:
+            raise JobCreationError(f"Erreur lors de la récupération des jobs: {str(e)}")
+
+    @staticmethod
+    def launch_jobs(job_ids):
+        """
+        Lance les jobs spécifiés
+        
+        Args:
+            job_ids: Liste des IDs des jobs à lancer
+            
+        Returns:
+            dict: Les données des jobs lancés
+            
+        Raises:
+            JobCreationError: Si une erreur survient lors du lancement
+        """
+        try:
+            # Récupérer les jobs
+            jobs = Job.objects.filter(id__in=job_ids)
+            
+            if not jobs.exists():
+                raise JobCreationError("Aucun job trouvé avec les IDs fournis")
+
+            # Vérifier que tous les jobs sont en attente
+            for job in jobs:
+                if job.status != 'EN ATTENTE':
+                    raise JobCreationError(f"Le job {job.id} n'est pas en attente (status: {job.status})")
+
+            # Mettre à jour les jobs
+            current_time = timezone.now()
+            jobs.update(
+                status='LANCE',
+                lance_date=current_time,
+                is_lunch=True
+            )
+
+           
+
+            return {
+                "message": "Jobs lancés avec succès",
+            }
+
+        except JobCreationError:
+            raise
+        except Exception as e:
+            raise JobCreationError(f"Erreur lors du lancement des jobs: {str(e)}") 
