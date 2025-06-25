@@ -19,10 +19,10 @@ pipeline {
         stage('Checkout Repos') {
             steps {
                 dir('frontend') {
-                    git url: "${FRONTEND_REPO}"
+                    git credentialsId: 'github-creds', url: "${FRONTEND_REPO}"
                 }
                 dir('backend') {
-                    git url: "${BACKEND_REPO}"
+                    git credentialsId: 'github-creds', url: "${BACKEND_REPO}"
                 }
             }
         }
