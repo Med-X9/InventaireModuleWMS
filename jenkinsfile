@@ -55,21 +55,18 @@ pipeline {
             }
         }
 
-        stage('Upload Docker Compose Files') {
+        stage('Upload Backend Docker Compose File') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'dev-test-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                     sh """
                     sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$DEPLOY_HOST "mkdir -p $DOCKER_COMPOSE_DIR"
-
                     sshpass -p "$PASS" scp -o StrictHostKeyChecking=no backend/docker-compose.yaml $USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend-compose.yaml
-
-                    sshpass -p "$PASS" scp -o StrictHostKeyChecking=no frontend/docker-compose.yaml $USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/frontend-compose.yaml
                     """
                 }
             }
         }
 
-        stage('Deploy on Remote Server') {
+        stage('Deploy Backend on Remote Server') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'dev-test-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                     sh """
@@ -77,8 +74,21 @@ pipeline {
                     cd $DOCKER_COMPOSE_DIR
                     docker-compose -f backend-compose.yaml pull
                     docker-compose -f backend-compose.yaml up -d
-                    docker-compose -f frontend-compose.yaml pull
-                    docker-compose -f frontend-compose.yaml up -d
+                    EOF
+                    """
+                }
+            }
+        }
+
+        stage('Deploy Frontend on Remote Server') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'dev-test-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
+                    sh """
+                    sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$DEPLOY_HOST << EOF
+                    docker pull $FRONTEND_IMAGE:$IMAGE_TAG
+                    docker stop frontend-container || true
+                    docker rm frontend-container || true
+                    docker run -d --name frontend-container -p 3000:3000 $FRONTEND_IMAGE:$IMAGE_TAG
                     EOF
                     """
                 }
