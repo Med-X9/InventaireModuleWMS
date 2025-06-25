@@ -16,17 +16,6 @@ pipeline {
     }
 
     stages {
-        stage('Checkout Repos') {
-            steps {
-                dir('frontend') {
-                    git credentialsId: 'github-creds', url: "${FRONTEND_REPO}"
-                }
-                dir('backend') {
-                    git credentialsId: 'github-creds', url: "${BACKEND_REPO}"
-                }
-            }
-        }
-
         stage('Build Frontend Docker Image') {
             steps {
                 dir('frontend') {
