@@ -43,15 +43,20 @@ pipeline {
         stage('Uploading Files') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'dev-test-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
-                    sh """
-                    sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$DEPLOY_HOST "mkdir -p $DOCKER_COMPOSE_DIR"
-                    sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$DEPLOY_HOST "mkdir -p $DOCKER_COMPOSE_DIR/frontend"
-                    sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$DEPLOY_HOST "mkdir -p $DOCKER_COMPOSE_DIR/backend"
-                    sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/docker-compose.yml $USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/docker-compose.yml
-                    sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/Dockerfile $USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/Dockerfile
-                    sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/.env $USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/.env
-                    sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/frontend/Dockerfile $USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/frontend/Dockerfile
-                    """
+                    sh '''
+                        # Create remote directories
+                        sshpass -p "${PASS}" ssh -o StrictHostKeyChecking=no "${USER}@${DEPLOY_HOST}" "mkdir -p ${DOCKER_COMPOSE_DIR}"
+                        sshpass -p "${PASS}" ssh -o StrictHostKeyChecking=no "${USER}@${DEPLOY_HOST}" "mkdir -p ${DOCKER_COMPOSE_DIR}/frontend"
+                        sshpass -p "${PASS}" ssh -o StrictHostKeyChecking=no "${USER}@${DEPLOY_HOST}" "mkdir -p ${DOCKER_COMPOSE_DIR}/backend"
+                        
+                        # Copy backend files
+                        sshpass -p "${PASS}" scp -o StrictHostKeyChecking=no /tmp/backend/docker-compose.yml "${USER}@${DEPLOY_HOST}:${DOCKER_COMPOSE_DIR}/backend/docker-compose.yml"
+                        sshpass -p "${PASS}" scp -o StrictHostKeyChecking=no /tmp/backend/Dockerfile "${USER}@${DEPLOY_HOST}:${DOCKER_COMPOSE_DIR}/backend/Dockerfile"
+                        sshpass -p "${PASS}" scp -o StrictHostKeyChecking=no /tmp/backend/.env "${USER}@${DEPLOY_HOST}:${DOCKER_COMPOSE_DIR}/backend/.env"
+                        
+                        # Copy frontend Dockerfile (assuming it exists after checkout)
+                        sshpass -p "${PASS}" scp -o StrictHostKeyChecking=no /tmp/frontend/Dockerfile "${USER}@${DEPLOY_HOST}:${DOCKER_COMPOSE_DIR}/frontend/Dockerfile"
+                    '''
                 }
             }
         }
