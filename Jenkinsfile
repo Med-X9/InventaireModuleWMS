@@ -12,7 +12,7 @@ pipeline {
 
         DEPLOY_HOST = '147.93.55.221'
         DEPLOY_USER = credentials('dev-test-creds') 
-        DOCKER_COMPOSE_DIR = '/root/deployment'
+        DOCKER_COMPOSE_DIR = '/opt/deployment'
     }
 
     stages {
@@ -47,10 +47,10 @@ pipeline {
                     sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$DEPLOY_HOST "mkdir -p $DOCKER_COMPOSE_DIR"
                     sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$DEPLOY_HOST "mkdir -p $DOCKER_COMPOSE_DIR/frontend"
                     sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$DEPLOY_HOST "mkdir -p $DOCKER_COMPOSE_DIR/backend"
-                    sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /root/backend/docker-compose.yaml $USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/docker-compose.yaml
-                    sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /root/backend/Dockerfile $USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/Dockerfile
-                    sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /root/backend/.env $USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/.env
-                    sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /root/frontend/Dockerfile $USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/frontend/Dockerfile
+                    sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/docker-compose.yaml $USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/docker-compose.yaml
+                    sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/Dockerfile $USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/Dockerfile
+                    sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/.env $USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/.env
+                    sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/frontend/Dockerfile $USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/frontend/Dockerfile
                     """
                 }
             }
