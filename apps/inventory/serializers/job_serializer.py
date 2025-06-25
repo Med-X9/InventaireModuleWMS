@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from ..models import Job, JobDetail, Location, Pda
+from ..models import Job, JobDetail, Location, Assigment
 from django.utils import timezone
 import datetime
 
@@ -14,7 +14,7 @@ class PdaSerializer(serializers.Serializer):
 class JobDetailSerializer(serializers.ModelSerializer):
     location_id = serializers.IntegerField(source='location.id')
     location_name = serializers.CharField(source='location.location_code')
-    pda_name = serializers.CharField(source='pda.lebel')
+    pda_name = serializers.CharField(source='pda.reference')
     pda_session = serializers.IntegerField(source='pda.session.id')
 
     class Meta:
@@ -97,6 +97,6 @@ class PendingJobSerializer(serializers.ModelSerializer):
         if job_detail and job_detail.pda:
             return {
                 'id': job_detail.pda.id,
-                'nom': job_detail.pda.lebel
+                'nom': job_detail.pda.reference
             }
         return None 

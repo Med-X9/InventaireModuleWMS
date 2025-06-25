@@ -5,6 +5,9 @@ import hashlib
 from django.utils import timezone
 from apps.masterdata.mixins import CodeGeneratorMixin
 from django.apps import apps
+from django.utils.translation import gettext_lazy as _
+import random
+from datetime import datetime
 
 class ReferenceMixin:
     """
@@ -53,15 +56,19 @@ class Account(CodeGeneratorMixin, TimeStampedModel):
     """
     CODE_PREFIX = 'ACC'
     
-    account_code = models.CharField(unique=True, max_length=20)
-    account_name = models.CharField(max_length=100)
-    account_statuts = models.CharField(choices=(
-        ('ACTIVE', 'ACTIVE'),
-        ('INACTIVE', 'INACTIVE'),
-        ('OBSOLETE', 'OBSOLETE'),
+    reference = models.CharField(_('Code du compte'), unique=True, max_length=20)
+    account_name = models.CharField(_('Nom du compte'), max_length=100)
+    account_statuts = models.CharField(_('Statut'), choices=(
+        ('ACTIVE', _('Actif')),
+        ('INACTIVE', _('Inactif')),
+        ('OBSOLETE', _('Obsolète')),
     ))
-    description = models.TextField(null=True, blank=True)
+    description = models.TextField(_('Description'), null=True, blank=True)
     history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _('Compte')
+        verbose_name_plural = _('Comptes')
 
     def __str__(self):
         return self.account_name
@@ -72,16 +79,20 @@ class Family(CodeGeneratorMixin, TimeStampedModel):
     """
     CODE_PREFIX = 'FAM'
     
-    family_code = models.CharField(max_length=20, unique=True)
-    family_name = models.CharField(max_length=100)
-    family_description = models.TextField(blank=True, null=True)
-    compte = models.ForeignKey('Account', on_delete=models.CASCADE)  
-    family_status = models.CharField(max_length=10, choices=(
-        ('ACTIVE', 'ACTIVE'),
-        ('INACTIVE', 'INACTIVE'),
-        ('OBSOLETE', 'OBSOLETE'),
+    reference = models.CharField(_('Code de la famille'), max_length=20, unique=True)
+    family_name = models.CharField(_('Nom de la famille'), max_length=100)
+    family_description = models.TextField(_('Description'), blank=True, null=True)
+    compte = models.ForeignKey('Account', on_delete=models.CASCADE, verbose_name=_('Compte'))
+    family_status = models.CharField(_('Statut'), max_length=10, choices=(
+        ('ACTIVE', _('Actif')),
+        ('INACTIVE', _('Inactif')),
+        ('OBSOLETE', _('Obsolète')),
     ))
     history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _('Famille')
+        verbose_name_plural = _('Familles')
 
     def __str__(self):
         return self.family_name
@@ -93,24 +104,28 @@ class Warehouse(CodeGeneratorMixin, TimeStampedModel):
     CODE_PREFIX = 'WH'
     
     STATUS_CHOICES = (
-        ('ACTIVE', 'ACTIVE'),
-        ('INACTIVE', 'INACTIVE'),
+        ('ACTIVE', _('Actif')),
+        ('INACTIVE', _('Inactif')),
     )
     
     Warehouse_CHOICES = (
-        ('CENTRAL', 'CENTRAL'),
-        ('RECEIVING', 'RECEIVING'),
-        ('SHIPPING', 'SHIPPING'),
-        ('TRANSIT', 'TRANSIT'),
+        ('CENTRAL', _('Central')),
+        ('RECEIVING', _('Réception')),
+        ('SHIPPING', _('Expédition')),
+        ('TRANSIT', _('Transit')),
     )
     
-    warehouse_code = models.CharField(max_length=20, unique=True)
-    warehouse_name = models.CharField(max_length=100)
-    warehouse_type = models.CharField(choices=Warehouse_CHOICES)
-    description = models.TextField(blank=True, null=True)
-    status = models.CharField(choices=STATUS_CHOICES)
-    address = models.CharField(max_length=255, blank=True, null=True)
+    reference = models.CharField(_('Code de l\'entrepôt'), max_length=20, unique=True)
+    warehouse_name = models.CharField(_('Nom de l\'entrepôt'), max_length=100)
+    warehouse_type = models.CharField(_('Type d\'entrepôt'), choices=Warehouse_CHOICES)
+    description = models.TextField(_('Description'), blank=True, null=True)
+    status = models.CharField(_('Statut'), choices=STATUS_CHOICES)
+    address = models.CharField(_('Adresse'), max_length=255, blank=True, null=True)
     history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _('Entrepôt')
+        verbose_name_plural = _('Entrepôts')
 
     def __str__(self):
         return self.warehouse_name
@@ -122,15 +137,19 @@ class ZoneType(CodeGeneratorMixin, TimeStampedModel):
     CODE_PREFIX = 'ZT'
     
     STATUS_CHOICES = (
-        ('ACTIVE', 'ACTIVE'),
-        ('INACTIVE', 'INACTIVE'),
+        ('ACTIVE', _('Actif')),
+        ('INACTIVE', _('Inactif')),
     )
     
-    type_code = models.CharField(unique=True, max_length=20)
-    type_name = models.CharField(max_length=100)
-    description = models.TextField(max_length=100, null=True, blank=True)
-    status = models.CharField(choices=STATUS_CHOICES)
+    reference = models.CharField(_('Code du type'), unique=True, max_length=20)
+    type_name = models.CharField(_('Nom du type'), max_length=100)
+    description = models.TextField(_('Description'), max_length=100, null=True, blank=True)
+    status = models.CharField(_('Statut'), choices=STATUS_CHOICES)
     history = HistoricalRecords()
+    
+    class Meta:
+        verbose_name = _('Type de zone')
+        verbose_name_plural = _('Types de zones')
     
     def __str__(self):
         return self.type_name
@@ -142,18 +161,22 @@ class Zone(CodeGeneratorMixin, TimeStampedModel):
     CODE_PREFIX = 'Z'
     
     STATUS_CHOICES = (
-        ('ACTIVE', 'ACTIVE'),
-        ('INACTIVE', 'INACTIVE'),
-        ('BLOCKED', 'BLOCKED'),
+        ('ACTIVE', _('Actif')),
+        ('INACTIVE', _('Inactif')),
+        ('BLOCKED', _('Bloqué')),
     )
     
-    zone_code = models.CharField(unique=True, max_length=20)
-    warehouse = models.ForeignKey(Warehouse, on_delete=models.CASCADE)
-    zone_name = models.CharField(max_length=100)
-    zone_type = models.ForeignKey(ZoneType, models.CASCADE)
-    description = models.TextField(max_length=100, null=True, blank=True)
-    zone_status = models.CharField(choices=STATUS_CHOICES)
+    reference = models.CharField(_('Code de la zone'), unique=True, max_length=20)
+    warehouse = models.ForeignKey(Warehouse, on_delete=models.CASCADE, verbose_name=_('Entrepôt'))
+    zone_name = models.CharField(_('Nom de la zone'), max_length=100)
+    zone_type = models.ForeignKey(ZoneType, models.CASCADE, verbose_name=_('Type de zone'))
+    description = models.TextField(_('Description'), max_length=100, null=True, blank=True)
+    zone_status = models.CharField(_('Statut'), choices=STATUS_CHOICES)
     history = HistoricalRecords()
+    
+    class Meta:
+        verbose_name = _('Zone')
+        verbose_name_plural = _('Zones')
     
     def __str__(self):
         return self.zone_name
@@ -165,17 +188,21 @@ class SousZone(CodeGeneratorMixin, TimeStampedModel):
     CODE_PREFIX = 'SZ'
     
     STATUS_CHOICES = (
-        ('ACTIVE', 'ACTIVE'),
-        ('INACTIVE', 'INACTIVE'),
-        ('BLOCKED', 'BLOCKED'),
+        ('ACTIVE', _('Actif')),
+        ('INACTIVE', _('Inactif')),
+        ('BLOCKED', _('Bloqué')),
     )
     
-    sous_zone_code = models.CharField(unique=True, max_length=20)
-    sous_zone_name = models.CharField(max_length=100)
-    zone = models.ForeignKey(Zone, models.CASCADE)
-    description = models.TextField(max_length=100, null=True, blank=True)
-    sous_zone_status = models.CharField(choices=STATUS_CHOICES)
+    reference = models.CharField(_('Code de la sous-zone'), unique=True, max_length=20)
+    sous_zone_name = models.CharField(_('Nom de la sous-zone'), max_length=100)
+    zone = models.ForeignKey(Zone, models.CASCADE, verbose_name=_('Zone'))
+    description = models.TextField(_('Description'), max_length=100, null=True, blank=True)
+    sous_zone_status = models.CharField(_('Statut'), choices=STATUS_CHOICES)
     history = HistoricalRecords()
+    
+    class Meta:
+        verbose_name = _('Sous-zone')
+        verbose_name_plural = _('Sous-zones')
     
     def __str__(self):
         return self.sous_zone_name
@@ -186,11 +213,15 @@ class LocationType(CodeGeneratorMixin, TimeStampedModel):
     """
     CODE_PREFIX = 'LT'
     
-    code = models.CharField(unique=True, max_length=20)
-    name = models.CharField(max_length=100)
-    description = models.TextField(max_length=100, blank=True, null=True)
-    is_active = models.BooleanField(default=True)
+    reference = models.CharField(_('Code'), unique=True, max_length=20)
+    name = models.CharField(_('Nom'), max_length=100)
+    description = models.TextField(_('Description'), max_length=100, blank=True, null=True)
+    is_active = models.BooleanField(_('Actif'), default=True)
     history = HistoricalRecords()
+    
+    class Meta:
+        verbose_name = _('Type d\'emplacement')
+        verbose_name_plural = _('Types d\'emplacements')
     
     def __str__(self):
         return self.name
@@ -201,14 +232,18 @@ class Location(CodeGeneratorMixin, TimeStampedModel):
     """
     CODE_PREFIX = 'LOC'
     
-    location_code = models.CharField(unique=True, max_length=20)
-    location_reference = models.CharField(unique=True, max_length=30)
-    sous_zone = models.ForeignKey(SousZone, on_delete=models.CASCADE)
-    location_type = models.ForeignKey(LocationType, on_delete=models.CASCADE)
-    capacity = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(0)])
-    is_active = models.BooleanField(default=True)
-    description = models.TextField(max_length=100, null=True, blank=True)
+    reference = models.CharField(_('Code de l\'emplacement'), unique=True, max_length=20)
+    location_reference = models.CharField(_('Référence de l\'emplacement'), unique=True, max_length=30)
+    sous_zone = models.ForeignKey(SousZone, on_delete=models.CASCADE, verbose_name=_('Sous-zone'))
+    location_type = models.ForeignKey(LocationType, on_delete=models.CASCADE, verbose_name=_('Type d\'emplacement'))
+    capacity = models.IntegerField(_('Capacité'), null=True, blank=True, validators=[MinValueValidator(0)])
+    is_active = models.BooleanField(_('Actif'), default=True)
+    description = models.TextField(_('Description'), max_length=100, null=True, blank=True)
     history = HistoricalRecords()
+    
+    class Meta:
+        verbose_name = _('Emplacement')
+        verbose_name_plural = _('Emplacements')
     
     def __str__(self):
         return self.location_reference
@@ -220,22 +255,30 @@ class Product(CodeGeneratorMixin, TimeStampedModel):
     CODE_PREFIX = 'PRD'
     
     STATUS_CHOICES = (
-        ('ACTIVE', 'ACTIVE'),
-        ('INACTIVE', 'INACTIVE'),
-        ('OBSOLETE', 'OBSOLETE'),
+        ('ACTIVE', _('Actif')),
+        ('INACTIVE', _('Inactif')),
+        ('OBSOLETE', _('Obsolète')),
     )
     
-    reference = models.CharField(unique=True)
-    Short_Description = models.CharField(max_length=100)
-    Barcode = models.CharField(unique=True, max_length=30, null=True, blank=True)
-    Product_Group = models.CharField(max_length=10)
-    Stock_Unit = models.CharField(max_length=3)
-    Product_Status = models.CharField(choices=STATUS_CHOICES)
-    Internal_Product_Code = models.CharField(max_length=20)
-    Product_Family = models.ForeignKey(Family, on_delete=models.CASCADE)
-    parent_product = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True)
-    Is_Variant = models.BooleanField()
+    reference = models.CharField(_('Référence'), unique=True, max_length=20)
+    Internal_Product_Code = models.CharField(_('Code produit'), max_length=20)
+    Short_Description = models.CharField(_('Désignation'), max_length=100)
+    Barcode = models.CharField(_('Code-barres'), unique=True, max_length=30, null=True, blank=True)
+    Product_Group = models.CharField(_('Groupe de produit'), max_length=10)
+    Stock_Unit = models.CharField(_('Unité de stock'), max_length=3)
+    Product_Status = models.CharField(_('Statut'), choices=STATUS_CHOICES)  
+    Product_Family = models.ForeignKey(Family, on_delete=models.CASCADE, verbose_name=_('Famille de produit'))
+    Is_Variant = models.BooleanField(_('variante'))
+    # n_lot=models.BooleanField(_('N° lot'))
+    # n_serie=models.BooleanField(_('N° série'))
+    # dlc = models.BooleanField(_('DLC'))
+    parent_product = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, verbose_name=_('Produit parent'))
+    
     history = HistoricalRecords()
+    
+    class Meta:
+        verbose_name = _('Produit')
+        verbose_name_plural = _('Produits')
     
     def __str__(self):
         return self.Short_Description
@@ -246,10 +289,14 @@ class UnitOfMeasure(CodeGeneratorMixin, TimeStampedModel):
     """
     CODE_PREFIX = 'UOM'
     
-    code = models.CharField(max_length=20, unique=True)
-    name = models.CharField(max_length=50)
-    description = models.TextField(max_length=100, null=True, blank=True)
+    reference = models.CharField(_('Code'), max_length=20, unique=True)
+    name = models.CharField(_('Nom'), max_length=50)
+    description = models.TextField(_('Description'), max_length=100, null=True, blank=True)
     history = HistoricalRecords()
+    
+    class Meta:
+        verbose_name = _('Unité de mesure')
+        verbose_name_plural = _('Unités de mesure')
     
     def __str__(self):
         return self.name
@@ -281,7 +328,15 @@ class Stock(TimeStampedModel):
     def __str__(self):
         return f"{self.product.Short_Description} - {self.location.location_code}"
     
+class TypeRessource(CodeGeneratorMixin, TimeStampedModel):
+    CODE_PREFIX = 'TR'
+    reference = models.CharField(unique=True, max_length=20)
+    libelle = models.CharField(max_length=100)
+    description = models.TextField(max_length=100, null=True, blank=True)
+    history = HistoricalRecords()
 
+    def __str__(self):
+        return self.libelle
 
 class Ressource(CodeGeneratorMixin, TimeStampedModel):
     STATUS_CHOICES = (

@@ -1,3 +1,3 @@
-from .user_serializer import UserSerializer, UserWebSerializer, MobileUserSerializer
+from .user_serializer import UserSerializer, UserAppSerializer, MobileUserSerializer
 
-__all__ = ['UserSerializer', 'UserWebSerializer', 'MobileUserSerializer'] 
+__all__ = ['UserSerializer', 'UserAppSerializer', 'MobileUserSerializer'] 

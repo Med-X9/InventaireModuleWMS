@@ -4,10 +4,11 @@ from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, Permis
 from django.contrib.auth.models import Group, Permission
 from simple_history.models import HistoricalRecords
 from datetime import datetime
+from django.utils.translation import gettext_lazy as _
 # Create your models here.
 
 
-class UserWebManager(BaseUserManager):
+class UserAppManager(BaseUserManager):
     def create_user(self, username, role, password=None, **extra_fields):
         if not username:
             raise ValueError('Le champ username doit être renseigné.')
@@ -26,26 +27,26 @@ class UserWebManager(BaseUserManager):
             raise ValueError('Superuser must have is_superuser=True.')
 
         return self.create_user(username, role, password, **extra_fields)
-class UserWeb(AbstractBaseUser, PermissionsMixin, models.Model):  
+    
+
+
+class UserApp(AbstractBaseUser, PermissionsMixin, models.Model): 
+
     ROLES = (
-        ('Administrateur', 'Administrateur'),
-        ('user', 'User'),
-    )
-    TYPE_CHOICES = (
-        ('web', 'web'),
-        ('mobile', 'mobile'),
+        ('Administrateur', _('Administrateur')),
+        ('Operateur', _('Operateur')),
+
     )
 
-    username = models.CharField(max_length=150, unique=True)
-    email = models.EmailField(blank=True, null=True)
-    nom = models.CharField(max_length=255)
-    prenom = models.CharField(max_length=255)
-    role = models.CharField(max_length=100, choices=ROLES)
-    type = models.CharField(max_length=100, choices=TYPE_CHOICES, default="web")
-    is_active = models.BooleanField(default=True)
-    is_staff = models.BooleanField(default=False, verbose_name='Administrateur')
+    username = models.CharField(_('Nom d\'utilisateur'), max_length=150, unique=True)
+    email = models.EmailField(_('Email'), blank=True, null=True)
+    nom = models.CharField(_('Nom'), max_length=255)
+    prenom = models.CharField(_('Prénom'), max_length=255)
+    role = models.CharField(_('Rôle'), max_length=100, choices=ROLES)
+    is_active = models.BooleanField(_('Actif'), default=True)
+    is_staff = models.BooleanField(_('Administrateur'), default=False)
     
-    objects = UserWebManager()
+    objects = UserAppManager()
     history = HistoricalRecords()
 
     USERNAME_FIELD = 'username'
@@ -53,13 +54,13 @@ class UserWeb(AbstractBaseUser, PermissionsMixin, models.Model):
 
     groups = models.ManyToManyField(
         Group,
-        verbose_name='groups',
+        verbose_name=_('groupes'),
         blank=True,
         related_name='user_web_groups'
     )
     user_permissions = models.ManyToManyField(
         Permission,
-        verbose_name='user permissions',
+        verbose_name=_('permissions utilisateur'),
         blank=True,
         related_name='user_web_permissions'
     )
@@ -68,4 +69,5 @@ class UserWeb(AbstractBaseUser, PermissionsMixin, models.Model):
         return f"{self.prenom} {self.nom}"
 
     class Meta:
-        verbose_name = 'Utilisateur'
+        verbose_name = _('Utilisateur')
+        verbose_name_plural = _('Utilisateurs')

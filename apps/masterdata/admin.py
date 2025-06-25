@@ -1,4 +1,8 @@
 from django.contrib import admin
+from django import forms
+from django.utils import timezone
+import random
+from datetime import datetime
 
 # Register your models here.
 from django.contrib import admin
@@ -11,7 +15,7 @@ from .models import (
     LocationType, Location, Product, UnitOfMeasure,Stock,SousZone
 )
 from django.contrib.auth.admin import UserAdmin
-from apps.users.models import UserWeb
+from apps.users.models import UserApp
 # ---------------- Resources ---------------- #
 
 class AccountResource(resources.ModelResource):
@@ -172,6 +176,17 @@ class LocationResource(resources.ModelResource):
             SousZone.objects.get(sous_zone_name=sous_zone_id)
         except SousZone.DoesNotExist:
             raise ValueError(f"La sous zone '{sous_zone_id}' n'existe pas dans la base de données.")
+        
+
+
+
+
+
+
+
+
+
+        
 
 class ProductResource(resources.ModelResource):
     reference = fields.Field(column_name='reference', attribute='reference', widget=widgets.CharWidget())
@@ -310,10 +325,10 @@ class StockResource(resources.ModelResource):
 
 
 
-@admin.register(UserWeb)
-class UserWebAdmin(UserAdmin):
-    list_display = ('nom', 'prenom', 'username', 'email', 'role', 'type', 'is_staff', 'is_active')
-    list_filter = ('role', 'type', 'is_staff', 'is_active')
+@admin.register(UserApp)
+class UserAppAdmin(UserAdmin):
+    list_display = ('nom', 'prenom', 'username', 'email', 'role','is_staff', 'is_active')
+    list_filter = ('role','is_staff', 'is_active')
     search_fields = ('username', 'email', 'nom', 'prenom')
     ordering = ('username',)
 
@@ -324,7 +339,7 @@ class UserWebAdmin(UserAdmin):
     # Champs à afficher dans le formulaire d'édition
     fieldsets = (
         (None, {'fields': ('username', 'email', 'password')}),
-        ('Informations personnelles', {'fields': ('nom', 'prenom', 'role', 'type')}),
+        ('Informations personnelles', {'fields': ('nom', 'prenom', 'role')}),
         ('Permissions', {'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')}),
         ('Dates importantes', {'fields': ('last_login',)}),
     )
@@ -333,7 +348,7 @@ class UserWebAdmin(UserAdmin):
     add_fieldsets = (
         (None, {
             'classes': ('wide',),
-            'fields': ('username', 'email', 'nom', 'prenom', 'role', 'type', 'password1', 'password2', 'is_staff', 'is_superuser', 'groups')}
+            'fields': ('username', 'email', 'nom', 'prenom', 'role', 'password1', 'password2', 'is_staff', 'is_superuser', 'groups')}
         ),
     )
 
@@ -349,19 +364,19 @@ class UserWebAdmin(UserAdmin):
 @admin.register(Account)
 class AccountAdmin(ImportExportModelAdmin):
     resource_class = AccountResource
-    list_display = ('account_code', 'account_name', 'account_statuts')
-    search_fields = ('account_code', 'account_name', 'account_statuts')
+    list_display = ('reference', 'account_name', 'account_statuts')
+    search_fields = ('reference', 'account_name', 'account_statuts')
     list_filter = ('account_statuts',)
-    exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted')
+    exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted','reference')
 
 
 @admin.register(Family)
 class FamilyAdmin(ImportExportModelAdmin):
     resource_class = FamilyResource
-    list_display = ('family_code', 'family_name', 'family_status','get_account_name')
-    search_fields = ('family_code', 'family_name', 'family_status')
+    list_display = ('reference', 'family_name', 'family_status','get_account_name')
+    search_fields = ('reference', 'family_name', 'family_status')
     list_filter = ('family_status',)
-    exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted')
+    exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted','reference')
     def get_export_formats(self):
         return [XLSX, CSV]
     
@@ -374,72 +389,130 @@ class FamilyAdmin(ImportExportModelAdmin):
 @admin.register(Warehouse)
 class WarehouseAdmin(ImportExportModelAdmin):
     resource_class = WarehouseResource
-    list_display = ('warehouse_code', 'warehouse_name', 'warehouse_type', 'status')
-    search_fields = ('warehouse_code', 'warehouse_name', 'warehouse_type', 'status')
+    list_display = ('reference', 'warehouse_name', 'warehouse_type', 'status')
+    search_fields = ('reference', 'warehouse_name', 'warehouse_type', 'status')
     list_filter = ('warehouse_type', 'status')
-    exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted')
+    exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted','reference')
 
 
 @admin.register(ZoneType)
 class ZoneTypeAdmin(ImportExportModelAdmin):
     resource_class = ZoneTypeResource
-    list_display = ('type_code', 'type_name', 'status')
-    search_fields = ('type_code', 'type_name', 'status')
+    list_display = ('reference', 'type_name', 'status')
+    search_fields = ('reference', 'type_name', 'status')
     list_filter = ('status',)
-    exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted')
+    exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted','reference')
 
 
 @admin.register(Zone)
 class ZoneAdmin(ImportExportModelAdmin):
     resource_class = ZoneResource
-    list_display = ('zone_code', 'zone_name', 'warehouse_id', 'zone_type_id', 'zone_status')
-    search_fields = ('zone_code', 'zone_name', 'zone_status')
+    list_display = ('reference', 'zone_name', 'get_warehouse_name', 'get_zone_type_name', 'zone_status')
+    search_fields = ('reference', 'zone_name', 'zone_status')
     list_filter = ('zone_status', 'warehouse_id', 'zone_type_id')
     exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted')
+
+    def get_warehouse_name(self, obj):
+        return obj.warehouse.warehouse_name if obj.warehouse else '-'
+    get_warehouse_name.short_description = 'Warehouse'
+    get_warehouse_name.admin_order_field = 'warehouse__warehouse_name'
+
+    def get_zone_type_name(self, obj):
+        return obj.zone_type.type_name if obj.zone_type else '-'
+    get_zone_type_name.short_description = 'Zone Type'
+    get_zone_type_name.admin_order_field = 'zone_type__type_name'
 
 
 @admin.register(SousZone)
 class SousZoneAdmin(ImportExportModelAdmin):
     resource_class = SousZoneResource
-    list_display = ('sous_zone_code', 'sous_zone_name', 'zone_id', 'sous_zone_status')
-    search_fields = ('sous_zone_code', 'sous_zone_name', 'sous_zone_status')
+    list_display = ('reference', 'sous_zone_name', 'get_zone_name', 'sous_zone_status')
+    search_fields = ('reference', 'sous_zone_name', 'sous_zone_status')
     list_filter = ('sous_zone_status', 'zone_id')
     exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted')
+
+    def get_zone_name(self, obj):
+        return obj.zone.zone_name if obj.zone else '-'
+    get_zone_name.short_description = 'Zone'
+    get_zone_name.admin_order_field = 'zone__zone_name'
 
 
 @admin.register(LocationType)
 class LocationTypeAdmin(ImportExportModelAdmin):
     resource_class = LocationTypeResource
-    list_display = ('code', 'name', 'is_active')
-    search_fields = ('code', 'name')
+    list_display = ('reference', 'name', 'is_active')
+    search_fields = ('reference', 'name')
     list_filter = ('is_active',)
-    exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted')
+    exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted','reference')
 
 
 @admin.register(Location)
 class LocationAdmin(ImportExportModelAdmin):
     resource_class = LocationResource
-    list_display = ('location_code', 'sous_zone_id', 'location_type_id', 'capacity', 'is_active')
-    search_fields = ('location_code',)
+    list_display = ('reference', 'get_sous_zone_name', 'get_location_type_name', 'capacity', 'is_active')
+    search_fields = ('reference',)
     list_filter = ('sous_zone_id', 'location_type_id', 'is_active')
     exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted')
 
+    def get_sous_zone_name(self, obj):
+        return obj.sous_zone.sous_zone_name if obj.sous_zone else '-'
+    get_sous_zone_name.short_description = 'Sous Zone'
+    get_sous_zone_name.admin_order_field = 'sous_zone__sous_zone_name'
+
+    def get_location_type_name(self, obj):
+        return obj.location_type.name if obj.location_type else '-'
+    get_location_type_name.short_description = 'Location Type'
+    get_location_type_name.admin_order_field = 'location_type__name'
+
+
+class ProductForm(forms.ModelForm):
+    class Meta:
+        model = Product
+        fields = (
+            'Short_Description',
+            'Barcode',
+            'Product_Group',
+            'Stock_Unit',
+            'Product_Status',
+            'Internal_Product_Code',
+            'Product_Family',
+            'parent_product',
+            'Is_Variant',
+        )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        # La validation du champ reference est gérée dans le modèle
+        return cleaned_data
 
 @admin.register(Product)
 class ProductAdmin(ImportExportModelAdmin):
+    form = ProductForm
     resource_class = ProductResource
-    list_display = ('reference', 'Short_Description', 'Barcode', 'Product_Group', 'Stock_Unit', 'Product_Status', 'Is_Variant')
-    search_fields = ('reference', 'Short_Description', 'Barcode', 'Product_Group', 'Stock_Unit')
-    list_filter = ('Product_Status', 'Is_Variant')
-    exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted')
+    list_display = ('reference', 'Internal_Product_Code', 'Short_Description', 'Barcode', 'Product_Group', 'Stock_Unit', 'Product_Status','Is_Variant', 'get_family_name')
+    list_filter = ('Product_Status', 'Product_Family', 'Is_Variant')
+    search_fields = ('reference', 'Short_Description', 'Barcode', 'Internal_Product_Code')
+    exclude = ('created_at', 'updated_at', 'deleted_at', 'is_deleted')
+    readonly_fields = ('reference',)
+
+    def get_family_name(self, obj):
+        return obj.Product_Family.family_name if obj.Product_Family else '-'
+    get_family_name.short_description = 'Famille'
+    get_family_name.admin_order_field = 'Product_Family__family_name'
+
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        if not obj:  # Si c'est un nouveau produit
+            form.base_fields['reference'] = forms.CharField(required=False, widget=forms.HiddenInput())
+        return form
 
 
 @admin.register(UnitOfMeasure)
 class UnitOfMeasureAdmin(ImportExportModelAdmin):
     resource_class = UnitOfMeasureResource
-    list_display = ('code', 'name')
-    search_fields = ('code', 'name')
-    exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted')
+    list_display = ('reference', 'name')
+    search_fields = ('reference', 'name')
+    exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted','reference')
 
 
 @admin.register(Stock)
@@ -463,15 +536,16 @@ class StockAdmin(ImportExportModelAdmin):
     exclude = ('created_at', 'updated_at', 'deleted_at', 'is_deleted')
 
     def get_location_name(self, obj):
-        return obj.location.location_code
+        return obj.location.location_code if obj.location else '-'
     get_location_name.short_description = 'Location'
+    get_location_name.admin_order_field = 'location__location_code'
 
     def get_product_reference(self, obj):
-        return obj.product.reference
+        return obj.product.reference if obj.product else '-'
     get_product_reference.short_description = 'Product Reference'
-
-    
+    get_product_reference.admin_order_field = 'product__reference'
 
     def get_unit_of_measure_name(self, obj):
-        return obj.unit_of_measure.name
+        return obj.unit_of_measure.name if obj.unit_of_measure else '-'
     get_unit_of_measure_name.short_description = 'Unit of Measure'
+    get_unit_of_measure_name.admin_order_field = 'unit_of_measure__name'

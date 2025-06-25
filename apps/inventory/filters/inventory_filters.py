@@ -8,8 +8,6 @@ class InventoryFilter(filters.FilterSet):
     date_gte = filters.DateTimeFilter(field_name='date', lookup_expr='gte')
     date_lte = filters.DateTimeFilter(field_name='date', lookup_expr='lte')
     label = filters.CharFilter(field_name='label', lookup_expr='icontains')
-    en_attente_status_date_gte = filters.DateTimeFilter(field_name='en_attente_status_date', lookup_expr='gte')
-    en_attente_status_date_lte = filters.DateTimeFilter(field_name='en_attente_status_date', lookup_expr='lte')
     en_preparation_status_date_gte = filters.DateTimeFilter(field_name='en_preparation_status_date', lookup_expr='gte')
     en_preparation_status_date_lte = filters.DateTimeFilter(field_name='en_preparation_status_date', lookup_expr='lte')
     en_realisation_status_date_gte = filters.DateTimeFilter(field_name='en_realisation_status_date', lookup_expr='gte')
@@ -32,7 +30,6 @@ class InventoryFilter(filters.FilterSet):
             'status': ['exact'],
             'date': ['exact'],
             'label': ['exact'],
-            'en_attente_status_date': ['exact'],
             'en_preparation_status_date': ['exact'],
             'en_realisation_status_date': ['exact'],
             'ternime_status_date': ['exact'],

@@ -2,12 +2,12 @@
 Serializers pour l'application inventory.
 """
 from rest_framework import serializers
-from ..models import Inventory, Counting, Setting, Pda
+from ..models import Inventory, Counting, Setting, Assigment
 from ..services.inventory_service import InventoryService
 from ..exceptions import InventoryValidationError
 from apps.masterdata.models import Account, Warehouse
 from .counting_serializer import CountingCreateSerializer, CountingDetailSerializer, CountingSerializer
-from apps.users.serializers import UserWebSerializer
+from apps.users.serializers import UserAppSerializer
 
 class InventoryCreateSerializer(serializers.Serializer):
     label = serializers.CharField()
@@ -60,11 +60,11 @@ class InventoryGetByIdSerializer(serializers.ModelSerializer):
 
 class PdaTeamSerializer(serializers.ModelSerializer):
     """Serializer pour les membres de l'équipe PDA"""
-    user = UserWebSerializer(source='session', read_only=True)
+    user = UserAppSerializer(source='session', read_only=True)
 
     class Meta:
-        model = Pda
-        fields = ['id', 'lebel', 'user']
+        model = Assigment
+        fields = ['id', 'reference', 'user']
 
 class InventoryDetailSerializer(serializers.ModelSerializer):
     """
@@ -98,7 +98,7 @@ class InventoryDetailSerializer(serializers.ModelSerializer):
         return CountingDetailSerializer(countings, many=True).data
 
     def get_equipe(self, obj):
-        pdas = Pda.objects.filter(inventory=obj)
+        pdas = Assigment.objects.filter(job__inventory=obj)
         return PdaTeamSerializer(pdas, many=True).data
 
 class InventorySerializer(serializers.ModelSerializer):
@@ -128,13 +128,13 @@ class InventorySerializer(serializers.ModelSerializer):
         return CountingSerializer(countings, many=True).data
 
     def get_equipe(self, obj):
-        pdas = Pda.objects.filter(inventory=obj)
+        pdas = Assigment.objects.filter(job__inventory=obj)
         return PdaTeamSerializer(pdas, many=True).data
 
 class InventoryTeamSerializer(serializers.ModelSerializer):
     """Serializer pour récupérer l'équipe d'un inventaire"""
-    user = UserWebSerializer(source='session', read_only=True)
+    user = UserAppSerializer(source='session', read_only=True)
 
     class Meta:
-        model = Pda
-        fields = ['id', 'lebel', 'user'] 
+        model = Assigment
+        fields = ['id', 'reference', 'user'] 

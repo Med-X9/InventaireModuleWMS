@@ -112,7 +112,7 @@ DATABASES = {
     }
 }
 DEFAULT_CHARSET = 'utf-8'
-AUTH_USER_MODEL = 'users.UserWeb'
+AUTH_USER_MODEL = 'users.UserApp'
 
 
 
@@ -245,7 +245,7 @@ JAZZMIN_SETTINGS = {
     # Additional links to include in the user menu on the top right ("app" url type is not allowed)
     "usermenu_links": [
         # {"name": "Support", "url": "https://github.com/farridav/django-jazzmin/issues", "new_window": True},
-        {"model": "users.UserWeb"}
+        {"model": "users.UserApp"}
     ],
 
     #############
@@ -267,12 +267,13 @@ JAZZMIN_SETTINGS = {
     # List of apps (and/or models) to base side menu ordering off of (does not need to contain all apps/models)
     "order_with_respect_to": [
        
-        "users.UserWeb",
+        "users.UserApp",
         "masterdata.Account",
         "masterdata.Family",
         "masterdata.Warehouse",
         "masterdata.ZoneType",
         "masterdata.Zone",
+        "masterdata.SousZone",
         "masterdata.LocationType",
         "masterdata.Location",
         "masterdata.Product",
@@ -300,7 +301,7 @@ JAZZMIN_SETTINGS = {
     "auth": "fas fa-users-cog",
     "auth.user": "fas fa-user",
     "auth.Group": "fas fa-users",
-    "users.UserWeb": "fas fa-user-shield",
+    "users.UserApp": "fas fa-user-shield",
 
     # Master Data
     "masterdata.Account": "fas fa-user-circle",
@@ -346,9 +347,9 @@ JAZZMIN_SETTINGS = {
     # - carousel
     "changeform_format": "horizontal_tabs",
     # override change forms on a per modeladmin basis
-    "changeform_format_overrides": {"users.UserWeb": "collapsible", "auth.group": "vertical_tabs"},
+    "changeform_format_overrides": {"users.UserApp": "collapsible", "auth.group": "vertical_tabs"},
     # Add a language dropdown into the admin
-    "language_chooser": False,
+    "language_chooser": True,
 }
 
 

@@ -1,4 +1,4 @@
-from apps.inventory.models import Pda, Inventory 
+from apps.inventory.models import Assigment, Inventory 
 from apps.inventory.exceptions.pda_exceptions import PdaNotFoundError
 import logging
 
@@ -28,7 +28,7 @@ class PDAService:
                 raise PdaNotFoundError(f"Inventaire {inventory_id} non trouvé")
             
             # Récupérer les PDAs
-            pdas = Pda.objects.filter(inventory_id=inventory_id)
+            pdas = Assigment.objects.filter(job__inventory_id=inventory_id)
             logger.info(f"{pdas.count()} PDAs trouvés pour l'inventaire {inventory_id}")
             
             return pdas

@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from ..models import Warehouse, Inventory, Location, Job, Pda, JobDetail
+from ..models import Warehouse, Inventory, Location, Job, Assigment, JobDetail
 from django.utils import timezone
 from .job_serializer import EmplacementSerializer, PdaSerializer
 
@@ -23,7 +23,7 @@ class InventoryJobCreateSerializer(serializers.Serializer):
 class JobDetailRetrieveSerializer(serializers.ModelSerializer):
     location_id = serializers.IntegerField(source='location.id')
     location_name = serializers.CharField(source='location.location_code')
-    pda_name = serializers.CharField(source='pda.lebel')
+    pda_name = serializers.CharField(source='pda.reference')
     pda_session = serializers.IntegerField(source='pda.session.id')
 
     class Meta:

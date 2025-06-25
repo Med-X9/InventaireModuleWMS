@@ -6,7 +6,7 @@ from django.utils import timezone
 from ..interfaces.inventory_interface import IInventoryRepository
 from ..repositories import InventoryRepository
 from ..exceptions import InventoryValidationError, InventoryNotFoundError
-from ..models import Inventory, Setting, Counting, InventoryDetail
+from ..models import Inventory, Setting, Counting, CountingDetail
 from django.db import IntegrityError
 import logging
 from .counting_service import CountingService
@@ -324,7 +324,7 @@ class InventoryService:
             
             for stock in stocks:
                 quantity = int(stock.quantity_available)
-                InventoryDetail.objects.create(
+                CountingDetail.objects.create(
                     counting=counting,
                     product=stock.product,
                     location=stock.location,
@@ -456,7 +456,7 @@ class InventoryService:
             
             # Si le mode est "Etat de stock", vider la table InventoryDetail
             if first_counting.count_mode == "Etat de stock":
-                InventoryDetail.objects.filter(counting=first_counting).delete()
+                CountingDetail.objects.filter(counting=first_counting).delete()
             
             # Mettre à jour le statut de l'inventaire
             inventory.status = 'EN PREPARATION'

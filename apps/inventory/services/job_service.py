@@ -1,7 +1,7 @@
 from django.utils import timezone
 from datetime import datetime
-from ..models import Job, Planning, Pda, JobDetail, Location, Inventory, Warehouse
-from apps.users.models import UserWeb
+from ..models import Job, Planning, Assigment, JobDetail, Location, Inventory, Warehouse
+from apps.users.models import UserApp
 from ..exceptions import (
     JobCreationError,
     PlanningCreationError,
@@ -51,9 +51,9 @@ class JobService:
                 session_users = {}
                 for pda_data in data['pda']:
                     try:
-                        session_user = UserWeb.objects.get(id=pda_data['session'])
+                        session_user = UserApp.objects.get(id=pda_data['session'])
                         session_users[pda_data['session']] = session_user
-                    except UserWeb.DoesNotExist:
+                    except UserApp.DoesNotExist:
                         raise PdaCreationError(f"Utilisateur avec l'ID {pda_data['session']} non trouvé")
 
                 # 4. Validation des emplacements pour les jobs
@@ -85,10 +85,10 @@ class JobService:
                 # 6. Création des PDAs
                 pda_objects = []
                 for pda_data in data['pda']:
-                    pda = Pda.objects.create(
-                        lebel=pda_data['nom'],
+                    pda = Assigment.objects.create(
+                        reference=pda_data['nom'],
                         session=session_users[pda_data['session']],
-                        inventory=inventory
+                        job=job
                     )
                     pda_objects.append(pda)
 
@@ -122,7 +122,7 @@ class JobService:
                 response_data = {
                     'date': planning.start_date,
                     'jobs': jobs_data,
-                    'pda': [{'id': pda.id, 'nom': pda.lebel, 'session': pda.session.id} for pda in pda_objects]
+                    'pda': [{'id': pda.id, 'nom': pda.reference, 'session': pda.session.id} for pda in pda_objects]
                 }
 
                 # 9. Sérialisation des données
@@ -163,7 +163,7 @@ class JobService:
             jobs = Job.objects.filter(warehouse=warehouse, is_deleted=False)
 
             # Récupérer les PDAs
-            pdas = Pda.objects.filter(inventory=inventory)
+            pdas = Assigment.objects.filter(job__inventory=inventory)
 
             # Préparer les données pour la sérialisation
             jobs_data = []
@@ -176,7 +176,7 @@ class JobService:
             data = {
                 'date': planning.start_date,
                 'jobs': jobs_data,
-                'pda': [{'id': pda.id, 'nom': pda.lebel, 'session': pda.session.id} for pda in pdas]
+                'pda': [{'id': pda.id, 'nom': pda.reference, 'session': pda.session.id} for pda in pdas]
             }
 
             # Sérialiser les données
@@ -265,17 +265,17 @@ class JobService:
             if 'pda' in data:
                 for pda_data in data['pda']:
                     try:
-                        pda = Pda.objects.get(id=pda_data['id'])
-                        pda.lebel = pda_data['nom']
+                        pda = Assigment.objects.get(id=pda_data['id'])
+                        pda.reference = pda_data['nom']
                         pda.session_id = pda_data['session']
                         pda.save()
-                    except Pda.DoesNotExist:
+                    except Assigment.DoesNotExist:
                         raise JobCreationError(f"PDA avec l'ID {pda_data['id']} non trouvé")
                     except Exception as e:
                         raise JobCreationError(f"Erreur lors de la mise à jour du PDA {pda_data['id']}: {str(e)}")
 
             # Récupérer les PDAs mis à jour
-            pdas = Pda.objects.filter(inventory=inventory)
+            pdas = Assigment.objects.filter(job__inventory=inventory)
 
             # Préparer les données pour la sérialisation
             jobs_data = []
@@ -288,7 +288,7 @@ class JobService:
             response_data = {
                 'date': planning.start_date,
                 'jobs': jobs_data,
-                'pda': [{'id': pda.id, 'nom': pda.lebel, 'session': pda.session.id} for pda in pdas]
+                'pda': [{'id': pda.id, 'nom': pda.reference, 'session': pda.session.id} for pda in pdas]
             }
 
             # Sérialiser les données
@@ -330,7 +330,7 @@ class JobService:
                 pass  # Le planning n'existe pas, on continue
 
             # Soft delete des PDAs
-            pdas = Pda.objects.filter(inventory=inventory)
+            pdas = Assigment.objects.filter(job__inventory=inventory)
             for pda in pdas:
                 pda.soft_delete()
 
@@ -393,8 +393,8 @@ class JobService:
 
                 # Vérifier que le PDA existe
                 try:
-                    pda = Pda.objects.get(id=equipe_id)
-                except Pda.DoesNotExist:
+                    pda = Assigment.objects.get(id=equipe_id)
+                except Assigment.DoesNotExist:
                     raise JobCreationError(f"PDA avec l'ID {equipe_id} non trouvé")
 
                 # Effectuer les affectations pour cette équipe
