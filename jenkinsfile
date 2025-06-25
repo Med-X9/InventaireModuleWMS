@@ -55,12 +55,16 @@ pipeline {
             }
         }
 
-        stage('Upload Backend Docker Compose File') {
+        stage('Uploading Files') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'dev-test-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                     sh """
                     sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$DEPLOY_HOST "mkdir -p $DOCKER_COMPOSE_DIR"
-                    sshpass -p "$PASS" scp -o StrictHostKeyChecking=no backend/docker-compose.yaml $USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend-compose.yaml
+                    sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$DEPLOY_HOST "mkdir -p $DOCKER_COMPOSE_DIR/frontend"
+                    sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$DEPLOY_HOST "mkdir -p $DOCKER_COMPOSE_DIR/backend"
+                    sshpass -p "$PASS" scp -o StrictHostKeyChecking=no backend/docker-compose.yaml $USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/docker-compose.yaml
+                    sshpass -p "$PASS" scp -o StrictHostKeyChecking=no backend/Dockerfile $USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/Dockerfile
+                    sshpass -p "$PASS" scp -o StrictHostKeyChecking=no frontend/Dockerfile $USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/frontend/Dockerfile
                     """
                 }
             }
@@ -71,9 +75,9 @@ pipeline {
                 withCredentials([usernamePassword(credentialsId: 'dev-test-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                     sh """
                     sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$DEPLOY_HOST << EOF
-                    cd $DOCKER_COMPOSE_DIR
-                    docker-compose -f backend-compose.yaml pull
-                    docker-compose -f backend-compose.yaml up -d
+                    cd $DOCKER_COMPOSE_DIR/backend
+                    docker-compose pull
+                    docker-compose up -d
                     EOF
                     """
                 }
@@ -85,6 +89,7 @@ pipeline {
                 withCredentials([usernamePassword(credentialsId: 'dev-test-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                     sh """
                     sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$DEPLOY_HOST << EOF
+                    cd $DOCKER_COMPOSE_DIR/frontend
                     docker pull $FRONTEND_IMAGE:$IMAGE_TAG
                     docker stop frontend-container || true
                     docker rm frontend-container || true
