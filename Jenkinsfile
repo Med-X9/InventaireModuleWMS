@@ -18,17 +18,13 @@ pipeline {
     stages {
         stage('Build Frontend Docker Image') {
             steps {
-                dir('frontend') {
-                    sh 'docker build -t $FRONTEND_IMAGE:$IMAGE_TAG .'
-                }
+                sh 'docker build -t $FRONTEND_IMAGE:$IMAGE_TAG .'
             }
         }
 
         stage('Build Backend Docker Image') {
             steps {
-                dir('backend') {
-                    sh 'docker build -t $BACKEND_IMAGE:$IMAGE_TAG .'
-                }
+                sh 'docker build -t $BACKEND_IMAGE:$IMAGE_TAG .'
             }
         }
 
