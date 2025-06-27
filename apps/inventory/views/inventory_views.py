@@ -19,6 +19,8 @@ from ..exceptions import InventoryValidationError, InventoryNotFoundError
 from ..filters import InventoryFilter
 from ..repositories import InventoryRepository
 from ..interfaces import IInventoryRepository
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
 
 # Configuration du logger
 logger = logging.getLogger(__name__)
@@ -92,31 +94,61 @@ class InventoryCreateView(APIView):
 
     def post(self, request, *args, **kwargs):
         """
-        Crée un nouvel inventaire.
+        Crée un nouvel inventaire avec validation complète.
+        
+        Format JSON attendu:
+        {
+            "label": "Inventaire trimestriel Q1 2023",
+            "date": "2024-03-20",
+            "account_id": 2,
+            "warehouse": [
+                {"id": 1, "date": "12/12/2025"},
+                {"id": 2, "date": "12/12/2025"}
+            ],
+            "comptages": [
+                {
+                    "order": 1,
+                    "count_mode": "en vrac",
+                    "unit_scanned": true,
+                    "entry_quantity": false,
+                    "is_variant": false,
+                    "stock_situation": false,
+                    "quantity_show": true,
+                    "show_product": true,
+                    "dlc": false,
+                    "n_serie": false,
+                    "n_lot": false
+                }
+            ]
+        }
         """
         try:
+            # 1. Validation du serializer
             serializer = InventoryCreateSerializer(data=request.data)
-            if serializer.is_valid():
-                try:
-                    inventory = self.service.create_inventory(serializer.validated_data)
-                    return Response({
-                        "message": "Inventaire créé avec succès"
-                    }, status=status.HTTP_201_CREATED)
-                except InventoryValidationError as e:
-                    return Response({
-                        "error": str(e)
-                    }, status=status.HTTP_400_BAD_REQUEST)
-            logger.warning(f"Données invalides lors de la création d'un inventaire: {serializer.errors}")
-            return Response(
-                serializer.errors,
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            if not serializer.is_valid():
+                return Response({
+                    'success': False,
+                    'errors': serializer.errors
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # 2. Création via le service (qui utilise maintenant le use case)
+            result = self.service.create_inventory(serializer.validated_data)
+            
+            return Response(result, status=status.HTTP_201_CREATED)
+            
+        except InventoryValidationError as e:
+            logger.error(f"Erreur de validation: {str(e)}")
+            return Response({
+                'success': False,
+                'message': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
         except Exception as e:
-            logger.error(f"Erreur lors de la création d'un inventaire: {str(e)}", exc_info=True)
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            logger.error(f"Erreur inattendue: {str(e)}", exc_info=True)
+            return Response({
+                'success': False,
+                'message': 'Une erreur inattendue s\'est produite'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class InventoryDetailView(APIView):
     """

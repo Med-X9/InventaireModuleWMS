@@ -1,3 +1,3 @@
 from .inventory_repository import InventoryRepository
-
-__all__ = ['InventoryRepository'] 
+from .counting_repository import CountingRepository
+__all__ = ['InventoryRepository', 'CountingRepository'] 

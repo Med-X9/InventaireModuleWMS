@@ -54,6 +54,7 @@ class Inventory(TimeStampedModel, ReferenceMixin):
         ('EN REALISATION', 'EN REALISATION'),
         ('TERMINE', 'TERMINE'),  
         ('CLOTURE', 'CLOTURE'),
+        
     )
 
     reference = models.CharField(max_length=50, unique=True, null=False)
