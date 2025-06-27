@@ -9,189 +9,187 @@ from ..services.job_service import JobService
 from ..serializers.job_serializer import (
     InventoryJobRetrieveSerializer, 
     InventoryJobUpdateSerializer,
-    JobAssignmentRequestSerializer
+    JobAssignmentRequestSerializer,
+    JobCreateRequestSerializer,
+    JobRemoveEmplacementsSerializer,
+    JobAddEmplacementsSerializer,
+    JobValidateRequestSerializer,
+    JobListWithLocationsSerializer
 )
 from ..exceptions import JobCreationError
 import logging
 from datetime import datetime
-from ..models import Warehouse
+from ..models import Job, Warehouse
+from rest_framework.generics import ListAPIView
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework import filters
+from rest_framework.pagination import PageNumberPagination
+from ..filters.job_filters import JobFilter
 
 logger = logging.getLogger(__name__)
 
-class InventoryJobCreateView(APIView):
+class JobCreateAPIView(APIView):
+    def post(self, request, inventory_id, warehouse_id):
+        serializer = JobCreateRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({
+                'success': False,
+                'message': 'Erreur de validation',
+                'errors': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+        emplacements = serializer.validated_data['emplacements']
+        try:
+            jobs = JobService.create_jobs_for_inventory_warehouse(inventory_id, warehouse_id, emplacements)
+            return Response({
+                'success': True,
+                'message': 'Jobs créés avec succès',
+                'job_ids': [job.id for job in jobs]
+            }, status=status.HTTP_201_CREATED)
+        except JobCreationError as e:
+            return Response({
+                'success': False,
+                'message': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': f'Erreur interne : {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class JobValidateView(APIView):
     def post(self, request):
+        serializer = JobValidateRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({
+                'success': False,
+                'message': 'Erreur de validation',
+                'errors': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+        job_ids = serializer.validated_data['job_ids']
         try:
-            result = JobService.create_inventory_jobs(request.data)
-            return Response({"message": "Ajouter avec succès"}, status=status.HTTP_201_CREATED)
+            result = JobService.validate_jobs(job_ids)
+            return Response({
+                'success': True,
+                'message': 'Jobs validés avec succès',
+                'data': result
+            }, status=status.HTTP_200_OK)
         except JobCreationError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                'success': False,
+                'message': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({
+                'success': False,
+                'message': f'Erreur interne : {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-class InventoryJobRetrieveView(APIView):
-    def get(self, request, inventory_id, warehouse_id):
-        """
-        Récupère les jobs d'inventaire pour un inventaire et un warehouse spécifiques
-        
-        Args:
-            request: La requête HTTP
-            inventory_id: L'ID de l'inventaire
-            warehouse_id: L'ID du warehouse
-        """
+class JobDeleteView(APIView):
+    def delete(self, request, job_id):
         try:
-            result = JobService.get_inventory_jobs(inventory_id, warehouse_id)
-            return Response(result, status=status.HTTP_200_OK)
+            result = JobService.delete_job(job_id)
+            return Response({
+                'success': True,
+                'message': 'Job supprimé avec succès',
+                'data': result
+            }, status=status.HTTP_200_OK)
         except JobCreationError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                'success': False,
+                'message': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({
+                'success': False,
+                'message': f'Erreur interne : {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-class InventoryJobUpdateView(APIView):
-    def put(self, request, inventory_id, warehouse_id):
+class JobRemoveEmplacementsView(APIView):
+    def delete(self, request, job_id):
+        serializer = JobRemoveEmplacementsSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({
+                'success': False,
+                'message': 'Erreur de validation',
+                'errors': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+        emplacement_ids = serializer.validated_data['emplacement_ids']
         try:
-            # Valider les données
-            serializer = InventoryJobUpdateSerializer(data=request.data)
-            if not serializer.is_valid():
-                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-            # Mettre à jour les jobs
-            JobService.update_inventory_jobs(inventory_id, warehouse_id, serializer.validated_data)
-            return Response({"message": "Modification effectuée avec succès"}, status=status.HTTP_200_OK)
-
+            result = JobService.remove_job_emplacements(job_id, emplacement_ids)
+            return Response({
+                'success': True,
+                'message': 'Emplacements supprimés avec succès',
+                'data': result
+            }, status=status.HTTP_200_OK)
         except JobCreationError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                'success': False,
+                'message': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({
+                'success': False,
+                'message': f'Erreur interne : {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-class InventoryJobDeleteView(APIView):
-    def delete(self, request, inventory_id, warehouse_id):
+class JobAddEmplacementsView(APIView):
+    def post(self, request, job_id):
+        serializer = JobAddEmplacementsSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({
+                'success': False,
+                'message': 'Erreur de validation',
+                'errors': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+        emplacement_ids = serializer.validated_data['emplacement_ids']
         try:
-            # Supprimer les jobs
-            JobService.delete_inventory_jobs(inventory_id, warehouse_id)
-            return Response({"message": "Suppression effectuée avec succès"}, status=status.HTTP_200_OK)
-
+            result = JobService.add_job_emplacements(job_id, emplacement_ids)
+            return Response({
+                'success': True,
+                'message': 'Emplacements ajoutés avec succès',
+                'data': result
+            }, status=status.HTTP_200_OK)
         except JobCreationError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                'success': False,
+                'message': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({
+                'success': False,
+                'message': f'Erreur interne : {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-class InventoryJobAssignmentView(APIView):
-    """
-    Vue pour affecter des jobs à l'équipe
-    """
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.service = JobService()
-
-    def post(self, request, *args, **kwargs):
-        """
-        Affecte des jobs à l'équipe
-        """
-        try:
-            serializer = JobAssignmentRequestSerializer(data=request.data)
-            if serializer.is_valid():
-                result = self.service.assign_jobs_to_team(serializer.validated_data)
-                return Response(result, status=status.HTTP_200_OK)
-            
-            logger.warning(f"Données invalides lors de l'affectation des jobs: {serializer.errors}")
-            return Response(
-                serializer.errors,
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        except JobCreationError as e:
-            logger.warning(f"Erreur lors de l'affectation des jobs: {str(e)}")
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        except Exception as e:
-            logger.error(f"Erreur inattendue lors de l'affectation des jobs: {str(e)}", exc_info=True)
-            return Response(
-                {"error": "Une erreur inattendue s'est produite lors de l'affectation des jobs"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-class PendingJobsView(APIView):
-    """
-    Vue pour récupérer les jobs en attente d'un warehouse
-    """
+class PendingJobsReferencesView(APIView):
     def get(self, request, warehouse_id):
         try:
-            # Récupérer les paramètres de pagination
-            try:
-                page = int(request.query_params.get('page', 1))
-                if page < 1:
-                    raise ValueError
-            except ValueError:
-                return Response(
-                    {'error': 'Numéro de page invalide'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            try:
-                page_size = int(request.query_params.get('page_size', 10))
-                if page_size < 1 or page_size > 100:
-                    raise ValueError
-            except ValueError:
-                return Response(
-                    {'error': 'Taille de page invalide. Doit être entre 1 et 100'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            # Récupérer les jobs
-            result = JobService.get_pending_jobs(
-                warehouse_id=warehouse_id,
-                filters=request.query_params,
-                page=page,
-                page_size=page_size
-            )
-
-            return Response(result)
-
+            pending_jobs = JobService.get_pending_jobs_references(warehouse_id)
+            return Response({
+                'success': True,
+                'message': 'Jobs en attente récupérés avec succès',
+                'data': pending_jobs
+            }, status=status.HTTP_200_OK)
         except JobCreationError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                'success': False,
+                'message': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            logger.error(f"Erreur inattendue lors de la récupération des jobs: {str(e)}", exc_info=True)
-            return Response(
-                {'error': 'Une erreur inattendue s\'est produite'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return Response({
+                'success': False,
+                'message': f'Erreur interne : {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-class LaunchJobsView(APIView):
-    """
-    Vue pour lancer des jobs
-    """
-    def post(self, request, warehouse_id):
-        try:
-            # Vérifier que le warehouse existe
-            try:
-                warehouse = Warehouse.objects.get(id=warehouse_id)
-            except Warehouse.DoesNotExist:
-                return Response(
-                    {"error": f"Warehouse avec l'ID {warehouse_id} non trouvé"},
-                    status=status.HTTP_404_NOT_FOUND
-                )
+class JobListPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = 'page_size'
+    max_page_size = 100
 
-            # Récupérer les IDs des jobs
-            job_ids = request.data.get('job_ids', [])
-            if not job_ids:
-                return Response(
-                    {"error": "Aucun job ID fourni"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            # Lancer les jobs
-            result = JobService.launch_jobs(job_ids)
-            return Response(result, status=status.HTTP_200_OK)
-
-        except JobCreationError as e:
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        except Exception as e:
-            logger.error(f"Erreur lors du lancement des jobs: {str(e)}")
-            return Response(
-                {"error": f"Erreur lors du lancement des jobs: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            ) 
+class JobListWithLocationsView(ListAPIView):
+    queryset = Job.objects.all().order_by('-created_at')
+    serializer_class = JobListWithLocationsSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_class = JobFilter
+    search_fields = ['reference']
+    ordering_fields = ['created_at', 'status', 'reference']
+    pagination_class = JobListPagination 

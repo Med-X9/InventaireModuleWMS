@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from ..models import Location, Zone, LocationType
+from ..models import Location, SousZone, Zone, Warehouse, LocationType
 
 class ZoneSerializer(serializers.ModelSerializer):
     class Meta:
@@ -38,3 +38,16 @@ class LocationSerializer(serializers.ModelSerializer):
     #         'location_reference',
     #        
     #     ] 
+
+class UnassignedLocationSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    reference = serializers.CharField()
+    location_reference = serializers.CharField()
+    capacity = serializers.IntegerField(allow_null=True)
+    description = serializers.CharField(allow_null=True, allow_blank=True)
+    is_active = serializers.BooleanField()
+    
+    location_type = serializers.DictField()
+    sous_zone = serializers.DictField()
+    zone = serializers.DictField()
+    warehouse = serializers.DictField() 

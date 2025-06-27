@@ -1,5 +1,5 @@
 from django.urls import path
-from .views.location_views import AllWarehouseLocationListView, WarehouseJobLocationsView, SousZoneLocationsView
+from .views.location_views import AllWarehouseLocationListView, WarehouseJobLocationsView, SousZoneLocationsView, UnassignedLocationsView
 from .views.warehouse_views import WarehouseListView
 from .views.account_views import AccountListView
 from django.conf.urls.i18n import set_language
@@ -25,4 +25,8 @@ urlpatterns = [
     path('sous-zones/', SousZoneListView.as_view(), name='sous-zone-list'),
     path('sous-zones/<int:pk>/', SousZoneDetailView.as_view(), name='sous-zone-detail'),
     path('sous-zones/<int:sous_zone_id>/locations/', SousZoneLocationsView.as_view(), name='sous-zone-locations'),
+    
+    # URLs pour les emplacements non affectés
+    path('locations/unassigned/', UnassignedLocationsView.as_view(), name='unassigned-locations'),
+    path('warehouse/<int:warehouse_id>/locations/unassigned/', UnassignedLocationsView.as_view(), name='warehouse-unassigned-locations'),
 ]

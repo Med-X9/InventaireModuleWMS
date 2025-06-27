@@ -154,7 +154,7 @@ class Job(TimeStampedModel, ReferenceMixin):
     pret_date = models.DateTimeField(null=True, blank=True)
     termine_date = models.DateTimeField(null=True, blank=True)
     warehouse = models.ForeignKey('masterdata.Warehouse', on_delete=models.CASCADE)
-    invetory = models.ForeignKey(Inventory, on_delete=models.CASCADE)
+    inventory = models.ForeignKey(Inventory, on_delete=models.CASCADE)
     history = HistoricalRecords()
 
     def __str__(self):
@@ -197,6 +197,7 @@ class Assigment(TimeStampedModel, ReferenceMixin):
     session = models.ForeignKey('users.UserApp', on_delete=models.CASCADE, null=True, blank=True,limit_choices_to={'role__name': 'Operateur'})
     personne = models.ForeignKey('Personne', on_delete=models.CASCADE, related_name='primary_job_details',null=True,blank=True)
     personne_two = models.ForeignKey('Personne', on_delete=models.CASCADE, related_name='secondary_job_details',null=True,blank=True)   
+    counting = models.ForeignKey(Counting, on_delete=models.CASCADE)
     history = HistoricalRecords()
     
     def __str__(self):
@@ -224,7 +225,7 @@ class InventoryDetailRessource(TimeStampedModel, ReferenceMixin):
     history = HistoricalRecords()
     
     def __str__(self):
-        return f"{self.job.reference} - {self.ressource} - {self.quantity}"
+        return f"{self.inventory.reference} - {self.ressource} - {self.quantity}"
 
 
 class CountingDetail(TimeStampedModel, ReferenceMixin):

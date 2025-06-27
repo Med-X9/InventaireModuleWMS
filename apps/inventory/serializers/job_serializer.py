@@ -1,102 +1,91 @@
 from rest_framework import serializers
-from ..models import Job, JobDetail, Location, Assigment
-from django.utils import timezone
-import datetime
+from ..models import Job, JobDetail, Location
+from apps.masterdata.serializers.location_serializer import LocationSerializer
+from apps.masterdata.serializers.sous_zone_serializer import SousZoneSerializer
+from apps.masterdata.serializers.zone_serializer import ZoneSerializer
 
-class EmplacementSerializer(serializers.Serializer):
-    emplacements = serializers.ListField(child=serializers.IntegerField())
+class JobCreateRequestSerializer(serializers.Serializer):
+    emplacements = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False
+    )
 
-class PdaSerializer(serializers.Serializer):
-    id = serializers.IntegerField()
-    nom = serializers.CharField()
-    session = serializers.IntegerField()
+class JobRemoveEmplacementsSerializer(serializers.Serializer):
+    emplacement_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False
+    )
 
-class JobDetailSerializer(serializers.ModelSerializer):
-    location_id = serializers.IntegerField(source='location.id')
-    location_name = serializers.CharField(source='location.location_code')
-    pda_name = serializers.CharField(source='pda.reference')
-    pda_session = serializers.IntegerField(source='pda.session.id')
+class JobAddEmplacementsSerializer(serializers.Serializer):
+    emplacement_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False
+    )
 
-    class Meta:
-        model = JobDetail
-        fields = ['id', 'location_id', 'location_name', 'pda_name', 'pda_session', 'status']
+class JobValidateRequestSerializer(serializers.Serializer):
+    job_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False
+    )
 
 class JobSerializer(serializers.ModelSerializer):
-    details = JobDetailSerializer(source='jobdetail_set', many=True, read_only=True)
-
     class Meta:
         model = Job
-        fields = ['id', 'reference', 'status', 'details']
+        fields = ['id', 'reference', 'status', 'warehouse', 'inventory']
 
-class InventoryJobRetrieveSerializer(serializers.Serializer):
-    date = serializers.DateTimeField()
-    jobs = EmplacementSerializer(many=True)
-    pda = PdaSerializer(many=True)
+class JobDetailSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = JobDetail
+        fields = ['id', 'reference', 'location', 'job', 'status']
 
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-        # Convertir le datetime en date si c'est un objet datetime
-        if isinstance(data['date'], (datetime.datetime, datetime.date)):
-            data['date'] = data['date'].date()
-        return data 
+class EmplacementSerializer(serializers.Serializer):
+    emplacements = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False
+    )
 
-class PdaUpdateSerializer(serializers.Serializer):
-    id = serializers.IntegerField()
-    nom = serializers.CharField()
+class PdaSerializer(serializers.Serializer):
+    reference = serializers.CharField()
     session = serializers.IntegerField()
 
 class InventoryJobUpdateSerializer(serializers.Serializer):
-    date = serializers.DateTimeField()
-    jobs = serializers.ListField(
-        child=serializers.DictField(
-            child=serializers.ListField(
-                child=serializers.IntegerField()
-            )
-        )
-    )
-    pda = PdaUpdateSerializer(many=True, required=False)
-
-class JobAssignmentSerializer(serializers.Serializer):
-    """Serializer pour l'affectation des jobs à l'équipe"""
-    equipe = serializers.IntegerField()
-    jobs = serializers.ListField(
-        child=serializers.DictField(
-            child=serializers.CharField()
-        )
-    )
-
-    def validate_jobs(self, value):
-        """
-        Valide le format des jobs
-        Format attendu: [{"id": int, "date": str}]
-        """
-        for job_data in value:
-            if not isinstance(job_data, dict):
-                raise serializers.ValidationError("Format de job invalide")
-            if 'id' not in job_data or 'date' not in job_data:
-                raise serializers.ValidationError("Format de job invalide: id et date requis")
-            try:
-                int(job_data['id'])  # Vérifier que l'ID est un nombre
-            except (ValueError, TypeError):
-                raise serializers.ValidationError("ID de job invalide")
-        return value
+    date = serializers.DateField(required=False)
+    jobs = serializers.ListField(child=EmplacementSerializer(), required=False)
 
 class JobAssignmentRequestSerializer(serializers.Serializer):
-    """Serializer pour la requête d'affectation des jobs"""
-    assignments = JobAssignmentSerializer(many=True)
+    job_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False
+    )
+    personne_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False
+    )
 
-class PendingJobSerializer(serializers.ModelSerializer):
-    equipe = serializers.SerializerMethodField()
+class InventoryJobRetrieveSerializer(serializers.Serializer):
+    date = serializers.DateTimeField()
+    warehouse_id = serializers.IntegerField()
+    warehouse_name = serializers.CharField()
+    inventory_id = serializers.IntegerField()
+    inventory_label = serializers.CharField()
+    jobs = JobSerializer(many=True)
+
+class JobLocationDetailSerializer(serializers.ModelSerializer):
+    sous_zone = SousZoneSerializer(source='location.sous_zone', read_only=True)
+    zone = ZoneSerializer(source='location.sous_zone.zone', read_only=True)
+    location_reference = serializers.CharField(source='location.location_reference', read_only=True)
+
+    class Meta:
+        model = JobDetail
+        fields = ['id', 'reference', 'location_reference', 'sous_zone', 'zone', 'status']
+
+class JobListWithLocationsSerializer(serializers.ModelSerializer):
+    locations = serializers.SerializerMethodField()
 
     class Meta:
         model = Job
-        fields = ['id', 'reference', 'status', 'date_estime', 'equipe']
+        fields = ['id', 'reference', 'status', 'created_at', 'locations']
 
-    def get_equipe(self, obj):
-        job_detail = obj.jobdetail_set.first()
-        if job_detail and job_detail.pda:
-            return {
-                'id': job_detail.pda.id,
-                'nom': job_detail.pda.reference
-            }
-        return None 
+    def get_locations(self, obj):
+        job_details = obj.jobdetail_set.select_related('location__sous_zone__zone').all()
+        return JobLocationDetailSerializer(job_details, many=True).data 

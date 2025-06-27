@@ -12,4 +12,10 @@ class LocationNotFoundError(Exception):
 
 class AccountNotFoundError(Exception):
     """Exception levée lorsqu'un compte n'est pas trouvé"""
+    pass
+
+class MasterDataError(Exception):
+    pass
+
+class LocationError(Exception):
     pass 

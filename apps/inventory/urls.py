@@ -12,9 +12,8 @@ from .views.inventory_views import (
     InventoryTeamView
 )
 from apps.inventory.views import InventoryWarehousesView
-from .views.job_views import InventoryJobCreateView, InventoryJobRetrieveView, InventoryJobUpdateView, InventoryJobDeleteView, InventoryJobAssignmentView
-from .views.pda_views import InventoryPDAListView
-from .views.job_views import PendingJobsView, LaunchJobsView
+from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView
+# from .views.pda_views import InventoryPDAListView
 
 urlpatterns = [
     # URLs pour les inventaires
@@ -29,20 +28,26 @@ urlpatterns = [
     
     # URL pour les entrepôts d'un inventaire
     path('inventory/planning/<int:inventory_id>/warehouses/', InventoryWarehousesView.as_view(), name='inventory-warehouses'),
-    path('inventory/planning/jobs/create/', InventoryJobCreateView.as_view(), name='inventory-job-create'),
-    path('inventory/planning/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/', InventoryJobRetrieveView.as_view(), name='inventory-jobs'),
-    path('inventory/planning/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/create/', InventoryJobCreateView.as_view(), name='inventory-jobs-create'),
-    path('inventory/planning/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/update/', InventoryJobUpdateView.as_view(), name='inventory-jobs-update'),
-    path('inventory/planning/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/delete/', InventoryJobDeleteView.as_view(), name='inventory-jobs-delete'),
+    path('inventory/planning/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/create/', JobCreateAPIView.as_view(), name='inventory-jobs-create'),
     
-    # URL pour l'affectation des jobs à l'équipe
-    path('inventory/jobs/assign/', InventoryJobAssignmentView.as_view(), name='inventory-jobs-assign'),
+    # URL pour récupérer les jobs en attente
+    path('warehouse/<int:warehouse_id>/pending-jobs/', PendingJobsReferencesView.as_view(), name='pending-jobs-references'),
+    
+    # URL pour valider des jobs
+    path('jobs/validate/', JobValidateView.as_view(), name='jobs-validate'),
+    
+    # URL pour supprimer définitivement un job
+    path('job/<int:job_id>/delete/', JobDeleteView.as_view(), name='job-delete'),
+    
+    # URL pour supprimer des emplacements d'un job
+    path('job/<int:job_id>/remove-emplacements/', JobRemoveEmplacementsView.as_view(), name='job-remove-emplacements'),
+    
+    # URL pour ajouter des emplacements à un job
+    path('job/<int:job_id>/add-emplacements/', JobAddEmplacementsView.as_view(), name='job-add-emplacements'),
     
     # URL pour les PDAs d'un inventaire
-    path('inventory/<int:inventory_id>/pdas/', InventoryPDAListView.as_view(), name='inventory-pdas'),
-        
-    # # URL pour les locations d'un inventaire pour un warehouse (à partir des JobDetails)
-    # path('warehouse/<int:warehouse_id>/locations/', AllWarehouseLocationListView.as_view(), name='warehouse-locations'),
-    path('warehouse/<int:warehouse_id>/pending-jobs/', PendingJobsView.as_view(), name='pending-jobs'),
-    path('warehouse/<int:warehouse_id>/launch-jobs/', LaunchJobsView.as_view(), name='launch-jobs'),
+    # path('inventory/<int:inventory_id>/pdas/', InventoryPDAListView.as_view(), name='inventory-pdas'),
+    
+    # Nouvelle API pour lister tous les jobs avec détails
+    path('jobs/list/', JobListWithLocationsView.as_view(), name='jobs-list-with-locations'),
 ]
