@@ -3,7 +3,6 @@ Service pour la gestion des inventaires.
 """
 from typing import Dict, Any, List
 from django.utils import timezone
-from ..interfaces.inventory_interface import IInventoryRepository
 from ..repositories import InventoryRepository
 from ..exceptions import InventoryValidationError, InventoryNotFoundError
 from ..models import Inventory, Setting, Counting, CountingDetail
@@ -83,50 +82,25 @@ class InventoryService:
                 errors.append(f"Mode de comptage invalide pour le comptage {i}")
         return errors
     
-    def create_inventory(self, data: Dict[str, Any]) -> Inventory:
+    def create_inventory(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Crée un nouvel inventaire.
+        Crée un nouvel inventaire en utilisant le use case.
         
         Args:
             data: Les données de l'inventaire
             
         Returns:
-            Inventory: L'inventaire créé
+            Dict[str, Any]: Résultat de la création
             
         Raises:
             InventoryValidationError: Si les données sont invalides
         """
-        # Validation complète des données avant toute création
-        self.validate_inventory_data(data)
-        
-        # Extraction des données
-        label = data['label']
-        date = data['date']
-        account_id = data['account']
-        warehouse_ids = data['warehouse']
-        comptages_data = data['comptages']
-        
         try:
-            # Création de l'inventaire avec les champs status et pending_status_date
-            inventory = Inventory.objects.create(
-                label=label,
-                date=date,
-                status='EN ATTENTE',
-                pending_status_date=timezone.now()
-            )
-            
-            # Création des liens entre l'inventaire et les entrepôts
-            for warehouse_id in warehouse_ids:
-                Setting.objects.create(
-                    account_id=account_id,
-                    warehouse_id=warehouse_id,
-                    inventory=inventory
-                )
-            
-            # Création des comptages via le service de comptage
-            self.counting_service.create_countings(inventory.id, comptages_data)
-            
-            return inventory
+            # Utilisation du use case pour la création
+            from ..usecases.inventory_creation import InventoryCreationUseCase
+            use_case = InventoryCreationUseCase()
+            result = use_case.execute(data)
+            return result
             
         except Exception as e:
             logger.error(f"Erreur lors de la création de l'inventaire: {str(e)}", exc_info=True)
@@ -152,20 +126,8 @@ class InventoryService:
                 )
             
             # Soft delete de l'inventaire
-            inventory.soft_delete()
+            inventory.hard_delete()
             
-            # Soft delete des entités associées
-            # Soft delete des settings
-            for setting in inventory.awi_links.all():
-                setting.soft_delete()
-            
-            # Soft delete des comptages
-            for counting in inventory.countings.all():
-                counting.soft_delete()
-            
-            # Soft delete des PDAs
-            for pda in inventory.pdas.all():
-                pda.soft_delete()
             
         except InventoryNotFoundError:
             raise

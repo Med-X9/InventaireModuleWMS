@@ -12,10 +12,10 @@ from apps.users.serializers import UserAppSerializer
 class InventoryCreateSerializer(serializers.Serializer):
     label = serializers.CharField()
     date = serializers.DateField()
-    account_id = serializers.IntegerField(source='account')
-    warehouse_ids = serializers.ListField(
-        child=serializers.IntegerField(),
-        source='warehouse'
+    account_id = serializers.IntegerField()
+    warehouse = serializers.ListField(
+        child=serializers.DictField(),
+        required=True
     )
     comptages = serializers.ListField(
         child=serializers.DictField(),
@@ -24,17 +24,68 @@ class InventoryCreateSerializer(serializers.Serializer):
 
     def validate(self, data):
         """
-        Valide les données de l'inventaire.
+        Valide les données de l'inventaire selon les règles métier.
         """
-        # Convertir les noms de champs pour correspondre à ce que le service attend
-        validated_data = {
-            'label': data['label'],
-            'date': data['date'],
-            'account': data['account'],
-            'warehouse': data['warehouse'],
-            'comptages': data['comptages']
-        }
-        return validated_data
+        errors = []
+        
+        # Validation des entrepôts
+        for i, warehouse_info in enumerate(data['warehouse']):
+            if not warehouse_info.get('id'):
+                raise serializers.ValidationError(f"L'entrepôt {i+1} doit avoir un ID")
+        
+        # Validation des comptages
+        comptages = data.get('comptages', [])
+        
+        # Vérifier qu'il y a exactement 3 comptages
+        if len(comptages) != 3:
+            raise serializers.ValidationError("Un inventaire doit contenir exactement 3 comptages")
+        
+        # Trier les comptages par ordre
+        comptages_sorted = sorted(comptages, key=lambda x: x.get('order', 0))
+        
+        # Vérifier que les ordres sont 1, 2, 3
+        orders = [c.get('order') for c in comptages_sorted]
+        if orders != [1, 2, 3]:
+            raise serializers.ValidationError("Les comptages doivent avoir les ordres 1, 2, 3")
+        
+        # Validation des champs obligatoires pour chaque comptage
+        for i, comptage in enumerate(comptages_sorted, 1):
+            if not comptage.get('order'):
+                raise serializers.ValidationError(f"Le comptage {i} doit avoir un ordre")
+            if not comptage.get('count_mode'):
+                raise serializers.ValidationError(f"Le comptage {i} doit avoir un mode de comptage")
+        
+        # Récupérer les modes de comptage par ordre
+        count_modes = [c.get('count_mode') for c in comptages_sorted]
+        
+        # Vérifier que tous les modes sont valides
+        valid_modes = ['en vrac', 'par article', 'image stock']
+        for i, mode in enumerate(count_modes):
+            if mode not in valid_modes:
+                raise serializers.ValidationError(f"Comptage {i+1}: Mode de comptage invalide '{mode}'")
+        
+        # Validation des combinaisons autorisées
+        first_mode = count_modes[0]
+        second_mode = count_modes[1]
+        third_mode = count_modes[2]
+        
+        # Scénario 1: Premier comptage = "image stock"
+        if first_mode == "image stock":
+            # Les 2e et 3e comptages doivent être du même mode (soit "en vrac", soit "par article")
+            if second_mode != third_mode:
+                raise serializers.ValidationError("Si le premier comptage est 'image stock', les 2e et 3e comptages doivent avoir le même mode")
+            
+            if second_mode not in ["en vrac", "par article"]:
+                raise serializers.ValidationError("Si le premier comptage est 'image stock', les 2e et 3e comptages doivent être 'en vrac' ou 'par article'")
+        
+        # Scénario 2: Premier comptage = "en vrac" ou "par article"
+        elif first_mode in ["en vrac", "par article"]:
+            # Tous les comptages doivent être "en vrac" ou "par article"
+            for i, mode in enumerate(count_modes):
+                if mode not in ["en vrac", "par article"]:
+                    raise serializers.ValidationError(f"Si le premier comptage n'est pas 'image stock', tous les comptages doivent être 'en vrac' ou 'par article' (comptage {i+1}: '{mode}')")
+        
+        return data
 
 class InventoryGetByIdSerializer(serializers.ModelSerializer):
     """Serializer pour récupérer un inventaire par son ID avec le format spécifique."""
