@@ -44,18 +44,20 @@ pipeline {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'dev-test-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                     sh '''
-                        # Create remote directories
-                        sshpass -p "${PASS}" ssh -o StrictHostKeyChecking=no "${USER}@${DEPLOY_HOST}" "mkdir -p ${DOCKER_COMPOSE_DIR}"
-                        sshpass -p "${PASS}" ssh -o StrictHostKeyChecking=no "${USER}@${DEPLOY_HOST}" "mkdir -p ${DOCKER_COMPOSE_DIR}/frontend"
-                        sshpass -p "${PASS}" ssh -o StrictHostKeyChecking=no "${USER}@${DEPLOY_HOST}" "mkdir -p ${DOCKER_COMPOSE_DIR}/backend"
-                        
-                        # Copy backend files
-                        sshpass -p "${PASS}" scp -o StrictHostKeyChecking=no /tmp/backend/docker-compose.yml "${USER}@${DEPLOY_HOST}:${DOCKER_COMPOSE_DIR}/backend/docker-compose.yml"
-                        sshpass -p "${PASS}" scp -o StrictHostKeyChecking=no /tmp/backend/Dockerfile "${USER}@${DEPLOY_HOST}:${DOCKER_COMPOSE_DIR}/backend/Dockerfile"
-                        sshpass -p "${PASS}" scp -o StrictHostKeyChecking=no /tmp/backend/.env "${USER}@${DEPLOY_HOST}:${DOCKER_COMPOSE_DIR}/backend/.env"
-                        
-                        # Copy frontend Dockerfile (assuming it exists after checkout)
-                        sshpass -p "${PASS}" scp -o StrictHostKeyChecking=no /tmp/frontend/Dockerfile "${USER}@${DEPLOY_HOST}:${DOCKER_COMPOSE_DIR}/frontend/Dockerfile"
+                        # Create deployment directories
+                        sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$DEPLOY_HOST" "mkdir -p $DOCKER_COMPOSE_DIR/backend"
+                        sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$DEPLOY_HOST" "mkdir -p $DOCKER_COMPOSE_DIR/frontend"
+
+                        # Upload backend core files
+                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no docker-compose.yml "$USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/docker-compose.yml"
+                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no Dockerfile "$USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/Dockerfile"
+                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no .env "$USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/.env"
+
+                        # Upload nginx directory if needed
+                        sshpass -p "$PASS" scp -r -o StrictHostKeyChecking=no nginx "$USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/nginx"
+
+                        # Upload frontend Dockerfile (from the frontend project if separate)
+                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/frontend/Dockerfile "$USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/frontend/Dockerfile"
                     '''
                 }
             }
@@ -64,13 +66,13 @@ pipeline {
         stage('Deploy Backend on Remote Server') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'dev-test-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
-                    sh """
-                    sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$DEPLOY_HOST << 'EOF'
-                    cd $DOCKER_COMPOSE_DIR/backend
-                    docker-compose pull
-                    docker-compose up -d
-                    EOF
-                    """
+                    sh '''
+                        sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$DEPLOY_HOST << 'EOF'
+                        cd /opt/deployment/backend
+                        docker-compose pull
+                        docker-compose up -d
+                        EOF
+                    '''
                 }
             }
         }
@@ -78,15 +80,15 @@ pipeline {
         stage('Deploy Frontend on Remote Server') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'dev-test-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
-                    sh """
-                    sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$DEPLOY_HOST << 'EOF'
-                    cd $DOCKER_COMPOSE_DIR/frontend
-                    docker pull $FRONTEND_IMAGE:$IMAGE_TAG
-                    docker stop frontend-container || true
-                    docker rm frontend-container || true
-                    docker run -d --name frontend-container -p 3000:3000 $FRONTEND_IMAGE:$IMAGE_TAG
-                    EOF
-                    """
+                    sh '''
+                        sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$DEPLOY_HOST << 'EOF'
+                        cd /opt/deployment/frontend
+                        docker pull $FRONTEND_IMAGE:$IMAGE_TAG
+                        docker stop frontend-container || true
+                        docker rm frontend-container || true
+                        docker run -d --name frontend-container -p 3000:3000 $FRONTEND_IMAGE:$IMAGE_TAG
+                        EOF
+                    '''
                 }
             }
         }
