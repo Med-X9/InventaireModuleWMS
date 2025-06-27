@@ -43,7 +43,6 @@ class JobCreateAPIView(APIView):
             return Response({
                 'success': True,
                 'message': 'Jobs créés avec succès',
-                'job_ids': [job.id for job in jobs]
             }, status=status.HTTP_201_CREATED)
         except JobCreationError as e:
             return Response({
@@ -192,4 +191,19 @@ class JobListWithLocationsView(ListAPIView):
     filterset_class = JobFilter
     search_fields = ['reference']
     ordering_fields = ['created_at', 'status', 'reference']
-    pagination_class = JobListPagination 
+    pagination_class = JobListPagination
+
+class WarehouseJobsView(ListAPIView):
+    """
+    Récupère tous les jobs d'un warehouse spécifique
+    """
+    serializer_class = JobListWithLocationsSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_class = JobFilter
+    search_fields = ['reference']
+    ordering_fields = ['created_at', 'status', 'reference']
+    pagination_class = JobListPagination
+
+    def get_queryset(self):
+        warehouse_id = self.kwargs.get('warehouse_id')
+        return Job.objects.filter(warehouse_id=warehouse_id).order_by('-created_at') 

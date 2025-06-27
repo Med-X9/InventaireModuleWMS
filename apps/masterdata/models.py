@@ -307,7 +307,7 @@ class Stock(TimeStampedModel):
     """
     reference = models.CharField(unique=True, max_length=20)
     location = models.ForeignKey(Location, on_delete=models.CASCADE)
-    product = models.ForeignKey(Product, on_delete=models.CASCADE)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE,blank=True,null=True)
     quantity_available = models.DecimalField(max_digits=12, decimal_places=3, validators=[MinValueValidator(0)])
     quantity_reserved = models.DecimalField(max_digits=12, decimal_places=3, validators=[MinValueValidator(0)], blank=True, null=True)
     quantity_in_transit = models.DecimalField(max_digits=12, decimal_places=3, validators=[MinValueValidator(0)], blank=True, null=True)

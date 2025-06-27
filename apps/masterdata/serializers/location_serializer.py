@@ -43,11 +43,9 @@ class UnassignedLocationSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     reference = serializers.CharField()
     location_reference = serializers.CharField()
-    capacity = serializers.IntegerField(allow_null=True)
     description = serializers.CharField(allow_null=True, allow_blank=True)
-    is_active = serializers.BooleanField()
     
-    location_type = serializers.DictField()
+    # location_type = serializers.DictField(required=False, allow_null=True)
     sous_zone = serializers.DictField()
     zone = serializers.DictField()
     warehouse = serializers.DictField() 

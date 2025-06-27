@@ -74,10 +74,11 @@ class JobLocationDetailSerializer(serializers.ModelSerializer):
     sous_zone = SousZoneSerializer(source='location.sous_zone', read_only=True)
     zone = ZoneSerializer(source='location.sous_zone.zone', read_only=True)
     location_reference = serializers.CharField(source='location.location_reference', read_only=True)
+    location_id = serializers.IntegerField(source='location.id', read_only=True)
 
     class Meta:
         model = JobDetail
-        fields = ['id', 'reference', 'location_reference', 'sous_zone', 'zone', 'status']
+        fields = ['id', 'location_id', 'reference', 'location_reference', 'sous_zone', 'zone', 'status']
 
 class JobListWithLocationsSerializer(serializers.ModelSerializer):
     locations = serializers.SerializerMethodField()
@@ -87,5 +88,29 @@ class JobListWithLocationsSerializer(serializers.ModelSerializer):
         fields = ['id', 'reference', 'status', 'created_at', 'locations']
 
     def get_locations(self, obj):
+        # Récupérer les paramètres de filtrage depuis la requête
+        request = self.context.get('request')
+        if not request:
+            # Si pas de requête, retourner tous les emplacements
+            job_details = obj.jobdetail_set.select_related('location__sous_zone__zone').all()
+            return JobLocationDetailSerializer(job_details, many=True).data
+        
+        # Filtrer les emplacements selon les paramètres
         job_details = obj.jobdetail_set.select_related('location__sous_zone__zone').all()
+        
+        # Filtre par location_reference
+        location_reference = request.query_params.get('location_reference')
+        if location_reference:
+            job_details = job_details.filter(location__location_reference__icontains=location_reference)
+        
+        # Filtre par sous_zone
+        sous_zone = request.query_params.get('sous_zone')
+        if sous_zone:
+            job_details = job_details.filter(location__sous_zone_id=sous_zone)
+        
+        # Filtre par zone
+        zone = request.query_params.get('zone')
+        if zone:
+            job_details = job_details.filter(location__sous_zone__zone_id=zone)
+        
         return JobLocationDetailSerializer(job_details, many=True).data 

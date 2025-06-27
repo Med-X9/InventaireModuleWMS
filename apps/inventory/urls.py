@@ -12,7 +12,7 @@ from .views.inventory_views import (
     InventoryTeamView
 )
 from apps.inventory.views import InventoryWarehousesView
-from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView
+from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView
 # from .views.pda_views import InventoryPDAListView
 
 urlpatterns = [
@@ -32,6 +32,9 @@ urlpatterns = [
     
     # URL pour récupérer les jobs en attente
     path('warehouse/<int:warehouse_id>/pending-jobs/', PendingJobsReferencesView.as_view(), name='pending-jobs-references'),
+    
+    # URL pour récupérer tous les jobs d'un warehouse
+    path('warehouse/<int:warehouse_id>/jobs/', WarehouseJobsView.as_view(), name='warehouse-jobs'),
     
     # URL pour valider des jobs
     path('jobs/validate/', JobValidateView.as_view(), name='jobs-validate'),
