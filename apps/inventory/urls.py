@@ -13,6 +13,7 @@ from .views.inventory_views import (
 )
 from apps.inventory.views import InventoryWarehousesView
 from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView
+from .views.assignment_views import assign_jobs_to_counting, get_assignment_rules
 # from .views.pda_views import InventoryPDAListView
 
 urlpatterns = [
@@ -53,4 +54,8 @@ urlpatterns = [
     
     # Nouvelle API pour lister tous les jobs avec détails
     path('jobs/list/', JobListWithLocationsView.as_view(), name='jobs-list-with-locations'),
+    
+    # URLs pour l'affectation des jobs
+    path('assign-jobs/', assign_jobs_to_counting, name='assign-jobs-to-counting'),
+    path('assignment-rules/', get_assignment_rules, name='assignment-rules'),
 ]

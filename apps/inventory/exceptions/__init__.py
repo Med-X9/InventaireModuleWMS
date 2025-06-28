@@ -13,6 +13,13 @@ from .pda_exceptions import (
     PdaNotFoundError,
     PdaLabelError
 )
+from .assignment_exceptions import (
+    AssignmentError,
+    AssignmentNotFoundError,
+    AssignmentValidationError,
+    AssignmentBusinessRuleError,
+    AssignmentSessionError
+)
 # from .job_detail_exceptions import (
 #     JobDetailCreationError,
 #     JobDetailNotFoundError,
@@ -44,6 +51,13 @@ __all__ = [
     'PdaCreationError',
     'PdaNotFoundError',
     'PdaLabelError',
+    
+    # Assignment exceptions
+    'AssignmentError',
+    'AssignmentNotFoundError',
+    'AssignmentValidationError',
+    'AssignmentBusinessRuleError',
+    'AssignmentSessionError',
     
     # JobDetail exceptions
     # 'JobDetailCreationError',

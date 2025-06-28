@@ -489,9 +489,9 @@ class ProductForm(forms.ModelForm):
 class ProductAdmin(ImportExportModelAdmin):
     form = ProductForm
     resource_class = ProductResource
-    list_display = ('reference', 'Internal_Product_Code', 'Short_Description', 'Barcode', 'Product_Group', 'Stock_Unit', 'Product_Status','Is_Variant', 'get_family_name')
-    list_filter = ('Product_Status', 'Product_Family', 'Is_Variant')
-    search_fields = ('reference', 'Short_Description', 'Barcode', 'Internal_Product_Code')
+    list_display = ('reference', 'Internal_Product_Code', 'Short_Description', 'Barcode', 'Product_Group', 'Stock_Unit', 'Product_Status','Is_Variant', 'get_family_name','n_lot','n_serie','dlc')
+    list_filter = ('Product_Status', 'Product_Family', 'Is_Variant','n_lot','n_serie','dlc')
+    search_fields = ('reference', 'Short_Description', 'Barcode', 'Internal_Product_Code','n_lot','n_serie','dlc')
     exclude = ('created_at', 'updated_at', 'deleted_at', 'is_deleted')
     readonly_fields = ('reference',)
 

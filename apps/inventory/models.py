@@ -234,12 +234,26 @@ class CountingDetail(TimeStampedModel, ReferenceMixin):
     reference = models.CharField(unique=True, max_length=20, null=False)
     quantity_inventoried = models.IntegerField()
     product = models.ForeignKey('masterdata.Product',on_delete=models.CASCADE,blank=True,null=True)
+    dlc = models.DateField(null=True,blank=True)
+    n_lot = models.CharField(max_length=100,null=True,blank=True)
     location = models.ForeignKey('masterdata.Location',on_delete=models.CASCADE)
     counting = models.ForeignKey(Counting,on_delete=models.CASCADE)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     history = HistoricalRecords()
     
+
+class NSerie(TimeStampedModel, ReferenceMixin):
+    REFERENCE_PREFIX = 'NS'
+    reference = models.CharField(unique=True, max_length=20, null=False)
+    n_serie = models.CharField(max_length=100,null=True,blank=True)
+    counting_detail = models.ForeignKey(CountingDetail,on_delete=models.CASCADE)
+    history = HistoricalRecords()
     
+    def __str__(self):
+        return f"{self.counting_detail.product.Short_Description} - {self.n_serie}"
+
+
+
     
 class EcartComptage(TimeStampedModel, ReferenceMixin): 
     REFERENCE_PREFIX = 'ECT'
