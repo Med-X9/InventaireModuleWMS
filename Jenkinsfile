@@ -68,7 +68,7 @@ pipeline {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'dev-test-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                     sh '''
-                        sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$DEPLOY_HOST "cd /tmp/deployment/backend && docker-compose pull && docker-compose up -d"
+                        sshpass -p "$PASS" ssh root@147.93.55.221 "bash -c 'cd /tmp/deployment/backend && docker-compose pull && docker-compose up -d'"
                     '''
                 }
             }
