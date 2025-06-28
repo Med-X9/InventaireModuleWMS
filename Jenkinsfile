@@ -53,6 +53,8 @@ pipeline {
                 sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$DEPLOY_HOST" "mkdir -p /tmp/deployment/frontend"
 
                 sshpass -p "$PASS" scp -r -o StrictHostKeyChecking=no /tmp/backend/. "$USER@$DEPLOY_HOST:/tmp/deployment/backend/"
+		        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/.env.prod "$USER@$DEPLOY_HOST:/tmp/deployment/backend/.env"
+
             '''
         }
     }
