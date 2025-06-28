@@ -15,16 +15,18 @@ pipeline {
         DOCKER_COMPOSE_DIR = '/opt/deployment'
     }
 
-    stages {
         stage('Clone Repositories') {
             steps {
-                sh '''
-                    rm -rf frontend backend
-                    git clone $FRONTEND_REPO frontend
-                    git clone $BACKEND_REPO backend
-                '''
+                withCredentials([usernamePassword(credentialsId: 'github-creds', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_PASS')]) {
+                    sh '''
+                        rm -rf frontend backend
+                        git clone https://$GIT_USER:$GIT_PASS@github.com/Med-X9/inventaireModuleWMSFront.git frontend
+                        git clone https://$GIT_USER:$GIT_PASS@github.com/Med-X9/InventaireModuleWMS.git backend
+                    '''
+                }
             }
         }
+
 
         stage('Build Frontend Docker Image') {
             steps {
