@@ -23,8 +23,17 @@ pipeline {
                 withCredentials([usernamePassword(credentialsId: 'git-cred', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_PASS')]) {
                     sh '''
                         rm -rf $LOCAL_CLONE_DIR/frontend $LOCAL_CLONE_DIR/backend
+                        git clone https://$GIT_USER:$GIT_PASS@github.com/Med-X9/inventaireModuleWMSFront.git $LOCAL_CLONE_DIR/frontend
                         git clone https://$GIT_USER:$GIT_PASS@github.com/Med-X9/InventaireModuleWMS.git $LOCAL_CLONE_DIR/backend
                     '''
+                }
+            }
+        }
+
+        stage('Build Frontend Docker Image') {
+            steps {
+                dir('/tmp/frontend') {
+                    sh 'docker build -t $FRONTEND_IMAGE:$IMAGE_TAG .'
                 }
             }
         }
@@ -43,6 +52,7 @@ pipeline {
                     withCredentials([usernamePassword(credentialsId: 'docker-hub-creds', passwordVariable: 'PASS', usernameVariable: 'USER')]) {
                         sh "echo $PASS | docker login -u $USER --password-stdin"
                     }
+                    sh 'docker push $FRONTEND_IMAGE:$IMAGE_TAG'
                     sh 'docker push $BACKEND_IMAGE:$IMAGE_TAG'
                 }
             }
@@ -62,6 +72,8 @@ pipeline {
                         sshpass -p "$PASS" scp -o StrictHostKeyChecking=no $LOCAL_CLONE_DIR/backend/requirements.txt "$USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/requirements.txt"
                         sshpass -p "$PASS" scp -r -o StrictHostKeyChecking=no $LOCAL_CLONE_DIR/backend/nginx "$USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/nginx"
 
+                        # Frontend Dockerfile
+                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no $LOCAL_CLONE_DIR/frontend/Dockerfile "$USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/frontend/Dockerfile"
                     '''
                 }
             }
@@ -72,6 +84,16 @@ pipeline {
                 withCredentials([usernamePassword(credentialsId: 'dev-test-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                     sh '''
                         sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$DEPLOY_HOST "cd /tmp/deployment/backend && docker-compose pull && docker-compose up -d"
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy Frontend on Remote Server') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'dev-test-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
+                    sh '''
+                        sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$DEPLOY_HOST "cd /tmp/deployment/frontend && docker pull $FRONTEND_IMAGE:$IMAGE_TAG && docker stop frontend-container || true && docker rm frontend-container || true && docker run -d --name frontend-container -p 3000:3000 $FRONTEND_IMAGE:$IMAGE_TAG"
                     '''
                 }
             }
