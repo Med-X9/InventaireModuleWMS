@@ -56,11 +56,11 @@ pipeline {
                         sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$DEPLOY_HOST" "mkdir -p $DOCKER_COMPOSE_DIR/frontend"
 
                         # Backend uploads
-                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no $LOCAL_CLONE_DIR/backend/docker-compose.yml "$USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/docker-compose.yml"
-                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no $LOCAL_CLONE_DIR/backend/Dockerfile "$USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/Dockerfile"
-                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no $LOCAL_CLONE_DIR/backend/.env.prod "$USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/.env.prod"
-                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no $LOCAL_CLONE_DIR/backend/requirements.txt "$USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/requirements.txt"
-                        sshpass -p "$PASS" scp -r -o StrictHostKeyChecking=no $LOCAL_CLONE_DIR/backend/nginx "$USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/nginx"
+                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no $LOCAL_CLONE_DIR/backend/docker-compose.yml "$USER@$DEPLOY_HOST:/tmp/deployment/docker-compose.yml"
+                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no $LOCAL_CLONE_DIR/backend/Dockerfile "$USER@$DEPLOY_HOST:/tmp/deployment/Dockerfile"
+                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no $LOCAL_CLONE_DIR/backend/.env.prod "$USER@$DEPLOY_HOST:/tmp/deployment/.env.prod"
+                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no $LOCAL_CLONE_DIR/backend/requirements.txt "$USER@$DEPLOY_HOST:/tmp/deployment/requirements.txt"
+                        sshpass -p "$PASS" scp -r -o StrictHostKeyChecking=no $LOCAL_CLONE_DIR/backend/nginx "$USER@$DEPLOY_HOST:/tmp/deployment/nginx"
 
                     '''
                 }
