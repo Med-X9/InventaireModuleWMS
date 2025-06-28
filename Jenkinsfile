@@ -49,13 +49,11 @@ pipeline {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'dev-test-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                     sh '''
-                        sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$DEPLOY_HOST" "rm -rf /tmp/deployment/backend && mkdir -p /tmp/deployment/backend"
-                        
-                        # Upload full backend project
-                        sshpass -p "$PASS" scp -r -o StrictHostKeyChecking=no /tmp/backend/* "$USER@$DEPLOY_HOST:/tmp/deployment/backend/"
-                        
-                        # Ensure .env.prod is renamed to .env for docker-compose compatibility
-                        sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$DEPLOY_HOST" "mv /tmp/deployment/backend/.env.prod /tmp/deployment/backend/.env"
+                        sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$DEPLOY_HOST" "mkdir -p /tmp/deployment/backend"
+                        sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$DEPLOY_HOST" "mkdir -p /tmp/deployment/frontend"
+
+                        # Backend uploads
+                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/** "$USER@$DEPLOY_HOST:/tmp/deployment/backend/"
                     '''
                 }
             }
@@ -65,7 +63,7 @@ pipeline {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'dev-test-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                     sh '''
-                        sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$DEPLOY_HOST" "bash -c 'cd /tmp/deployment/backend && docker-compose pull && docker-compose up -d'"
+                        sshpass -p "$PASS" ssh root@147.93.55.221 "bash -c 'cd /tmp/deployment/backend && docker-compose pull && docker-compose up -d'"
                     '''
                 }
             }
