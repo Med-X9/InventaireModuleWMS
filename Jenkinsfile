@@ -15,6 +15,7 @@ pipeline {
         DOCKER_COMPOSE_DIR = '/opt/deployment'
     }
 
+    stages {
         stage('Clone Repositories') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'github-creds', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_PASS')]) {
@@ -26,7 +27,6 @@ pipeline {
                 }
             }
         }
-
 
         stage('Build Frontend Docker Image') {
             steps {
