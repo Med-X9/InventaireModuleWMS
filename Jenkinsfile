@@ -20,7 +20,7 @@ pipeline {
                 withCredentials([usernamePassword(credentialsId: 'git-cred', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_PASS')]) {
                     sh '''
                         rm -rf /tmp/frontend /tmp/backend
-                        git clone https://$GIT_USER:$GIT_PASS@github.com/Med-X9/InventaireModuleWMS.git /tmp/backend
+                        git clone --single-branch --branch devops https://$GIT_USER:$GIT_PASS@github.com/Med-X9/InventaireModuleWMS.git /tmp/backend
                     '''
                 }
             }
