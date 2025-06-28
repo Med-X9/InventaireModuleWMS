@@ -50,9 +50,11 @@ pipeline {
                 withCredentials([usernamePassword(credentialsId: 'dev-test-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                     sh '''
                         sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$DEPLOY_HOST" "mkdir -p /tmp/deployment/backend"
+                        sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$DEPLOY_HOST" "mkdir -p /tmp/deployment/backend/app"
                         sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$DEPLOY_HOST" "mkdir -p /tmp/deployment/frontend"
 
                         # Backend uploads
+                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/manage.py "$USER@$DEPLOY_HOST:/tmp/deployment/backend/app/manage.py"
                         sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/docker-compose.yml "$USER@$DEPLOY_HOST:/tmp/deployment/backend/docker-compose.yml"
                         sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/Dockerfile "$USER@$DEPLOY_HOST:/tmp/deployment/backend/Dockerfile"
                         sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/.env.prod "$USER@$DEPLOY_HOST:/tmp/deployment/backend/.env"
