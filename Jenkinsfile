@@ -18,7 +18,7 @@ pipeline {
     stages {
         stage('Clone Repositories') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'github-creds', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_PASS')]) {
+                withCredentials([usernamePassword(credentialsId: 'git-cred', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_PASS')]) {
                     sh '''
                         rm -rf frontend backend
                         git clone https://$GIT_USER:$GIT_PASS@github.com/Med-X9/inventaireModuleWMSFront.git frontend
