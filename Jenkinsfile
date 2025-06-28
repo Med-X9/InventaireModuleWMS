@@ -55,7 +55,7 @@ pipeline {
                         # Backend uploads
                         sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/docker-compose.yml "$USER@$DEPLOY_HOST:/tmp/deployment/backend/docker-compose.yml"
                         sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/Dockerfile "$USER@$DEPLOY_HOST:/tmp/deployment/backend/Dockerfile"
-                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/.env.prod "$USER@$DEPLOY_HOST:/tmp/deployment/backend/.env.prod"
+                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/.env.prod "$USER@$DEPLOY_HOST:/tmp/deployment/backend/.env"
                         sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/requirements.txt "$USER@$DEPLOY_HOST:/tmp/deployment/backend/requirements.txt"
                         sshpass -p "$PASS" scp -r -o StrictHostKeyChecking=no /tmp/backend/nginx "$USER@$DEPLOY_HOST:/tmp/deployment/backend/nginx"
 
