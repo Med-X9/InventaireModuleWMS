@@ -53,11 +53,11 @@ pipeline {
                         sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$DEPLOY_HOST" "mkdir -p /tmp/deployment/frontend"
 
                         # Backend uploads
-                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/docker-compose.yml "$USER@$DEPLOY_HOST:/tmp/deployment/docker-compose.yml"
-                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/Dockerfile "$USER@$DEPLOY_HOST:/tmp/deployment/Dockerfile"
-                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/.env.prod "$USER@$DEPLOY_HOST:/tmp/deployment/.env.prod"
-                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/requirements.txt "$USER@$DEPLOY_HOST:/tmp/deployment/requirements.txt"
-                        sshpass -p "$PASS" scp -r -o StrictHostKeyChecking=no /tmp/backend/nginx "$USER@$DEPLOY_HOST:/tmp/deployment/nginx"
+                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/docker-compose.yml "$USER@$DEPLOY_HOST:/tmp/deployment/backend/docker-compose.yml"
+                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/Dockerfile "$USER@$DEPLOY_HOST:/tmp/deployment/backend/Dockerfile"
+                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/.env.prod "$USER@$DEPLOY_HOST:/tmp/deployment/backend/.env.prod"
+                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/requirements.txt "$USER@$DEPLOY_HOST:/tmp/deployment/backend/requirements.txt"
+                        sshpass -p "$PASS" scp -r -o StrictHostKeyChecking=no /tmp/backend/nginx "$USER@$DEPLOY_HOST:/tmp/deployment/backend/nginx"
 
                     '''
                 }
