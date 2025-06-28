@@ -16,15 +16,29 @@ pipeline {
     }
 
     stages {
+        stage('Clone Repositories') {
+            steps {
+                sh '''
+                    rm -rf frontend backend
+                    git clone $FRONTEND_REPO frontend
+                    git clone $BACKEND_REPO backend
+                '''
+            }
+        }
+
         stage('Build Frontend Docker Image') {
             steps {
-                sh 'docker build -t $FRONTEND_IMAGE:$IMAGE_TAG .'
+                dir('frontend') {
+                    sh 'docker build -t $FRONTEND_IMAGE:$IMAGE_TAG .'
+                }
             }
         }
 
         stage('Build Backend Docker Image') {
             steps {
-                sh 'docker build -t $BACKEND_IMAGE:$IMAGE_TAG .'
+                dir('backend') {
+                    sh 'docker build -t $BACKEND_IMAGE:$IMAGE_TAG .'
+                }
             }
         }
 
@@ -44,21 +58,18 @@ pipeline {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'dev-test-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                     sh '''
-                        # Create deployment directories
                         sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$DEPLOY_HOST" "mkdir -p $DOCKER_COMPOSE_DIR/backend"
                         sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$DEPLOY_HOST" "mkdir -p $DOCKER_COMPOSE_DIR/frontend"
 
-                        # Upload backend core files
-                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/docker-compose.yml "$USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/docker-compose.yml"
-                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/Dockerfile "$USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/Dockerfile"
-                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/.env "$USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/.env"
-                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/requirements.txt "$USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/requirements.txt"
+                        # Backend uploads
+                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no backend/docker-compose.yml "$USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/docker-compose.yml"
+                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no backend/Dockerfile "$USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/Dockerfile"
+                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no backend/.env "$USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/.env"
+                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no backend/requirements.txt "$USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/requirements.txt"
+                        sshpass -p "$PASS" scp -r -o StrictHostKeyChecking=no backend/nginx "$USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/nginx"
 
-                        # Upload nginx directory if needed
-                        sshpass -p "$PASS" scp -r -o StrictHostKeyChecking=no nginx "$USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/backend/nginx"
-
-                        # Upload frontend Dockerfile (from the frontend project if separate)
-                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/frontend/Dockerfile "$USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/frontend/Dockerfile"
+                        # Frontend Dockerfile
+                        sshpass -p "$PASS" scp -o StrictHostKeyChecking=no frontend/Dockerfile "$USER@$DEPLOY_HOST:$DOCKER_COMPOSE_DIR/frontend/Dockerfile"
                     '''
                 }
             }
@@ -80,7 +91,6 @@ pipeline {
                     sh '''
                         sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$DEPLOY_HOST "cd /opt/deployment/frontend && docker pull $FRONTEND_IMAGE:$IMAGE_TAG && docker stop frontend-container || true && docker rm frontend-container || true && docker run -d --name frontend-container -p 3000:3000 $FRONTEND_IMAGE:$IMAGE_TAG"
                     '''
-
                 }
             }
         }
