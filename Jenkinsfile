@@ -12,9 +12,9 @@ pipeline {
 
         DEPLOY_HOST = '147.93.55.221'
         DEPLOY_USER = credentials('dev-test-creds') 
-        DOCKER_COMPOSE_DIR = '/opt/deployment'
+        DOCKER_COMPOSE_DIR = '/tmp/deployment'
 
-        LOCAL_CLONE_DIR = '/opt'
+        LOCAL_CLONE_DIR = '/tmp'
     }
 
     stages {
@@ -32,7 +32,7 @@ pipeline {
 
         stage('Build Frontend Docker Image') {
             steps {
-                dir('/opt/frontend') {
+                dir('/tmp/frontend') {
                     sh 'docker build -t $FRONTEND_IMAGE:$IMAGE_TAG .'
                 }
             }
@@ -40,7 +40,7 @@ pipeline {
 
         stage('Build Backend Docker Image') {
             steps {
-                dir('/opt/backend') {
+                dir('/tmp/backend') {
                     sh 'docker build -t $BACKEND_IMAGE:$IMAGE_TAG .'
                 }
             }
@@ -83,7 +83,7 @@ pipeline {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'dev-test-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                     sh '''
-                        sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$DEPLOY_HOST "cd /opt/deployment/backend && docker-compose pull && docker-compose up -d"
+                        sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$DEPLOY_HOST "cd /tmp/deployment/backend && docker-compose pull && docker-compose up -d"
                     '''
                 }
             }
@@ -93,7 +93,7 @@ pipeline {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'dev-test-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                     sh '''
-                        sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$DEPLOY_HOST "cd /opt/deployment/frontend && docker pull $FRONTEND_IMAGE:$IMAGE_TAG && docker stop frontend-container || true && docker rm frontend-container || true && docker run -d --name frontend-container -p 3000:3000 $FRONTEND_IMAGE:$IMAGE_TAG"
+                        sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$DEPLOY_HOST "cd /tmp/deployment/frontend && docker pull $FRONTEND_IMAGE:$IMAGE_TAG && docker stop frontend-container || true && docker rm frontend-container || true && docker run -d --name frontend-container -p 3000:3000 $FRONTEND_IMAGE:$IMAGE_TAG"
                     '''
                 }
             }
