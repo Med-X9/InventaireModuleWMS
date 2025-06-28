@@ -14,7 +14,6 @@ pipeline {
         DEPLOY_USER = credentials('dev-test-creds') 
         DOCKER_COMPOSE_DIR = '/opt/deployment'
 
-        # New env var for local clone path
         LOCAL_CLONE_DIR = '/opt'
     }
 
