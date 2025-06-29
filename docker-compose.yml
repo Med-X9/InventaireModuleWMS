@@ -3,6 +3,7 @@ version: '3.8'
 services:
   web:
     container_name: inventaire-api
+    user: root
     build: .
     command: >
       sh -c "
