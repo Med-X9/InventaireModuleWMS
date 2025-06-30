@@ -1,10 +1,12 @@
 from django.db import transaction
 from ..repositories.job_repository import JobRepository
 from ..exceptions.job_exceptions import JobCreationError
-from ..models import Job, JobDetail, Assigment
+from ..models import Job, JobDetail, Assigment, JobDetailRessource
 from django.utils import timezone
+from ..interfaces.job_interface import JobServiceInterface
+from typing import List, Dict, Any
 
-class JobService:
+class JobService(JobServiceInterface):
     """
     Service pour les opérations de gestion des jobs
     Contient la logique métier et utilise le repository pour l'accès aux données
@@ -287,6 +289,67 @@ class JobService:
         except Exception as e:
             raise JobCreationError(f"Erreur inattendue lors de la validation des jobs : {str(e)}")
 
+    @transaction.atomic
+    def make_jobs_ready(self, job_ids):
+        """
+        Met les jobs affectés au statut "PRET"
+        Seuls les jobs avec le statut "AFFECTE" peuvent être mis au statut "PRET"
+        Note: Le statut AFFECTE est géré dans le modèle Assigment, pas dans Job
+        """
+        try:
+            # Vérifier que tous les jobs existent
+            jobs = self.repository.get_jobs_by_ids(job_ids)
+            found_job_ids = set(job.id for job in jobs)
+            requested_job_ids = set(job_ids)
+            
+            # Identifier les jobs qui n'existent pas
+            missing_job_ids = requested_job_ids - found_job_ids
+            if missing_job_ids:
+                missing_jobs_str = ', '.join(map(str, sorted(missing_job_ids)))
+                found_jobs_references = [job.reference for job in jobs]
+                found_jobs_str = ', '.join(found_jobs_references) if found_jobs_references else 'Aucun'
+                raise JobCreationError(f"Jobs non trouvés avec les IDs : {missing_jobs_str}. Jobs trouvés : {found_jobs_str}")
+            
+            # Vérifier que tous les jobs ont des affectations avec statut AFFECTE
+            from ..models import Assigment
+            non_assigned_jobs = []
+            for job in jobs:
+                assignments = Assigment.objects.filter(job=job, status='AFFECTE')
+                if not assignments.exists():
+                    non_assigned_jobs.append(job)
+            
+            if non_assigned_jobs:
+                invalid_jobs = [f"Job {job.reference} (pas d'affectation AFFECTE)" for job in non_assigned_jobs]
+                raise JobCreationError(f"Seuls les jobs affectés peuvent être mis au statut PRET. Jobs invalides : {', '.join(invalid_jobs)}")
+            
+            # Mettre à jour le statut des affectations à PRET
+            current_time = timezone.now()
+            
+            updated_jobs = []
+            for job in jobs:
+                # Mettre à jour toutes les affectations du job au statut PRET
+                assignments = Assigment.objects.filter(job=job)
+                for assignment in assignments:
+                    assignment.status = 'PRET'
+                    assignment.pret_date = current_time
+                    assignment.save()
+                
+                updated_jobs.append({
+                    'job_id': job.id,
+                    'job_reference': job.reference
+                })
+            
+            return {
+                'ready_jobs_count': len(updated_jobs),
+                'ready_jobs': updated_jobs,
+                'ready_date': current_time
+            }
+            
+        except JobCreationError:
+            raise
+        except Exception as e:
+            raise JobCreationError(f"Erreur inattendue lors de la mise en prêt des jobs : {str(e)}")
+
     def get_jobs_by_warehouse(self, warehouse_id, filters=None):
         """
         Récupère les jobs d'un warehouse avec filtres optionnels
@@ -309,4 +372,117 @@ class JobService:
         try:
             return self.repository.get_jobs_by_inventory(inventory_id)
         except Exception as e:
-            raise JobCreationError(f"Erreur lors de la récupération des jobs de l'inventaire : {str(e)}") 
+            raise JobCreationError(f"Erreur lors de la récupération des jobs de l'inventaire : {str(e)}")
+
+    @transaction.atomic
+    def delete_multiple_jobs(self, job_ids: List[int]) -> Dict[str, Any]:
+        """
+        Supprime définitivement plusieurs jobs dans une transaction
+        Si un seul job ne peut pas être supprimé, toute l'opération est annulée
+        """
+        try:
+            results = []
+            for job_id in job_ids:
+                result = self.delete_job(job_id)
+                results.append({
+                    'job_id': job_id,
+                    'success': True,
+                    'data': result
+                })
+            
+            return {
+                'success': True,
+                'message': f'{len(results)} jobs supprimés avec succès',
+                'results': results
+            }
+            
+        except JobCreationError:
+            # Si une erreur survient, la transaction est automatiquement annulée
+            raise
+        except Exception as e:
+            # Si une erreur inattendue survient, la transaction est automatiquement annulée
+            raise JobCreationError(f"Erreur inattendue lors de la suppression des jobs : {str(e)}")
+
+    @transaction.atomic
+    def make_jobs_ready_by_jobs_and_orders(self, job_ids: list, orders: list):
+        """
+        Met les assignements (job, counting) au statut PRET pour les jobs et ordres de comptage donnés
+        Si un assignement existe mais n'est pas au statut 'AFFECTE', lever une exception explicite.
+        """
+        from ..models import Assigment, Counting
+        current_time = timezone.now()
+        updated_assignments = []
+        for job_id in job_ids:
+            for order in orders:
+                assignment = Assigment.objects.select_related('counting').filter(job_id=job_id, counting__order=order).first()
+                if not assignment:
+                    raise JobCreationError(f"Aucune assignation trouvée pour le job {job_id} et le comptage d'ordre {order}.")
+                if assignment.status == 'PRET':
+                    raise JobCreationError(f"Le job {job_id} pour le comptage d'ordre {order} est déjà au statut PRET.")
+                if assignment.status != 'AFFECTE':
+                    raise JobCreationError(f"Le job {job_id} pour le comptage d'ordre {order} n'est pas au statut AFFECTE (statut actuel : {assignment.status}).")
+                assignment.status = 'PRET'
+                assignment.pret_date = current_time
+                assignment.save()
+                updated_assignments.append({'job_id': job_id, 'order': order, 'assignment_id': assignment.id})
+        return {
+            'updated_assignments': updated_assignments,
+            'ready_date': current_time
+        }
+
+    @transaction.atomic
+    def reset_jobs_assignments(self, job_ids: list):
+        """
+        Remet les assignements de plusieurs jobs en attente :
+        - Met le statut des jobs à 'EN ATTENTE'
+        - Vide les dates des autres statuts du job (valide_date, termine_date)
+        - Supprime les affectations de session
+        - Met le statut des assignements à 'EN ATTENTE'
+        - Vide toutes les dates des assignements
+        - Supprime tous les JobDetailRessource des jobs
+        """
+        from ..models import Assigment, JobDetailRessource
+        
+        # Vérifier que tous les jobs existent
+        jobs = self.repository.get_jobs_by_ids(job_ids)
+        found_job_ids = set(job.id for job in jobs)
+        requested_job_ids = set(job_ids)
+        
+        # Identifier les jobs qui n'existent pas
+        missing_job_ids = requested_job_ids - found_job_ids
+        if missing_job_ids:
+            missing_jobs_str = ', '.join(map(str, sorted(missing_job_ids)))
+            raise JobCreationError(f"Jobs non trouvés avec les IDs : {missing_jobs_str}")
+        
+        # Mettre à jour le statut des jobs et vider les dates
+        for job in jobs:
+            job.status = 'EN ATTENTE'
+            job.valide_date = None
+            job.termine_date = None
+            job.save()
+        
+        # Récupérer tous les assignements des jobs
+        assignments = Assigment.objects.filter(job__in=jobs)
+        
+        # Mettre à jour tous les assignements
+        updated_count = 0
+        for assignment in assignments:
+            assignment.session = None
+            assignment.status = 'EN ATTENTE'
+            # Vider toutes les dates
+            assignment.affecte_date = None
+            assignment.pret_date = None
+            assignment.transfert_date = None
+            assignment.entame_date = None
+            assignment.save()
+            updated_count += 1
+        
+        # Supprimer tous les JobDetailRessource des jobs
+        ressources_deleted = JobDetailRessource.objects.filter(job__in=jobs).delete()[0]
+        
+        return {
+            'jobs_processed': len(jobs),
+            'assignments_reset': updated_count,
+            'ressources_deleted': ressources_deleted,
+            'message': f'Jobs et assignements remis en attente pour {len(jobs)} jobs, {ressources_deleted} ressources supprimées'
+        } 

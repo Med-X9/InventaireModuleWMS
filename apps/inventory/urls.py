@@ -12,8 +12,9 @@ from .views.inventory_views import (
     InventoryTeamView
 )
 from apps.inventory.views import InventoryWarehousesView
-from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView
-from .views.assignment_views import assign_jobs_to_counting, get_assignment_rules
+from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView
+from .views.assignment_views import assign_jobs_to_counting, get_assignment_rules, get_assignments_by_session
+from .views.resource_assignment_views import assign_resources_to_jobs, get_job_resources, remove_resources_from_job
 # from .views.pda_views import InventoryPDAListView
 
 urlpatterns = [
@@ -40,8 +41,10 @@ urlpatterns = [
     # URL pour valider des jobs
     path('jobs/validate/', JobValidateView.as_view(), name='jobs-validate'),
     
+    
+    
     # URL pour supprimer définitivement un job
-    path('job/<int:job_id>/delete/', JobDeleteView.as_view(), name='job-delete'),
+    path('jobs/delete/', JobDeleteView.as_view(), name='job-delete'),
     
     # URL pour supprimer des emplacements d'un job
     path('job/<int:job_id>/remove-emplacements/', JobRemoveEmplacementsView.as_view(), name='job-remove-emplacements'),
@@ -56,6 +59,24 @@ urlpatterns = [
     path('jobs/list/', JobListWithLocationsView.as_view(), name='jobs-list-with-locations'),
     
     # URLs pour l'affectation des jobs
-    path('assign-jobs/', assign_jobs_to_counting, name='assign-jobs-to-counting'),
+    path('inventory/<int:inventory_id>/assign-jobs/', assign_jobs_to_counting, name='assign-jobs-to-counting'),
     path('assignment-rules/', get_assignment_rules, name='assignment-rules'),
+    path('session/<int:session_id>/assignments/', get_assignments_by_session, name='assignments-by-session'),
+    
+    # URLs pour l'affectation des ressources aux jobs
+    path('jobs/assign-resources/', assign_resources_to_jobs, name='assign-resources-to-jobs'),
+    path('job/<int:job_id>/resources/', get_job_resources, name='get-job-resources'),
+    path('job/<int:job_id>/remove-resources/', remove_resources_from_job, name='remove-resources-from-job'),
+
+    # URL pour marquer un job comme prêt
+    path('jobs/ready/', JobReadyView.as_view(), name='jobs-ready'),
+
+    # URL pour la nouvelle vue JobFullDetailListView
+    path('jobs/full-list/', JobFullDetailListView.as_view(), name='jobs-full-list'),
+    
+    # URL pour lister les jobs en attente
+    path('jobs/pending/', JobPendingListView.as_view(), name='jobs-pending'),
+    
+    # URL pour remettre les assignements de jobs en attente
+    path('jobs/reset-assignments/', JobResetAssignmentsView.as_view(), name='job-reset-assignments'),
 ]

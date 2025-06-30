@@ -6,14 +6,17 @@ class JobAssignmentSerializer(serializers.Serializer):
     """
     Serializer pour l'affectation des jobs de comptage
     """
+    inventory_id = serializers.IntegerField(
+        help_text="ID de l'inventaire (récupéré depuis l'URL)"
+    )
     job_ids = serializers.ListField(
         child=serializers.IntegerField(),
         help_text="Liste des IDs des jobs à affecter"
     )
     counting_order = serializers.IntegerField(
         min_value=1,
-        max_value=3,
-        help_text="Ordre du comptage (1, 2, ou 3)"
+        max_value=2,
+        help_text="Ordre du comptage (1 ou 2)"
     )
     session_id = serializers.IntegerField(
         required=False,
@@ -42,8 +45,8 @@ class JobAssignmentSerializer(serializers.Serializer):
         """
         Valide l'ordre du comptage
         """
-        if value not in [1, 2, 3]:
-            raise serializers.ValidationError("L'ordre du comptage doit être 1, 2 ou 3")
+        if value not in [1, 2]:
+            raise serializers.ValidationError("L'ordre du comptage doit être 1 ou 2")
         
         return value
     
@@ -75,6 +78,8 @@ class JobAssignmentResponseSerializer(serializers.Serializer):
     success = serializers.BooleanField()
     message = serializers.CharField()
     assignments_created = serializers.IntegerField()
+    assignments_updated = serializers.IntegerField()
+    total_assignments = serializers.IntegerField()
     counting_order = serializers.IntegerField()
     inventory_id = serializers.IntegerField()
     timestamp = serializers.DateTimeField(default=timezone.now)

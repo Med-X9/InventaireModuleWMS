@@ -347,6 +347,7 @@ class Ressource(CodeGeneratorMixin, TimeStampedModel):
     reference = models.CharField(unique=True, max_length=20)
     libelle = models.CharField(max_length=100)
     description = models.TextField(max_length=100, null=True, blank=True)
+    type_ressource = models.ForeignKey(TypeRessource, on_delete=models.CASCADE, verbose_name=_('Type de ressource'))
     status = models.CharField(choices=STATUS_CHOICES)
     history = HistoricalRecords()
 

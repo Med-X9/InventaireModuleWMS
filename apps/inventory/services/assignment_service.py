@@ -49,6 +49,17 @@ class AssignmentService(IAssignmentService):
             
             inventory_id = list(inventory_ids)[0]
             
+            # Vérifier que tous les jobs ont un statut autorisé pour l'affectation
+            forbidden_statuses = ['EN ATTENTE']
+            invalid_jobs = [job for job in jobs if job.status in forbidden_statuses]
+            if invalid_jobs:
+                invalid_jobs_info = [f"Job {job.reference} (statut: {job.status})" for job in invalid_jobs]
+                raise AssignmentValidationError(
+                    f"Les jobs en statut 'EN ATTENTE' ne peuvent pas être affectés. "
+                    f"Ils doivent d'abord être validés. "
+                    f"Jobs invalides : {', '.join(invalid_jobs_info)}"
+                )
+            
             # Récupérer le comptage
             counting = self.repository.get_counting_by_order_and_inventory(counting_order, inventory_id)
             if not counting:
@@ -66,36 +77,64 @@ class AssignmentService(IAssignmentService):
             session = None
             if session_id:
                 try:
-                    session = UserApp.objects.get(id=session_id, role__name='Operateur')
+                    session = UserApp.objects.get(id=session_id, type='Mobile')
                 except UserApp.DoesNotExist:
-                    raise AssignmentValidationError(f"Session avec l'ID {session_id} non trouvée ou n'est pas un opérateur")
+                    raise AssignmentValidationError(f"Session avec l'ID {session_id} non trouvée ou n'est pas un mobile")
             
-            # Créer les affectations
-            assignments_created = []
+            # Créer ou mettre à jour les affectations
+            assignments_created = 0
+            assignments_updated = 0
+            
             for job in jobs:
-                # Vérifier s'il existe déjà une affectation pour ce job
-                existing_assignments = self.repository.get_existing_assignments_for_jobs([job.id])
-                if existing_assignments:
-                    raise AssignmentBusinessRuleError(f"Le job {job.reference} a déjà une affectation")
+                # Vérifier s'il existe déjà une affectation pour ce job et ce comptage spécifique
+                existing_assignment = self.repository.get_existing_assignment_for_job_and_counting(job.id, counting.id)
                 
-                # Créer l'affectation
-                assignment_data = {
-                    'job': job,
-                    'counting': counting,
-                    'date_start': date_start or timezone.now(),
-                    'session': session
-                }
+                if existing_assignment:
+                    # Mettre à jour l'affectation existante pour ce comptage
+                    existing_assignment.date_start = date_start or timezone.now()
+                    existing_assignment.session = session
+                    existing_assignment.status = 'AFFECTE'
+                    existing_assignment.affecte_date = timezone.now()
+                    existing_assignment.save()
+                    assignments_updated += 1
+                else:
+                    # Créer une nouvelle affectation pour ce comptage
+                    assignment_data = {
+                        'job': job,
+                        'counting': counting,
+                        'date_start': date_start or timezone.now(),
+                        'session': session,
+                        'status': 'AFFECTE',
+                        'affecte_date': timezone.now()
+                    }
+                    
+                    assignment = self.repository.create_assignment(assignment_data)
+                    assignments_created += 1
                 
-                assignment = self.repository.create_assignment(assignment_data)
-                assignments_created.append(assignment)
+                # Vérifier si les deux comptages ont des sessions pour ce job
+                should_update_status = self.should_update_job_status_to_affecte(job.id, inventory_id)
                 
-                # Mettre à jour le statut du job
-                self.repository.update_job_status(job.id, 'AFFECTE', 'affecte_date')
+                if should_update_status:
+                    # Mettre à jour le statut des affectations à AFFECTE
+                    self.update_assignments_status_to_affecte(job.id, inventory_id)
+                    
+                    # Mettre à jour le statut du job à VALIDE (puisque AFFECTE n'existe pas dans le modèle actuel)
+                    # Le statut AFFECTE sera géré dans le modèle Assigment
+                    if job.status == 'EN ATTENTE':
+                        self.repository.update_job_status(job.id, 'VALIDE', 'valide_date')
+                else:
+                    # Garder le statut actuel ou le mettre à VALIDE si ce n'est pas déjà fait
+                    if job.status == 'EN ATTENTE':
+                        self.repository.update_job_status(job.id, 'VALIDE', 'valide_date')
+            
+            total_assignments = assignments_created + assignments_updated
             
             return {
                 'success': True,
-                'message': f"{len(assignments_created)} jobs affectés avec succès",
-                'assignments_created': len(assignments_created),
+                'message': f"{assignments_created} affectations créées, {assignments_updated} affectations mises à jour",
+                'assignments_created': assignments_created,
+                'assignments_updated': assignments_updated,
+                'total_assignments': total_assignments,
                 'counting_order': counting_order,
                 'inventory_id': inventory_id
             }
@@ -128,8 +167,8 @@ class AssignmentService(IAssignmentService):
         if counting_order and not isinstance(counting_order, int):
             errors.append("counting_order doit être un entier")
         
-        if counting_order and counting_order not in [1, 2, 3]:
-            errors.append("counting_order doit être 1, 2 ou 3")
+        if counting_order and counting_order not in [1, 2]:
+            errors.append("counting_order doit être 1 ou 2")
         
         # Validation de la date_start si fournie
         date_start = assignment_data.get('date_start')
@@ -163,4 +202,55 @@ class AssignmentService(IAssignmentService):
             return True
         
         # Mode non reconnu
-        return False 
+        return False
+
+    def should_update_job_status_to_affecte(self, job_id: int, inventory_id: int) -> bool:
+        """
+        Vérifie si le statut du job doit être mis à AFFECTE
+        
+        Règle : Le statut devient AFFECTE si les deux comptages (1 et 2) ont des sessions
+        
+        Args:
+            job_id: ID du job
+            inventory_id: ID de l'inventaire
+            
+        Returns:
+            bool: True si le statut doit être mis à AFFECTE
+        """
+        # Récupérer les comptages de l'inventaire (normalement 1 et 2)
+        countings = Counting.objects.filter(inventory_id=inventory_id, order__in=[1, 2]).order_by('order')
+        
+        if countings.count() < 2:
+            # S'il n'y a pas deux comptages, ne pas mettre à jour le statut
+            return False
+        
+        # Vérifier si le job a des affectations avec session pour les deux comptages
+        assignments_with_session = Assigment.objects.filter(
+            job_id=job_id,
+            counting__in=countings,
+            session__isnull=False
+        ).values_list('counting__order', flat=True).distinct()
+        
+        # Le statut devient AFFECTE si les deux comptages (1 et 2) ont des sessions
+        return len(assignments_with_session) >= 2 and all(order in assignments_with_session for order in [1, 2])
+
+    def update_assignments_status_to_affecte(self, job_id: int, inventory_id: int) -> None:
+        """
+        Met à jour le statut des affectations à 'AFFECTE' pour un job donné
+        
+        Args:
+            job_id: ID du job
+            inventory_id: ID de l'inventaire
+        """
+        # Récupérer toutes les affectations du job pour cet inventaire
+        assignments = Assigment.objects.filter(
+            job_id=job_id,
+            counting__inventory_id=inventory_id
+        )
+        
+        # Mettre à jour le statut et la date d'affectation
+        current_time = timezone.now()
+        for assignment in assignments:
+            assignment.status = 'AFFECTE'
+            assignment.affecte_date = current_time
+            assignment.save() 

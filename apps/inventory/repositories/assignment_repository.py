@@ -80,6 +80,63 @@ class AssignmentRepository(IAssignmentRepository):
         """
         return Assigment.objects.filter(job_id__in=job_ids)
     
+    def get_existing_assignment_for_job(self, job_id: int) -> Optional[Any]:
+        """
+        Récupère l'affectation existante pour un job spécifique
+        Si plusieurs affectations existent pour le même job, supprime les doublons et retourne la plus récente
+        Une session peut être affectée à plusieurs jobs différents
+        
+        Args:
+            job_id: ID du job
+            
+        Returns:
+            Optional[Any]: L'affectation existante ou None
+        """
+        assignments = Assigment.objects.filter(job_id=job_id).order_by('-created_at')
+        
+        if not assignments.exists():
+            return None
+        
+        # Si une seule affectation pour ce job, la retourner
+        if assignments.count() == 1:
+            return assignments.first()
+        
+        # Si plusieurs affectations pour le même job, garder la plus récente et supprimer les autres
+        latest_assignment = assignments.first()
+        
+        # Supprimer les affectations plus anciennes pour ce job
+        assignments.exclude(id=latest_assignment.id).delete()
+        
+        return latest_assignment
+    
+    def get_existing_assignment_for_job_and_counting(self, job_id: int, counting_id: int) -> Optional[Any]:
+        """
+        Récupère l'affectation existante pour un job et un comptage spécifiques
+        
+        Args:
+            job_id: ID du job
+            counting_id: ID du comptage
+            
+        Returns:
+            Optional[Any]: L'affectation existante ou None
+        """
+        try:
+            return Assigment.objects.get(job_id=job_id, counting_id=counting_id)
+        except Assigment.DoesNotExist:
+            return None
+    
+    def get_assignments_by_session(self, session_id: int) -> List[Any]:
+        """
+        Récupère toutes les affectations d'une session
+        
+        Args:
+            session_id: ID de la session
+            
+        Returns:
+            List[Any]: Liste des affectations de la session
+        """
+        return Assigment.objects.filter(session_id=session_id).order_by('-created_at')
+    
     def get_job_with_inventory(self, job_id: int) -> Optional[Any]:
         """
         Récupère un job avec son inventaire

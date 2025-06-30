@@ -98,4 +98,44 @@ class IAssignmentRepository(ABC):
             status: Nouveau statut
             date_field: Champ de date à mettre à jour
         """
+        pass
+    
+    @abstractmethod
+    def get_existing_assignment_for_job(self, job_id: int) -> Optional[Any]:
+        """
+        Récupère l'affectation existante pour un job spécifique
+        
+        Args:
+            job_id: ID du job
+            
+        Returns:
+            Optional[Any]: L'affectation existante ou None
+        """
+        pass
+    
+    @abstractmethod
+    def get_existing_assignment_for_job_and_counting(self, job_id: int, counting_id: int) -> Optional[Any]:
+        """
+        Récupère l'affectation existante pour un job et un comptage spécifiques
+        
+        Args:
+            job_id: ID du job
+            counting_id: ID du comptage
+            
+        Returns:
+            Optional[Any]: L'affectation existante ou None
+        """
+        pass
+    
+    @abstractmethod
+    def get_assignments_by_session(self, session_id: int) -> List[Any]:
+        """
+        Récupère toutes les affectations d'une session
+        
+        Args:
+            session_id: ID de la session
+            
+        Returns:
+            List[Any]: Liste des affectations de la session
+        """
         pass 

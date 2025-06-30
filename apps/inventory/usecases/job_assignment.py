@@ -115,7 +115,6 @@ class JobAssignmentUseCase:
                 "counting_orders": {
                     "1": "Premier comptage",
                     "2": "Deuxième comptage", 
-                    "3": "Troisième comptage"
                 },
                 "session_rules": {
                     "image_stock": "Pas d'affectation de session (automatique)",

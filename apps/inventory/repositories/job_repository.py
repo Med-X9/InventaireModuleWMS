@@ -1,12 +1,12 @@
 from typing import List, Dict, Any, Optional
 from django.db import transaction
 from django.db.models import Q
-from ..interfaces.job_interface import JobInterface
+from ..interfaces.job_interface import JobRepositoryInterface
 from ..models import Job, Assigment, Counting, Inventory, JobDetail
 from apps.masterdata.models import Warehouse, Location
 from django.utils import timezone
 
-class JobRepository(JobInterface):
+class JobRepository(JobRepositoryInterface):
     """
     Repository pour l'accès aux données des jobs
     Contient uniquement les opérations CRUD
@@ -107,7 +107,12 @@ class JobRepository(JobInterface):
     
     def delete_job_details(self, job_details: List[JobDetail]) -> int:
         """Supprime des job details et retourne le nombre supprimé"""
-        return job_details[0].delete()[0] if job_details else 0
+        if not job_details:
+            return 0
+        # Supprimer tous les job details en une seule opération
+        job_detail_ids = [jd.id for jd in job_details]
+        deleted_count, _ = JobDetail.objects.filter(id__in=job_detail_ids).delete()
+        return deleted_count
     
     def delete_assignments_by_job(self, job: Job) -> int:
         """Supprime tous les assignments d'un job"""

@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from ..models import Job, JobDetail, Location
+from ..models import Job, JobDetail, Location, Assigment, JobDetailRessource
 from apps.masterdata.serializers.location_serializer import LocationSerializer
 from apps.masterdata.serializers.sous_zone_serializer import SousZoneSerializer
 from apps.masterdata.serializers.zone_serializer import ZoneSerializer
@@ -114,3 +114,93 @@ class JobListWithLocationsSerializer(serializers.ModelSerializer):
             job_details = job_details.filter(location__sous_zone__zone_id=zone)
         
         return JobLocationDetailSerializer(job_details, many=True).data 
+
+class JobDeleteRequestSerializer(serializers.Serializer):
+    job_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        min_length=1,
+        help_text="Liste des IDs des jobs à supprimer"
+    )
+
+class JobReadyRequestSerializer(serializers.Serializer):
+    job_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        min_length=1,
+        help_text="Liste des IDs des jobs à traiter"
+    )
+    orders = serializers.ListField(
+        child=serializers.IntegerField(),
+        min_length=1,
+        help_text="Liste des ordres de comptage à marquer comme PRET pour ces jobs"
+    )
+
+class JobAssignmentDetailSerializer(serializers.ModelSerializer):
+    counting_order = serializers.IntegerField(source='counting.order', read_only=True)
+    status = serializers.CharField()
+    session = serializers.SerializerMethodField()
+    class Meta:
+        model = Assigment
+        fields = ['counting_order', 'status', 'session']
+    def get_session(self, obj):
+        if obj.session:
+            return {'id': obj.session.id, 'username': obj.session.username}
+        return None
+
+class JobRessourceSerializer(serializers.ModelSerializer):
+    reference = serializers.CharField(source='ressource.reference')
+    class Meta:
+        model = JobDetailRessource
+        fields = ['id', 'reference', 'quantity']
+
+class JobEmplacementDetailSerializer(serializers.ModelSerializer):
+    sous_zone = SousZoneSerializer(source='location.sous_zone', read_only=True)
+    zone = ZoneSerializer(source='location.sous_zone.zone', read_only=True)
+    reference = serializers.CharField(source='location.location_reference', read_only=True)
+    class Meta:
+        model = JobDetail
+        fields = ['id', 'reference', 'sous_zone', 'zone']
+
+class JobFullDetailSerializer(serializers.ModelSerializer):
+    emplacements = serializers.SerializerMethodField()
+    assignments = serializers.SerializerMethodField()
+    ressources = serializers.SerializerMethodField()
+    class Meta:
+        model = Job
+        fields = ['id', 'reference', 'status', 'emplacements', 'assignments', 'ressources']
+    def get_emplacements(self, obj):
+        job_details = obj.jobdetail_set.select_related('location__sous_zone__zone').all()
+        return JobEmplacementDetailSerializer(job_details, many=True).data
+    def get_assignments(self, obj):
+        assignments = obj.assigment_set.select_related('counting', 'session').all()
+        return JobAssignmentDetailSerializer(assignments, many=True).data
+    def get_ressources(self, obj):
+        ressources = obj.jobdetailressource_set.select_related('ressource').all()
+        return JobRessourceSerializer(ressources, many=True).data 
+
+class JobPendingSerializer(serializers.ModelSerializer):
+    emplacements = serializers.SerializerMethodField()
+    assignments = serializers.SerializerMethodField()
+    ressources = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Job
+        fields = ['id', 'reference', 'status', 'emplacements', 'assignments', 'ressources']
+    
+    def get_emplacements(self, obj):
+        job_details = obj.jobdetail_set.select_related('location__sous_zone__zone').all()
+        return JobEmplacementDetailSerializer(job_details, many=True).data
+    
+    def get_assignments(self, obj):
+        assignments = obj.assigment_set.select_related('counting', 'session').all()
+        return JobAssignmentDetailSerializer(assignments, many=True).data
+    
+    def get_ressources(self, obj):
+        ressources = obj.jobdetailressource_set.select_related('ressource').all()
+        return JobRessourceSerializer(ressources, many=True).data 
+
+class JobResetAssignmentsRequestSerializer(serializers.Serializer):
+    job_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        min_length=1,
+        help_text="Liste des IDs des jobs en attente à remettre en attente"
+    ) 
