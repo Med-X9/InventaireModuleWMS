@@ -1,5 +1,8 @@
 version: '3.8'
 
+networks:
+  inventaire-net:
+    external: true
 services:
   web:
     networks:
