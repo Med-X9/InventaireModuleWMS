@@ -1,6 +1,6 @@
 from .inventory_serializer import (
     InventorySerializer,
-    InventoryCreateSerializer,
+    InventoryDataSerializer,
     InventoryDetailSerializer,
     InventoryGetByIdSerializer
 )
@@ -23,7 +23,7 @@ from .inventory_job_serializer import InventoryJobCreateSerializer
 __all__ = [
     # Inventory serializers
     'InventorySerializer',
-    'InventoryCreateSerializer',
+    'InventoryDataSerializer',
     'InventoryDetailSerializer',
     'InventoryGetByIdSerializer',
     

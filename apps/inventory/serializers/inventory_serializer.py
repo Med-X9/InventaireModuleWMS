@@ -2,19 +2,23 @@
 Serializers pour l'application inventory.
 """
 from rest_framework import serializers
-from ..models import Inventory, Counting, Setting
+from ..models import Inventory, Counting, Setting, Assigment
 from ..services.inventory_service import InventoryService
 from ..exceptions import InventoryValidationError
 from apps.masterdata.models import Account, Warehouse
 from .counting_serializer import CountingCreateSerializer, CountingDetailSerializer, CountingSerializer
+from apps.users.serializers import UserAppSerializer
 
-class InventoryCreateSerializer(serializers.Serializer):
+class InventoryDataSerializer(serializers.Serializer):
+    """
+    Serializer pour les données d'inventaire (création et mise à jour).
+    """
     label = serializers.CharField()
     date = serializers.DateField()
-    account_id = serializers.IntegerField(source='account')
-    warehouse_ids = serializers.ListField(
-        child=serializers.IntegerField(),
-        source='warehouse'
+    account_id = serializers.IntegerField()
+    warehouse = serializers.ListField(
+        child=serializers.DictField(),
+        required=True
     )
     comptages = serializers.ListField(
         child=serializers.DictField(),
@@ -23,17 +27,68 @@ class InventoryCreateSerializer(serializers.Serializer):
 
     def validate(self, data):
         """
-        Valide les données de l'inventaire.
+        Valide les données de l'inventaire selon les règles métier.
         """
-        # Convertir les noms de champs pour correspondre à ce que le service attend
-        validated_data = {
-            'label': data['label'],
-            'date': data['date'],
-            'account': data['account'],
-            'warehouse': data['warehouse'],
-            'comptages': data['comptages']
-        }
-        return validated_data
+        errors = []
+        
+        # Validation des entrepôts
+        for i, warehouse_info in enumerate(data['warehouse']):
+            if not warehouse_info.get('id'):
+                raise serializers.ValidationError(f"L'entrepôt {i+1} doit avoir un ID")
+        
+        # Validation des comptages
+        comptages = data.get('comptages', [])
+        
+        # Vérifier qu'il y a exactement 3 comptages
+        if len(comptages) != 3:
+            raise serializers.ValidationError("Un inventaire doit contenir exactement 3 comptages")
+        
+        # Trier les comptages par ordre
+        comptages_sorted = sorted(comptages, key=lambda x: x.get('order', 0))
+        
+        # Vérifier que les ordres sont 1, 2, 3
+        orders = [c.get('order') for c in comptages_sorted]
+        if orders != [1, 2, 3]:
+            raise serializers.ValidationError("Les comptages doivent avoir les ordres 1, 2, 3")
+        
+        # Validation des champs obligatoires pour chaque comptage
+        for i, comptage in enumerate(comptages_sorted, 1):
+            if not comptage.get('order'):
+                raise serializers.ValidationError(f"Le comptage {i} doit avoir un ordre")
+            if not comptage.get('count_mode'):
+                raise serializers.ValidationError(f"Le comptage {i} doit avoir un mode de comptage")
+        
+        # Récupérer les modes de comptage par ordre
+        count_modes = [c.get('count_mode') for c in comptages_sorted]
+        
+        # Vérifier que tous les modes sont valides
+        valid_modes = ['en vrac', 'par article', 'image stock']
+        for i, mode in enumerate(count_modes):
+            if mode not in valid_modes:
+                raise serializers.ValidationError(f"Comptage {i+1}: Mode de comptage invalide '{mode}'")
+        
+        # Validation des combinaisons autorisées
+        first_mode = count_modes[0]
+        second_mode = count_modes[1]
+        third_mode = count_modes[2]
+        
+        # Scénario 1: Premier comptage = "image stock"
+        if first_mode == "image stock":
+            # Les 2e et 3e comptages doivent être du même mode (soit "en vrac", soit "par article")
+            if second_mode != third_mode:
+                raise serializers.ValidationError("Si le premier comptage est 'image stock', les 2e et 3e comptages doivent avoir le même mode")
+            
+            if second_mode not in ["en vrac", "par article"]:
+                raise serializers.ValidationError("Si le premier comptage est 'image stock', les 2e et 3e comptages doivent être 'en vrac' ou 'par article'")
+        
+        # Scénario 2: Premier comptage = "en vrac" ou "par article"
+        elif first_mode in ["en vrac", "par article"]:
+            # Tous les comptages doivent être "en vrac" ou "par article"
+            for i, mode in enumerate(count_modes):
+                if mode not in ["en vrac", "par article"]:
+                    raise serializers.ValidationError(f"Si le premier comptage n'est pas 'image stock', tous les comptages doivent être 'en vrac' ou 'par article' (comptage {i+1}: '{mode}')")
+        
+        return data
 
 class InventoryGetByIdSerializer(serializers.ModelSerializer):
     """Serializer pour récupérer un inventaire par son ID avec le format spécifique."""
@@ -57,6 +112,14 @@ class InventoryGetByIdSerializer(serializers.ModelSerializer):
         countings = Counting.objects.filter(inventory=obj).order_by('order')
         return CountingDetailSerializer(countings, many=True).data
 
+class PdaTeamSerializer(serializers.ModelSerializer):
+    """Serializer pour les membres de l'équipe PDA"""
+    user = UserAppSerializer(source='session', read_only=True)
+
+    class Meta:
+        model = Assigment
+        fields = ['id', 'reference', 'user']
+
 class InventoryDetailSerializer(serializers.ModelSerializer):
     """
     Sérialiseur pour les détails d'un inventaire.
@@ -64,13 +127,16 @@ class InventoryDetailSerializer(serializers.ModelSerializer):
     account_name = serializers.SerializerMethodField()
     warehouse_name = serializers.SerializerMethodField()
     comptages = serializers.SerializerMethodField()
+    # equipe = serializers.SerializerMethodField()
 
     class Meta:
         model = Inventory
         fields = [
-            'id', 'label', 'date', 'status', 'end_status_date',
-            'lunch_status_date', 'current_status_date', 'pending_status_date',
-            'account_name', 'warehouse_name', 'comptages'
+            'id', 'label', 'date', 'status',
+            'en_preparation_status_date',
+            'en_realisation_status_date', 'ternime_status_date',
+            'cloture_status_date', 'account_name', 'warehouse_name',
+            'comptages'
         ]
 
     def get_account_name(self, obj):
@@ -85,17 +151,20 @@ class InventoryDetailSerializer(serializers.ModelSerializer):
         countings = Counting.objects.filter(inventory=obj).order_by('order')
         return CountingDetailSerializer(countings, many=True).data
 
+
 class InventorySerializer(serializers.ModelSerializer):
     account_name = serializers.SerializerMethodField()
     warehouse_name = serializers.SerializerMethodField()
     comptages = serializers.SerializerMethodField()
+    equipe = serializers.SerializerMethodField()
 
     class Meta:
         model = Inventory
         fields = [
-            'id', 'label', 'date', 'status', 'end_status_date',
-            'lunch_status_date', 'current_status_date', 'pending_status_date',
-            'account_name', 'warehouse_name', 'comptages'
+            'id', 'label', 'date', 'status',
+            'en_preparation_status_date', 'en_realisation_status_date',
+            'ternime_status_date', 'cloture_status_date',
+            'account_name', 'warehouse_name', 'comptages', 'equipe'
         ]
 
     def get_account_name(self, obj):
@@ -108,4 +177,16 @@ class InventorySerializer(serializers.ModelSerializer):
 
     def get_comptages(self, obj):
         countings = Counting.objects.filter(inventory=obj).order_by('order')
-        return CountingSerializer(countings, many=True).data 
+        return CountingSerializer(countings, many=True).data
+
+    def get_equipe(self, obj):
+        pdas = Assigment.objects.filter(job__inventory=obj)
+        return PdaTeamSerializer(pdas, many=True).data
+
+class InventoryTeamSerializer(serializers.ModelSerializer):
+    """Serializer pour récupérer l'équipe d'un inventaire"""
+    user = UserAppSerializer(source='session', read_only=True)
+
+    class Meta:
+        model = Assigment
+        fields = ['id', 'reference', 'user'] 
