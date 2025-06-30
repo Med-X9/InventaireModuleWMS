@@ -4,14 +4,12 @@ services:
   web:
     container_name: inventaire-api
     user: root
-    build: .
+    build:
+      context: .
     command: >
       sh -c "
-        python3 -m venv venv
-        . venv/bin/activate
-        python3 -m pip install -r requirements.txt
-        python3 manage.py migrate &&
-        python3 manage.py collectstatic --noinput &&
+        python manage.py migrate &&
+        python manage.py collectstatic --noinput &&
         gunicorn --bind 0.0.0.0:8000 --workers 3 --timeout 120 project.wsgi:application
       "
     volumes:
@@ -20,7 +18,7 @@ services:
       - ./media:/app/media
     expose:
       - 8000
-    env_file: .env
+    env_file: ./.env
     restart: unless-stopped
     environment:
       DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE}
@@ -39,9 +37,18 @@ services:
       DB_HOST: ${DB_HOST}
       DB_PORT: ${DB_PORT}
 
+  frontend:
+    container_name: frontend-app
+    build:
+      context: ./frontend
+    expose:
+      - 80
+    restart: unless-stopped
+
   nginx:
     container_name: inventaire-nginx
-    build: ./nginx
+    build:
+      context: ./nginx
     volumes:
       - ./static:/app/static
       - ./staticfiles:/app/staticfiles
@@ -50,4 +57,5 @@ services:
       - "80:80"
     depends_on:
       - web
+      - frontend
     restart: unless-stopped
