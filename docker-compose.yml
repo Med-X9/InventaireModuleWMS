@@ -2,6 +2,8 @@ version: '3.8'
 
 services:
   web:
+    networks:
+      - inventaire-net
     container_name: inventaire-api
     user: root
     build: .
@@ -40,6 +42,8 @@ services:
       DB_PORT: ${DB_PORT}
 
   nginx:
+    networks:
+      - inventaire-net
     container_name: inventaire-nginx
     build: ./nginx
     volumes:
