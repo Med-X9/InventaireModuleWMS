@@ -7,6 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from ..models import Location, SousZone
 import logging
 from ..exceptions import LocationError
+from ..repositories.location_repository import LocationRepository
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,7 @@ class SousZoneLocationsView(APIView):
     Vue pour récupérer toutes les locations d'une sous-zone spécifique.
     """
     permission_classes = [IsAuthenticated]
+    location_repo = LocationRepository()
     
     def get(self, request, sous_zone_id):
         """
@@ -92,18 +94,13 @@ class SousZoneLocationsView(APIView):
             sous_zone_id: ID de la sous-zone dont on veut récupérer les locations
         """
         try:
-            # Vérifier si la sous-zone existe
             SousZone.objects.get(pk=sous_zone_id)
-            
-            # Récupérer les locations de cette sous-zone
-            locations = Location.objects.filter(
+            locations = self.location_repo.get_all().filter(
                 sous_zone_id=sous_zone_id,
                 is_active=True
             ).order_by('location_reference')
-            
             serializer = LocationSerializer(locations, many=True)
             return Response(serializer.data)
-            
         except SousZone.DoesNotExist:
             return Response(
                 {"error": "Sous-zone non trouvée"},
@@ -144,4 +141,18 @@ class UnassignedLocationsView(APIView):
             return Response({
                 'success': False,
                 'message': f'Erreur interne : {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class LocationDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+    location_repo = LocationRepository()
+    def get(self, request, pk):
+        try:
+            location = self.location_repo.get_by_id(pk)
+            serializer = LocationSerializer(location)
+            return Response(serializer.data)
+        except Exception as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_404_NOT_FOUND
+            ) 

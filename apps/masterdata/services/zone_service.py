@@ -1,13 +1,14 @@
 from typing import List, Optional
-from ..models import Zone
+from ..repositories.zone_repository import ZoneRepository
 from django.db.models import Q
 
 class ZoneService:
     """
     Service pour la gestion des zones.
     """
+    zone_repo = ZoneRepository()
     
-    def get_zones(self, warehouse_id: Optional[int] = None, search: Optional[str] = None) -> List[Zone]:
+    def get_zones(self, warehouse_id: Optional[int] = None, search: Optional[str] = None) -> List:
         """
         Récupère la liste des zones avec filtres optionnels.
         
@@ -18,7 +19,7 @@ class ZoneService:
         Returns:
             List[Zone]: Liste des zones correspondant aux critères
         """
-        queryset = Zone.objects.all()
+        queryset = self.zone_repo.get_all()
         
         # Filtre par entrepôt si spécifié
         if warehouse_id:

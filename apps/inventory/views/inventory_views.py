@@ -13,7 +13,8 @@ from ..serializers.inventory_serializer import (
     InventoryCreateSerializer, 
     InventoryDetailSerializer,
     InventoryGetByIdSerializer,
-    InventoryTeamSerializer
+    InventoryTeamSerializer,
+    InventoryWarehouseStatsSerializer
 )
 from ..exceptions import InventoryValidationError, InventoryNotFoundError
 from ..filters import InventoryFilter
@@ -337,4 +338,59 @@ class InventoryTeamView(APIView):
             return Response(
                 {"error": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            ) 
+            )
+
+class InventoryWarehouseStatsView(APIView):
+    """
+    Vue pour récupérer les statistiques des warehouses d'un inventaire.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, inventory_id):
+        """
+        Récupère les statistiques des warehouses pour un inventaire.
+        
+        Args:
+            request: La requête HTTP
+            inventory_id: L'ID de l'inventaire
+            
+        Returns:
+            Response: La réponse HTTP avec les statistiques des warehouses
+        """
+        try:
+            # Récupérer les statistiques via le service
+            inventory_service = InventoryService()
+            stats_data = inventory_service.get_warehouse_stats_for_inventory(inventory_id)
+            
+            # Sérialiser les données
+            serializer = InventoryWarehouseStatsSerializer(stats_data, many=True)
+            
+            return Response({
+                'status': 'success',
+                'message': 'Statistiques des warehouses récupérées avec succès',
+                'inventory_id': inventory_id,
+                'warehouses_count': len(stats_data),
+                'data': serializer.data
+            })
+            
+        except InventoryNotFoundError as e:
+            return Response({
+                'status': 'error',
+                'message': 'Inventaire non trouvé',
+                'error': str(e)
+            }, status=status.HTTP_404_NOT_FOUND)
+            
+        except InventoryValidationError as e:
+            return Response({
+                'status': 'error',
+                'message': 'Erreur de validation',
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des statistiques des warehouses: {str(e)}")
+            return Response({
+                'status': 'error',
+                'message': 'Erreur lors de la récupération des statistiques des warehouses',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 

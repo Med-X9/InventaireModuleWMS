@@ -5,6 +5,7 @@ from rest_framework import status
 from ..models import Zone
 from ..serializers.zone_serializer import ZoneSerializer
 from ..services.zone_service import ZoneService
+from ..repositories.zone_repository import ZoneRepository
 
 class ZoneListView(APIView):
     """
@@ -47,6 +48,7 @@ class ZoneDetailView(APIView):
     Permet de récupérer les détails d'une zone spécifique.
     """
     permission_classes = [IsAuthenticated]
+    zone_repo = ZoneRepository()
     
     def get(self, request, pk):
         """
@@ -56,11 +58,11 @@ class ZoneDetailView(APIView):
             pk: ID de la zone à récupérer
         """
         try:
-            zone = Zone.objects.get(pk=pk)
+            zone = self.zone_repo.get_by_id(pk)
             serializer = ZoneSerializer(zone)
             return Response(serializer.data)
-        except Zone.DoesNotExist:
+        except Exception as e:
             return Response(
-                {"error": "Zone non trouvée"},
+                {"error": str(e)},
                 status=status.HTTP_404_NOT_FOUND
             ) 

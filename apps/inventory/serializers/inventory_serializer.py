@@ -188,4 +188,15 @@ class InventoryTeamSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Assigment
-        fields = ['id', 'reference', 'user'] 
+        fields = ['id', 'reference', 'user']
+
+class InventoryWarehouseStatsSerializer(serializers.Serializer):
+    """Serializer pour les statistiques des warehouses d'un inventaire"""
+    warehouse_id = serializers.IntegerField()
+    warehouse_reference = serializers.CharField()
+    warehouse_name = serializers.CharField()
+    jobs_count = serializers.IntegerField()
+    teams_count = serializers.IntegerField()
+    
+    class Meta:
+        fields = ['warehouse_id', 'warehouse_reference', 'warehouse_name', 'jobs_count', 'teams_count'] 

@@ -4,10 +4,15 @@ from apps.inventory.models import Job, JobDetail
 import logging
 from django.db.models import Q
 from ..exceptions import LocationError
+from ..repositories.warehouse_repository import WarehouseRepository
+from ..repositories.location_repository import LocationRepository
 
 logger = logging.getLogger(__name__)
 
 class LocationService:
+    warehouse_repo = WarehouseRepository()
+    location_repo = LocationRepository()
+
     @staticmethod
     def get_all_warehouse_locations(warehouse_id):
         """
@@ -23,7 +28,7 @@ class LocationService:
             logger.info(f"Récupération de toutes les locations pour le warehouse {warehouse_id}")
             
             # 1. Vérifier si le warehouse existe
-            warehouse = Warehouse.objects.filter(id=warehouse_id).first()
+            warehouse = LocationService.warehouse_repo.get_by_id(warehouse_id)
             if not warehouse:
                 logger.error(f"L'entrepôt avec l'ID {warehouse_id} n'existe pas")
                 return {
@@ -100,7 +105,7 @@ class LocationService:
             logger.info(f"Récupération des locations par job pour le warehouse {warehouse_id}")
             
             # 1. Vérifier si le warehouse existe
-            warehouse = Warehouse.objects.filter(id=warehouse_id).first()
+            warehouse = LocationService.warehouse_repo.get_by_id(warehouse_id)
             if not warehouse:
                 logger.error(f"L'entrepôt avec l'ID {warehouse_id} n'existe pas")
                 return {
@@ -168,7 +173,7 @@ class LocationService:
         """
         try:
             # Récupérer tous les emplacements actifs
-            locations = Location.objects.filter(is_active=True)
+            locations = LocationService.location_repo.get_all().filter(is_active=True)
             
             # Filtrer par warehouse si spécifié
             if warehouse_id:
@@ -221,4 +226,5 @@ class LocationService:
             return unassigned_locations
             
         except Exception as e:
+            logger.error(f"Erreur lors de la récupération des emplacements non affectés : {str(e)}")
             raise LocationError(f"Erreur lors de la récupération des emplacements non affectés : {str(e)}") 
