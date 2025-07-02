@@ -28,8 +28,8 @@ class CountingService(ICountingService):
         Raises:
             CountingValidationError: Si les données sont invalides
         """
-        # Création du comptage
-        counting = Counting.objects.create(
+        # Créer l'objet Counting sans sauvegarder
+        counting = Counting(
             inventory_id=data['inventory_id'],
             order=data['order'],
             count_mode=data['count_mode'],
@@ -43,6 +43,12 @@ class CountingService(ICountingService):
             show_product=data.get('show_product', False),
             quantity_show=data.get('quantity_show', False),
         )
+        
+        # Générer la référence manuellement
+        counting.reference = counting.generate_reference(counting.REFERENCE_PREFIX)
+        
+        # Sauvegarder l'objet
+        counting.save()
         
         return counting
 
@@ -72,7 +78,7 @@ class CountingService(ICountingService):
                 use_case = CountingByInBulk()
             elif count_mode == "par article":
                 use_case = CountingByArticle()
-            elif count_mode == "image stock":
+            elif count_mode == "image de stock":
                 use_case = CountingByStockimage()
             else:
                 raise CountingValidationError(f"Mode de comptage non supporté: {count_mode}")
@@ -83,34 +89,6 @@ class CountingService(ICountingService):
         
         return countings
     
-    def update_counting_status(self, counting_id: int, status: str) -> Counting:
-        """
-        Met à jour le statut d'un comptage.
-        
-        Args:
-            counting_id: L'ID du comptage
-            status: Le nouveau statut
-            
-        Returns:
-            Counting: Le comptage mis à jour
-            
-        Raises:
-            CountingValidationError: Si le statut est invalide
-        """
-        try:
-            counting = Counting.objects.get(id=counting_id)
-        except Counting.DoesNotExist:
-            raise CountingValidationError("Le comptage spécifié n'existe pas")
-        
-        valid_statuses = ['PENDING', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']
-        if status not in valid_statuses:
-            raise CountingValidationError(f"Statut invalide. Doit être l'un des suivants: {', '.join(valid_statuses)}")
-        
-        counting.status = status
-        counting.save()
-        
-        return counting 
-
     def validate_countings_consistency(self, comptages: List[Dict[str, Any]]) -> None:
         """
         Valide la cohérence des modes de comptage selon les règles métier.

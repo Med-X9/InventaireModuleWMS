@@ -17,7 +17,6 @@ from .job_serializer import (
     EmplacementSerializer,
     InventoryJobRetrieveSerializer
 )
-# from .planning_serializer import PlanningSerializer
 from .inventory_job_serializer import InventoryJobCreateSerializer
 
 __all__ = [
@@ -43,9 +42,6 @@ __all__ = [
     'JobDetailSerializer',
     'EmplacementSerializer',
     'InventoryJobRetrieveSerializer',
-    
-    # Planning serializers
-    'PlanningSerializer',
     
     # Inventory Job serializers
     'InventoryJobCreateSerializer'

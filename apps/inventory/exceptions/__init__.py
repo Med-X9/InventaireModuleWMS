@@ -28,6 +28,12 @@ from .inventory_exceptions import (
     CountingError,
     CountingValidationError
 )
+from .stock_exceptions import (
+    StockValidationError,
+    StockNotFoundError,
+    StockImportError,
+    StockDuplicateError
+)
 
 __all__ = [
     # Job exceptions
@@ -58,5 +64,11 @@ __all__ = [
     'InventoryStatusError',
     'InventoryDateError',
     'CountingError',
-    'CountingValidationError'
+    'CountingValidationError',
+    
+    # Stock exceptions
+    'StockValidationError',
+    'StockNotFoundError',
+    'StockImportError',
+    'StockDuplicateError'
 ] 

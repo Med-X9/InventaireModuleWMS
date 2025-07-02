@@ -45,6 +45,11 @@ class InventoryService:
         if not data.get('warehouse'):
             errors.append("Au moins un entrepôt est obligatoire")
         
+        # Validation du type d'inventaire
+        inventory_type = data.get('inventory_type', 'GENERAL')
+        if inventory_type not in ['TOURNANT', 'GENERAL']:
+            errors.append("Le type d'inventaire doit être 'TOURNANT' ou 'GENERAL'")
+        
         comptages = data.get('comptages', [])
         if not comptages:
             errors.append("Les comptages sont obligatoires")
@@ -76,7 +81,7 @@ class InventoryService:
     def validate_counting_modes(self, comptages: List[Dict[str, Any]]) -> List[str]:
         """Valide les modes de comptage."""
         errors = []
-        valid_modes = ['Liste d\'emplacement', 'Liste emplacement et article']
+        valid_modes = ['en vrac', 'par article']
         for i, comptage in enumerate(comptages, 1):
             if comptage.get('count_mode') not in valid_modes:
                 errors.append(f"Mode de comptage invalide pour le comptage {i}")
@@ -84,7 +89,7 @@ class InventoryService:
     
     def create_inventory(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Crée un nouvel inventaire en utilisant le use case.
+        Crée un nouvel inventaire en utilisant le use case de gestion.
         
         Args:
             data: Les données de l'inventaire
@@ -96,10 +101,10 @@ class InventoryService:
             InventoryValidationError: Si les données sont invalides
         """
         try:
-            # Utilisation du use case pour la création
-            from ..usecases.inventory_creation import InventoryCreationUseCase
-            use_case = InventoryCreationUseCase()
-            result = use_case.execute(data)
+            # Utilisation du use case de gestion pour la création
+            from ..usecases.inventory_management import InventoryManagementUseCase
+            use_case = InventoryManagementUseCase()
+            result = use_case.create(data)
             return result
             
         except Exception as e:
@@ -156,82 +161,35 @@ class InventoryService:
             logger.error(f"Inventaire non trouvé avec l'ID: {inventory_id}")
             raise InventoryNotFoundError("L'inventaire demandé n'existe pas")
 
-    def update_inventory(self, inventory_id: int, data: Dict[str, Any]) -> Inventory:
+    def update_inventory(self, inventory_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Met à jour un inventaire.
+        Met à jour un inventaire en utilisant le use case de gestion.
         
         Args:
             inventory_id: L'ID de l'inventaire à mettre à jour
             data: Les nouvelles données de l'inventaire
             
         Returns:
-            Inventory: L'inventaire mis à jour
+            Dict[str, Any]: Résultat de la mise à jour
             
         Raises:
             InventoryNotFoundError: Si l'inventaire n'existe pas
             InventoryValidationError: Si les données sont invalides
         """
         try:
-            # Récupération de l'inventaire
-            inventory = self.get_inventory_by_id(inventory_id)
-            
-            # Préparation des données pour la validation
-            validation_data = {
-                'label': data.get('label'),
-                'date': data.get('date'),
-                'account': data.get('account_id'),
-                'warehouse': data.get('warehouse_ids'),
-                'comptages': data.get('comptages', [])
-            }
-            
-            # Validation des données
-            self.validate_inventory_data(validation_data)
-            
-            # Extraction des données
-            label = data['label']
-            date = data['date']
-            account_id = data['account_id']
-            warehouse_ids = data['warehouse_ids']
-            comptages_data = data['comptages']
-            
-            # Mise à jour de l'inventaire
-            inventory.label = label
-            inventory.date = date
-            inventory.save()
-            
-            # Suppression des anciens paramètres
-            Setting.objects.filter(inventory=inventory).delete()
-            
-            # Création des nouveaux paramètres
-            for warehouse_id in warehouse_ids:
-                Setting.objects.create(
-                    account_id=account_id,
-                    warehouse_id=warehouse_id,
-                    inventory=inventory
-                )
-            
-            # Suppression des anciens comptages
-            Counting.objects.filter(inventory=inventory).delete()
-            
-            # Création des nouveaux comptages
-            for comptage_data in comptages_data:
-                Counting.objects.create(
-                    inventory=inventory,
-                    **comptage_data
-                )
-            
-            return inventory
+            # Utilisation du use case de gestion pour la mise à jour
+            from ..usecases.inventory_management import InventoryManagementUseCase
+            use_case = InventoryManagementUseCase()
+            result = use_case.update(inventory_id, data)
+            return result
             
         except InventoryNotFoundError:
             raise
         except InventoryValidationError:
             raise
-        except IntegrityError as e:
-            logger.error(f"Erreur d'intégrité lors de la mise à jour de l'inventaire: {str(e)}")
-            raise InventoryValidationError("Erreur de validation des données")
         except Exception as e:
-            logger.error(f"Erreur inattendue lors de la mise à jour de l'inventaire: {str(e)}")
-            raise InventoryValidationError(str(e))
+            logger.error(f"Erreur lors de la mise à jour de l'inventaire: {str(e)}", exc_info=True)
+            raise InventoryValidationError(f"Erreur lors de la mise à jour de l'inventaire: {str(e)}")
 
     def _check_stocks_exist(self, warehouses: List[Warehouse], inventory_id: int) -> bool:
         """
@@ -314,10 +272,7 @@ class InventoryService:
         
         self._create_inventory_details_from_stocks(first_counting, warehouses, inventory_id)
         
-        # Mettre à jour le statut du premier comptage en END
-        first_counting.status = 'END'
-        first_counting.date_status_end = timezone.now()
-        first_counting.save()
+        # Note: Le comptage n'a plus de champ status, donc on ne met plus à jour le statut
 
     # def _handle_liste_emplacement_article_mode(self, warehouses: List[Warehouse]) -> None:
     #     """
@@ -425,10 +380,7 @@ class InventoryService:
             inventory.lunch_status_date = None
             inventory.save()
             
-            # Mettre à jour le statut du premier comptage
-            first_counting.status = 'EN PREPARATION'
-            first_counting.date_status_lunch = None
-            first_counting.save()
+            # Note: Le comptage n'a plus de champ status, donc on ne met plus à jour le statut
             
         except InventoryNotFoundError:
             raise
