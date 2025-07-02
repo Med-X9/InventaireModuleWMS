@@ -381,7 +381,7 @@ class InventoryManagementUseCase:
         count_modes = [c.get('count_mode') for c in comptages_sorted]
         
         # Vérifier que tous les modes sont valides
-        valid_modes = ['en vrac', 'par article', 'image stock']
+        valid_modes = ['en vrac', 'par article', 'image de stock']
         for i, mode in enumerate(count_modes):
             if mode not in valid_modes:
                 errors.append(f"Comptage {i+1}: Mode de comptage invalide '{mode}'")
@@ -391,21 +391,21 @@ class InventoryManagementUseCase:
         second_mode = count_modes[1]
         third_mode = count_modes[2]
         
-        # Scénario 1: Premier comptage = "image stock"
-        if first_mode == "image stock":
+        # Scénario 1: Premier comptage = "image de stock"
+        if first_mode == "image de stock":
             # Les 2e et 3e comptages doivent être du même mode (soit "en vrac", soit "par article")
             if second_mode != third_mode:
-                errors.append("Si le premier comptage est 'image stock', les 2e et 3e comptages doivent avoir le même mode")
+                errors.append("Si le premier comptage est 'image de stock', les 2e et 3e comptages doivent avoir le même mode")
             
             if second_mode not in ["en vrac", "par article"]:
-                errors.append("Si le premier comptage est 'image stock', les 2e et 3e comptages doivent être 'en vrac' ou 'par article'")
+                errors.append("Si le premier comptage est 'image de stock', les 2e et 3e comptages doivent être 'en vrac' ou 'par article'")
         
         # Scénario 2: Premier comptage = "en vrac" ou "par article"
         elif first_mode in ["en vrac", "par article"]:
             # Tous les comptages doivent être "en vrac" ou "par article"
             for i, mode in enumerate(count_modes):
                 if mode not in ["en vrac", "par article"]:
-                    errors.append(f"Si le premier comptage n'est pas 'image stock', tous les comptages doivent être 'en vrac' ou 'par article' (comptage {i+1}: '{mode}')")
+                    errors.append(f"Si le premier comptage n'est pas 'image de stock', tous les comptages doivent être 'en vrac' ou 'par article' (comptage {i+1}: '{mode}')")
         
         # Validation des champs obligatoires et spécifiques via CountingDispatcher
         for i, comptage in enumerate(comptages_sorted, 1):
