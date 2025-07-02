@@ -6,7 +6,7 @@ from ..models import Inventory, Counting, Setting, Assigment
 from ..services.inventory_service import InventoryService
 from ..exceptions import InventoryValidationError
 from apps.masterdata.models import Account, Warehouse
-from .counting_serializer import CountingCreateSerializer, CountingDetailSerializer, CountingSerializer
+from .counting_serializer import CountingCreateSerializer, CountingDetailSerializer, CountingSerializer, CountingModeFieldsSerializer
 from apps.users.serializers import UserAppSerializer
 
 class InventoryCreateSerializer(serializers.Serializer):
@@ -192,6 +192,17 @@ class InventoryTeamSerializer(serializers.ModelSerializer):
         model = Assigment
         fields = ['id', 'reference', 'user']
 
+class InventoryWarehouseStatsSerializer(serializers.Serializer):
+    """Serializer pour les statistiques des warehouses d'un inventaire"""
+    warehouse_id = serializers.IntegerField()
+    warehouse_reference = serializers.CharField()
+    warehouse_name = serializers.CharField()
+    jobs_count = serializers.IntegerField()
+    teams_count = serializers.IntegerField()
+    
+    class Meta:
+        fields = ['warehouse_id', 'warehouse_reference', 'warehouse_name', 'jobs_count', 'teams_count'] 
+
 class InventoryUpdateSerializer(serializers.Serializer):
     """Serializer pour la mise à jour d'inventaire."""
     label = serializers.CharField(required=False)
@@ -276,3 +287,30 @@ class InventoryUpdateSerializer(serializers.Serializer):
                         raise serializers.ValidationError(f"Si le premier comptage n'est pas 'image de stock', tous les comptages doivent être 'en vrac' ou 'par article' (comptage {i+1}: '{mode}')")
         
         return data 
+
+class InventoryDetailModeFieldsSerializer(serializers.ModelSerializer):
+    account_name = serializers.SerializerMethodField()
+    warehouse_name = serializers.SerializerMethodField()
+    comptages = serializers.SerializerMethodField()
+    equipe = serializers.SerializerMethodField()
+    class Meta:
+        model = Inventory
+        fields = [
+            'id', 'label', 'date', 'status', 'inventory_type',
+            'en_preparation_status_date',
+            'en_realisation_status_date', 'termine_status_date',
+            'cloture_status_date', 'account_name', 'warehouse_name',
+            'comptages', 'equipe'
+        ]
+    def get_account_name(self, obj):
+        setting = Setting.objects.filter(inventory=obj).first()
+        return setting.account.account_name if setting else None
+    def get_warehouse_name(self, obj):
+        settings = Setting.objects.filter(inventory=obj)
+        return [setting.warehouse.warehouse_name for setting in settings]
+    def get_comptages(self, obj):
+        countings = Counting.objects.filter(inventory=obj).order_by('order')
+        return CountingModeFieldsSerializer(countings, many=True).data
+    def get_equipe(self, obj):
+        pdas = Assigment.objects.filter(job__inventory=obj)
+        return PdaTeamSerializer(pdas, many=True).data 

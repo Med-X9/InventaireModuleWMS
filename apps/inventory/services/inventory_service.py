@@ -390,4 +390,61 @@ class InventoryService:
             logger.error(f"Erreur lors de l'annulation de l'inventaire: {str(e)}", exc_info=True)
             raise InventoryValidationError(f"Erreur lors de l'annulation de l'inventaire: {str(e)}")
 
+    def get_warehouse_stats_for_inventory(self, inventory_id: int) -> List[Dict[str, Any]]:
+        """
+        Récupère les statistiques des warehouses pour un inventaire
+        
+        Args:
+            inventory_id: ID de l'inventaire
+            
+        Returns:
+            List[Dict[str, Any]]: Liste des statistiques par warehouse
+        """
+        from django.db.models import Count, Q
+        from ..models import Job, Assigment, Setting
+        from apps.users.models import UserApp
+        
+        try:
+            # Récupérer l'inventaire
+            inventory = self.repository.get_by_id(inventory_id)
+            if not inventory:
+                raise InventoryNotFoundError(f"L'inventaire avec l'ID {inventory_id} n'existe pas.")
+            
+            # Récupérer tous les warehouses associés à cet inventaire
+            warehouse_settings = Setting.objects.filter(
+                inventory=inventory
+            ).select_related('warehouse')
+            
+            stats = []
+            
+            for setting in warehouse_settings:
+                warehouse = setting.warehouse
+                
+                # Compter les jobs pour ce warehouse et cet inventaire
+                jobs_count = Job.objects.filter(
+                    warehouse=warehouse,
+                    inventory=inventory
+                ).count()
+                
+                # Compter les équipes (sessions mobiles uniques) pour ce warehouse et cet inventaire
+                teams_count = Assigment.objects.filter(
+                    job__warehouse=warehouse,
+                    job__inventory=inventory,
+                    session__isnull=False,
+                    session__type='Mobile'
+                ).values('session').distinct().count()
+                
+                stats.append({
+                    'warehouse_id': warehouse.id,
+                    'warehouse_reference': warehouse.reference,
+                    'warehouse_name': warehouse.warehouse_name,
+                    'jobs_count': jobs_count,
+                    'teams_count': teams_count
+                })
+            
+            return stats
+            
+        except Exception as e:
+            raise InventoryValidationError(f"Erreur lors de la récupération des statistiques: {str(e)}")
+
     

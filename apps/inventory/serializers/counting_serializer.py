@@ -30,3 +30,30 @@ class CountingSerializer(serializers.ModelSerializer):
         if instance.stock_situation:
             data['stock_situation'] = True
         return data 
+
+class CountingModeFieldsSerializer(serializers.ModelSerializer):
+    champs_actifs = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Counting
+        fields = ['order', 'count_mode', 'champs_actifs']
+
+    def get_champs_actifs(self, obj):
+        if obj.count_mode == 'image de stock':
+            return []
+        mapping = {
+            'unit_scanned': 'Unité scannée',
+            'entry_quantity': 'Saisie quantité',
+            'stock_situation': 'Situation de stock',
+            'is_variant': 'Variante',
+            'n_lot': 'N° lot',
+            'n_serie': 'N° série',
+            'dlc': 'DLC',
+            'show_product': 'Afficher produit',
+            'quantity_show': 'Afficher quantité',
+        }
+        actifs = []
+        for field, label in mapping.items():
+            if getattr(obj, field, False):
+                actifs.append(label)
+        return actifs 

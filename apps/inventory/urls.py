@@ -10,8 +10,9 @@ from .views.inventory_views import (
     InventoryLaunchView,
     InventoryCancelView,
     InventoryTeamView,
+    InventoryWarehouseStatsView,
     InventoryImportView,
-    StockImportView
+    StockImportView,
 )
 from apps.inventory.views import InventoryWarehousesView
 from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView
@@ -31,6 +32,8 @@ urlpatterns = [
     path('inventory/<int:pk>/cancel/', InventoryCancelView.as_view(), name='inventory-cancel'),
     path('inventory/<int:pk>/detail/', InventoryTeamView.as_view(), name='inventory-detail'),
     
+    # URL pour les statistiques des warehouses d'un inventaire
+    path('inventory/<int:inventory_id>/warehouse-stats/', InventoryWarehouseStatsView.as_view(), name='inventory-warehouse-stats'),
     # URL pour l'importation de stocks
     path('inventory/<int:inventory_id>/stocks/import/', StockImportView.as_view(), name='stock-import'),
     
@@ -85,4 +88,5 @@ urlpatterns = [
     
     # URL pour remettre les assignements de jobs en attente
     path('jobs/reset-assignments/', JobResetAssignmentsView.as_view(), name='job-reset-assignments'),
+    
 ]
