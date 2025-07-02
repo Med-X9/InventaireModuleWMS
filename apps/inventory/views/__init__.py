@@ -4,7 +4,9 @@ from .inventory_views import (
     InventoryDetailView,
     InventoryUpdateView,
     InventoryDeleteView,
-    InventoryCancelView
+    InventoryCancelView,
+    InventoryImportView,
+    StockImportView
 )
 from .warehouse_views import InventoryWarehousesView
 from .job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView
@@ -17,6 +19,8 @@ __all__ = [
     'InventoryUpdateView',
     'InventoryDeleteView',
     'InventoryCancelView',
+    'InventoryImportView',
+    'StockImportView',
     'InventoryWarehousesView',
     'JobCreateAPIView',
     'PendingJobsReferencesView',

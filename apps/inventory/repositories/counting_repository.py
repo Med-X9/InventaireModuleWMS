@@ -99,10 +99,16 @@ class CountingRepository(ICountingRepository):
                 raise CountingNotFoundError(f"L'inventaire avec l'ID {inventory_id} n'existe pas")
             
             # Création du comptage
-            counting = Counting.objects.create(
+            counting = Counting(
                 inventory=inventory,
                 **counting_data
             )
+            
+            # Générer la référence manuellement
+            counting.reference = counting.generate_reference(counting.REFERENCE_PREFIX)
+            
+            # Sauvegarder l'objet
+            counting.save()
             
             return counting
 
@@ -251,7 +257,16 @@ class CountingRepository(ICountingRepository):
                 'order': self.get_next_order(original.inventory.id)
             }
             
-            return Counting.objects.create(**counting_data)
+            # Créer l'objet Counting sans sauvegarder
+            counting = Counting(**counting_data)
+            
+            # Générer la référence manuellement
+            counting.reference = counting.generate_reference(counting.REFERENCE_PREFIX)
+            
+            # Sauvegarder l'objet
+            counting.save()
+            
+            return counting
 
     def bulk_create(self, countings_data: List[Dict[str, Any]]) -> List[Any]:
         """
@@ -260,7 +275,15 @@ class CountingRepository(ICountingRepository):
         with transaction.atomic():
             countings = []
             for data in countings_data:
-                counting = Counting.objects.create(**data)
+                # Créer l'objet Counting sans sauvegarder
+                counting = Counting(**data)
+                
+                # Générer la référence manuellement
+                counting.reference = counting.generate_reference(counting.REFERENCE_PREFIX)
+                
+                # Sauvegarder l'objet
+                counting.save()
+                
                 countings.append(counting)
             return countings
 

@@ -42,7 +42,7 @@ class CountingDispatcher:
             return CountingByInBulk()
         elif count_mode == "par article":
             return CountingByArticle()
-        elif count_mode == "image stock":
+        elif count_mode == "image de stock":
             return CountingByStockimage()
         else:
             raise CountingValidationError(f"Mode de comptage non supporté: {count_mode}")
@@ -99,7 +99,7 @@ class CountingDispatcher:
         Returns:
             bool: True si le mode est supporté, False sinon
         """
-        supported_modes = ["en vrac", "par article", "image stock"]
+        supported_modes = ["en vrac", "par article", "image de stock"]
         return count_mode in supported_modes
     
     def get_supported_counting_modes(self) -> List[str]:
@@ -109,7 +109,7 @@ class CountingDispatcher:
         Returns:
             List[str]: Liste des modes de comptage supportés
         """
-        return ["en vrac", "par article", "image stock"]
+        return ["en vrac", "par article", "image de stock"]
     
     def validate_counting_data(self, counting_data: Dict[str, Any]) -> None:
         """
@@ -127,7 +127,7 @@ class CountingDispatcher:
             use_case = CountingByInBulk()
         elif count_mode == "par article":
             use_case = CountingByArticle()
-        elif count_mode == "image stock":
+        elif count_mode == "image de stock":
             use_case = CountingByStockimage()
         else:
             raise CountingValidationError(f"Mode de comptage non supporté: {count_mode}")

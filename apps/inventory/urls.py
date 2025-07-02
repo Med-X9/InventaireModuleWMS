@@ -11,6 +11,8 @@ from .views.inventory_views import (
     InventoryCancelView,
     InventoryTeamView,
     InventoryWarehouseStatsView
+    InventoryImportView,
+    StockImportView
 )
 from apps.inventory.views import InventoryWarehousesView
 from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView
@@ -22,6 +24,7 @@ urlpatterns = [
     # URLs pour les inventaires
     path('inventory/', InventoryListView.as_view(), name='inventory-list'),
     path('inventory/create/', InventoryCreateView.as_view(), name='inventory-create'),
+    path('inventory/import/', InventoryImportView.as_view(), name='inventory-import'),
     path('inventory/<int:pk>/edit/', InventoryDetailView.as_view(), name='inventory-edit'),
     path('inventory/<int:pk>/update/', InventoryUpdateView.as_view(), name='inventory-update'),
     path('inventory/<int:pk>/delete/', InventoryDeleteView.as_view(), name='inventory-delete'),
@@ -31,6 +34,8 @@ urlpatterns = [
     
     # URL pour les statistiques des warehouses d'un inventaire
     path('inventory/<int:inventory_id>/warehouse-stats/', InventoryWarehouseStatsView.as_view(), name='inventory-warehouse-stats'),
+    # URL pour l'importation de stocks
+    path('inventory/<int:inventory_id>/stocks/import/', StockImportView.as_view(), name='stock-import'),
     
     # URL pour les entrepôts d'un inventaire
     path('inventory/planning/<int:inventory_id>/warehouses/', InventoryWarehousesView.as_view(), name='inventory-warehouses'),

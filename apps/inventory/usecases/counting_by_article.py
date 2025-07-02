@@ -67,7 +67,9 @@ class CountingByArticle:
             inventory = Inventory.objects.get(id=data['inventory_id'])
         except Inventory.DoesNotExist:
             raise CountingValidationError(f"Inventaire avec l'ID {data['inventory_id']} non trouvé")
-        counting = Counting.objects.create(
+        
+        # Créer l'objet Counting sans sauvegarder
+        counting = Counting(
             inventory=inventory,
             order=data['order'],
             count_mode=data['count_mode'],
@@ -80,4 +82,11 @@ class CountingByArticle:
             n_serie=data.get('n_serie', False),
             dlc=data.get('dlc', False),
         )
+        
+        # Générer la référence manuellement
+        counting.reference = counting.generate_reference(counting.REFERENCE_PREFIX)
+        
+        # Sauvegarder l'objet
+        counting.save()
+        
         return counting 

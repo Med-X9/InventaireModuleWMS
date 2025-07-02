@@ -12,8 +12,8 @@ class InventoryFilter(filters.FilterSet):
     en_preparation_status_date_lte = filters.DateTimeFilter(field_name='en_preparation_status_date', lookup_expr='lte')
     en_realisation_status_date_gte = filters.DateTimeFilter(field_name='en_realisation_status_date', lookup_expr='gte')
     en_realisation_status_date_lte = filters.DateTimeFilter(field_name='en_realisation_status_date', lookup_expr='lte')
-    ternime_status_date_gte = filters.DateTimeFilter(field_name='ternime_status_date', lookup_expr='gte')
-    ternime_status_date_lte = filters.DateTimeFilter(field_name='ternime_status_date', lookup_expr='lte')
+    termine_status_date_gte = filters.DateTimeFilter(field_name='termine_status_date', lookup_expr='gte')
+    termine_status_date_lte = filters.DateTimeFilter(field_name='termine_status_date', lookup_expr='lte')
     cloture_status_date_gte = filters.DateTimeFilter(field_name='cloture_status_date', lookup_expr='gte')
     cloture_status_date_lte = filters.DateTimeFilter(field_name='cloture_status_date', lookup_expr='lte')
     
@@ -32,6 +32,6 @@ class InventoryFilter(filters.FilterSet):
             'label': ['exact'],
             'en_preparation_status_date': ['exact'],
             'en_realisation_status_date': ['exact'],
-            'ternime_status_date': ['exact'],
+            'termine_status_date': ['exact'],
             'cloture_status_date': ['exact'],
         } 

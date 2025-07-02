@@ -77,23 +77,43 @@ class InventoryRepository(IInventoryRepository):
             if 'date' not in inventory_data:
                 inventory_data['date'] = timezone.now()
 
-            # Créer l'inventaire
-            inventory = Inventory.objects.create(**inventory_data)
+            # Créer l'objet Inventory sans sauvegarder
+            inventory = Inventory(**inventory_data)
+            
+            # Générer la référence manuellement
+            inventory.reference = inventory.generate_reference(inventory.REFERENCE_PREFIX)
+            
+            # Sauvegarder l'objet
+            inventory.save()
 
             # Ajouter les liens avec les entrepôts via Setting
             for warehouse_id in warehouse_ids:
-                Setting.objects.create(
+                # Créer l'objet Setting sans sauvegarder
+                setting = Setting(
                     inventory=inventory,
                     warehouse_id=warehouse_id,
                     account_id=account_id
                 )
+                
+                # Générer la référence manuellement
+                setting.reference = setting.generate_reference(setting.REFERENCE_PREFIX)
+                
+                # Sauvegarder l'objet
+                setting.save()
 
             # Ajouter les comptages
             for comptage in comptages:
-                Counting.objects.create(
+                # Créer l'objet Counting sans sauvegarder
+                counting = Counting(
                     inventory=inventory,
                     **comptage
                 )
+                
+                # Générer la référence manuellement
+                counting.reference = counting.generate_reference(counting.REFERENCE_PREFIX)
+                
+                # Sauvegarder l'objet
+                counting.save()
 
             return inventory
 
@@ -120,11 +140,18 @@ class InventoryRepository(IInventoryRepository):
                 inventory.awi_links.all().delete()
                 # Ajouter les nouvelles associations
                 for warehouse_id in warehouse_ids:
-                    Setting.objects.create(
+                    # Créer l'objet Setting sans sauvegarder
+                    setting = Setting(
                         inventory=inventory,
                         warehouse_id=warehouse_id,
                         account_id=account_id
                     )
+                    
+                    # Générer la référence manuellement
+                    setting.reference = setting.generate_reference(setting.REFERENCE_PREFIX)
+                    
+                    # Sauvegarder l'objet
+                    setting.save()
 
             # Mettre à jour les comptages si fournis
             if comptages is not None:
@@ -132,10 +159,17 @@ class InventoryRepository(IInventoryRepository):
                 inventory.countings.all().delete()
                 # Ajouter les nouveaux comptages
                 for comptage in comptages:
-                    Counting.objects.create(
+                    # Créer l'objet Counting sans sauvegarder
+                    counting = Counting(
                         inventory=inventory,
                         **comptage
                     )
+                    
+                    # Générer la référence manuellement
+                    counting.reference = counting.generate_reference(counting.REFERENCE_PREFIX)
+                    
+                    # Sauvegarder l'objet
+                    counting.save()
 
             return inventory
 
@@ -313,7 +347,7 @@ class InventoryRepository(IInventoryRepository):
         elif new_status == 'EN REALISATION':
             inventory.en_realisation_status_date = timezone.now()
         elif new_status == 'TERMINE':
-            inventory.ternime_status_date = timezone.now()
+            inventory.termine_status_date = timezone.now()
         elif new_status == 'CLOTURE':
             inventory.cloture_status_date = timezone.now()
         
