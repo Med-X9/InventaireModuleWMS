@@ -10,9 +10,9 @@ from .views.inventory_views import (
     InventoryLaunchView,
     InventoryCancelView,
     InventoryTeamView,
-    InventoryWarehouseStatsView
+    InventoryWarehouseStatsView,
     InventoryImportView,
-    StockImportView
+    StockImportView,
 )
 from apps.inventory.views import InventoryWarehousesView
 from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView
