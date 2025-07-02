@@ -12,7 +12,8 @@ from import_export.formats.base_formats import XLSX, CSV, XLS
 
 from .models import (
     Account, Family, Warehouse, ZoneType, Zone,
-    LocationType, Location, Product, UnitOfMeasure,Stock,SousZone
+    LocationType, Location, Product, UnitOfMeasure,Stock,SousZone,
+    Ressource, TypeRessource
 )
 from django.contrib.auth.admin import UserAdmin
 from apps.users.models import UserApp
@@ -284,7 +285,7 @@ class StockResource(resources.ModelResource):
     unit_of_measure = fields.Field(
         column_name='unit of measure',
         attribute='unit_of_measure',
-        widget=widgets.ForeignKeyWidget(UnitOfMeasure, 'code')
+        widget=widgets.ForeignKeyWidget(UnitOfMeasure, 'name')
     )
 
     class Meta:
@@ -304,21 +305,66 @@ class StockResource(resources.ModelResource):
     def before_import_row(self, row, **kwargs):
         # Vérifie que la location existe
         location_code = row.get('location')
-        if location_code:
-            if not Location.objects.filter(location_code=location_code).exists():
-                raise ValueError(f"La localisation '{location_code}' n'existe pas.")
+        try:
+            Location.objects.get(location_code=location_code)
+        except Location.DoesNotExist:
+            raise ValueError(f"La location '{location_code}' n'existe pas dans la base de données.")
 
         # Vérifie que le produit existe
-        product_ref = row.get('product')
-        if product_ref:
-            if not Product.objects.filter(reference=product_ref).exists():
-                raise ValueError(f"Le produit '{product_ref}' n'existe pas.")
+        product_reference = row.get('product')
+        try:
+            Product.objects.get(reference=product_reference)
+        except Product.DoesNotExist:
+            raise ValueError(f"Le produit '{product_reference}' n'existe pas dans la base de données.")
 
         # Vérifie que l'unité de mesure existe
-        uom_code = row.get('unit of measure')
-        if uom_code:
-            if not UnitOfMeasure.objects.filter(code=uom_code).exists():
-                raise ValueError(f"L'unité de mesure '{uom_code}' n'existe pas.")
+        unit_name = row.get('unit of measure')
+        try:
+            UnitOfMeasure.objects.get(name=unit_name)
+        except UnitOfMeasure.DoesNotExist:
+            raise ValueError(f"L'unité de mesure '{unit_name}' n'existe pas dans la base de données.")
+
+
+class TypeRessourceResource(resources.ModelResource):
+    libelle = fields.Field(column_name='libelle', attribute='libelle', widget=widgets.CharWidget())
+    description = fields.Field(column_name='description', attribute='description', widget=widgets.CharWidget())
+    
+    class Meta:
+        model = TypeRessource
+        fields = ('libelle', 'description')
+        exclude = ('id', 'reference', 'created_at', 'updated_at', 'deleted_at', 'is_deleted')
+        import_id_fields = ()
+
+
+class RessourceResource(resources.ModelResource):
+    libelle = fields.Field(column_name='libelle', attribute='libelle', widget=widgets.CharWidget())
+    description = fields.Field(column_name='description', attribute='description', widget=widgets.CharWidget())
+    status = fields.Field(column_name='status', attribute='status', widget=widgets.CharWidget())
+    type_ressource = fields.Field(
+        column_name='type ressource',
+        attribute='type_ressource',
+        widget=widgets.ForeignKeyWidget(TypeRessource, 'libelle')
+    )
+    
+    class Meta:
+        model = Ressource
+        fields = ('libelle', 'description', 'status', 'type_ressource')
+        exclude = ('id', 'reference', 'created_at', 'updated_at', 'deleted_at', 'is_deleted')
+        import_id_fields = ()
+
+    def before_import_row(self, row, **kwargs):
+        # Vérifier que le statut est valide
+        status = row.get('status')
+        if status and status not in ['ACTIVE', 'INACTIVE']:
+            raise ValueError(f"Le statut '{status}' n'est pas valide. Les valeurs autorisées sont 'ACTIVE' et 'INACTIVE'.")
+        
+        # Vérifier que le type de ressource existe
+        type_ressource_libelle = row.get('type ressource')
+        if type_ressource_libelle:
+            try:
+                TypeRessource.objects.get(libelle=type_ressource_libelle)
+            except TypeRessource.DoesNotExist:
+                raise ValueError(f"Le type de ressource '{type_ressource_libelle}' n'existe pas dans la base de données.")
 
 
 # ---------------- Admins ---------------- #
@@ -327,8 +373,8 @@ class StockResource(resources.ModelResource):
 
 @admin.register(UserApp)
 class UserAppAdmin(UserAdmin):
-    list_display = ('nom', 'prenom', 'username', 'email', 'role','is_staff', 'is_active')
-    list_filter = ('role','is_staff', 'is_active')
+    list_display = ('nom', 'prenom', 'username', 'email', 'type','is_staff', 'is_active')
+    list_filter = ('type','is_staff', 'is_active')
     search_fields = ('username', 'email', 'nom', 'prenom')
     ordering = ('username',)
 
@@ -339,7 +385,7 @@ class UserAppAdmin(UserAdmin):
     # Champs à afficher dans le formulaire d'édition
     fieldsets = (
         (None, {'fields': ('username', 'email', 'password')}),
-        ('Informations personnelles', {'fields': ('nom', 'prenom', 'role')}),
+        ('Informations personnelles', {'fields': ('nom', 'prenom', 'type')}),
         ('Permissions', {'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')}),
         ('Dates importantes', {'fields': ('last_login',)}),
     )
@@ -348,7 +394,7 @@ class UserAppAdmin(UserAdmin):
     add_fieldsets = (
         (None, {
             'classes': ('wide',),
-            'fields': ('username', 'email', 'nom', 'prenom', 'role', 'password1', 'password2', 'is_staff', 'is_superuser', 'groups')}
+            'fields': ('username', 'email', 'nom', 'prenom', 'type', 'password1', 'password2', 'is_staff', 'is_superuser', 'groups')}
         ),
     )
 
@@ -469,15 +515,18 @@ class ProductForm(forms.ModelForm):
     class Meta:
         model = Product
         fields = (
+            'Internal_Product_Code',
             'Short_Description',
             'Barcode',
             'Product_Group',
             'Stock_Unit',
-            'Product_Status',
-            'Internal_Product_Code',
+            'Product_Status',          
             'Product_Family',
-            'parent_product',
             'Is_Variant',
+            'parent_product',   
+            'n_lot',
+            'n_serie',
+            'dlc',
         )
 
     def clean(self):
@@ -489,9 +538,9 @@ class ProductForm(forms.ModelForm):
 class ProductAdmin(ImportExportModelAdmin):
     form = ProductForm
     resource_class = ProductResource
-    list_display = ('reference', 'Internal_Product_Code', 'Short_Description', 'Barcode', 'Product_Group', 'Stock_Unit', 'Product_Status','Is_Variant', 'get_family_name')
-    list_filter = ('Product_Status', 'Product_Family', 'Is_Variant')
-    search_fields = ('reference', 'Short_Description', 'Barcode', 'Internal_Product_Code')
+    list_display = ('reference', 'Internal_Product_Code', 'Short_Description', 'Barcode', 'Product_Group', 'Stock_Unit', 'Product_Status','Is_Variant', 'get_family_name','n_lot','n_serie','dlc')
+    list_filter = ('Product_Status', 'Product_Family', 'Is_Variant','n_lot','n_serie','dlc')
+    search_fields = ('reference', 'Short_Description', 'Barcode', 'Internal_Product_Code','n_lot','n_serie','dlc')
     exclude = ('created_at', 'updated_at', 'deleted_at', 'is_deleted')
     readonly_fields = ('reference',)
 
@@ -549,3 +598,37 @@ class StockAdmin(ImportExportModelAdmin):
         return obj.unit_of_measure.name if obj.unit_of_measure else '-'
     get_unit_of_measure_name.short_description = 'Unit of Measure'
     get_unit_of_measure_name.admin_order_field = 'unit_of_measure__name'
+
+
+@admin.register(TypeRessource)
+class TypeRessourceAdmin(ImportExportModelAdmin):
+    resource_class = TypeRessourceResource
+    list_display = ('reference', 'libelle', 'description')
+    search_fields = ('reference', 'libelle', 'description')
+    exclude = ('created_at', 'updated_at', 'deleted_at', 'is_deleted', 'reference')
+
+
+@admin.register(Ressource)
+class RessourceAdmin(ImportExportModelAdmin):
+    resource_class = RessourceResource
+    list_display = ('reference', 'libelle', 'get_type_ressource', 'status', 'description')
+    search_fields = ('reference', 'libelle', 'description', 'type_ressource__libelle')
+    list_filter = ('status', 'type_ressource')
+    exclude = ('created_at', 'updated_at', 'deleted_at', 'is_deleted', 'reference')
+    
+    def get_type_ressource(self, obj):
+        return obj.type_ressource.libelle if obj.type_ressource else '-'
+    get_type_ressource.short_description = 'Type de ressource'
+    get_type_ressource.admin_order_field = 'type_ressource__libelle'
+
+
+
+
+
+
+
+
+
+
+
+

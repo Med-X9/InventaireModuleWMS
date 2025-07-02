@@ -9,15 +9,15 @@ from django.utils.translation import gettext_lazy as _
 
 
 class UserAppManager(BaseUserManager):
-    def create_user(self, username, role, password=None, **extra_fields):
+    def create_user(self, username, type, password=None, **extra_fields):
         if not username:
             raise ValueError('Le champ username doit être renseigné.')
-        user = self.model(username=username, role=role, **extra_fields)
+        user = self.model(username=username, type=type, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
         return user
 
-    def create_superuser(self, username, role, password=None, **extra_fields):
+    def create_superuser(self, username, type, password=None, **extra_fields):
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
 
@@ -26,15 +26,15 @@ class UserAppManager(BaseUserManager):
         if extra_fields.get('is_superuser') is not True:
             raise ValueError('Superuser must have is_superuser=True.')
 
-        return self.create_user(username, role, password, **extra_fields)
+        return self.create_user(username, type, password, **extra_fields)
     
 
 
 class UserApp(AbstractBaseUser, PermissionsMixin, models.Model): 
 
-    ROLES = (
-        ('Administrateur', _('Administrateur')),
-        ('Operateur', _('Operateur')),
+    TYPES = (
+        ('Web', _('Web')),
+        ('Mobile', _('Mobile')),
 
     )
 
@@ -42,7 +42,7 @@ class UserApp(AbstractBaseUser, PermissionsMixin, models.Model):
     email = models.EmailField(_('Email'), blank=True, null=True)
     nom = models.CharField(_('Nom'), max_length=255)
     prenom = models.CharField(_('Prénom'), max_length=255)
-    role = models.CharField(_('Rôle'), max_length=100, choices=ROLES)
+    type = models.CharField(_('Type'), max_length=100, choices=TYPES)
     is_active = models.BooleanField(_('Actif'), default=True)
     is_staff = models.BooleanField(_('Administrateur'), default=False)
     
@@ -50,7 +50,7 @@ class UserApp(AbstractBaseUser, PermissionsMixin, models.Model):
     history = HistoricalRecords()
 
     USERNAME_FIELD = 'username'
-    REQUIRED_FIELDS = ['role']
+    REQUIRED_FIELDS = ['type']
 
     groups = models.ManyToManyField(
         Group,

@@ -2,10 +2,11 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from ..services.location_service import LocationService
-from ..serializers.location_serializer import LocationSerializer
+from ..serializers.location_serializer import LocationSerializer, UnassignedLocationSerializer
 from rest_framework.permissions import IsAuthenticated
 from ..models import Location, SousZone
 import logging
+from ..exceptions import LocationError
 
 logger = logging.getLogger(__name__)
 
@@ -112,4 +113,35 @@ class SousZoneLocationsView(APIView):
             return Response(
                 {"error": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            ) 
+            )
+
+class UnassignedLocationsView(APIView):
+    def get(self, request, warehouse_id=None):
+        """
+        Récupère les emplacements qui ne sont pas affectés à des jobs
+        avec les informations complètes de zone et sous-zone
+        """
+        try:
+            unassigned_locations = LocationService.get_unassigned_locations(warehouse_id)
+            
+            # Sérialiser les données
+            serializer = UnassignedLocationSerializer(unassigned_locations, many=True)
+            
+            return Response({
+                'success': True,
+                'message': 'Emplacements non affectés récupérés avec succès',
+                'data': serializer.data,
+                'count': len(unassigned_locations)
+            }, status=status.HTTP_200_OK)
+            
+        except LocationError as e:
+            return Response({
+                'success': False,
+                'message': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Erreur inattendue lors de la récupération des emplacements non affectés : {str(e)}")
+            return Response({
+                'success': False,
+                'message': f'Erreur interne : {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 

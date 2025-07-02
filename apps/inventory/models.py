@@ -146,23 +146,14 @@ class Job(TimeStampedModel, ReferenceMixin):
     STATUS_CHOICES = (
         ('EN ATTENTE', 'EN ATTENTE'),
         ('VALIDE', 'VALIDE'),
-        ('AFFECTE', 'AFFECTE'),
-        ('PRET', 'PRET'),
-        ('TRANSFERT', 'TRANSFERT'), 
-        ('ENTAME', 'ENTAME'),
         ('TERMINE', 'TERMINE'),
     )
    
     
     reference = models.CharField(max_length=20, unique=True, null=False)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES)
-    date_estime = models.DateTimeField(null=True, blank=True)
-    transfert_date = models.DateTimeField(null=True, blank=True)
     en_attente_date = models.DateTimeField(null=True, blank=True)
-    entame_date = models.DateTimeField(null=True, blank=True)
     valide_date = models.DateTimeField(null=True, blank=True)
-    affecte_date = models.DateTimeField(null=True, blank=True)
-    pret_date = models.DateTimeField(null=True, blank=True)
     termine_date = models.DateTimeField(null=True, blank=True)
     warehouse = models.ForeignKey('masterdata.Warehouse', on_delete=models.CASCADE)
     inventory = models.ForeignKey(Inventory, on_delete=models.CASCADE)
@@ -201,14 +192,33 @@ class JobDetail(TimeStampedModel, ReferenceMixin):
 
 
 class Assigment(TimeStampedModel, ReferenceMixin):
+
+    STATUS_CHOICES = (
+        ('EN ATTENTE', 'EN ATTENTE'),
+        ('AFFECTE', 'AFFECTE'),
+        ('PRET', 'PRET'),
+        ('TRANSFERT', 'TRANSFERT'), 
+        ('ENTAME', 'ENTAME'),
+        ('TERMINE', 'TERMINE'),
+    )
     REFERENCE_PREFIX = 'ASS'
     reference = models.CharField(unique=True, max_length=20, null=False)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES)
+    transfert_date = models.DateTimeField(null=True, blank=True)
+    entame_date = models.DateTimeField(null=True, blank=True)
+    affecte_date = models.DateTimeField(null=True, blank=True)
+    pret_date = models.DateTimeField(null=True, blank=True)
     job = models.ForeignKey('Job', on_delete=models.CASCADE)
     date_start = models.DateTimeField(null=True, blank=True)
-    session = models.ForeignKey('users.UserApp', on_delete=models.CASCADE, null=True, blank=True,limit_choices_to={'role__name': 'Operateur'})
+    session = models.ForeignKey('users.UserApp', on_delete=models.CASCADE, null=True, blank=True, limit_choices_to={'type': 'Mobile'})
     personne = models.ForeignKey('Personne', on_delete=models.CASCADE, related_name='primary_job_details',null=True,blank=True)
     personne_two = models.ForeignKey('Personne', on_delete=models.CASCADE, related_name='secondary_job_details',null=True,blank=True)   
+    counting = models.ForeignKey(Counting, on_delete=models.CASCADE)
     history = HistoricalRecords()
+    
+    class Meta:
+        verbose_name = _('Affectation')
+        verbose_name_plural = _('Affectations')
     
     def __str__(self):
         return f"{self.job.reference} - {self.personne} - {self.personne_two}"
@@ -243,12 +253,26 @@ class CountingDetail(TimeStampedModel, ReferenceMixin):
     reference = models.CharField(unique=True, max_length=20, null=False)
     quantity_inventoried = models.IntegerField()
     product = models.ForeignKey('masterdata.Product',on_delete=models.CASCADE,blank=True,null=True)
+    dlc = models.DateField(null=True,blank=True)
+    n_lot = models.CharField(max_length=100,null=True,blank=True)
     location = models.ForeignKey('masterdata.Location',on_delete=models.CASCADE)
     counting = models.ForeignKey(Counting,on_delete=models.CASCADE)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     history = HistoricalRecords()
     
+
+class NSerie(TimeStampedModel, ReferenceMixin):
+    REFERENCE_PREFIX = 'NS'
+    reference = models.CharField(unique=True, max_length=20, null=False)
+    n_serie = models.CharField(max_length=100,null=True,blank=True)
+    counting_detail = models.ForeignKey(CountingDetail,on_delete=models.CASCADE)
+    history = HistoricalRecords()
     
+    def __str__(self):
+        return f"{self.counting_detail.product.Short_Description} - {self.n_serie}"
+
+
+
     
 class EcartComptage(TimeStampedModel, ReferenceMixin): 
     REFERENCE_PREFIX = 'ECT'
