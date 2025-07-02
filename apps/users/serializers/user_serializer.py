@@ -25,7 +25,7 @@ class UserAppSerializer(serializers.ModelSerializer):
     """
     class Meta:
         model = UserApp
-        fields = ['id', 'username', 'email', 'nom', 'prenom', 'role']
+        fields = ['id', 'username', 'email', 'nom', 'prenom', 'type']
 
 class MobileUserSerializer(serializers.ModelSerializer):
     class Meta:

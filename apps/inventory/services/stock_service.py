@@ -7,6 +7,7 @@ from ..repositories.stock_repository import StockRepository
 from ..repositories import InventoryRepository
 from apps.masterdata.models import Stock, Location, Product, UnitOfMeasure
 from ..exceptions import InventoryNotFoundError, StockValidationError, StockNotFoundError
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +98,36 @@ class StockService(IStockService):
                 results['success'] = False
                 results['message'] = f"Import échoué: {results['invalid_rows']} lignes invalides"
                 return results
-            
+
+            # Vérifier les doublons dans le lot à insérer
+            seen = set()
+            duplicates = []
+            for idx, stock in enumerate(valid_stocks_data):
+                key = (stock['product'].id, stock['location'].id, stock['inventory_id'])
+                if key in seen:
+                    duplicates.append(idx)
+                else:
+                    seen.add(key)
+            if duplicates:
+                results['success'] = False
+                results['message'] = f"Import échoué: doublons détectés dans le fichier à la ligne(s) {', '.join(str(i+2) for i in duplicates)}"
+                return results
+
+            # Vérifier les doublons déjà existants en base
+            for stock in valid_stocks_data:
+                if Stock.objects.filter(
+                    product=stock['product'],
+                    location=stock['location'],
+                    inventory_id=stock['inventory_id']
+                ).exists():
+                    results['success'] = False
+                    results['message'] = f"Import échoué: un stock existe déjà pour le produit {stock['product']} à l'emplacement {stock['location']} pour cet inventaire."
+                    return results
+
+            # Générer une référence temporaire unique pour chaque stock
+            for stock in valid_stocks_data:
+                stock['reference'] = str(uuid.uuid4())[:20]
+
             # Importer les stocks valides
             if valid_stocks_data:
                 with transaction.atomic():
@@ -121,8 +151,8 @@ class StockService(IStockService):
                     results['imported_stocks'] = [
                         {
                             'id': stock.id,
-                            'product': stock.product.product_name if stock.product else None,
-                            'location': stock.location.location_name if stock.location else None,
+                            'product': stock.product.Internal_Product_Code if stock.product else None,
+                            'location': stock.location.location_reference if stock.location else None,
                             'quantity': stock.quantity_available
                         }
                         for stock in imported_stocks

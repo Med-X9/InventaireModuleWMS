@@ -15,7 +15,8 @@ from ..serializers.inventory_serializer import (
     InventoryGetByIdSerializer,
     InventoryTeamSerializer,
     InventoryWarehouseStatsSerializer,
-    InventoryUpdateSerializer
+    InventoryUpdateSerializer,
+    InventoryDetailModeFieldsSerializer
 )
 from ..exceptions import InventoryValidationError, InventoryNotFoundError, StockValidationError
 from ..filters import InventoryFilter
@@ -327,17 +328,12 @@ class InventoryTeamView(APIView):
         Récupère l'équipe d'un inventaire.
         """
         try:
-            # Vérifier si l'inventaire existe et récupérer toutes les données associées
             inventory = self.repository.get_with_related_data(pk)
-            
-            # Sérialiser les données avec InventoryDetailSerializer qui inclut toutes les informations
-            serializer = InventoryDetailSerializer(inventory)
-            
+            serializer = InventoryDetailModeFieldsSerializer(inventory)
             return Response({
                 "message": "Détails de l'inventaire récupérés avec succès",
                 "data": serializer.data
             })
-
         except InventoryNotFoundError as e:
             logger.warning(f"Inventaire non trouvé: {str(e)}")
             return Response(
