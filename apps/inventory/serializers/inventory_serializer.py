@@ -130,10 +130,10 @@ class InventoryDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Inventory
         fields = [
-            'id', 'label', 'date', 'status', 'inventory_type',
+            'id', 'reference', 'label', 'date', 'status', 'inventory_type',
             'en_preparation_status_date',
             'en_realisation_status_date', 'termine_status_date',
-            'cloture_status_date', 'account_name', 'warehouse_name',
+            'cloture_status_date', 'account_name', 'warehouse_name' ,'created_at',
             'comptages', 'equipe'
         ]
 
@@ -296,7 +296,7 @@ class InventoryDetailModeFieldsSerializer(serializers.ModelSerializer):
     class Meta:
         model = Inventory
         fields = [
-            'id', 'label', 'date', 'status', 'inventory_type',
+            'id', 'reference', 'label', 'date', 'status', 'inventory_type',
             'en_preparation_status_date',
             'en_realisation_status_date', 'termine_status_date',
             'cloture_status_date', 'account_name', 'warehouse_name',
