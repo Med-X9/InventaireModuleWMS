@@ -290,27 +290,49 @@ class InventoryUpdateSerializer(serializers.Serializer):
 
 class InventoryDetailModeFieldsSerializer(serializers.ModelSerializer):
     account_name = serializers.SerializerMethodField()
-    warehouse_name = serializers.SerializerMethodField()
+    magasins = serializers.SerializerMethodField()
     comptages = serializers.SerializerMethodField()
     equipe = serializers.SerializerMethodField()
+    ressources = serializers.SerializerMethodField()
+    
     class Meta:
         model = Inventory
         fields = [
             'id', 'reference', 'label', 'date', 'status', 'inventory_type',
             'en_preparation_status_date',
             'en_realisation_status_date', 'termine_status_date',
-            'cloture_status_date', 'account_name', 'warehouse_name',
-            'comptages', 'equipe'
+            'cloture_status_date', 'account_name', 'magasins',
+            'comptages', 'equipe', 'ressources'
         ]
+    
     def get_account_name(self, obj):
         setting = Setting.objects.filter(inventory=obj).first()
         return setting.account.account_name if setting else None
-    def get_warehouse_name(self, obj):
-        settings = Setting.objects.filter(inventory=obj)
-        return [setting.warehouse.warehouse_name for setting in settings]
+    
+    def get_magasins(self, obj):
+        settings = Setting.objects.filter(inventory=obj).select_related('warehouse')
+        magasins = []
+        for setting in settings:
+            magasins.append({
+                'nom': setting.warehouse.warehouse_name,
+                'date': setting.created_at.date() if setting.created_at else None
+            })
+        return magasins
+    
     def get_comptages(self, obj):
         countings = Counting.objects.filter(inventory=obj).order_by('order')
         return CountingModeFieldsSerializer(countings, many=True).data
+    
     def get_equipe(self, obj):
         pdas = Assigment.objects.filter(job__inventory=obj)
-        return PdaTeamSerializer(pdas, many=True).data 
+        return PdaTeamSerializer(pdas, many=True).data
+    
+    def get_ressources(self, obj):
+        from ..models import InventoryDetailRessource
+        ressources = InventoryDetailRessource.objects.filter(inventory=obj).select_related('ressource')
+        return [{
+            'id': ressource.id,
+            'reference': ressource.reference,
+            'ressource_nom': ressource.ressource.libelle if ressource.ressource else None,
+            'quantity': ressource.quantity
+        } for ressource in ressources] 
