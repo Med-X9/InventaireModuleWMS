@@ -13,6 +13,7 @@ services:
       - .:/app
       - static_volume:/app/static
       - media_volume:/app/media
+      - logs_volume:/app/logs
     ports:
       - "8000:8000"
     env_file: .env
@@ -31,7 +32,7 @@ services:
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
 
   db:
-    image: postgres:15
+    image: postgres:14
     volumes:
       - postgres_data:/var/lib/postgresql/data/
     env_file: .env
@@ -49,3 +50,4 @@ volumes:
   postgres_data:
   static_volume:
   media_volume:
+  logs_volume:
