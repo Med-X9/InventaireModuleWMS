@@ -326,7 +326,7 @@ class Stock(TimeStampedModel):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.product.Short_Description} - {self.location.location_code}"
+        return f"{self.product.Short_Description} - {self.location.location_reference}"
     
 class TypeRessource(CodeGeneratorMixin, TimeStampedModel):
     CODE_PREFIX = 'TR'

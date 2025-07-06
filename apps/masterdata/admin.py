@@ -43,16 +43,28 @@ class FamilyResource(resources.ModelResource):
         exclude = ('id',)
         import_id_fields = ()
 
+    def dehydrate_compte(self, obj):
+        """Convertit l'objet Account en nom pour l'exportation"""
+        return obj.compte.account_name if obj.compte else ''
+
     def before_import_row(self, row, **kwargs):
+        # Valider le statut de famille
+        family_status = row.get('family status')
+        if family_status:
+            valid_statuses = ['ACTIVE', 'INACTIVE', 'OBSOLETE']
+            if family_status.upper() not in valid_statuses:
+                raise ValueError(f"Le statut '{family_status}' n'est pas valide. Les valeurs autorisées sont : {', '.join(valid_statuses)}")
+            # Normaliser le statut en majuscules
+            row['family status'] = family_status.upper()
+        
         # Chercher l'objet account à partir du nom dans la ligne d'importation
         account_name = row.get('account')
-        # print(location_name)
-        try:
-            account_obj = Account.objects.get(account_name=account_name)
-            # print(location_obj)
-            row['account'] = account_obj
-        except Account.DoesNotExist:
-            raise ValueError(f"Le compte '{account_name}' n'existe pas dans la base de données.")
+        if account_name:
+            try:
+                account_obj = Account.objects.get(account_name=account_name)
+                row['account'] = account_obj
+            except Account.DoesNotExist:
+                raise ValueError(f"Le compte '{account_name}' n'existe pas dans la base de données.")
 
 
 
@@ -93,15 +105,40 @@ class ZoneResource(resources.ModelResource):
         exclude = ('id',)
         import_id_fields = ()
 
+    def dehydrate_zone_type_id(self, obj):
+        """Convertit l'objet ZoneType en nom pour l'exportation"""
+        return obj.zone_type.type_name if obj.zone_type else ''
+
+    def dehydrate_warehouse_id(self, obj):
+        """Convertit l'objet Warehouse en nom pour l'exportation"""
+        return obj.warehouse.warehouse_name if obj.warehouse else ''
+
     def before_import_row(self, row, **kwargs):
+        # Valider le statut de zone
+        zone_status = row.get('zone status')
+        if zone_status:
+            valid_statuses = ['ACTIVE', 'INACTIVE', 'BLOCKED']
+            if zone_status.upper() not in valid_statuses:
+                raise ValueError(f"Le statut '{zone_status}' n'est pas valide. Les valeurs autorisées sont : {', '.join(valid_statuses)}")
+            # Normaliser le statut en majuscules
+            row['zone status'] = zone_status.upper()
+        
         zone_type_name = row.get('zone type')
         warehouse_name = row.get('werhouse')  # attention ici
 
-        if not ZoneType.objects.filter(type_name=zone_type_name).exists():
-            raise ValueError(f"Le type de zone '{zone_type_name}' n'existe pas dans la base de données.")
+        if zone_type_name:
+            try:
+                zone_type_obj = ZoneType.objects.get(type_name=zone_type_name)
+                row['zone type'] = zone_type_obj
+            except ZoneType.DoesNotExist:
+                raise ValueError(f"Le type de zone '{zone_type_name}' n'existe pas dans la base de données.")
 
-        if not Warehouse.objects.filter(warehouse_name=warehouse_name).exists():
-            raise ValueError(f"L'entrepôt '{warehouse_name}' n'existe pas dans la base de données.")
+        if warehouse_name:
+            try:
+                warehouse_obj = Warehouse.objects.get(warehouse_name=warehouse_name)
+                row['werhouse'] = warehouse_obj
+            except Warehouse.DoesNotExist:
+                raise ValueError(f"L'entrepôt '{warehouse_name}' n'existe pas dans la base de données.")
 
 
     
@@ -124,11 +161,28 @@ class SousZoneResource(resources.ModelResource):
         exclude = ('id',)
         import_id_fields = ()
 
+    def dehydrate_zone_id(self, obj):
+        """Convertit l'objet Zone en nom pour l'exportation"""
+        return obj.zone.zone_name if obj.zone else ''
+
     def before_import_row(self, row, **kwargs):
+        # Valider le statut de sous-zone
+        sous_zone_status = row.get('sous zone status')
+        if sous_zone_status:
+            valid_statuses = ['ACTIVE', 'INACTIVE', 'BLOCKED']
+            if sous_zone_status.upper() not in valid_statuses:
+                raise ValueError(f"Le statut '{sous_zone_status}' n'est pas valide. Les valeurs autorisées sont : {', '.join(valid_statuses)}")
+            # Normaliser le statut en majuscules
+            row['sous zone status'] = sous_zone_status.upper()
+        
         zone_name = row.get('zone')
 
-        if not Zone.objects.filter(zone_name=zone_name).exists():
-            raise ValueError(f"La zone '{zone_name}' n'existe pas dans la base de données.")
+        if zone_name:
+            try:
+                zone_obj = Zone.objects.get(zone_name=zone_name)
+                row['zone'] = zone_obj
+            except Zone.DoesNotExist:
+                raise ValueError(f"La zone '{zone_name}' n'existe pas dans la base de données.")
 
         
 
@@ -144,6 +198,7 @@ class LocationTypeResource(resources.ModelResource):
         model = LocationType
 
 class LocationResource(resources.ModelResource):
+    location_reference = fields.Field(column_name='location reference', attribute='location_reference', widget=widgets.CharWidget())
     capacity = fields.Field(column_name='capacity', attribute='capacity', widget=widgets.CharWidget())
     is_active = fields.Field(column_name='active', attribute='is_active', widget=widgets.CharWidget())
     description = fields.Field(column_name='description', attribute='description', widget=widgets.CharWidget())
@@ -159,24 +214,36 @@ class LocationResource(resources.ModelResource):
     )
     class Meta:
         model = Location
-        fields = ('capacity', 'is_active','description','location_type_id','sous_zone_id')
+        fields = ('location_reference', 'capacity', 'is_active','description','location_type_id','sous_zone_id')
         exclude = ('id',)
         import_id_fields = ()
 
+    def dehydrate_location_type_id(self, obj):
+        """Convertit l'objet LocationType en nom pour l'exportation"""
+        return obj.location_type.name if obj.location_type else ''
+
+    def dehydrate_sous_zone_id(self, obj):
+        """Convertit l'objet SousZone en nom pour l'exportation"""
+        return obj.sous_zone.sous_zone_name if obj.sous_zone else ''
+
     def before_import_row(self, row, **kwargs):
-        # S'assurer que les noms des types de zone et entrepôt existent
-        location_type_id = row.get('location type')
-        sous_zone_id = row.get('sous zone')
+        # Récupérer les objets et les assigner à la ligne
+        location_type_name = row.get('location type')
+        sous_zone_name = row.get('sous zone')
 
-        try:
-            LocationType.objects.get(name=location_type_id)
-        except LocationType.DoesNotExist:
-            raise ValueError(f"Le type de location '{location_type_id}' n'existe pas dans la base de données.")
+        if location_type_name:
+            try:
+                location_type_obj = LocationType.objects.get(name=location_type_name)
+                row['location type'] = location_type_obj
+            except LocationType.DoesNotExist:
+                raise ValueError(f"Le type de location '{location_type_name}' n'existe pas dans la base de données.")
 
-        try:
-            SousZone.objects.get(sous_zone_name=sous_zone_id)
-        except SousZone.DoesNotExist:
-            raise ValueError(f"La sous zone '{sous_zone_id}' n'existe pas dans la base de données.")
+        if sous_zone_name:
+            try:
+                sous_zone_obj = SousZone.objects.get(sous_zone_name=sous_zone_name)
+                row['sous zone'] = sous_zone_obj
+            except SousZone.DoesNotExist:
+                raise ValueError(f"La sous zone '{sous_zone_name}' n'existe pas dans la base de données.")
         
 
 
@@ -229,20 +296,39 @@ class ProductResource(resources.ModelResource):
         exclude = ('id',)
         import_id_fields = ('reference',)
 
+    def dehydrate_Product_Family(self, obj):
+        """Convertit l'objet Family en nom pour l'exportation"""
+        return obj.Product_Family.family_name if obj.Product_Family else ''
+
+    def dehydrate_parent_product(self, obj):
+        """Convertit l'objet Product parent en référence pour l'exportation"""
+        return obj.parent_product.reference if obj.parent_product else ''
+
     def before_import_row(self, row, **kwargs):
-        # Vérifier si la famille existe
+        # Valider le statut de produit
+        product_status = row.get('product status')
+        if product_status:
+            valid_statuses = ['ACTIVE', 'INACTIVE', 'OBSOLETE']
+            if product_status.upper() not in valid_statuses:
+                raise ValueError(f"Le statut '{product_status}' n'est pas valide. Les valeurs autorisées sont : {', '.join(valid_statuses)}")
+            # Normaliser le statut en majuscules
+            row['product status'] = product_status.upper()
+        
+        # Vérifier si la famille existe et l'assigner
         family_name = row.get('product family')
         if family_name:
             try:
-                Family.objects.get(family_name=family_name)
+                family_obj = Family.objects.get(family_name=family_name)
+                row['product family'] = family_obj
             except Family.DoesNotExist:
                 raise ValueError(f"La famille de produit '{family_name}' n'existe pas.")
 
-        # Vérifier si le produit parent existe (si spécifié)
+        # Vérifier si le produit parent existe et l'assigner
         parent_reference = row.get('parent product')
         if parent_reference:
             try:
-                Product.objects.get(reference=parent_reference)
+                parent_obj = Product.objects.get(reference=parent_reference)
+                row['parent product'] = parent_obj
             except Product.DoesNotExist:
                 raise ValueError(f"Le produit parent '{parent_reference}' n'existe pas.")
 
@@ -255,7 +341,7 @@ class StockResource(resources.ModelResource):
     location = fields.Field(
         column_name='location',
         attribute='location',
-        widget=widgets.ForeignKeyWidget(Location, 'location_code')
+        widget=widgets.ForeignKeyWidget(Location, 'location_reference')
     )
     product = fields.Field(
         column_name='product',
@@ -302,27 +388,45 @@ class StockResource(resources.ModelResource):
         exclude = ('id',)
         import_id_fields = ('location', 'product')
 
+    def dehydrate_location(self, obj):
+        """Convertit l'objet Location en référence pour l'exportation"""
+        return obj.location.location_reference if obj.location else ''
+
+    def dehydrate_product(self, obj):
+        """Convertit l'objet Product en référence pour l'exportation"""
+        return obj.product.reference if obj.product else ''
+
+    def dehydrate_unit_of_measure(self, obj):
+        """Convertit l'objet UnitOfMeasure en nom pour l'exportation"""
+        return obj.unit_of_measure.name if obj.unit_of_measure else ''
+
     def before_import_row(self, row, **kwargs):
-        # Vérifie que la location existe
-        location_code = row.get('location')
-        try:
-            Location.objects.get(location_code=location_code)
-        except Location.DoesNotExist:
-            raise ValueError(f"La location '{location_code}' n'existe pas dans la base de données.")
+        # Vérifie que la location existe et l'assigner
+        location_reference = row.get('location')
+        if location_reference:
+            try:
+                location_obj = Location.objects.get(location_reference=location_reference)
+                row['location'] = location_obj
+            except Location.DoesNotExist:
+                raise ValueError(f"La location '{location_reference}' n'existe pas dans la base de données.")
 
-        # Vérifie que le produit existe
+        # Vérifie que le produit existe et l'assigner
         product_reference = row.get('product')
-        try:
-            Product.objects.get(reference=product_reference)
-        except Product.DoesNotExist:
-            raise ValueError(f"Le produit '{product_reference}' n'existe pas dans la base de données.")
+        if product_reference:
+            try:
+                product_obj = Product.objects.get(reference=product_reference)
+                row['product'] = product_obj
+            except Product.DoesNotExist:
+                raise ValueError(f"Le produit '{product_reference}' n'existe pas dans la base de données.")
 
-        # Vérifie que l'unité de mesure existe
+        # Vérifie que l'unité de mesure existe et l'assigner
         unit_name = row.get('unit of measure')
-        try:
-            UnitOfMeasure.objects.get(name=unit_name)
-        except UnitOfMeasure.DoesNotExist:
-            raise ValueError(f"L'unité de mesure '{unit_name}' n'existe pas dans la base de données.")
+        if unit_name:
+            try:
+                unit_obj = UnitOfMeasure.objects.get(name=unit_name)
+                row['unit of measure'] = unit_obj
+            except UnitOfMeasure.DoesNotExist:
+                raise ValueError(f"L'unité de mesure '{unit_name}' n'existe pas dans la base de données.")
 
 
 class TypeRessourceResource(resources.ModelResource):
@@ -352,17 +456,22 @@ class RessourceResource(resources.ModelResource):
         exclude = ('id', 'reference', 'created_at', 'updated_at', 'deleted_at', 'is_deleted')
         import_id_fields = ()
 
+    def dehydrate_type_ressource(self, obj):
+        """Convertit l'objet TypeRessource en libellé pour l'exportation"""
+        return obj.type_ressource.libelle if obj.type_ressource else ''
+
     def before_import_row(self, row, **kwargs):
         # Vérifier que le statut est valide
         status = row.get('status')
         if status and status not in ['ACTIVE', 'INACTIVE']:
             raise ValueError(f"Le statut '{status}' n'est pas valide. Les valeurs autorisées sont 'ACTIVE' et 'INACTIVE'.")
         
-        # Vérifier que le type de ressource existe
+        # Vérifier que le type de ressource existe et l'assigner
         type_ressource_libelle = row.get('type ressource')
         if type_ressource_libelle:
             try:
-                TypeRessource.objects.get(libelle=type_ressource_libelle)
+                type_ressource_obj = TypeRessource.objects.get(libelle=type_ressource_libelle)
+                row['type ressource'] = type_ressource_obj
             except TypeRessource.DoesNotExist:
                 raise ValueError(f"Le type de ressource '{type_ressource_libelle}' n'existe pas dans la base de données.")
 
@@ -450,13 +559,31 @@ class ZoneTypeAdmin(ImportExportModelAdmin):
     exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted','reference')
 
 
+class ZoneForm(forms.ModelForm):
+    class Meta:
+        model = Zone
+        fields = (
+            'warehouse',
+            'zone_name',
+            'zone_type',
+            'description',
+            'zone_status',
+        )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        # La validation du champ reference est gérée dans le modèle
+        return cleaned_data
+
 @admin.register(Zone)
 class ZoneAdmin(ImportExportModelAdmin):
+    form = ZoneForm
     resource_class = ZoneResource
     list_display = ('reference', 'zone_name', 'get_warehouse_name', 'get_zone_type_name', 'zone_status')
     search_fields = ('reference', 'zone_name', 'zone_status')
     list_filter = ('zone_status', 'warehouse_id', 'zone_type_id')
-    exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted')
+    exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted','reference')
+    readonly_fields = ('reference',)
 
     def get_warehouse_name(self, obj):
         return obj.warehouse.warehouse_name if obj.warehouse else '-'
@@ -468,19 +595,48 @@ class ZoneAdmin(ImportExportModelAdmin):
     get_zone_type_name.short_description = 'Zone Type'
     get_zone_type_name.admin_order_field = 'zone_type__type_name'
 
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        if not obj:  # Si c'est une nouvelle zone
+            form.base_fields['reference'] = forms.CharField(required=False, widget=forms.HiddenInput())
+        return form
+
+
+class SousZoneForm(forms.ModelForm):
+    class Meta:
+        model = SousZone
+        fields = (
+            'zone',
+            'sous_zone_name',
+            'description',
+            'sous_zone_status',
+        )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        # La validation du champ reference est gérée dans le modèle
+        return cleaned_data
 
 @admin.register(SousZone)
 class SousZoneAdmin(ImportExportModelAdmin):
+    form = SousZoneForm
     resource_class = SousZoneResource
     list_display = ('reference', 'sous_zone_name', 'get_zone_name', 'sous_zone_status')
     search_fields = ('reference', 'sous_zone_name', 'sous_zone_status')
     list_filter = ('sous_zone_status', 'zone_id')
-    exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted')
+    exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted','reference')
+    readonly_fields = ('reference',)
 
     def get_zone_name(self, obj):
         return obj.zone.zone_name if obj.zone else '-'
     get_zone_name.short_description = 'Zone'
     get_zone_name.admin_order_field = 'zone__zone_name'
+
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        if not obj:  # Si c'est une nouvelle sous-zone
+            form.base_fields['reference'] = forms.CharField(required=False, widget=forms.HiddenInput())
+        return form
 
 
 @admin.register(LocationType)
@@ -492,13 +648,32 @@ class LocationTypeAdmin(ImportExportModelAdmin):
     exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted','reference')
 
 
+class LocationForm(forms.ModelForm):
+    class Meta:
+        model = Location
+        fields = (
+            'sous_zone',
+            'location_type',
+            'location_reference',
+            'capacity',
+            'is_active',
+            'description',
+        )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        # La validation du champ reference est gérée dans le modèle
+        return cleaned_data
+
 @admin.register(Location)
 class LocationAdmin(ImportExportModelAdmin):
+    form = LocationForm
     resource_class = LocationResource
-    list_display = ('reference', 'get_sous_zone_name', 'get_location_type_name', 'capacity', 'is_active')
-    search_fields = ('reference',)
+    list_display = ('location_reference', 'get_sous_zone_name', 'get_location_type_name', 'capacity', 'is_active')
+    search_fields = ('location_reference',)
     list_filter = ('sous_zone_id', 'location_type_id', 'is_active')
-    exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted')
+    exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted','reference')
+    readonly_fields = ('reference',)
 
     def get_sous_zone_name(self, obj):
         return obj.sous_zone.sous_zone_name if obj.sous_zone else '-'
@@ -509,6 +684,12 @@ class LocationAdmin(ImportExportModelAdmin):
         return obj.location_type.name if obj.location_type else '-'
     get_location_type_name.short_description = 'Location Type'
     get_location_type_name.admin_order_field = 'location_type__name'
+
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        if not obj:  # Si c'est un nouvel emplacement
+            form.base_fields['reference'] = forms.CharField(required=False, widget=forms.HiddenInput())
+        return form
 
 
 class ProductForm(forms.ModelForm):
@@ -564,8 +745,28 @@ class UnitOfMeasureAdmin(ImportExportModelAdmin):
     exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted','reference')
 
 
+class StockForm(forms.ModelForm):
+    class Meta:
+        model = Stock
+        fields = (
+            'location',
+            'product',
+            'quantity_available',
+            'quantity_reserved',
+            'quantity_in_transit',
+            'quantity_in_receiving',
+            'unit_of_measure',
+            'inventory',
+        )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        # La validation du champ reference est gérée dans le modèle
+        return cleaned_data
+
 @admin.register(Stock)
 class StockAdmin(ImportExportModelAdmin):
+    form = StockForm
     resource_class = StockResource
     list_display = (
         'get_location_name',
@@ -577,17 +778,18 @@ class StockAdmin(ImportExportModelAdmin):
         'get_unit_of_measure_name',
     )
     search_fields = (
-        'location__location_code',
+        'location__location_reference',
         'product__reference',
         'product__name',
         'unit_of_measure__name',
     )
-    exclude = ('created_at', 'updated_at', 'deleted_at', 'is_deleted')
+    exclude = ('created_at', 'updated_at', 'deleted_at', 'is_deleted', 'reference')
+    readonly_fields = ('reference',)
 
     def get_location_name(self, obj):
-        return obj.location.location_code if obj.location else '-'
+        return obj.location.location_reference if obj.location else '-'
     get_location_name.short_description = 'Location'
-    get_location_name.admin_order_field = 'location__location_code'
+    get_location_name.admin_order_field = 'location__location_reference'
 
     def get_product_reference(self, obj):
         return obj.product.reference if obj.product else '-'
@@ -598,6 +800,12 @@ class StockAdmin(ImportExportModelAdmin):
         return obj.unit_of_measure.name if obj.unit_of_measure else '-'
     get_unit_of_measure_name.short_description = 'Unit of Measure'
     get_unit_of_measure_name.admin_order_field = 'unit_of_measure__name'
+
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        if not obj:  # Si c'est un nouveau stock
+            form.base_fields['reference'] = forms.CharField(required=False, widget=forms.HiddenInput())
+        return form
 
 
 @admin.register(TypeRessource)
