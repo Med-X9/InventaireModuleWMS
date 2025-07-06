@@ -1,4 +1,6 @@
 from django.urls import path
+
+from apps.inventory.views.ressource_views import RessourceDetailView, RessourceListView
 from .views.location_views import AllWarehouseLocationListView, WarehouseJobLocationsView, SousZoneLocationsView, UnassignedLocationsView, LocationDetailView
 from .views.warehouse_views import WarehouseListView
 from .views.account_views import AccountListView
@@ -31,4 +33,7 @@ urlpatterns = [
     path('warehouse/<int:warehouse_id>/locations/unassigned/', UnassignedLocationsView.as_view(), name='warehouse-unassigned-locations'),
     # URLs pour les emplacements
     path('locations/<int:pk>/', LocationDetailView.as_view(), name='location-detail'),
+        # URLs pour les ressources
+    path('ressources/', RessourceListView.as_view(), name='ressource-list'),
+    path('ressources/<int:pk>/', RessourceDetailView.as_view(), name='ressource-detail'),
 ]

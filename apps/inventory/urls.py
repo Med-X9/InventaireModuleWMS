@@ -1,6 +1,5 @@
 from django.urls import path
 
-from apps.masterdata.views.location_views import AllWarehouseLocationListView
 from .views.inventory_views import (
     InventoryListView,
     InventoryCreateView,
@@ -18,7 +17,6 @@ from apps.inventory.views import InventoryWarehousesView
 from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView
 from .views.assignment_views import assign_jobs_to_counting, get_assignment_rules, get_assignments_by_session
 from .views.resource_assignment_views import assign_resources_to_jobs, get_job_resources, remove_resources_from_job
-# from .views.pda_views import InventoryPDAListView
 
 urlpatterns = [
     # URLs pour les inventaires
@@ -88,5 +86,7 @@ urlpatterns = [
     
     # URL pour remettre les assignements de jobs en attente
     path('jobs/reset-assignments/', JobResetAssignmentsView.as_view(), name='job-reset-assignments'),
+    
+
     
 ]
