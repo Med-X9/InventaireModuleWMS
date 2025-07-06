@@ -39,8 +39,6 @@ class InventoryListView(APIView):
     """
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = InventoryFilter
-    search_fields = ['label', 'reference']
-    ordering_fields = ['date', 'label', 'status']
     ordering = '-date'  # Tri par défaut par date décroissante
     pagination_class = StandardResultsSetPagination
 
