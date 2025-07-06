@@ -116,6 +116,18 @@ class ZoneResource(resources.ModelResource):
         """Convertit l'objet Warehouse en nom pour l'exportation"""
         return obj.warehouse.warehouse_name if obj.warehouse else ''
 
+    def get_export_headers(self):
+        """Personnalise les en-têtes d'export pour afficher des noms plus lisibles"""
+        headers = super().get_export_headers()
+        header_mapping = {
+            'zone name': 'Nom de zone',
+            'zone status': 'Statut de zone',
+            'description': 'Description',
+            'zone type': 'Type de zone',
+            'werhouse': 'Entrepôt'
+        }
+        return [header_mapping.get(header, header) for header in headers]
+
     def before_import_row(self, row, **kwargs):
         # Valider le statut de zone
         zone_status = row.get('zone status')
@@ -176,6 +188,17 @@ class SousZoneResource(resources.ModelResource):
         """Convertit l'objet Zone en nom pour l'exportation"""
         return obj.zone.zone_name if obj.zone else ''
 
+    def get_export_headers(self):
+        """Personnalise les en-têtes d'export pour afficher des noms plus lisibles"""
+        headers = super().get_export_headers()
+        header_mapping = {
+            'sous zone name': 'Nom de sous-zone',
+            'sous zone status': 'Statut de sous-zone',
+            'description': 'Description',
+            'zone': 'Zone'
+        }
+        return [header_mapping.get(header, header) for header in headers]
+
     def before_import_row(self, row, **kwargs):
         # Valider le statut de sous-zone
         sous_zone_status = row.get('sous zone status')
@@ -217,19 +240,11 @@ class LocationResource(resources.ModelResource):
     capacity = fields.Field(column_name='capacity', attribute='capacity', widget=widgets.CharWidget())
     is_active = fields.Field(column_name='active', attribute='is_active', widget=widgets.CharWidget())
     description = fields.Field(column_name='description', attribute='description', widget=widgets.CharWidget())
-    location_type_id = fields.Field(
-            column_name='location type',
-            attribute='location_type_id',
-            widget=widgets.IntegerWidget()
-        )
-    sous_zone_id = fields.Field(
-        column_name='sous zone',
-        attribute='sous_zone_id',
-        widget=widgets.IntegerWidget()
-    )
+    location_type_name = fields.Field(column_name='location type', attribute='location_type__name', widget=widgets.CharWidget())
+    sous_zone_name = fields.Field(column_name='sous zone', attribute='sous_zone__sous_zone_name', widget=widgets.CharWidget())
     class Meta:
         model = Location
-        fields = ('location_reference', 'capacity', 'is_active','description','location_type_id','sous_zone_id')
+        fields = ('location_reference', 'capacity', 'is_active','description','location_type_name','sous_zone_name')
         exclude = ('id', 'reference')
         import_id_fields = ('location_reference',)
         skip_unchanged = True
@@ -242,6 +257,20 @@ class LocationResource(resources.ModelResource):
     def dehydrate_sous_zone_id(self, obj):
         """Convertit l'objet SousZone en nom pour l'exportation"""
         return obj.sous_zone.sous_zone_name if obj.sous_zone else ''
+
+    def get_export_headers(self):
+        """Personnalise les en-têtes d'export pour afficher des noms plus lisibles"""
+        headers = super().get_export_headers()
+        # Remplacer les noms de colonnes par des noms plus lisibles
+        header_mapping = {
+            'location type': 'Type de location',
+            'sous zone': 'Sous-zone',
+            'location reference': 'Référence location',
+            'capacity': 'Capacité',
+            'active': 'Actif',
+            'description': 'Description'
+        }
+        return [header_mapping.get(header, header) for header in headers]
 
     def before_import_row(self, row, **kwargs):
         # Récupérer les objets et les assigner à la ligne
@@ -280,9 +309,15 @@ class LocationResource(resources.ModelResource):
                 try:
                     existing_location = Location.objects.get(location_reference=instance.location_reference)
                     # Mettre à jour les champs de l'instance existante
-                    for field in ['capacity', 'is_active', 'description', 'location_type_id', 'sous_zone_id']:
+                    for field in ['capacity', 'is_active', 'description']:
                         if hasattr(instance, field):
                             setattr(existing_location, field, getattr(instance, field))
+                    
+                    # Mettre à jour les relations
+                    if hasattr(instance, 'location_type_id'):
+                        existing_location.location_type_id = instance.location_type_id
+                    if hasattr(instance, 'sous_zone_id'):
+                        existing_location.sous_zone_id = instance.sous_zone_id
                     existing_location.save()
                     return existing_location
                 except Location.DoesNotExist:
@@ -347,6 +382,23 @@ class ProductResource(resources.ModelResource):
     def dehydrate_parent_product(self, obj):
         """Convertit l'objet Product parent en référence pour l'exportation"""
         return obj.parent_product.reference if obj.parent_product else ''
+
+    def get_export_headers(self):
+        """Personnalise les en-têtes d'export pour afficher des noms plus lisibles"""
+        headers = super().get_export_headers()
+        header_mapping = {
+            'reference': 'Référence',
+            'short description': 'Description courte',
+            'barcode': 'Code-barres',
+            'product group': 'Groupe de produit',
+            'stock unit': 'Unité de stock',
+            'product status': 'Statut de produit',
+            'internal product code': 'Code produit interne',
+            'product family': 'Famille de produit',
+            'parent product': 'Produit parent',
+            'is variant': 'Est une variante'
+        }
+        return [header_mapping.get(header, header) for header in headers]
 
     def before_import_row(self, row, **kwargs):
         # Valider le statut de produit
@@ -457,8 +509,23 @@ class StockResource(resources.ModelResource):
         return obj.unit_of_measure.name if obj.unit_of_measure else ''
 
     def dehydrate_inventory(self, obj):
-        """Convertit l'objet Inventory en ID pour l'exportation"""
-        return obj.inventory.id if obj.inventory else ''
+        """Convertit l'objet Inventory en label pour l'exportation"""
+        return obj.inventory.label if obj.inventory else ''
+
+    def get_export_headers(self):
+        """Personnalise les en-têtes d'export pour afficher des noms plus lisibles"""
+        headers = super().get_export_headers()
+        header_mapping = {
+            'location': 'Location',
+            'product': 'Produit',
+            'quantity available': 'Quantité disponible',
+            'quantity reserved': 'Quantité réservée',
+            'quantity in transit': 'Quantité en transit',
+            'quantity in receiving': 'Quantité en réception',
+            'unit of measure': 'Unité de mesure',
+            'inventory': 'Inventaire'
+        }
+        return [header_mapping.get(header, header) for header in headers]
 
     def before_import_row(self, row, **kwargs):
         # Vérifie que la location existe et l'assigner
@@ -566,6 +633,17 @@ class RessourceResource(resources.ModelResource):
     def dehydrate_type_ressource(self, obj):
         """Convertit l'objet TypeRessource en libellé pour l'exportation"""
         return obj.type_ressource.libelle if obj.type_ressource else ''
+
+    def get_export_headers(self):
+        """Personnalise les en-têtes d'export pour afficher des noms plus lisibles"""
+        headers = super().get_export_headers()
+        header_mapping = {
+            'libelle': 'Libellé',
+            'description': 'Description',
+            'status': 'Statut',
+            'type ressource': 'Type de ressource'
+        }
+        return [header_mapping.get(header, header) for header in headers]
 
     def before_import_row(self, row, **kwargs):
         # Vérifier que le statut est valide
