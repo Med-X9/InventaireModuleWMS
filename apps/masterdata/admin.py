@@ -310,8 +310,8 @@ class LocationResource(resources.ModelResource):
     capacity = fields.Field(column_name='capacity', attribute='capacity', widget=widgets.CharWidget())
     is_active = fields.Field(column_name='active', attribute='is_active', widget=widgets.CharWidget())
     description = fields.Field(column_name='description', attribute='description', widget=widgets.CharWidget())
-    location_type_name = fields.Field(column_name='location type', attribute='location_type__name', widget=widgets.CharWidget())
-    sous_zone_name = fields.Field(column_name='sous zone', attribute='sous_zone__sous_zone_name', widget=widgets.CharWidget())
+    location_type_name = fields.Field(column_name='location type', attribute='location_type', widget=widgets.ForeignKeyWidget(LocationType, 'name'))
+    sous_zone_name = fields.Field(column_name='sous zone', attribute='sous_zone', widget=widgets.ForeignKeyWidget(SousZone, 'sous_zone_name'))
     class Meta:
         model = Location
         fields = ('location_reference', 'capacity', 'is_active','description','location_type_name','sous_zone_name')
@@ -320,11 +320,11 @@ class LocationResource(resources.ModelResource):
         skip_unchanged = True
         report_skipped = True
 
-    def dehydrate_location_type_id(self, obj):
+    def dehydrate_location_type_name(self, obj):
         """Convertit l'objet LocationType en nom pour l'exportation"""
         return obj.location_type.name if obj.location_type else ''
 
-    def dehydrate_sous_zone_id(self, obj):
+    def dehydrate_sous_zone_name(self, obj):
         """Convertit l'objet SousZone en nom pour l'exportation"""
         return obj.sous_zone.sous_zone_name if obj.sous_zone else ''
 
@@ -354,7 +354,7 @@ class LocationResource(resources.ModelResource):
                     location_type_obj = LocationType.objects.get(id=location_type_value)
                 else:
                     location_type_obj = LocationType.objects.get(name=location_type_value)
-                row['location type'] = location_type_obj.id
+                row['location type'] = location_type_obj
             except LocationType.DoesNotExist:
                 raise ValueError(f"Le type de location '{location_type_value}' n'existe pas dans la base de données.")
 
@@ -365,7 +365,7 @@ class LocationResource(resources.ModelResource):
                     sous_zone_obj = SousZone.objects.get(id=sous_zone_value)
                 else:
                     sous_zone_obj = SousZone.objects.get(sous_zone_name=sous_zone_value)
-                row['sous zone'] = sous_zone_obj.id
+                row['sous zone'] = sous_zone_obj
             except SousZone.DoesNotExist:
                 raise ValueError(f"La sous zone '{sous_zone_value}' n'existe pas dans la base de données.")
 
@@ -384,10 +384,10 @@ class LocationResource(resources.ModelResource):
                             setattr(existing_location, field, getattr(instance, field))
                     
                     # Mettre à jour les relations
-                    if hasattr(instance, 'location_type_id'):
-                        existing_location.location_type_id = instance.location_type_id
-                    if hasattr(instance, 'sous_zone_id'):
-                        existing_location.sous_zone_id = instance.sous_zone_id
+                    if hasattr(instance, 'location_type'):
+                        existing_location.location_type = instance.location_type
+                    if hasattr(instance, 'sous_zone'):
+                        existing_location.sous_zone = instance.sous_zone
                     existing_location.save()
                     return existing_location
                 except Location.DoesNotExist:
@@ -705,7 +705,7 @@ class RessourceResource(resources.ModelResource):
                     type_ressource_obj = TypeRessource.objects.get(id=type_ressource_value)
                 else:
                     type_ressource_obj = TypeRessource.objects.get(libelle=type_ressource_value)
-                row['type ressource'] = type_ressource_obj.id
+                row['type ressource'] = type_ressource_obj
             except TypeRessource.DoesNotExist:
                 raise ValueError(f"Le type de ressource '{type_ressource_value}' n'existe pas dans la base de données.")
 
