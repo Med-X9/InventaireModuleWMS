@@ -1,7 +1,13 @@
 version: '3.8'
 
+networks:
+  inventaire-net:
+    external: true
+
 services:
   web:
+    networks:
+      - inventaire-net
     build: .
     command: >
       sh -c "
@@ -30,6 +36,8 @@ services:
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
 
   nginx:
+    networks:
+      - inventaire-net
     container_name: inventaire-nginx
     build: ./nginx
     volumes:
