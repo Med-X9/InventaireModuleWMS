@@ -23,7 +23,7 @@ urlpatterns = [
     # Routes pour les utilisateurs mobile
     path('users/mobile/', MobileUserListView.as_view(), name='mobile-users-list'),
     path('users/mobile/<int:user_id>/', MobileUserDetailView.as_view(), name='mobile-user-detail'),
-    path('warehouses/<int:warehouse_id>/users/mobile/', WarehouseMobileUsersView.as_view(), name='warehouse-mobile-users'),
+    path('users/mobile/warehouses/<int:warehouse_id>/users/mobile/', WarehouseMobileUsersView.as_view(), name='warehouse-mobile-users'),
     
     # Routes pour les zones
     path('zones/', ZoneListView.as_view(), name='zone-list'),
