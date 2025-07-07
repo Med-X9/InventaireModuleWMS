@@ -15,7 +15,7 @@ from .views.inventory_views import (
 )
 from apps.inventory.views import InventoryWarehousesView
 from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView
-from .views.assignment_views import assign_jobs_to_counting, get_assignment_rules, get_assignments_by_session
+from .views.assignment_views import AssignJobsToCountingView, AssignmentRulesView, AssignmentsBySessionView
 from .views.resource_assignment_views import assign_resources_to_jobs, get_job_resources, remove_resources_from_job
 
 urlpatterns = [
@@ -66,9 +66,9 @@ urlpatterns = [
     path('jobs/list/', JobListWithLocationsView.as_view(), name='jobs-list-with-locations'),
     
     # URLs pour l'affectation des jobs
-    path('inventory/<int:inventory_id>/assign-jobs/', assign_jobs_to_counting, name='assign-jobs-to-counting'),
-    path('assignment-rules/', get_assignment_rules, name='assignment-rules'),
-    path('session/<int:session_id>/assignments/', get_assignments_by_session, name='assignments-by-session'),
+    path('inventory/<int:inventory_id>/assign-jobs/', AssignJobsToCountingView.as_view(), name='assign-jobs-to-counting'),
+    path('assignment-rules/', AssignmentRulesView.as_view(), name='assignment-rules'),
+    path('session/<int:session_id>/assignments/', AssignmentsBySessionView.as_view(), name='assignments-by-session'),
     
     # URLs pour l'affectation des ressources aux jobs
     path('jobs/assign-resources/', assign_resources_to_jobs, name='assign-resources-to-jobs'),
