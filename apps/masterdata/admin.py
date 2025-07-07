@@ -61,8 +61,11 @@ class FamilyResource(resources.ModelResource):
         account_name = row.get('account')
         if account_name:
             try:
-                account_obj = Account.objects.get(account_name=account_name)
-                row['account'] = account_obj
+                if str(account_name).isdigit():
+                    account_obj = Account.objects.get(id=account_name)
+                else:
+                    account_obj = Account.objects.get(account_name=account_name)
+                row['account'] = account_obj.id
             except Account.DoesNotExist:
                 raise ValueError(f"Le compte '{account_name}' n'existe pas dans la base de données.")
 
@@ -91,18 +94,18 @@ class ZoneResource(resources.ModelResource):
     zone_type_id = fields.Field(
         column_name='zone type',
         attribute='zone_type_id',
-        widget=widgets.ForeignKeyWidget(ZoneType, 'type_name')
+        widget=widgets.IntegerWidget()
     )
     warehouse_id = fields.Field(
         column_name='werhouse',
         attribute='warehouse_id',
-        widget=widgets.ForeignKeyWidget(Warehouse, 'warehouse_name')
+        widget=widgets.IntegerWidget()
     )
 
     class Meta:
         model = Zone  # À corriger si c'est censé être Zone et non Family
         fields = ('zone_name', 'zone_status','description','zone_type_id','warehouse_id')
-        exclude = ('id',)
+        exclude = ('id', 'reference')
         import_id_fields = ()
 
     def dehydrate_zone_type_id(self, obj):
@@ -112,6 +115,18 @@ class ZoneResource(resources.ModelResource):
     def dehydrate_warehouse_id(self, obj):
         """Convertit l'objet Warehouse en nom pour l'exportation"""
         return obj.warehouse.warehouse_name if obj.warehouse else ''
+
+    def get_export_headers(self):
+        """Personnalise les en-têtes d'export pour afficher des noms plus lisibles"""
+        headers = super().get_export_headers()
+        header_mapping = {
+            'zone name': 'Nom de zone',
+            'zone status': 'Statut de zone',
+            'description': 'Description',
+            'zone type': 'Type de zone',
+            'werhouse': 'Entrepôt'
+        }
+        return [header_mapping.get(header, header) for header in headers]
 
     def before_import_row(self, row, **kwargs):
         # Valider le statut de zone
@@ -123,22 +138,30 @@ class ZoneResource(resources.ModelResource):
             # Normaliser le statut en majuscules
             row['zone status'] = zone_status.upper()
         
-        zone_type_name = row.get('zone type')
-        warehouse_name = row.get('werhouse')  # attention ici
+        zone_type_value = row.get('zone type')
+        warehouse_value = row.get('werhouse')  # attention ici
 
-        if zone_type_name:
+        if zone_type_value:
+            # Essayer d'abord par ID, puis par nom
             try:
-                zone_type_obj = ZoneType.objects.get(type_name=zone_type_name)
-                row['zone type'] = zone_type_obj
+                if str(zone_type_value).isdigit():
+                    zone_type_obj = ZoneType.objects.get(id=zone_type_value)
+                else:
+                    zone_type_obj = ZoneType.objects.get(type_name=zone_type_value)
+                row['zone type'] = zone_type_obj.id
             except ZoneType.DoesNotExist:
-                raise ValueError(f"Le type de zone '{zone_type_name}' n'existe pas dans la base de données.")
+                raise ValueError(f"Le type de zone '{zone_type_value}' n'existe pas dans la base de données.")
 
-        if warehouse_name:
+        if warehouse_value:
+            # Essayer d'abord par ID, puis par nom
             try:
-                warehouse_obj = Warehouse.objects.get(warehouse_name=warehouse_name)
-                row['werhouse'] = warehouse_obj
+                if str(warehouse_value).isdigit():
+                    warehouse_obj = Warehouse.objects.get(id=warehouse_value)
+                else:
+                    warehouse_obj = Warehouse.objects.get(warehouse_name=warehouse_value)
+                row['werhouse'] = warehouse_obj.id
             except Warehouse.DoesNotExist:
-                raise ValueError(f"L'entrepôt '{warehouse_name}' n'existe pas dans la base de données.")
+                raise ValueError(f"L'entrepôt '{warehouse_value}' n'existe pas dans la base de données.")
 
 
     
@@ -152,18 +175,29 @@ class SousZoneResource(resources.ModelResource):
     zone_id = fields.Field(
         column_name='zone',
         attribute='zone_id',
-        widget=widgets.ForeignKeyWidget(Zone, 'zone_name')
+        widget=widgets.IntegerWidget()
     )
     
     class Meta:
         model = SousZone  # À corriger si c'est censé être Zone et non Family
         fields = ('sous_zone_name', 'sous_zone_status','description','zone_id')
-        exclude = ('id',)
+        exclude = ('id', 'reference')
         import_id_fields = ()
 
     def dehydrate_zone_id(self, obj):
         """Convertit l'objet Zone en nom pour l'exportation"""
         return obj.zone.zone_name if obj.zone else ''
+
+    def get_export_headers(self):
+        """Personnalise les en-têtes d'export pour afficher des noms plus lisibles"""
+        headers = super().get_export_headers()
+        header_mapping = {
+            'sous zone name': 'Nom de sous-zone',
+            'sous zone status': 'Statut de sous-zone',
+            'description': 'Description',
+            'zone': 'Zone'
+        }
+        return [header_mapping.get(header, header) for header in headers]
 
     def before_import_row(self, row, **kwargs):
         # Valider le statut de sous-zone
@@ -175,14 +209,18 @@ class SousZoneResource(resources.ModelResource):
             # Normaliser le statut en majuscules
             row['sous zone status'] = sous_zone_status.upper()
         
-        zone_name = row.get('zone')
+        zone_value = row.get('zone')
 
-        if zone_name:
+        if zone_value:
+            # Essayer d'abord par ID, puis par nom
             try:
-                zone_obj = Zone.objects.get(zone_name=zone_name)
-                row['zone'] = zone_obj
+                if str(zone_value).isdigit():
+                    zone_obj = Zone.objects.get(id=zone_value)
+                else:
+                    zone_obj = Zone.objects.get(zone_name=zone_value)
+                row['zone'] = zone_obj.id
             except Zone.DoesNotExist:
-                raise ValueError(f"La zone '{zone_name}' n'existe pas dans la base de données.")
+                raise ValueError(f"La zone '{zone_value}' n'existe pas dans la base de données.")
 
         
 
@@ -202,21 +240,15 @@ class LocationResource(resources.ModelResource):
     capacity = fields.Field(column_name='capacity', attribute='capacity', widget=widgets.CharWidget())
     is_active = fields.Field(column_name='active', attribute='is_active', widget=widgets.CharWidget())
     description = fields.Field(column_name='description', attribute='description', widget=widgets.CharWidget())
-    location_type_id = fields.Field(
-            column_name='location type',
-            attribute='location_type_id',
-            widget=widgets.ForeignKeyWidget(LocationType, 'name')
-        )
-    sous_zone_id = fields.Field(
-        column_name='sous zone',
-        attribute='sous_zone_id',
-        widget=widgets.ForeignKeyWidget(SousZone, 'sous_zone_name')
-    )
+    location_type_name = fields.Field(column_name='location type', attribute='location_type__name', widget=widgets.CharWidget())
+    sous_zone_name = fields.Field(column_name='sous zone', attribute='sous_zone__sous_zone_name', widget=widgets.CharWidget())
     class Meta:
         model = Location
-        fields = ('location_reference', 'capacity', 'is_active','description','location_type_id','sous_zone_id')
-        exclude = ('id',)
-        import_id_fields = ()
+        fields = ('location_reference', 'capacity', 'is_active','description','location_type_name','sous_zone_name')
+        exclude = ('id', 'reference')
+        import_id_fields = ('location_reference',)
+        skip_unchanged = True
+        report_skipped = True
 
     def dehydrate_location_type_id(self, obj):
         """Convertit l'objet LocationType en nom pour l'exportation"""
@@ -226,24 +258,71 @@ class LocationResource(resources.ModelResource):
         """Convertit l'objet SousZone en nom pour l'exportation"""
         return obj.sous_zone.sous_zone_name if obj.sous_zone else ''
 
+    def get_export_headers(self):
+        """Personnalise les en-têtes d'export pour afficher des noms plus lisibles"""
+        headers = super().get_export_headers()
+        # Remplacer les noms de colonnes par des noms plus lisibles
+        header_mapping = {
+            'location type': 'Type de location',
+            'sous zone': 'Sous-zone',
+            'location reference': 'Référence location',
+            'capacity': 'Capacité',
+            'active': 'Actif',
+            'description': 'Description'
+        }
+        return [header_mapping.get(header, header) for header in headers]
+
     def before_import_row(self, row, **kwargs):
         # Récupérer les objets et les assigner à la ligne
-        location_type_name = row.get('location type')
-        sous_zone_name = row.get('sous zone')
+        location_type_value = row.get('location type')
+        sous_zone_value = row.get('sous zone')
 
-        if location_type_name:
+        if location_type_value:
+            # Essayer d'abord par ID, puis par nom
             try:
-                location_type_obj = LocationType.objects.get(name=location_type_name)
-                row['location type'] = location_type_obj
+                if str(location_type_value).isdigit():
+                    location_type_obj = LocationType.objects.get(id=location_type_value)
+                else:
+                    location_type_obj = LocationType.objects.get(name=location_type_value)
+                row['location type'] = location_type_obj.id
             except LocationType.DoesNotExist:
-                raise ValueError(f"Le type de location '{location_type_name}' n'existe pas dans la base de données.")
+                raise ValueError(f"Le type de location '{location_type_value}' n'existe pas dans la base de données.")
 
-        if sous_zone_name:
+        if sous_zone_value:
+            # Essayer d'abord par ID, puis par nom
             try:
-                sous_zone_obj = SousZone.objects.get(sous_zone_name=sous_zone_name)
-                row['sous zone'] = sous_zone_obj
+                if str(sous_zone_value).isdigit():
+                    sous_zone_obj = SousZone.objects.get(id=sous_zone_value)
+                else:
+                    sous_zone_obj = SousZone.objects.get(sous_zone_name=sous_zone_value)
+                row['sous zone'] = sous_zone_obj.id
             except SousZone.DoesNotExist:
-                raise ValueError(f"La sous zone '{sous_zone_name}' n'existe pas dans la base de données.")
+                raise ValueError(f"La sous zone '{sous_zone_value}' n'existe pas dans la base de données.")
+
+    def save_instance(self, instance, is_create, row, **kwargs):
+        """Surcharge pour gérer les conflits de clés dupliquées"""
+        try:
+            super().save_instance(instance, is_create, row, **kwargs)
+        except Exception as e:
+            if "masterdata_location_reference_key" in str(e):
+                # Si c'est un conflit de référence, essayer de mettre à jour l'instance existante
+                try:
+                    existing_location = Location.objects.get(location_reference=instance.location_reference)
+                    # Mettre à jour les champs de l'instance existante
+                    for field in ['capacity', 'is_active', 'description']:
+                        if hasattr(instance, field):
+                            setattr(existing_location, field, getattr(instance, field))
+                    
+                    # Mettre à jour les relations
+                    if hasattr(instance, 'location_type_id'):
+                        existing_location.location_type_id = instance.location_type_id
+                    if hasattr(instance, 'sous_zone_id'):
+                        existing_location.sous_zone_id = instance.sous_zone_id
+                    existing_location.save()
+                    return existing_location
+                except Location.DoesNotExist:
+                    pass
+            raise e
         
 
 
@@ -268,13 +347,13 @@ class ProductResource(resources.ModelResource):
     Product_Family = fields.Field(
         column_name='product family',
         attribute='Product_Family',
-        widget=widgets.ForeignKeyWidget(Family, 'family_name')
+        widget=widgets.IntegerWidget()
     )
 
     parent_product = fields.Field(
         column_name='parent product',
         attribute='parent_product',
-        widget=widgets.ForeignKeyWidget(Product, 'reference')
+        widget=widgets.IntegerWidget()
     )
 
     Is_Variant = fields.Field(column_name='is variant', attribute='Is_Variant', widget=widgets.BooleanWidget())
@@ -304,6 +383,23 @@ class ProductResource(resources.ModelResource):
         """Convertit l'objet Product parent en référence pour l'exportation"""
         return obj.parent_product.reference if obj.parent_product else ''
 
+    def get_export_headers(self):
+        """Personnalise les en-têtes d'export pour afficher des noms plus lisibles"""
+        headers = super().get_export_headers()
+        header_mapping = {
+            'reference': 'Référence',
+            'short description': 'Description courte',
+            'barcode': 'Code-barres',
+            'product group': 'Groupe de produit',
+            'stock unit': 'Unité de stock',
+            'product status': 'Statut de produit',
+            'internal product code': 'Code produit interne',
+            'product family': 'Famille de produit',
+            'parent product': 'Produit parent',
+            'is variant': 'Est une variante'
+        }
+        return [header_mapping.get(header, header) for header in headers]
+
     def before_import_row(self, row, **kwargs):
         # Valider le statut de produit
         product_status = row.get('product status')
@@ -315,22 +411,28 @@ class ProductResource(resources.ModelResource):
             row['product status'] = product_status.upper()
         
         # Vérifier si la famille existe et l'assigner
-        family_name = row.get('product family')
-        if family_name:
+        family_value = row.get('product family')
+        if family_value:
             try:
-                family_obj = Family.objects.get(family_name=family_name)
-                row['product family'] = family_obj
+                if str(family_value).isdigit():
+                    family_obj = Family.objects.get(id=family_value)
+                else:
+                    family_obj = Family.objects.get(family_name=family_value)
+                row['product family'] = family_obj.id
             except Family.DoesNotExist:
-                raise ValueError(f"La famille de produit '{family_name}' n'existe pas.")
+                raise ValueError(f"La famille de produit '{family_value}' n'existe pas.")
 
         # Vérifier si le produit parent existe et l'assigner
-        parent_reference = row.get('parent product')
-        if parent_reference:
+        parent_value = row.get('parent product')
+        if parent_value:
             try:
-                parent_obj = Product.objects.get(reference=parent_reference)
-                row['parent product'] = parent_obj
+                if str(parent_value).isdigit():
+                    parent_obj = Product.objects.get(id=parent_value)
+                else:
+                    parent_obj = Product.objects.get(reference=parent_value)
+                row['parent product'] = parent_obj.id
             except Product.DoesNotExist:
-                raise ValueError(f"Le produit parent '{parent_reference}' n'existe pas.")
+                raise ValueError(f"Le produit parent '{parent_value}' n'existe pas.")
 
 class UnitOfMeasureResource(resources.ModelResource):
     class Meta:
@@ -341,12 +443,12 @@ class StockResource(resources.ModelResource):
     location = fields.Field(
         column_name='location',
         attribute='location',
-        widget=widgets.ForeignKeyWidget(Location, 'location_reference')
+        widget=widgets.IntegerWidget()
     )
     product = fields.Field(
         column_name='product',
         attribute='product',
-        widget=widgets.ForeignKeyWidget(Product, 'reference')
+        widget=widgets.IntegerWidget()
     )
     quantity_available = fields.Field(
         column_name='quantity available',
@@ -371,7 +473,12 @@ class StockResource(resources.ModelResource):
     unit_of_measure = fields.Field(
         column_name='unit of measure',
         attribute='unit_of_measure',
-        widget=widgets.ForeignKeyWidget(UnitOfMeasure, 'name')
+        widget=widgets.IntegerWidget()
+    )
+    inventory = fields.Field(
+        column_name='inventory',
+        attribute='inventory',
+        widget=widgets.IntegerWidget()
     )
 
     class Meta:
@@ -384,8 +491,9 @@ class StockResource(resources.ModelResource):
             'quantity_in_transit',
             'quantity_in_receiving',
             'unit_of_measure',
+            'inventory',
         )
-        exclude = ('id',)
+        exclude = ('id', 'reference')
         import_id_fields = ('location', 'product')
 
     def dehydrate_location(self, obj):
@@ -400,33 +508,99 @@ class StockResource(resources.ModelResource):
         """Convertit l'objet UnitOfMeasure en nom pour l'exportation"""
         return obj.unit_of_measure.name if obj.unit_of_measure else ''
 
+    def dehydrate_inventory(self, obj):
+        """Convertit l'objet Inventory en label pour l'exportation"""
+        return obj.inventory.label if obj.inventory else ''
+
+    def get_export_headers(self):
+        """Personnalise les en-têtes d'export pour afficher des noms plus lisibles"""
+        headers = super().get_export_headers()
+        header_mapping = {
+            'location': 'Location',
+            'product': 'Produit',
+            'quantity available': 'Quantité disponible',
+            'quantity reserved': 'Quantité réservée',
+            'quantity in transit': 'Quantité en transit',
+            'quantity in receiving': 'Quantité en réception',
+            'unit of measure': 'Unité de mesure',
+            'inventory': 'Inventaire'
+        }
+        return [header_mapping.get(header, header) for header in headers]
+
     def before_import_row(self, row, **kwargs):
         # Vérifie que la location existe et l'assigner
-        location_reference = row.get('location')
-        if location_reference:
+        location_value = row.get('location')
+        if location_value:
             try:
-                location_obj = Location.objects.get(location_reference=location_reference)
-                row['location'] = location_obj
+                if str(location_value).isdigit():
+                    location_obj = Location.objects.get(id=location_value)
+                else:
+                    location_obj = Location.objects.get(location_reference=location_value)
+                row['location'] = location_obj.id
             except Location.DoesNotExist:
-                raise ValueError(f"La location '{location_reference}' n'existe pas dans la base de données.")
+                raise ValueError(f"La location '{location_value}' n'existe pas dans la base de données.")
 
         # Vérifie que le produit existe et l'assigner
-        product_reference = row.get('product')
-        if product_reference:
+        product_value = row.get('product')
+        if product_value:
             try:
-                product_obj = Product.objects.get(reference=product_reference)
-                row['product'] = product_obj
+                if str(product_value).isdigit():
+                    product_obj = Product.objects.get(id=product_value)
+                else:
+                    product_obj = Product.objects.get(reference=product_value)
+                row['product'] = product_obj.id
             except Product.DoesNotExist:
-                raise ValueError(f"Le produit '{product_reference}' n'existe pas dans la base de données.")
+                raise ValueError(f"Le produit '{product_value}' n'existe pas dans la base de données.")
 
         # Vérifie que l'unité de mesure existe et l'assigner
-        unit_name = row.get('unit of measure')
-        if unit_name:
+        unit_value = row.get('unit of measure')
+        if unit_value:
             try:
-                unit_obj = UnitOfMeasure.objects.get(name=unit_name)
-                row['unit of measure'] = unit_obj
+                if str(unit_value).isdigit():
+                    unit_obj = UnitOfMeasure.objects.get(id=unit_value)
+                else:
+                    unit_obj = UnitOfMeasure.objects.get(name=unit_value)
+                row['unit of measure'] = unit_obj.id
             except UnitOfMeasure.DoesNotExist:
-                raise ValueError(f"L'unité de mesure '{unit_name}' n'existe pas dans la base de données.")
+                raise ValueError(f"L'unité de mesure '{unit_value}' n'existe pas dans la base de données.")
+
+        # Vérifie que l'inventory existe et l'assigner, ou créer un inventory par défaut
+        inventory_value = row.get('inventory')
+        if inventory_value:
+            try:
+                from apps.inventory.models import Inventory
+                if str(inventory_value).isdigit():
+                    inventory_obj = Inventory.objects.get(id=inventory_value)
+                else:
+                    # Si ce n'est pas un ID, chercher par référence
+                    inventory_obj = Inventory.objects.get(reference=inventory_value)
+                row['inventory'] = inventory_obj.id
+            except Exception:
+                raise ValueError(f"L'inventory '{inventory_value}' n'existe pas dans la base de données.")
+        else:
+            # Créer un inventory par défaut si aucun n'est fourni
+            try:
+                from apps.inventory.models import Inventory
+                from django.utils import timezone
+                
+                # Chercher un inventory par défaut ou en créer un
+                default_inventory = Inventory.objects.filter(
+                    status='EN PREPARATION',
+                    inventory_type='GENERAL'
+                ).first()
+                
+                if not default_inventory:
+                    # Créer un nouvel inventory par défaut
+                    default_inventory = Inventory.objects.create(
+                        label='Inventory par défaut - Import Stock',
+                        date=timezone.now(),
+                        status='EN PREPARATION',
+                        inventory_type='GENERAL'
+                    )
+                
+                row['inventory'] = default_inventory.id
+            except Exception as e:
+                raise ValueError(f"Impossible de créer ou récupérer un inventory par défaut: {str(e)}")
 
 
 class TypeRessourceResource(resources.ModelResource):
@@ -460,6 +634,17 @@ class RessourceResource(resources.ModelResource):
         """Convertit l'objet TypeRessource en libellé pour l'exportation"""
         return obj.type_ressource.libelle if obj.type_ressource else ''
 
+    def get_export_headers(self):
+        """Personnalise les en-têtes d'export pour afficher des noms plus lisibles"""
+        headers = super().get_export_headers()
+        header_mapping = {
+            'libelle': 'Libellé',
+            'description': 'Description',
+            'status': 'Statut',
+            'type ressource': 'Type de ressource'
+        }
+        return [header_mapping.get(header, header) for header in headers]
+
     def before_import_row(self, row, **kwargs):
         # Vérifier que le statut est valide
         status = row.get('status')
@@ -467,13 +652,16 @@ class RessourceResource(resources.ModelResource):
             raise ValueError(f"Le statut '{status}' n'est pas valide. Les valeurs autorisées sont 'ACTIVE' et 'INACTIVE'.")
         
         # Vérifier que le type de ressource existe et l'assigner
-        type_ressource_libelle = row.get('type ressource')
-        if type_ressource_libelle:
+        type_ressource_value = row.get('type ressource')
+        if type_ressource_value:
             try:
-                type_ressource_obj = TypeRessource.objects.get(libelle=type_ressource_libelle)
-                row['type ressource'] = type_ressource_obj
+                if str(type_ressource_value).isdigit():
+                    type_ressource_obj = TypeRessource.objects.get(id=type_ressource_value)
+                else:
+                    type_ressource_obj = TypeRessource.objects.get(libelle=type_ressource_value)
+                row['type ressource'] = type_ressource_obj.id
             except TypeRessource.DoesNotExist:
-                raise ValueError(f"Le type de ressource '{type_ressource_libelle}' n'existe pas dans la base de données.")
+                raise ValueError(f"Le type de ressource '{type_ressource_value}' n'existe pas dans la base de données.")
 
 
 # ---------------- Admins ---------------- #

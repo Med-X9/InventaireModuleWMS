@@ -1,6 +1,8 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework import status, filters
+from rest_framework.pagination import PageNumberPagination
+from django_filters.rest_framework import DjangoFilterBackend
 from ..services.location_service import LocationService
 from ..serializers.location_serializer import LocationSerializer, UnassignedLocationSerializer
 from rest_framework.permissions import IsAuthenticated
@@ -10,6 +12,11 @@ from ..exceptions import LocationError
 from ..repositories.location_repository import LocationRepository
 
 logger = logging.getLogger(__name__)
+
+class StandardResultsSetPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = 'page_size'
+    max_page_size = 100
 
 class AllWarehouseLocationListView(APIView):
     def get(self, request, warehouse_id):
@@ -113,31 +120,61 @@ class SousZoneLocationsView(APIView):
             )
 
 class UnassignedLocationsView(APIView):
+    """
+    Vue pour lister les emplacements non affectés avec pagination et filtres.
+    """
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    ordering = 'location_reference'  # Tri par défaut par référence d'emplacement
+    pagination_class = StandardResultsSetPagination
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.location_service = LocationService()
+
     def get(self, request, warehouse_id=None):
         """
-        Récupère les emplacements qui ne sont pas affectés à des jobs
-        avec les informations complètes de zone et sous-zone
+        Récupère les emplacements non affectés avec filtres et pagination.
         """
         try:
-            unassigned_locations = LocationService.get_unassigned_locations(warehouse_id)
-            
-            # Sérialiser les données
-            serializer = UnassignedLocationSerializer(unassigned_locations, many=True)
-            
-            return Response({
-                'success': True,
-                'message': 'Emplacements non affectés récupérés avec succès',
-                'data': serializer.data,
-                'count': len(unassigned_locations)
-            }, status=status.HTTP_200_OK)
-            
+            # Récupérer les emplacements non affectés
+            unassigned_locations = self.location_service.get_unassigned_locations(warehouse_id)
+
+            # Appliquer le tri
+            ordering = request.query_params.get('ordering', self.ordering)
+            if ordering:
+                reverse = False
+                if ordering.startswith('-'):
+                    field = ordering[1:]
+                    reverse = True
+                else:
+                    field = ordering
+                
+                # Tri des dictionnaires par clé
+                unassigned_locations = sorted(
+                    unassigned_locations, 
+                    key=lambda x: x.get(field, ''), 
+                    reverse=reverse
+                )
+
+            # Appliquer la pagination
+            paginator = self.pagination_class()
+            page = paginator.paginate_queryset(unassigned_locations, request)
+
+            # Sérialiser les résultats
+            serializer = UnassignedLocationSerializer(page, many=True)
+
+            # Retourner la réponse paginée avec un message de succès
+            response = paginator.get_paginated_response(serializer.data)
+            response.data['message'] = "Liste des emplacements non affectés récupérée avec succès"
+            return response
+
         except LocationError as e:
             return Response({
                 'success': False,
                 'message': str(e)
             }, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            logger.error(f"Erreur inattendue lors de la récupération des emplacements non affectés : {str(e)}")
+            logger.error(f"Erreur lors de la récupération de la liste des emplacements non affectés: {str(e)}", exc_info=True)
             return Response({
                 'success': False,
                 'message': f'Erreur interne : {str(e)}'

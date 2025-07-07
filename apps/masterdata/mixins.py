@@ -26,7 +26,20 @@ class CodeGeneratorMixin(models.Model):
         # Construire le code final
         code = f"{prefix}-{random_num}"
         
-        return code
+        # Vérifier si le code existe déjà et en générer un nouveau si nécessaire
+        max_attempts = 100
+        attempt = 0
+        while attempt < max_attempts:
+            if not cls.objects.filter(reference=code).exists():
+                return code
+            random_num = random.randint(1000, 9999)
+            code = f"{prefix}-{random_num}"
+            attempt += 1
+        
+        # Si on n'a pas trouvé de code unique après 100 tentatives, utiliser un timestamp
+        import time
+        timestamp = int(time.time())
+        return f"{prefix}-{timestamp}"
 
     @classmethod
     def get_code_field_name(cls):
