@@ -1,10 +1,8 @@
 from rest_framework import serializers
 from ..models import Location, SousZone, Zone, Warehouse, LocationType
-
-class ZoneSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Zone
-        fields = ['id', 'zone_code', 'zone_name']
+from .sous_zone_serializer import SousZoneSerializer
+from .zone_serializer import ZoneSerializer
+from .warehouse_serializer import WarehouseSerializer
 
 class LocationTypeSerializer(serializers.ModelSerializer):
     class Meta:
@@ -46,6 +44,16 @@ class UnassignedLocationSerializer(serializers.Serializer):
     description = serializers.CharField(allow_null=True, allow_blank=True)
     
     # location_type = serializers.DictField(required=False, allow_null=True)
-    sous_zone = serializers.DictField()
-    zone = serializers.DictField()
-    warehouse = serializers.DictField() 
+    sous_zone = SousZoneSerializer()
+    zone = serializers.SerializerMethodField()
+    warehouse = serializers.SerializerMethodField()
+
+    def get_zone(self, obj):
+        if obj.sous_zone and hasattr(obj.sous_zone, 'zone'):
+            return ZoneSerializer(obj.sous_zone.zone).data
+        return None
+
+    def get_warehouse(self, obj):
+        if obj.sous_zone and hasattr(obj.sous_zone, 'zone') and obj.sous_zone.zone and hasattr(obj.sous_zone.zone, 'warehouse'):
+            return WarehouseSerializer(obj.sous_zone.zone.warehouse).data
+        return None 

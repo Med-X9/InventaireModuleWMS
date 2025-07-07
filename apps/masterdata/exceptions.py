@@ -18,4 +18,9 @@ class MasterDataError(Exception):
     pass
 
 class LocationError(Exception):
+    """Exception levée en cas d'erreur liée aux emplacements"""
+    pass
+
+class UserNotFoundError(Exception):
+    """Exception levée quand un utilisateur n'est pas trouvé"""
     pass 

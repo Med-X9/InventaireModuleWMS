@@ -7,5 +7,9 @@ class IWarehouseRepository(ABC):
         pass
 
     @abstractmethod
+    def get_by_reference(self, reference: str) -> Any:
+        pass
+
+    @abstractmethod
     def get_all(self) -> List[Any]:
         pass 
