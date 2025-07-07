@@ -19,7 +19,8 @@ from ..serializers.job_serializer import (
     JobReadyRequestSerializer,
     JobFullDetailSerializer,
     JobPendingSerializer,
-    JobResetAssignmentsRequestSerializer
+    JobResetAssignmentsRequestSerializer,
+    PendingJobReferenceSerializer
 )
 from ..exceptions import JobCreationError
 import logging
@@ -29,9 +30,14 @@ from rest_framework.generics import ListAPIView
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
 from rest_framework.pagination import PageNumberPagination
-from ..filters.job_filters import JobFilter, JobFullDetailFilter
+from ..filters.job_filters import JobFilter, JobFullDetailFilter, PendingJobFilter
 
 logger = logging.getLogger(__name__)
+
+class StandardResultsSetPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = 'page_size'
+    max_page_size = 100
 
 class JobCreateAPIView(APIView):
     def post(self, request, inventory_id, warehouse_id):
@@ -77,7 +83,6 @@ class JobValidateView(APIView):
             return Response({
                 'success': True,
                 'message': 'Jobs validés avec succès',
-                'data': result
             }, status=status.HTTP_200_OK)
         except JobCreationError as e:
             return Response({
@@ -174,16 +179,16 @@ class JobRemoveEmplacementsView(APIView):
         if not serializer.is_valid():
             return Response({
                 'success': False,
-                'message': 'Erreur de validation',
+                'message': 'Erreur de validation', 
                 'errors': serializer.errors
             }, status=status.HTTP_400_BAD_REQUEST)
-        emplacement_ids = serializer.validated_data['emplacement_ids']
+        emplacement_id = serializer.validated_data['emplacement_id']
         try:
             job_service = JobService()
-            result = job_service.remove_job_emplacements(job_id, emplacement_ids)
+            result = job_service.remove_job_emplacements(job_id, emplacement_id)
             return Response({
                 'success': True,
-                'message': 'Emplacements supprimés avec succès',
+                'message': 'Emplacement supprimé avec succès',
                 'data': result
             }, status=status.HTTP_200_OK)
         except JobCreationError as e:
@@ -226,22 +231,48 @@ class JobAddEmplacementsView(APIView):
                 'message': f'Erreur interne : {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-class PendingJobsReferencesView(APIView):
-    def get(self, request, warehouse_id):
+class PendingJobsReferencesView(ListAPIView):
+    """
+    Vue pour lister les jobs en attente avec pagination et filtres.
+    """
+    serializer_class = PendingJobReferenceSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_class = PendingJobFilter
+    search_fields = ['reference', 'inventory__reference', 'inventory__label', 'warehouse__reference', 'warehouse__warehouse_name']
+    ordering_fields = ['created_at', 'reference', 'inventory__reference', 'warehouse__warehouse_name']
+    ordering = '-created_at'  # Tri par défaut par date de création (plus récent en premier)
+    pagination_class = StandardResultsSetPagination
+
+    def get_queryset(self):
+        """
+        Récupère les jobs en attente pour le warehouse spécifié avec relations préchargées.
+        """
+        warehouse_id = self.kwargs.get('warehouse_id')
+        return Job.objects.filter(
+            warehouse_id=warehouse_id,
+            status='EN ATTENTE'
+        ).select_related(
+            'inventory',
+            'warehouse'
+        ).prefetch_related(
+            'jobdetail_set',
+            'assigment_set'
+        ).order_by('-created_at')
+
+    def get(self, request, *args, **kwargs):
+        """
+        Récupère les jobs en attente avec filtres et pagination.
+        """
         try:
-            job_service = JobService()
-            pending_jobs = job_service.get_pending_jobs_references(warehouse_id)
-            return Response({
-                'success': True,
-                'message': 'Jobs en attente récupérés avec succès',
-                'data': pending_jobs
-            }, status=status.HTTP_200_OK)
-        except JobCreationError as e:
-            return Response({
-                'success': False,
-                'message': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
+            # Utiliser la méthode parent pour le filtrage et la pagination
+            response = super().get(request, *args, **kwargs)
+            
+            # Ajouter un message de succès
+            response.data['message'] = "Liste des jobs en attente récupérée avec succès"
+            return response
+
         except Exception as e:
+            logger.error(f"Erreur lors de la récupération de la liste des jobs en attente: {str(e)}", exc_info=True)
             return Response({
                 'success': False,
                 'message': f'Erreur interne : {str(e)}'

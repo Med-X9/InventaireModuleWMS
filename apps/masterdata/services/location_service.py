@@ -166,7 +166,7 @@ class LocationService:
             }
 
     @staticmethod
-    def get_unassigned_locations(warehouse_id=None):
+    def get_unassigned_locations(warehouse_id=None, filters=None):
         """
         Récupère les emplacements qui ne sont pas affectés à des jobs
         avec les informations complètes de zone et sous-zone
@@ -191,6 +191,12 @@ class LocationService:
                 'sous_zone__zone__warehouse',
                 'location_type'
             )
+            
+            # Appliquer les filtres django-filter si fournis
+            if filters:
+                from ..filters.location_filters import UnassignedLocationFilter
+                filter_instance = UnassignedLocationFilter(filters, queryset=locations)
+                locations = filter_instance.qs
             
             # Formater les données de retour
             unassigned_locations = []

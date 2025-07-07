@@ -16,7 +16,8 @@ from ..serializers.inventory_serializer import (
     InventoryTeamSerializer,
     InventoryWarehouseStatsSerializer,
     InventoryUpdateSerializer,
-    InventoryDetailModeFieldsSerializer
+    InventoryDetailModeFieldsSerializer,
+    InventoryDetailWithWarehouseSerializer
 )
 from ..exceptions import InventoryValidationError, InventoryNotFoundError, StockValidationError
 from ..filters import InventoryFilter
@@ -142,7 +143,7 @@ class InventoryCreateView(APIView):
 
 class InventoryDetailView(APIView):
     """
-    Vue pour récupérer les détails d'un inventaire.
+    Vue pour récupérer les détails d'un inventaire avec informations complètes des warehouses.
     """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -150,11 +151,11 @@ class InventoryDetailView(APIView):
 
     def get(self, request, pk, *args, **kwargs):
         """
-        Récupère les détails d'un inventaire.
+        Récupère les détails d'un inventaire avec informations complètes des warehouses.
         """
         try:
             inventory = self.repository.get_with_related_data(pk)
-            serializer = InventoryDetailSerializer(inventory)
+            serializer = InventoryDetailWithWarehouseSerializer(inventory)
             return Response({
                 "message": "Détails de l'inventaire récupérés avec succès",
                 "data": serializer.data

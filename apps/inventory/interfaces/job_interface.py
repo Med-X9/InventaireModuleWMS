@@ -169,13 +169,13 @@ class JobServiceInterface(ABC):
     
     @abstractmethod
     @transaction.atomic
-    def remove_job_emplacements(self, job_id: int, emplacement_ids: List[int]) -> Dict[str, Any]:
+    def remove_job_emplacements(self, job_id: int, emplacement_id: int) -> Dict[str, Any]:
         """
-        Supprime des emplacements d'un job
+        Supprime un emplacement d'un job
         
         Args:
             job_id: ID du job
-            emplacement_ids: Liste des IDs des emplacements à supprimer
+            emplacement_id: ID de l'emplacement à supprimer
             
         Returns:
             Informations sur la suppression

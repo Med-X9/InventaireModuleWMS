@@ -10,6 +10,8 @@ from ..models import Location, SousZone
 import logging
 from ..exceptions import LocationError
 from ..repositories.location_repository import LocationRepository
+from rest_framework.generics import ListAPIView
+from ..filters.location_filters import UnassignedLocationFilter
 
 logger = logging.getLogger(__name__)
 
@@ -119,60 +121,65 @@ class SousZoneLocationsView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-class UnassignedLocationsView(APIView):
+class UnassignedLocationsView(ListAPIView):
     """
     Vue pour lister les emplacements non affectés avec pagination et filtres.
     """
+    serializer_class = UnassignedLocationSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_class = UnassignedLocationFilter
+    search_fields = [
+        'reference', 'location_reference', 'description',
+        'sous_zone__reference', 'sous_zone__sous_zone_name',
+        'sous_zone__zone__reference', 'sous_zone__zone__zone_name',
+        'sous_zone__zone__warehouse__reference', 'sous_zone__zone__warehouse__warehouse_name'
+    ]
+    ordering_fields = [
+        'reference', 'location_reference', 'created_at', 'updated_at',
+        'sous_zone__sous_zone_name', 'sous_zone__zone__zone_name',
+        'sous_zone__zone__warehouse__warehouse_name'
+    ]
     ordering = 'location_reference'  # Tri par défaut par référence d'emplacement
     pagination_class = StandardResultsSetPagination
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.location_service = LocationService()
+    def get_queryset(self):
+        """
+        Récupère les emplacements non affectés pour le warehouse spécifié avec relations préchargées.
+        """
+        warehouse_id = self.kwargs.get('warehouse_id')
+        queryset = Location.objects.filter(is_active=True)
+        
+        # Filtrer par warehouse si spécifié
+        if warehouse_id:
+            queryset = queryset.filter(sous_zone__zone__warehouse_id=warehouse_id)
+        
+        # Exclure les emplacements qui sont déjà affectés à des jobs
+        from apps.inventory.models import JobDetail
+        assigned_location_ids = JobDetail.objects.values_list('location_id', flat=True)
+        queryset = queryset.exclude(id__in=assigned_location_ids)
+        
+        # Précharger les relations pour optimiser les performances
+        queryset = queryset.select_related(
+            'sous_zone',
+            'sous_zone__zone',
+            'sous_zone__zone__warehouse',
+            'location_type'
+        ).order_by('location_reference')
+        
+        return queryset
 
-    def get(self, request, warehouse_id=None):
+    def get(self, request, *args, **kwargs):
         """
         Récupère les emplacements non affectés avec filtres et pagination.
         """
         try:
-            # Récupérer les emplacements non affectés
-            unassigned_locations = self.location_service.get_unassigned_locations(warehouse_id)
-
-            # Appliquer le tri
-            ordering = request.query_params.get('ordering', self.ordering)
-            if ordering:
-                reverse = False
-                if ordering.startswith('-'):
-                    field = ordering[1:]
-                    reverse = True
-                else:
-                    field = ordering
-                
-                # Tri des dictionnaires par clé
-                unassigned_locations = sorted(
-                    unassigned_locations, 
-                    key=lambda x: x.get(field, ''), 
-                    reverse=reverse
-                )
-
-            # Appliquer la pagination
-            paginator = self.pagination_class()
-            page = paginator.paginate_queryset(unassigned_locations, request)
-
-            # Sérialiser les résultats
-            serializer = UnassignedLocationSerializer(page, many=True)
-
-            # Retourner la réponse paginée avec un message de succès
-            response = paginator.get_paginated_response(serializer.data)
+            # Utiliser la méthode parent pour le filtrage et la pagination
+            response = super().get(request, *args, **kwargs)
+            
+            # Ajouter un message de succès
             response.data['message'] = "Liste des emplacements non affectés récupérée avec succès"
             return response
 
-        except LocationError as e:
-            return Response({
-                'success': False,
-                'message': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             logger.error(f"Erreur lors de la récupération de la liste des emplacements non affectés: {str(e)}", exc_info=True)
             return Response({

@@ -71,6 +71,27 @@ class JobRepository(JobRepositoryInterface):
             status='EN ATTENTE'
         ).values('id', 'reference').order_by('created_at'))
     
+    def get_pending_jobs_by_warehouse_with_filters(self, warehouse_id: int, filters: Optional[Dict[str, Any]] = None) -> List[Job]:
+        """Récupère les jobs en attente d'un warehouse avec filtres et relations préchargées"""
+        queryset = Job.objects.filter(
+            warehouse_id=warehouse_id,
+            status='EN ATTENTE'
+        ).select_related(
+            'inventory',
+            'warehouse'
+        ).prefetch_related(
+            'jobdetail_set',
+            'assigment_set'
+        )
+        
+        # Appliquer les filtres django-filter si fournis
+        if filters:
+            from ..filters.job_filters import PendingJobFilter
+            filter_instance = PendingJobFilter(filters, queryset=queryset)
+            queryset = filter_instance.qs
+        
+        return list(queryset.order_by('-created_at'))
+    
     def get_job_details_by_job(self, job: Job) -> List[JobDetail]:
         """Récupère les job details d'un job"""
         return list(JobDetail.objects.filter(job=job))
