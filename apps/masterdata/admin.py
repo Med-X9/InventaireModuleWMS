@@ -2,6 +2,8 @@ from django.contrib import admin
 from django import forms
 from django.utils import timezone
 import random
+import hashlib
+import uuid
 from datetime import datetime
 
 # Register your models here.
@@ -28,6 +30,86 @@ class AccountResource(resources.ModelResource):
 
 
 
+class AutoCreateAccountWidget(widgets.ForeignKeyWidget):
+    """Widget personnalisé qui crée automatiquement les comptes manquants"""
+    
+    def clean(self, value, row=None, *args, **kwargs):
+        if not value:
+            return None
+        
+        try:
+            # Essayer d'abord par ID
+            if str(value).isdigit():
+                return Account.objects.get(id=value)
+            # Puis par nom
+            return Account.objects.get(account_name=value)
+        except Account.DoesNotExist:
+            # Créer automatiquement l'Account s'il n'existe pas
+            try:
+                # Générer une référence unique pour le compte
+                timestamp = int(timezone.now().timestamp())
+                timestamp_short = str(timestamp)[-4:]
+                data_to_hash = f"{value}{timestamp}"
+                hash_value = hashlib.md5(data_to_hash.encode()).hexdigest()[:4].upper()
+                reference = f"ACC-{timestamp_short}-{hash_value}"
+                
+                # S'assurer que la référence ne dépasse pas 20 caractères
+                if len(reference) > 20:
+                    reference = reference[:20]
+                
+                # Créer le nouveau compte
+                account_obj = Account.objects.create(
+                    reference=reference,
+                    account_name=value,
+                    account_statuts='ACTIVE',  # Statut par défaut
+                    description=f"Compte créé automatiquement lors de l'import de famille: {value}"
+                )
+                return account_obj
+            except Exception as e:
+                raise ValueError(f"Impossible de créer le compte '{value}': {str(e)}")
+
+class FamilyLookupWidget(widgets.ForeignKeyWidget):
+    """Widget personnalisé pour rechercher les familles par ID ou nom"""
+    
+    def clean(self, value, row=None, *args, **kwargs):
+        if not value:
+            return None
+        
+        try:
+            # Essayer d'abord par ID
+            if str(value).isdigit():
+                return Family.objects.get(id=value)
+            # Puis par nom
+            return Family.objects.get(family_name=value)
+        except Family.DoesNotExist:
+            raise ValueError(f"La famille '{value}' n'existe pas dans la base de données.")
+
+class ProductLookupWidget(widgets.ForeignKeyWidget):
+    """Widget personnalisé pour rechercher les produits par ID ou référence"""
+    
+    def clean(self, value, row=None, *args, **kwargs):
+        if not value:
+            return None
+        
+        try:
+            # Essayer d'abord par ID
+            if str(value).isdigit():
+                return Product.objects.get(id=value)
+            # Puis par référence
+            return Product.objects.get(reference=value)
+        except Product.DoesNotExist:
+            raise ValueError(f"Le produit '{value}' n'existe pas dans la base de données.")
+
+class StockUnitWidget(widgets.CharWidget):
+    """Widget personnalisé pour l'unité de stock qui tronque à 3 caractères"""
+    
+    def clean(self, value, row=None, *args, **kwargs):
+        if not value:
+            return None
+        
+        # Tronquer à 3 caractères maximum
+        return str(value)[:3].upper()
+
 class FamilyResource(resources.ModelResource):
     family_name = fields.Field(column_name='family name', attribute='family_name', widget=widgets.CharWidget())
     family_status = fields.Field(column_name='family status', attribute='family_status', widget=widgets.CharWidget())
@@ -35,12 +117,12 @@ class FamilyResource(resources.ModelResource):
     compte = fields.Field(
             column_name='account',
             attribute='compte',
-            widget=widgets.ForeignKeyWidget(Account, 'account_name')
+            widget=AutoCreateAccountWidget(Account, 'account_name')
         )
     class Meta:
         model = Family
         fields = ('family_name', 'family_status','family_description','compte')
-        exclude = ('id',)
+        exclude = ('id', 'reference')
         import_id_fields = ()
 
     def dehydrate_compte(self, obj):
@@ -56,18 +138,6 @@ class FamilyResource(resources.ModelResource):
                 raise ValueError(f"Le statut '{family_status}' n'est pas valide. Les valeurs autorisées sont : {', '.join(valid_statuses)}")
             # Normaliser le statut en majuscules
             row['family status'] = family_status.upper()
-        
-        # Chercher l'objet account à partir du nom dans la ligne d'importation
-        account_name = row.get('account')
-        if account_name:
-            try:
-                if str(account_name).isdigit():
-                    account_obj = Account.objects.get(id=account_name)
-                else:
-                    account_obj = Account.objects.get(account_name=account_name)
-                row['account'] = account_obj.id
-            except Account.DoesNotExist:
-                raise ValueError(f"Le compte '{account_name}' n'existe pas dans la base de données.")
 
 
 
@@ -340,20 +410,20 @@ class ProductResource(resources.ModelResource):
     Short_Description = fields.Field(column_name='short description', attribute='Short_Description', widget=widgets.CharWidget())
     Barcode = fields.Field(column_name='barcode', attribute='Barcode', widget=widgets.CharWidget())
     Product_Group = fields.Field(column_name='product group', attribute='Product_Group', widget=widgets.CharWidget())
-    Stock_Unit = fields.Field(column_name='stock unit', attribute='Stock_Unit', widget=widgets.CharWidget())
+    Stock_Unit = fields.Field(column_name='stock unit', attribute='Stock_Unit', widget=StockUnitWidget())
     Product_Status = fields.Field(column_name='product status', attribute='Product_Status', widget=widgets.CharWidget())
     Internal_Product_Code = fields.Field(column_name='internal product code', attribute='Internal_Product_Code', widget=widgets.CharWidget())
     
     Product_Family = fields.Field(
         column_name='product family',
         attribute='Product_Family',
-        widget=widgets.IntegerWidget()
+        widget=FamilyLookupWidget(Family, 'family_name')
     )
 
     parent_product = fields.Field(
         column_name='parent product',
         attribute='parent_product',
-        widget=widgets.IntegerWidget()
+        widget=ProductLookupWidget(Product, 'reference')
     )
 
     Is_Variant = fields.Field(column_name='is variant', attribute='Is_Variant', widget=widgets.BooleanWidget())
@@ -372,8 +442,8 @@ class ProductResource(resources.ModelResource):
             'parent_product',
             'Is_Variant',
         )
-        exclude = ('id',)
-        import_id_fields = ('reference',)
+        exclude = ('id', 'reference')
+        import_id_fields = ()
 
     def dehydrate_Product_Family(self, obj):
         """Convertit l'objet Family en nom pour l'exportation"""
@@ -409,30 +479,6 @@ class ProductResource(resources.ModelResource):
                 raise ValueError(f"Le statut '{product_status}' n'est pas valide. Les valeurs autorisées sont : {', '.join(valid_statuses)}")
             # Normaliser le statut en majuscules
             row['product status'] = product_status.upper()
-        
-        # Vérifier si la famille existe et l'assigner
-        family_value = row.get('product family')
-        if family_value:
-            try:
-                if str(family_value).isdigit():
-                    family_obj = Family.objects.get(id=family_value)
-                else:
-                    family_obj = Family.objects.get(family_name=family_value)
-                row['product family'] = family_obj.id
-            except Family.DoesNotExist:
-                raise ValueError(f"La famille de produit '{family_value}' n'existe pas.")
-
-        # Vérifier si le produit parent existe et l'assigner
-        parent_value = row.get('parent product')
-        if parent_value:
-            try:
-                if str(parent_value).isdigit():
-                    parent_obj = Product.objects.get(id=parent_value)
-                else:
-                    parent_obj = Product.objects.get(reference=parent_value)
-                row['parent product'] = parent_obj.id
-            except Product.DoesNotExist:
-                raise ValueError(f"Le produit parent '{parent_value}' n'existe pas.")
 
 class UnitOfMeasureResource(resources.ModelResource):
     class Meta:
