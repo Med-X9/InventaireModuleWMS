@@ -447,4 +447,29 @@ class InventoryService:
         except Exception as e:
             raise InventoryValidationError(f"Erreur lors de la récupération des statistiques: {str(e)}")
 
+    def get_warehouse_jobs_sessions_count(self, inventory_id: int) -> List[Dict[str, Any]]:
+        """
+        Récupère le nom du warehouse avec le count des jobs et sessions associés
+        
+        Args:
+            inventory_id: ID de l'inventaire
+            
+        Returns:
+            List[Dict[str, Any]]: Liste avec nom warehouse, count jobs et count sessions
+        """
+        try:
+            # Vérifier que l'inventaire existe
+            inventory = self.repository.get_by_id(inventory_id)
+            if not inventory:
+                raise InventoryNotFoundError(f"L'inventaire avec l'ID {inventory_id} n'existe pas.")
+            
+            # Utiliser le repository pour récupérer les statistiques
+            return self.repository.get_warehouse_jobs_sessions_stats(inventory_id)
+            
+        except InventoryNotFoundError:
+            raise
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des statistiques warehouse: {str(e)}", exc_info=True)
+            raise InventoryValidationError(f"Erreur lors de la récupération des statistiques warehouse: {str(e)}")
+
     

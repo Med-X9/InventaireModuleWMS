@@ -9,5 +9,11 @@ class WarehouseRepository(IWarehouseRepository):
         except Warehouse.DoesNotExist:
             raise WarehouseNotFoundError(f"Entrepôt {warehouse_id} non trouvé.")
 
+    def get_by_reference(self, reference: str):
+        try:
+            return Warehouse.objects.get(reference=reference)
+        except Warehouse.DoesNotExist:
+            raise WarehouseNotFoundError(f"Entrepôt avec la référence '{reference}' non trouvé.")
+
     def get_all(self):
         return Warehouse.objects.all() 

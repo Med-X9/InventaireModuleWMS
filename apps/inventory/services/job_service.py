@@ -89,9 +89,9 @@ class JobService(JobServiceInterface):
         except Exception as e:
             raise JobCreationError(f"Erreur inattendue lors de la création des jobs : {str(e)}")
 
-    def get_pending_jobs_references(self, warehouse_id):
+    def get_pending_jobs_references(self, warehouse_id, filters=None):
         """
-        Récupère les références des jobs en attente pour un warehouse
+        Récupère les jobs en attente pour un warehouse avec filtres optionnels
         """
         try:
             # Vérifier que le warehouse existe
@@ -99,8 +99,8 @@ class JobService(JobServiceInterface):
             if not warehouse:
                 raise JobCreationError(f"Warehouse avec l'ID {warehouse_id} non trouvé")
             
-            # Récupérer les jobs en attente pour ce warehouse
-            return self.repository.get_pending_jobs_by_warehouse(warehouse_id)
+            # Récupérer les jobs en attente pour ce warehouse avec filtres
+            return self.repository.get_pending_jobs_by_warehouse_with_filters(warehouse_id, filters)
             
         except JobCreationError:
             raise
@@ -108,9 +108,9 @@ class JobService(JobServiceInterface):
             raise JobCreationError(f"Erreur inattendue lors de la récupération des jobs en attente : {str(e)}")
 
     @transaction.atomic
-    def remove_job_emplacements(self, job_id, emplacement_ids):
+    def remove_job_emplacements(self, job_id, emplacement_id):
         """
-        Supprime des emplacements d'un job
+        Supprime un emplacement d'un job
         """
         try:
             # Vérifier que le job existe
@@ -122,25 +122,50 @@ class JobService(JobServiceInterface):
             if job.status != 'EN ATTENTE':
                 raise JobCreationError(f"Seuls les jobs en attente peuvent être modifiés. Statut actuel : {job.status}")
             
-            # Vérifier que tous les emplacements existent dans le job
-            existing_job_details = self.repository.get_job_details_by_job_and_locations(job, emplacement_ids)
-            if len(existing_job_details) != len(emplacement_ids):
-                raise JobCreationError("Certains emplacements ne sont pas associés à ce job")
+            # Vérifier que l'emplacement existe dans le job
+            existing_job_detail = self.repository.get_job_details_by_job_and_locations(job, [emplacement_id])
+            if not existing_job_detail:
+                # Si le job n'a aucun emplacement, on peut le supprimer
+                job_details = self.repository.get_job_details_by_job(job)
+                if not job_details:
+                    self.repository.delete_assignments_by_job(job)
+                    self.repository.delete_job(job)
+                    return {
+                        'job_id': job.id,
+                        'job_reference': job.reference,
+                        'deleted_emplacements_count': 0,
+                        'job_deleted': True
+                    }
+                raise JobCreationError(f"L'emplacement {emplacement_id} n'est pas associé à ce job")
             
-            # Supprimer les JobDetail pour les emplacements spécifiés
-            deleted_count = self.repository.delete_job_details(existing_job_details)
+            # Supprimer le JobDetail pour l'emplacement spécifié
+            deleted_count = self.repository.delete_job_details(existing_job_detail)
+            
+            # Vérifier s'il reste des emplacements dans le job
+            remaining_job_details = self.repository.get_job_details_by_job(job)
+            if not remaining_job_details:
+                # Supprimer les assignments liés au job
+                self.repository.delete_assignments_by_job(job)
+                # Supprimer le job
+                self.repository.delete_job(job)
+                return {
+                    'job_id': job.id,
+                    'job_reference': job.reference,
+                    'deleted_emplacements_count': deleted_count,
+                    'job_deleted': True
+                }
             
             return {
                 'job_id': job.id,
                 'job_reference': job.reference,
-                'deleted_emplacements_count': deleted_count
+                'deleted_emplacements_count': deleted_count,
+                'job_deleted': False
             }
             
         except JobCreationError:
             raise
         except Exception as e:
-            raise JobCreationError(f"Erreur inattendue lors de la suppression des emplacements : {str(e)}")
-
+            raise JobCreationError(f"Erreur inattendue lors de la suppression de l'emplacement : {str(e)}")
     @transaction.atomic
     def add_job_emplacements(self, job_id, emplacement_ids):
         """

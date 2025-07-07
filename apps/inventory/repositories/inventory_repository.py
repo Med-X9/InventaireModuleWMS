@@ -334,6 +334,48 @@ class InventoryRepository(IInventoryRepository):
             is_deleted=False
         ).order_by('-created_at')
 
+    def get_warehouse_jobs_sessions_stats(self, inventory_id: int) -> List[Dict[str, Any]]:
+        """
+        Récupère les statistiques des warehouses avec count des jobs et sessions
+        
+        Args:
+            inventory_id: ID de l'inventaire
+            
+        Returns:
+            List[Dict[str, Any]]: Liste avec nom warehouse, count jobs et count sessions
+        """
+        from django.db.models import Count, Q
+        from ..models import Job, Assigment, Setting
+        
+        # Récupérer tous les warehouses associés à cet inventaire avec leurs statistiques
+        warehouse_stats = Setting.objects.filter(
+            inventory_id=inventory_id
+        ).select_related('warehouse').annotate(
+            jobs_count=Count(
+                'warehouse__job',
+                filter=Q(warehouse__job__inventory_id=inventory_id)
+            ),
+            sessions_count=Count(
+                'warehouse__job__assigment__session',
+                filter=Q(
+                    warehouse__job__inventory_id=inventory_id,
+                    warehouse__job__assigment__session__isnull=False,
+                    warehouse__job__assigment__session__type='Mobile'
+                ),
+                distinct=True
+            )
+        )
+        
+        result = []
+        for setting in warehouse_stats:
+            result.append({
+                'nom_warehouse': setting.warehouse.warehouse_name,
+                'jobs_count': setting.jobs_count,
+                'sessions_count': setting.sessions_count
+            })
+        
+        return result
+
     def update_status(self, inventory_id: int, new_status: str) -> Any:
         """
         Met à jour le statut d'un inventaire

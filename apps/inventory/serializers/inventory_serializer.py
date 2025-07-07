@@ -8,6 +8,7 @@ from ..exceptions import InventoryValidationError
 from apps.masterdata.models import Account, Warehouse
 from .counting_serializer import CountingCreateSerializer, CountingDetailSerializer, CountingSerializer, CountingModeFieldsSerializer
 from apps.users.serializers import UserAppSerializer
+from apps.masterdata.serializers.warehouse_serializer import WarehouseSerializer
 
 class InventoryCreateSerializer(serializers.Serializer):
     label = serializers.CharField()
@@ -336,3 +337,69 @@ class InventoryDetailModeFieldsSerializer(serializers.ModelSerializer):
             'ressource_nom': ressource.ressource.libelle if ressource.ressource else None,
             'quantity': ressource.quantity
         } for ressource in ressources] 
+
+class InventoryDetailWithWarehouseSerializer(serializers.ModelSerializer):
+    """
+    Sérialiseur pour les détails d'un inventaire avec informations complètes des warehouses
+    """
+    account_id = serializers.SerializerMethodField()
+    warehouses = serializers.SerializerMethodField()
+    comptages = serializers.SerializerMethodField()
+    equipe = serializers.SerializerMethodField()
+    inventory_duration = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Inventory
+        fields = [
+            'id', 'reference', 'label', 'date', 'status', 'inventory_type',
+            'en_preparation_status_date', 'en_realisation_status_date', 
+            'termine_status_date', 'cloture_status_date', 'created_at', 'updated_at',
+            'account_id', 'warehouses', 'comptages', 'equipe', 'inventory_duration'
+        ]
+        read_only_fields = ['created_at', 'updated_at']
+
+    def get_account_id(self, obj):
+        setting = Setting.objects.filter(inventory=obj).first()
+        return setting.account.id if setting else None
+
+    def get_warehouses(self, obj):
+        """Récupère les informations détaillées des warehouses avec dates d'inventaire"""
+        settings = Setting.objects.filter(inventory=obj).select_related('warehouse')
+        warehouses_data = []
+        
+        for setting in settings:
+            warehouse_data = WarehouseSerializer(setting.warehouse).data
+            
+            # Ajouter les informations spécifiques à l'inventaire pour ce warehouse
+            warehouse_data.update({
+                'setting_id': setting.id,
+                'setting_reference': setting.reference,
+                'setting_created_at': setting.created_at,
+                'setting_updated_at': setting.updated_at,
+                'inventory_start_date': setting.created_at,  # Date de début d'inventaire pour ce warehouse
+                'inventory_end_date': setting.updated_at,    # Date de fin d'inventaire pour ce warehouse
+            })
+            
+            warehouses_data.append(warehouse_data)
+        
+        return warehouses_data
+
+    def get_comptages(self, obj):
+        countings = Counting.objects.filter(inventory=obj).order_by('order')
+        return CountingDetailSerializer(countings, many=True).data
+
+    def get_equipe(self, obj):
+        pdas = Assigment.objects.filter(job__inventory=obj)
+        return PdaTeamSerializer(pdas, many=True).data
+
+    def get_inventory_duration(self, obj):
+        """Calcule la durée totale de l'inventaire"""
+        if obj.cloture_status_date and obj.en_preparation_status_date:
+            duration = obj.cloture_status_date - obj.en_preparation_status_date
+            return {
+                'total_days': duration.days,
+                'total_hours': duration.total_seconds() / 3600,
+                'start_date': obj.en_preparation_status_date,
+                'end_date': obj.cloture_status_date
+            }
+        return None 

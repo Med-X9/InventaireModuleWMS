@@ -1,6 +1,5 @@
 from django.urls import path
 
-from apps.masterdata.views.location_views import AllWarehouseLocationListView
 from .views.inventory_views import (
     InventoryListView,
     InventoryCreateView,
@@ -18,7 +17,6 @@ from apps.inventory.views import InventoryWarehousesView
 from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView
 from .views.assignment_views import assign_jobs_to_counting, get_assignment_rules, get_assignments_by_session
 from .views.resource_assignment_views import assign_resources_to_jobs, get_job_resources, remove_resources_from_job
-# from .views.pda_views import InventoryPDAListView
 
 urlpatterns = [
     # URLs pour les inventaires
@@ -42,10 +40,10 @@ urlpatterns = [
     path('inventory/planning/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/create/', JobCreateAPIView.as_view(), name='inventory-jobs-create'),
     
     # URL pour récupérer les jobs en attente
-    path('warehouse/<int:warehouse_id>/pending-jobs/', PendingJobsReferencesView.as_view(), name='pending-jobs-references'),
+    path('inventory/<int:warehouse_id>/pending-jobs/', PendingJobsReferencesView.as_view(), name='pending-jobs-references'),
     
     # URL pour récupérer tous les jobs d'un warehouse
-    path('warehouse/<int:warehouse_id>/jobs/', WarehouseJobsView.as_view(), name='warehouse-jobs'),
+    path('inventory/<int:warehouse_id>/jobs/', WarehouseJobsView.as_view(), name='warehouse-jobs'),
     
     # URL pour valider des jobs
     path('jobs/validate/', JobValidateView.as_view(), name='jobs-validate'),
@@ -56,10 +54,10 @@ urlpatterns = [
     path('jobs/delete/', JobDeleteView.as_view(), name='job-delete'),
     
     # URL pour supprimer des emplacements d'un job
-    path('job/<int:job_id>/remove-emplacements/', JobRemoveEmplacementsView.as_view(), name='job-remove-emplacements'),
+    path('jobs/<int:job_id>/remove-emplacements/', JobRemoveEmplacementsView.as_view(), name='job-remove-emplacements'),
     
     # URL pour ajouter des emplacements à un job
-    path('job/<int:job_id>/add-emplacements/', JobAddEmplacementsView.as_view(), name='job-add-emplacements'),
+    path('jobs/<int:job_id>/add-emplacements/', JobAddEmplacementsView.as_view(), name='job-add-emplacements'),
     
     # URL pour les PDAs d'un inventaire
     # path('inventory/<int:inventory_id>/pdas/', InventoryPDAListView.as_view(), name='inventory-pdas'),
@@ -74,8 +72,8 @@ urlpatterns = [
     
     # URLs pour l'affectation des ressources aux jobs
     path('jobs/assign-resources/', assign_resources_to_jobs, name='assign-resources-to-jobs'),
-    path('job/<int:job_id>/resources/', get_job_resources, name='get-job-resources'),
-    path('job/<int:job_id>/remove-resources/', remove_resources_from_job, name='remove-resources-from-job'),
+    path('jobs/<int:job_id>/resources/', get_job_resources, name='get-job-resources'),
+    path('jobs/<int:job_id>/remove-resources/', remove_resources_from_job, name='remove-resources-from-job'),
 
     # URL pour marquer un job comme prêt
     path('jobs/ready/', JobReadyView.as_view(), name='jobs-ready'),
@@ -88,5 +86,7 @@ urlpatterns = [
     
     # URL pour remettre les assignements de jobs en attente
     path('jobs/reset-assignments/', JobResetAssignmentsView.as_view(), name='job-reset-assignments'),
+    
+
     
 ]

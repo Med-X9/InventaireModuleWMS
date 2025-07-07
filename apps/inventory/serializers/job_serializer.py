@@ -11,10 +11,7 @@ class JobCreateRequestSerializer(serializers.Serializer):
     )
 
 class JobRemoveEmplacementsSerializer(serializers.Serializer):
-    emplacement_ids = serializers.ListField(
-        child=serializers.IntegerField(),
-        allow_empty=False
-    )
+    emplacement_id = serializers.IntegerField()
 
 class JobAddEmplacementsSerializer(serializers.Serializer):
     emplacement_ids = serializers.ListField(
@@ -197,6 +194,29 @@ class JobPendingSerializer(serializers.ModelSerializer):
     def get_ressources(self, obj):
         ressources = obj.jobdetailressource_set.select_related('ressource').all()
         return JobRessourceSerializer(ressources, many=True).data 
+
+class PendingJobReferenceSerializer(serializers.Serializer):
+    """
+    Serializer pour les jobs en attente avec détails pour filtrage et pagination
+    """
+    id = serializers.IntegerField()
+    reference = serializers.CharField()
+    status = serializers.CharField()
+    created_at = serializers.DateTimeField()
+    inventory_id = serializers.IntegerField(source='inventory.id')
+    inventory_reference = serializers.CharField(source='inventory.reference')
+    inventory_label = serializers.CharField(source='inventory.label')
+    warehouse_id = serializers.IntegerField(source='warehouse.id')
+    warehouse_reference = serializers.CharField(source='warehouse.reference')
+    warehouse_name = serializers.CharField(source='warehouse.warehouse_name')
+    emplacements_count = serializers.SerializerMethodField()
+    assignments_count = serializers.SerializerMethodField()
+
+    def get_emplacements_count(self, obj):
+        return obj.jobdetail_set.count()
+
+    def get_assignments_count(self, obj):
+        return obj.assigment_set.count()
 
 class JobResetAssignmentsRequestSerializer(serializers.Serializer):
     job_ids = serializers.ListField(
