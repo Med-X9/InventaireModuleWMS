@@ -43,7 +43,7 @@ urlpatterns = [
     path('inventory/<int:warehouse_id>/pending-jobs/', PendingJobsReferencesView.as_view(), name='pending-jobs-references'),
     
     # URL pour récupérer tous les jobs d'un warehouse
-    path('inventory/<int:warehouse_id>/jobs/', WarehouseJobsView.as_view(), name='warehouse-jobs'),
+    path('inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/', WarehouseJobsView.as_view(), name='warehouse-jobs'),
     
     # URL pour valider des jobs
     path('jobs/validate/', JobValidateView.as_view(), name='jobs-validate'),

@@ -294,7 +294,7 @@ class JobListWithLocationsView(ListAPIView):
 
 class WarehouseJobsView(ListAPIView):
     """
-    Récupère tous les jobs d'un warehouse spécifique
+    Récupère tous les jobs d'un warehouse spécifique pour un inventaire donné
     """
     serializer_class = JobListWithLocationsSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -304,8 +304,14 @@ class WarehouseJobsView(ListAPIView):
     pagination_class = JobListPagination
 
     def get_queryset(self):
+        inventory_id = self.kwargs.get('inventory_id')
         warehouse_id = self.kwargs.get('warehouse_id')
-        return Job.objects.filter(warehouse_id=warehouse_id).order_by('-created_at')
+        return Job.objects.filter(
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id
+        ).prefetch_related(
+            'jobdetail_set__location__sous_zone__zone'
+        ).order_by('-created_at')
 
 class JobFullDetailPagination(PageNumberPagination):
     page_size = 10
