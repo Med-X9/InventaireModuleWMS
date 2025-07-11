@@ -7,6 +7,7 @@ from .counting_by_article import CountingByArticle
 from .counting_by_stockimage import CountingByStockimage
 from .counting_by_in_bulk import CountingByInBulk
 from .job_assignment import JobAssignmentUseCase
+from .stock_import_validation import StockImportValidationUseCase
 
 __all__ = [
     'InventoryCreationUseCase',
@@ -16,5 +17,6 @@ __all__ = [
     'CountingByStockimage',
     'CountingByInBulk',
     'CountingDispatcher',
-    'JobAssignmentUseCase'
+    'JobAssignmentUseCase',
+    'StockImportValidationUseCase'
 ] 

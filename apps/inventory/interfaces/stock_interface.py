@@ -111,7 +111,7 @@ class IStockService(ABC):
         pass
     
     @abstractmethod
-    def delete_stocks_by_inventory(self, inventory_id: int) -> bool:
+    def delete_stocks_by_inventory(self, inventory_id: int) -> int:
         """
         Supprime tous les stocks d'un inventaire.
         
@@ -119,6 +119,6 @@ class IStockService(ABC):
             inventory_id: L'ID de l'inventaire
             
         Returns:
-            bool: True si la suppression a réussi
+            int: Nombre de stocks supprimés
         """
         pass 

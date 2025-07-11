@@ -172,7 +172,7 @@ class StockRepository:
             logger.error(f"Erreur lors de la suppression du stock {stock_id}: {str(e)}")
             raise StockValidationError(f"Erreur lors de la suppression du stock: {str(e)}")
     
-    def delete_by_inventory_id(self, inventory_id: int) -> bool:
+    def delete_by_inventory_id(self, inventory_id: int) -> int:
         """
         Supprime tous les stocks d'un inventaire.
         
@@ -180,12 +180,12 @@ class StockRepository:
             inventory_id: L'ID de l'inventaire
             
         Returns:
-            bool: True si la suppression a réussi
+            int: Nombre de stocks supprimés
         """
         try:
             deleted_count, _ = Stock.objects.filter(inventory_id=inventory_id).delete()
             logger.info(f"{deleted_count} stocks supprimés pour l'inventaire {inventory_id}")
-            return True
+            return deleted_count
         except Exception as e:
             logger.error(f"Erreur lors de la suppression des stocks de l'inventaire {inventory_id}: {str(e)}")
             raise StockValidationError(f"Erreur lors de la suppression des stocks: {str(e)}")

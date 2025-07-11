@@ -573,15 +573,22 @@ class StockImportView(APIView):
     """
     Vue pour importer des stocks via API.
     Permet l'importation de stocks depuis un fichier Excel pour un inventaire spécifique.
+    Vérifie le type d'inventaire et applique les règles métier appropriées.
     """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         from ..services.stock_service import StockService
+        from ..usecases.stock_import_validation import StockImportValidationUseCase
         self.stock_service = StockService()
+        self.validation_use_case = StockImportValidationUseCase()
 
     def post(self, request, inventory_id, *args, **kwargs):
         """
         Importe des stocks depuis un fichier Excel pour un inventaire spécifique.
+        
+        Règles métier:
+        - Inventaire TOURNANT: Un seul import autorisé (refusé si stocks existants)
+        - Inventaire GENERAL: Import autorisé (remplace les stocks existants)
         
         Args:
             inventory_id: L'ID de l'inventaire
@@ -610,7 +617,20 @@ class StockImportView(APIView):
                     'message': 'Le fichier doit être au format Excel (.xlsx ou .xls)'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Importer les stocks via le service
+            # ÉTAPE 1: Validation selon le type d'inventaire via le use case
+            validation_result = self.validation_use_case.validate_stock_import(inventory_id)
+            
+            # Si l'import n'est pas autorisé, retourner l'erreur
+            if not validation_result['can_import']:
+                return Response({
+                    'success': False,
+                    'message': validation_result['message'],
+                    'inventory_type': validation_result['inventory_type'],
+                    'existing_stocks_count': validation_result['existing_stocks_count'],
+                    'action_required': validation_result['action_required']
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # ÉTAPE 2: Si l'import est autorisé, procéder à l'import
             result = self.stock_service.import_stocks_from_excel(inventory_id, excel_file)
             
             # Préparer la réponse
@@ -618,6 +638,7 @@ class StockImportView(APIView):
                 response_data = {
                     'success': True,
                     'message': result['message'],
+                    'inventory_type': validation_result['inventory_type'],
                     'summary': {
                         'total_rows': result['total_rows'],
                         'valid_rows': result['valid_rows'],
@@ -634,6 +655,7 @@ class StockImportView(APIView):
                 response_data = {
                     'success': False,
                     'message': result['message'],
+                    'inventory_type': validation_result['inventory_type'],
                     'summary': {
                         'total_rows': result['total_rows'],
                         'valid_rows': result['valid_rows'],
@@ -658,3 +680,5 @@ class StockImportView(APIView):
                 'success': False,
                 'message': 'Une erreur inattendue s\'est produite lors de l\'import'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
+
+ 

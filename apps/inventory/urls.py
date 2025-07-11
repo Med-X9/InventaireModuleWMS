@@ -32,6 +32,7 @@ urlpatterns = [
     
     # URL pour les statistiques des warehouses d'un inventaire
     path('inventory/<int:inventory_id>/warehouse-stats/', InventoryWarehouseStatsView.as_view(), name='inventory-warehouse-stats'),
+    
     # URL pour l'importation de stocks
     path('inventory/<int:inventory_id>/stocks/import/', StockImportView.as_view(), name='stock-import'),
     

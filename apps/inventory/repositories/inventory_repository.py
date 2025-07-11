@@ -76,6 +76,10 @@ class InventoryRepository(IInventoryRepository):
                 inventory_data['status'] = 'EN PREPARATION'
             if 'date' not in inventory_data:
                 inventory_data['date'] = timezone.now()
+            
+            # S'assurer que la date de préparation est définie si le statut est EN PREPARATION
+            if inventory_data.get('status') == 'EN PREPARATION' and 'en_preparation_status_date' not in inventory_data:
+                inventory_data['en_preparation_status_date'] = timezone.now()
 
             # Créer l'objet Inventory sans sauvegarder
             inventory = Inventory(**inventory_data)

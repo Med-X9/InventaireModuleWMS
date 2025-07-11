@@ -113,16 +113,19 @@ class StockService(IStockService):
                 results['message'] = f"Import échoué: doublons détectés dans le fichier à la ligne(s) {', '.join(str(i+2) for i in duplicates)}"
                 return results
 
-            # Vérifier les doublons déjà existants en base
-            for stock in valid_stocks_data:
-                if Stock.objects.filter(
-                    product=stock['product'],
-                    location=stock['location'],
-                    inventory_id=stock['inventory_id']
-                ).exists():
-                    results['success'] = False
-                    results['message'] = f"Import échoué: un stock existe déjà pour le produit {stock['product']} à l'emplacement {stock['location']} pour cet inventaire."
-                    return results
+            # Vérifier les doublons déjà existants en base selon le type d'inventaire
+            if inventory.inventory_type == 'TOURNANT':
+                # Pour les inventaires TOURNANT, refuser les doublons existants
+                for stock in valid_stocks_data:
+                    if Stock.objects.filter(
+                        product=stock['product'],
+                        location=stock['location'],
+                        inventory_id=stock['inventory_id']
+                    ).exists():
+                        results['success'] = False
+                        results['message'] = f"Import échoué: un stock existe déjà pour le produit {stock['product']} à l'emplacement {stock['location']} pour cet inventaire de type TOURNANT."
+                        return results
+            # Pour les inventaires GENERAL, permettre le remplacement (pas de vérification de doublons)
 
             # Générer une référence temporaire unique pour chaque stock
             for stock in valid_stocks_data:
@@ -131,8 +134,10 @@ class StockService(IStockService):
             # Importer les stocks valides
             if valid_stocks_data:
                 with transaction.atomic():
-                    # Supprimer les anciens stocks de cet inventaire
-                    self.repository.delete_by_inventory_id(inventory_id)
+                    # Supprimer les anciens stocks de cet inventaire (remplacement)
+                    deleted_count = self.repository.delete_by_inventory_id(inventory_id)
+                    if deleted_count > 0:
+                        logger.info(f"Suppression de {deleted_count} stocks existants pour l'inventaire {inventory_id}")
                     
                     # Créer les nouveaux stocks
                     try:
@@ -273,7 +278,7 @@ class StockService(IStockService):
         """
         return self.repository.bulk_create(stocks_data)
     
-    def delete_stocks_by_inventory(self, inventory_id: int) -> bool:
+    def delete_stocks_by_inventory(self, inventory_id: int) -> int:
         """
         Supprime tous les stocks d'un inventaire.
         
@@ -281,7 +286,7 @@ class StockService(IStockService):
             inventory_id: L'ID de l'inventaire
             
         Returns:
-            bool: True si la suppression a réussi
+            int: Nombre de stocks supprimés
         """
         return self.repository.delete_by_inventory_id(inventory_id)
     
