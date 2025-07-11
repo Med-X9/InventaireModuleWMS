@@ -4,7 +4,7 @@ FROM nginx:1.25
 RUN rm /etc/nginx/conf.d/default.conf
 
 # Copie de la configuration
-COPY nginx.conf /etc/nginx/conf.d/
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Exposition du port
 EXPOSE 80
