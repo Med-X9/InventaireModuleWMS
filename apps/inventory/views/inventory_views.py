@@ -40,7 +40,7 @@ class InventoryListView(APIView):
     """
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = InventoryFilter
-    ordering = '-date'  # Tri par défaut par date décroissante
+    ordering = '-created_at'  # Tri par défaut par date décroissante
     pagination_class = StandardResultsSetPagination
 
     def __init__(self, *args, **kwargs):

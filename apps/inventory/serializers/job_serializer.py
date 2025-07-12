@@ -135,9 +135,10 @@ class JobAssignmentDetailSerializer(serializers.ModelSerializer):
     counting_order = serializers.IntegerField(source='counting.order', read_only=True)
     status = serializers.CharField()
     session = serializers.SerializerMethodField()
+    date_start = serializers.DateTimeField(read_only=True)
     class Meta:
         model = Assigment
-        fields = ['counting_order', 'status', 'session']
+        fields = ['counting_order', 'status', 'session', 'date_start']
     def get_session(self, obj):
         if obj.session:
             return {'id': obj.session.id, 'username': obj.session.username}
@@ -172,7 +173,7 @@ class JobFullDetailSerializer(serializers.ModelSerializer):
         return JobAssignmentDetailSerializer(assignments, many=True).data
     def get_ressources(self, obj):
         ressources = obj.jobdetailressource_set.select_related('ressource').all()
-        return JobRessourceSerializer(ressources, many=True).data 
+        return JobRessourceSerializer(ressources, many=True).data
 
 class JobPendingSerializer(serializers.ModelSerializer):
     emplacements = serializers.SerializerMethodField()

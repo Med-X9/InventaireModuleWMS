@@ -319,13 +319,22 @@ class JobFullDetailPagination(PageNumberPagination):
     max_page_size = 100
 
 class JobFullDetailListView(ListAPIView):
-    queryset = Job.objects.filter(status='VALIDE').order_by('-created_at')
     serializer_class = JobFullDetailSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = JobFullDetailFilter
     search_fields = ['reference']
     ordering_fields = ['created_at', 'status', 'reference']
     pagination_class = JobFullDetailPagination
+
+    def get_queryset(self):
+        queryset = Job.objects.filter(status='VALIDE').order_by('-created_at')
+        warehouse_id = self.kwargs.get('warehouse_id')
+        inventory_id = self.kwargs.get('inventory_id')
+        if warehouse_id is not None:
+            queryset = queryset.filter(warehouse_id=warehouse_id)
+        if inventory_id is not None:
+            queryset = queryset.filter(inventory_id=inventory_id)
+        return queryset
 
 class JobPendingListView(ListAPIView):
     """
