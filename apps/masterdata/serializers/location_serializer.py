@@ -42,17 +42,24 @@ class LocationSerializer(serializers.ModelSerializer):
     #        
     #     ] 
 
-class UnassignedLocationSerializer(serializers.Serializer):
-    id = serializers.IntegerField()
-    reference = serializers.CharField()
-    location_reference = serializers.CharField()
-    description = serializers.CharField(allow_null=True, allow_blank=True)
-    
-    # location_type = serializers.DictField(required=False, allow_null=True)
-    sous_zone = SousZoneSerializer()
+class UnassignedLocationSerializer(serializers.ModelSerializer):
+    sous_zone = SousZoneSerializer(read_only=True)
     zone = serializers.SerializerMethodField()
     warehouse = serializers.SerializerMethodField()
     families = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Location
+        fields = [
+            'id',
+            'reference', 
+            'location_reference',
+            'description',
+            'sous_zone',
+            'zone',
+            'warehouse',
+            'families'
+        ]
 
     def get_zone(self, obj):
         if obj.sous_zone and hasattr(obj.sous_zone, 'zone'):

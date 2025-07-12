@@ -145,6 +145,10 @@ class Job(TimeStampedModel, ReferenceMixin):
     
     STATUS_CHOICES = (
         ('EN ATTENTE', 'EN ATTENTE'),
+        ('AFFECTE', 'AFFECTE'),
+        ('PRET', 'PRET'),
+        ('TRANSFERT', 'TRANSFERT'), 
+        ('ENTAME', 'ENTAME'),
         ('VALIDE', 'VALIDE'),
         ('TERMINE', 'TERMINE'),
     )
@@ -153,6 +157,10 @@ class Job(TimeStampedModel, ReferenceMixin):
     reference = models.CharField(max_length=20, unique=True, null=False)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES)
     en_attente_date = models.DateTimeField(null=True, blank=True)
+    affecte_date = models.DateTimeField(null=True, blank=True)
+    pret_date = models.DateTimeField(null=True, blank=True)
+    transfert_date = models.DateTimeField(null=True, blank=True)
+    entame_date = models.DateTimeField(null=True, blank=True)
     valide_date = models.DateTimeField(null=True, blank=True)
     termine_date = models.DateTimeField(null=True, blank=True)
     warehouse = models.ForeignKey('masterdata.Warehouse', on_delete=models.CASCADE)

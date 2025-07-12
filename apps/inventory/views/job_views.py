@@ -104,14 +104,17 @@ class JobReadyView(APIView):
                 'message': 'Erreur de validation',
                 'errors': serializer.errors
             }, status=status.HTTP_400_BAD_REQUEST)
+        
         job_ids = serializer.validated_data['job_ids']
-        orders = serializer.validated_data['orders']
         try:
-            job_service = JobService()
-            result = job_service.make_jobs_ready_by_jobs_and_orders(job_ids, orders)
+            # Utiliser le use case pour la logique métier
+            from ..usecases.job_ready import JobReadyUseCase
+            use_case = JobReadyUseCase()
+            result = use_case.execute(job_ids)
+            
             return Response({
                 'success': True,
-                'message': 'Jobs mis au statut PRET avec succès pour les ordres de comptage spécifiés',
+                'message': result['message'],
                 'data': result
             }, status=status.HTTP_200_OK)
         except JobCreationError as e:
@@ -350,7 +353,7 @@ class JobPendingListView(ListAPIView):
 
 class JobResetAssignmentsView(APIView):
     """
-    Remet les assignements de plusieurs jobs en attente
+    Remet les assignements de plusieurs jobs en attente selon leur statut actuel
     """
     def post(self, request):
         serializer = JobResetAssignmentsRequestSerializer(data=request.data)
@@ -363,8 +366,11 @@ class JobResetAssignmentsView(APIView):
         
         job_ids = serializer.validated_data['job_ids']
         try:
-            job_service = JobService()
-            result = job_service.reset_jobs_assignments(job_ids)
+            # Utiliser le use case pour la logique métier
+            from ..usecases.job_reset_assignments import JobResetAssignmentsUseCase
+            use_case = JobResetAssignmentsUseCase()
+            result = use_case.execute(job_ids)
+            
             return Response({
                 'success': True,
                 'message': result['message'],
