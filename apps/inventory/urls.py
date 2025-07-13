@@ -14,7 +14,7 @@ from .views.inventory_views import (
     StockImportView,
 )
 from apps.inventory.views import InventoryWarehousesView
-from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView
+from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView, JobBatchAssignmentView
 from .views.assignment_views import AssignJobsToCountingView, AssignmentRulesView, AssignmentsBySessionView
 from .views.resource_assignment_views import AssignResourcesToJobsView, JobResourcesView, RemoveResourcesFromJobView
 
@@ -78,6 +78,9 @@ urlpatterns = [
 
     # URL pour marquer un job comme prêt
     path('jobs/ready/', JobReadyView.as_view(), name='jobs-ready'),
+
+    # Nouvelle URL pour l'affectation en lot de sessions et ressources aux jobs
+    path('inventory/assign-jobs-manual/', JobBatchAssignmentView.as_view(), name='assign-jobs-manual'),
 
     # Nouvelle URL pour les jobs validés d'un entrepôt et d'un inventaire spécifique
     path('jobs/valid/warehouse/<int:warehouse_id>/inventory/<int:inventory_id>/', JobFullDetailListView.as_view(), name='valid-jobs-by-warehouse-inventory'),
