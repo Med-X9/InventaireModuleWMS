@@ -37,6 +37,18 @@ class AssignResourcesToJobsSerializer(serializers.Serializer):
         help_text="Liste des ressources à affecter à tous les jobs"
     )
 
+class AssignResourcesToJobsSimpleSerializer(serializers.Serializer):
+    """Serializer pour l'affectation de ressources communes à plusieurs jobs (format simplifié)"""
+    
+    job_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        help_text="Liste des IDs des jobs"
+    )
+    resource_assignments = serializers.ListField(
+        child=serializers.IntegerField(),
+        help_text="Liste des IDs des ressources à affecter (quantité = 1 par défaut)"
+    )
+
 class JobResourceDetailSerializer(serializers.ModelSerializer):
     """Serializer pour les détails d'une ressource affectée à un job"""
     

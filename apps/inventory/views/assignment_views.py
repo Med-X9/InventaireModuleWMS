@@ -3,18 +3,32 @@ from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.utils import timezone
+from django.shortcuts import get_object_or_404
 
 from ..serializers.assignment_serializer import (
     JobAssignmentSerializer,
     JobAssignmentResponseSerializer,
     AssignmentRulesSerializer
 )
+from ..serializers.inventory_resource_serializer import (
+    AssignResourcesToInventorySerializer,
+    AssignResourcesToInventorySimpleSerializer,
+    AssignResourcesToInventoryDirectSerializer,
+    InventoryResourceDetailSerializer,
+    InventoryResourceAssignmentResponseSerializer
+)
 from ..usecases.job_assignment import JobAssignmentUseCase
+from ..services.inventory_resource_service import InventoryResourceService
 from ..exceptions.assignment_exceptions import (
     AssignmentValidationError,
     AssignmentBusinessRuleError,
     AssignmentSessionError,
     AssignmentNotFoundError
+)
+from ..exceptions.inventory_resource_exceptions import (
+    InventoryResourceValidationError,
+    InventoryResourceBusinessRuleError,
+    InventoryResourceNotFoundError
 )
 
 class AssignJobsToCountingView(APIView):
@@ -102,72 +116,109 @@ class AssignJobsToCountingView(APIView):
                 'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-class AssignmentRulesView(APIView):
+class AssignResourcesToInventoryView(APIView):
     """
-    Récupère les règles d'affectation des jobs
+    Affecte des ressources à un inventaire.
     
-    GET /api/inventory/assignment-rules/
+    POST /api/inventory/{inventory_id}/assign-resources/
     """
     permission_classes = [IsAuthenticated]
     
-    def get(self, request):
-        try:
-            use_case = JobAssignmentUseCase()
-            rules = use_case.get_assignment_rules()
+    def post(self, request, inventory_id):
+        """
+        Affecte des ressources à un inventaire.
+        
+        Args:
+            request: Requête HTTP contenant les ressources à affecter
+            inventory_id: ID de l'inventaire (dans l'URL)
             
-            serializer = AssignmentRulesSerializer(rules)
+        Returns:
+            Response: Résultat de l'affectation des ressources
+        """
+        try:
+            # Valider les données de la requête avec le serializer direct
+            serializer = AssignResourcesToInventoryDirectSerializer(data=request.data)
+            if not serializer.is_valid():
+                return Response(
+                    {'error': ' | '.join([f"{field}: {', '.join(errors)}" for field, errors in serializer.errors.items()])},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Adapter les données pour le service
+            validated_data = serializer.validated_data
+            
+            # Vérifier si les données sont déjà au bon format ou si elles sont des entiers simples
+            first_item = validated_data['resource_assignments'][0] if validated_data['resource_assignments'] else None
+            
+            if isinstance(first_item, dict) and 'resource_id' in first_item:
+                # Les données sont déjà au bon format (objets avec resource_id et quantity)
+                adapted_data = {
+                    'resource_assignments': validated_data['resource_assignments']
+                }
+            else:
+                # Les données sont des entiers simples, les convertir en objets
+                adapted_data = {
+                    'resource_assignments': [
+                        {'resource_id': resource_id, 'quantity': 1} 
+                        for resource_id in validated_data['resource_assignments']
+                    ]
+                }
+            
+            # Appeler le service
+            service = InventoryResourceService()
+            result = service.assign_resources_to_inventory(inventory_id, adapted_data)
+            
+            # Retourner la réponse
+            response_serializer = InventoryResourceAssignmentResponseSerializer(result)
+            return Response(response_serializer.data, status=status.HTTP_200_OK)
+            
+        except InventoryResourceValidationError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except InventoryResourceNotFoundError as e:
+            return Response({'error': str(e)}, status=status.HTTP_404_NOT_FOUND)
+        except InventoryResourceBusinessRuleError as e:
+            return Response({'error': str(e)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+        except Exception as e:
+            return Response(
+                {'error': f'Erreur interne du serveur: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class InventoryResourcesView(APIView):
+    """
+    Récupère toutes les ressources affectées à un inventaire.
+    
+    GET /api/inventory/{inventory_id}/resources/
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, inventory_id):
+        """
+        Récupère toutes les ressources affectées à un inventaire.
+        
+        Args:
+            request: Requête HTTP
+            inventory_id: ID de l'inventaire (dans l'URL)
+            
+        Returns:
+            Response: Liste des ressources affectées à l'inventaire
+        """
+        try:
+            # Appeler le service
+            service = InventoryResourceService()
+            inventory_resources = service.get_inventory_resources(inventory_id)
+            
+            # Sérialiser les données avec le serializer approprié
+            serializer = InventoryResourceDetailSerializer(inventory_resources, many=True)
+            
+            # Retourner la réponse
             return Response(serializer.data, status=status.HTTP_200_OK)
             
+        except InventoryResourceNotFoundError as e:
+            return Response({'error': str(e)}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
-            return Response({
-                'success': False,
-                'message': 'Erreur lors de la récupération des règles',
-                'error': str(e)
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {'error': f'Erreur interne du serveur: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
-class AssignmentsBySessionView(APIView):
-    """
-    Récupère toutes les affectations d'une session
-    
-    GET /api/inventory/session/{session_id}/assignments/
-    """
-    permission_classes = [IsAuthenticated]
-    
-    def get(self, request, session_id):
-        try:
-            from ..repositories.assignment_repository import AssignmentRepository
-            
-            repository = AssignmentRepository()
-            assignments = repository.get_assignments_by_session(session_id)
-            
-            # Préparer les données de réponse
-            assignments_data = []
-            for assignment in assignments:
-                assignments_data.append({
-                    'id': assignment.id,
-                    'reference': assignment.reference,
-                    'job_id': assignment.job.id,
-                    'job_reference': assignment.job.reference,
-                    'counting_id': assignment.counting.id,
-                    'counting_order': assignment.counting.order,
-                    'counting_mode': assignment.counting.count_mode,
-                    'date_start': assignment.date_start,
-                    'session_id': assignment.session.id if assignment.session else None,
-                    'session_username': assignment.session.username if assignment.session else None,
-                    'created_at': assignment.created_at,
-                    'updated_at': assignment.updated_at
-                })
-            
-            return Response({
-                'success': True,
-                'session_id': session_id,
-                'assignments_count': len(assignments_data),
-                'assignments': assignments_data
-            }, status=status.HTTP_200_OK)
-            
-        except Exception as e:
-            return Response({
-                'success': False,
-                'message': 'Erreur lors de la récupération des affectations',
-                'error': str(e)
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 

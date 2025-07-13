@@ -330,7 +330,7 @@ class JobFullDetailListView(ListAPIView):
     pagination_class = JobFullDetailPagination
 
     def get_queryset(self):
-        queryset = Job.objects.filter(status='VALIDE').order_by('-created_at')
+        queryset = Job.objects.filter(status__in=['VALIDE', 'AFFECTE']).order_by('-created_at')
         warehouse_id = self.kwargs.get('warehouse_id')
         inventory_id = self.kwargs.get('inventory_id')
         if warehouse_id is not None:
@@ -338,7 +338,6 @@ class JobFullDetailListView(ListAPIView):
         if inventory_id is not None:
             queryset = queryset.filter(inventory_id=inventory_id)
         return queryset
-
 class JobPendingListView(ListAPIView):
     """
     Liste tous les jobs en attente avec leurs détails

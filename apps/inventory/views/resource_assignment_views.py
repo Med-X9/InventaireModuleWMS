@@ -11,6 +11,7 @@ from ..models import Job
 from ..services.resource_assignment_service import ResourceAssignmentService
 from ..serializers.resource_assignment_serializer import (
     AssignResourcesToJobsSerializer,
+    AssignResourcesToJobsSimpleSerializer,
     JobResourceDetailSerializer,
     RemoveResourcesFromJobSerializer,
     ResourceAssignmentResponseSerializer,
@@ -42,17 +43,27 @@ class AssignResourcesToJobsView(APIView):
             Response: Résultat de l'affectation des ressources en lot
         """
         try:
-            # Valider les données de la requête
-            serializer = AssignResourcesToJobsSerializer(data=request.data)
+            # Valider les données de la requête avec le serializer simplifié
+            serializer = AssignResourcesToJobsSimpleSerializer(data=request.data)
             if not serializer.is_valid():
                 return Response(
                     {'error': ' | '.join([f"{field}: {', '.join(errors)}" for field, errors in serializer.errors.items()])},
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
+            # Adapter les données pour le service
+            validated_data = serializer.validated_data
+            adapted_data = {
+                'job_ids': validated_data['job_ids'],
+                'resource_assignments': [
+                    {'resource_id': resource_id, 'quantity': 1} 
+                    for resource_id in validated_data['resource_assignments']
+                ]
+            }
+            
             # Appeler le service
             service = ResourceAssignmentService()
-            result = service.assign_resources_to_jobs_batch(serializer.validated_data)
+            result = service.assign_resources_to_jobs_batch(adapted_data)
             
             # Retourner la réponse
             response_serializer = BatchResourceAssignmentResponseSerializer(result)
@@ -95,10 +106,13 @@ class JobResourcesView(APIView):
             
             # Appeler le service
             service = ResourceAssignmentService()
-            resources_data = service.get_job_resources(job_id)
+            job_resources = service.get_job_resources(job_id)
+            
+            # Sérialiser les données avec le serializer approprié
+            serializer = JobResourceDetailSerializer(job_resources, many=True)
             
             # Retourner la réponse
-            return Response(resources_data, status=status.HTTP_200_OK)
+            return Response(serializer.data, status=status.HTTP_200_OK)
             
         except ResourceAssignmentNotFoundError as e:
             return Response({'error': str(e)}, status=status.HTTP_404_NOT_FOUND)
