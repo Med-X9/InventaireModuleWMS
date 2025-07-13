@@ -164,6 +164,8 @@ class UnassignedLocationsView(ListAPIView):
             'sous_zone__zone',
             'sous_zone__zone__warehouse',
             'location_type'
+        ).prefetch_related(
+            'stock_set__product__Product_Family'
         ).order_by('location_reference')
         
         return queryset

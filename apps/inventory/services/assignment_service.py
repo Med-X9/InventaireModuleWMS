@@ -118,12 +118,10 @@ class AssignmentService(IAssignmentService):
                     # Mettre à jour le statut des affectations à AFFECTE
                     self.update_assignments_status_to_affecte(job.id, inventory_id)
                     
-                    # Mettre à jour le statut du job à VALIDE (puisque AFFECTE n'existe pas dans le modèle actuel)
-                    # Le statut AFFECTE sera géré dans le modèle Assigment
-                    if job.status == 'EN ATTENTE':
-                        self.repository.update_job_status(job.id, 'VALIDE', 'valide_date')
+                    # Mettre à jour le statut du job à AFFECTE
+                    self.repository.update_job_status(job.id, 'AFFECTE', 'affecte_date')
                 else:
-                    # Garder le statut actuel ou le mettre à VALIDE si ce n'est pas déjà fait
+                    # Si le job est en attente, le mettre à VALIDE
                     if job.status == 'EN ATTENTE':
                         self.repository.update_job_status(job.id, 'VALIDE', 'valide_date')
             
@@ -208,7 +206,7 @@ class AssignmentService(IAssignmentService):
         """
         Vérifie si le statut du job doit être mis à AFFECTE
         
-        Règle : Le statut devient AFFECTE si les deux comptages (1 et 2) ont des sessions
+        Règle : Le statut devient AFFECTE si au moins un comptage a une session
         
         Args:
             job_id: ID du job
@@ -217,22 +215,22 @@ class AssignmentService(IAssignmentService):
         Returns:
             bool: True si le statut doit être mis à AFFECTE
         """
-        # Récupérer les comptages de l'inventaire (normalement 1 et 2)
+        # Récupérer les comptages de l'inventaire
         countings = Counting.objects.filter(inventory_id=inventory_id, order__in=[1, 2]).order_by('order')
         
-        if countings.count() < 2:
-            # S'il n'y a pas deux comptages, ne pas mettre à jour le statut
+        if countings.count() == 0:
+            # S'il n'y a pas de comptages, ne pas mettre à jour le statut
             return False
         
-        # Vérifier si le job a des affectations avec session pour les deux comptages
+        # Vérifier si le job a au moins une affectation avec session
         assignments_with_session = Assigment.objects.filter(
             job_id=job_id,
             counting__in=countings,
             session__isnull=False
-        ).values_list('counting__order', flat=True).distinct()
+        ).exists()
         
-        # Le statut devient AFFECTE si les deux comptages (1 et 2) ont des sessions
-        return len(assignments_with_session) >= 2 and all(order in assignments_with_session for order in [1, 2])
+        # Le statut devient AFFECTE si au moins un comptage a une session
+        return assignments_with_session
 
     def update_assignments_status_to_affecte(self, job_id: int, inventory_id: int) -> None:
         """

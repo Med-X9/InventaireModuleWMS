@@ -123,12 +123,7 @@ class JobReadyRequestSerializer(serializers.Serializer):
     job_ids = serializers.ListField(
         child=serializers.IntegerField(),
         min_length=1,
-        help_text="Liste des IDs des jobs à traiter"
-    )
-    orders = serializers.ListField(
-        child=serializers.IntegerField(),
-        min_length=1,
-        help_text="Liste des ordres de comptage à marquer comme PRET pour ces jobs"
+        help_text="Liste des IDs des jobs à marquer comme PRET"
     )
 
 class JobAssignmentDetailSerializer(serializers.ModelSerializer):
