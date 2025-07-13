@@ -38,6 +38,8 @@ class JobService(JobServiceInterface):
             
             # Prendre les deux premiers comptages
             countings_to_use = countings[:2]
+            counting1 = countings_to_use[0]  # 1er comptage
+            counting2 = countings_to_use[1]  # 2ème comptage
             
             # Vérifier que tous les emplacements existent et appartiennent au warehouse
             locations = []
@@ -61,6 +63,7 @@ class JobService(JobServiceInterface):
             job = self.repository.create_job(
                 reference=Job().generate_reference(Job.REFERENCE_PREFIX),
                 status='EN ATTENTE',
+                en_attente_date=timezone.now(),
                 warehouse=warehouse,
                 inventory=inventory
             )
@@ -74,13 +77,25 @@ class JobService(JobServiceInterface):
                     status='EN ATTENTE'
                 )
             
-            # Créer les assignements pour les deux comptages
-            for counting in countings_to_use:
+            # Créer les assignements selon la configuration des comptages
+            if counting1.count_mode == "image de stock":
+                # Cas spécial : 1er comptage = image de stock
+                # Créer seulement l'affectation pour le 2ème comptage (sans session)
                 self.repository.create_assignment(
                     reference=Assigment().generate_reference(Assigment.REFERENCE_PREFIX),
                     job=job,
-                    counting=counting
+                    counting=counting2,
+                    status='EN ATTENTE'  # Statut initial sans session
                 )
+            else:
+                # Cas normal : Créer les affectations pour les deux comptages
+                for counting in countings_to_use:
+                    self.repository.create_assignment(
+                        reference=Assigment().generate_reference(Assigment.REFERENCE_PREFIX),
+                        job=job,
+                        counting=counting,
+                        status='EN ATTENTE'
+                    )
             
             return [job]
             
@@ -118,54 +133,31 @@ class JobService(JobServiceInterface):
             if not job:
                 raise JobCreationError(f"Job avec l'ID {job_id} non trouvé")
             
-            # Vérifier que le job est en attente (seuls les jobs en attente peuvent être modifiés)
-            if job.status != 'EN ATTENTE':
-                raise JobCreationError(f"Seuls les jobs en attente peuvent être modifiés. Statut actuel : {job.status}")
+            # Vérifier que l'emplacement existe
+            location = self.repository.get_location_by_id(emplacement_id)
+            if not location:
+                raise JobCreationError(f"Emplacement avec l'ID {emplacement_id} non trouvé")
             
-            # Vérifier que l'emplacement existe dans le job
-            existing_job_detail = self.repository.get_job_details_by_job_and_locations(job, [emplacement_id])
-            if not existing_job_detail:
-                # Si le job n'a aucun emplacement, on peut le supprimer
-                job_details = self.repository.get_job_details_by_job(job)
-                if not job_details:
-                    self.repository.delete_assignments_by_job(job)
-                    self.repository.delete_job(job)
-                    return {
-                        'job_id': job.id,
-                        'job_reference': job.reference,
-                        'deleted_emplacements_count': 0,
-                        'job_deleted': True
-                    }
-                raise JobCreationError(f"L'emplacement {emplacement_id} n'est pas associé à ce job")
+            # Vérifier que l'emplacement appartient au job
+            job_detail = self.repository.get_job_detail_by_job_and_location(job, location)
+            if not job_detail:
+                raise JobCreationError(f"L'emplacement {location.location_reference} n'appartient pas au job {job.reference}")
             
-            # Supprimer le JobDetail pour l'emplacement spécifié
-            deleted_count = self.repository.delete_job_details(existing_job_detail)
-            
-            # Vérifier s'il reste des emplacements dans le job
-            remaining_job_details = self.repository.get_job_details_by_job(job)
-            if not remaining_job_details:
-                # Supprimer les assignments liés au job
-                self.repository.delete_assignments_by_job(job)
-                # Supprimer le job
-                self.repository.delete_job(job)
-                return {
-                    'job_id': job.id,
-                    'job_reference': job.reference,
-                    'deleted_emplacements_count': deleted_count,
-                    'job_deleted': True
-                }
+            # Supprimer le job detail
+            self.repository.delete_job_detail(job_detail)
             
             return {
-                'job_id': job.id,
-                'job_reference': job.reference,
-                'deleted_emplacements_count': deleted_count,
-                'job_deleted': False
+                'success': True,
+                'message': f"Emplacement {location.location_reference} supprimé du job {job.reference}",
+                'job_id': job_id,
+                'emplacement_id': emplacement_id
             }
             
         except JobCreationError:
             raise
         except Exception as e:
             raise JobCreationError(f"Erreur inattendue lors de la suppression de l'emplacement : {str(e)}")
+
     @transaction.atomic
     def add_job_emplacements(self, job_id, emplacement_ids):
         """
@@ -177,46 +169,39 @@ class JobService(JobServiceInterface):
             if not job:
                 raise JobCreationError(f"Job avec l'ID {job_id} non trouvé")
             
-            # Vérifier que le job est en attente (seuls les jobs en attente peuvent être modifiés)
-            if job.status != 'EN ATTENTE':
-                raise JobCreationError(f"Seuls les jobs en attente peuvent être modifiés. Statut actuel : {job.status}")
-            
             # Vérifier que tous les emplacements existent
+            locations = []
             for emplacement_id in emplacement_ids:
                 location = self.repository.get_location_by_id(emplacement_id)
                 if not location:
                     raise JobCreationError(f"Emplacement avec l'ID {emplacement_id} non trouvé")
                 
-                # Vérifier que l'emplacement appartient au warehouse du job via la relation sous_zone.zone.warehouse
-                if location.sous_zone.zone.warehouse.id != job.warehouse.id:
-                    raise JobCreationError(f"L'emplacement {location.location_reference} n'appartient pas au warehouse {job.warehouse.warehouse_name}")
-                
-                # Vérifier que l'emplacement n'est pas déjà associé au job actuel
-                existing_job_detail = self.repository.get_existing_job_detail_by_location_and_job(location, job)
-                if existing_job_detail:
-                    raise JobCreationError(f"L'emplacement {location.location_reference} est déjà associé à ce job")
-                
                 # Vérifier que l'emplacement n'est pas déjà affecté à un autre job pour cet inventaire
-                existing_job_detail = self.repository.get_existing_job_detail_by_location_and_inventory_exclude_job(location, job.inventory, job)
-                if existing_job_detail:
+                existing_job_detail = self.repository.get_existing_job_detail_by_location_and_inventory(location, job.inventory)
+                if existing_job_detail and existing_job_detail.job.id != job_id:
                     raise JobCreationError(f"L'emplacement {location.location_reference} est déjà affecté au job {existing_job_detail.job.reference}")
+                
+                locations.append(location)
             
-            # Créer de nouveaux JobDetail pour les emplacements fournis
+            # Créer les JobDetail pour tous les emplacements
             created_count = 0
-            for emplacement_id in emplacement_ids:
-                location = self.repository.get_location_by_id(emplacement_id)
-                self.repository.create_job_detail(
-                    reference=JobDetail().generate_reference(JobDetail.REFERENCE_PREFIX),
-                    location=location,
-                    job=job,
-                    status='EN ATTENTE'
-                )
-                created_count += 1
+            for location in locations:
+                # Vérifier si l'emplacement n'est pas déjà dans le job
+                existing_job_detail = self.repository.get_job_detail_by_job_and_location(job, location)
+                if not existing_job_detail:
+                    self.repository.create_job_detail(
+                        reference=JobDetail().generate_reference(JobDetail.REFERENCE_PREFIX),
+                        location=location,
+                        job=job,
+                        status='EN ATTENTE'
+                    )
+                    created_count += 1
             
             return {
-                'job_id': job.id,
-                'job_reference': job.reference,
-                'added_emplacements_count': created_count
+                'success': True,
+                'message': f"{created_count} emplacements ajoutés au job {job.reference}",
+                'job_id': job_id,
+                'emplacements_added': created_count
             }
             
         except JobCreationError:
@@ -242,7 +227,7 @@ class JobService(JobServiceInterface):
             # Récupérer les informations avant suppression pour la réponse
             job_reference = job.reference
             assignments = self.repository.get_assignments_by_job(job)
-            assigments_count = len(assignments)
+            assignments_count = len(assignments)
             job_details = self.repository.get_job_details_by_job(job)
             job_details_count = len(job_details)
             
@@ -256,10 +241,12 @@ class JobService(JobServiceInterface):
             self.repository.delete_job(job)
             
             return {
+                'success': True,
                 'job_id': job_id,
                 'job_reference': job_reference,
-                'deleted_assigments_count': assigments_count,
-                'deleted_job_details_count': job_details_count
+                'deleted_assignments_count': assignments_count,
+                'deleted_job_details_count': job_details_count,
+                'message': f"Job {job_reference} supprimé avec succès"
             }
             
         except JobCreationError:
@@ -270,7 +257,7 @@ class JobService(JobServiceInterface):
     @transaction.atomic
     def validate_jobs(self, job_ids):
         """
-        Valide des jobs en changeant leur statut de "EN ATTENTE" à "VALIDE"
+        Valide les jobs en attente
         """
         try:
             # Vérifier que tous les jobs existent
@@ -282,31 +269,40 @@ class JobService(JobServiceInterface):
             missing_job_ids = requested_job_ids - found_job_ids
             if missing_job_ids:
                 missing_jobs_str = ', '.join(map(str, sorted(missing_job_ids)))
-                found_jobs_references = [job.reference for job in jobs]
-                found_jobs_str = ', '.join(found_jobs_references) if found_jobs_references else 'Aucun'
-                raise JobCreationError(f"Jobs non trouvés avec les IDs : {missing_jobs_str}. Jobs trouvés : {found_jobs_str}")
+                raise JobCreationError(f"Jobs non trouvés avec les IDs : {missing_jobs_str}")
             
-            # Vérifier que tous les jobs sont en attente
-            non_pending_jobs = [job for job in jobs if job.status != 'EN ATTENTE']
-            if non_pending_jobs:
-                invalid_jobs = [f"Job {job.reference} (statut: {job.status})" for job in non_pending_jobs]
-                raise JobCreationError(f"Seuls les jobs en attente peuvent être validés. Jobs invalides : {', '.join(invalid_jobs)}")
-            
-            # Mettre à jour le statut et la date de validation
-            current_time = timezone.now()
-            
-            updated_jobs = []
+            # Vérifier que tous les jobs ont le statut EN ATTENTE
+            invalid_jobs = []
             for job in jobs:
-                self.repository.update_job_status(job, 'VALIDE', valide_date=current_time)
-                updated_jobs.append({
+                if job.status != 'EN ATTENTE':
+                    invalid_jobs.append(f"Job {job.reference} (statut: {job.status})")
+            
+            if invalid_jobs:
+                raise JobCreationError(
+                    f"Seuls les jobs avec le statut EN ATTENTE peuvent être validés. "
+                    f"Jobs invalides : {', '.join(invalid_jobs)}"
+                )
+            
+            # Valider les jobs
+            current_time = timezone.now()
+            validated_jobs = []
+            
+            for job in jobs:
+                job.status = 'VALIDE'
+                job.valide_date = current_time
+                job.save()
+                
+                validated_jobs.append({
                     'job_id': job.id,
                     'job_reference': job.reference
                 })
             
             return {
-                'validated_jobs_count': len(updated_jobs),
-                'validated_jobs': updated_jobs,
-                'validation_date': current_time
+                'success': True,
+                'validated_jobs_count': len(validated_jobs),
+                'validated_jobs': validated_jobs,
+                'validation_date': current_time,
+                'message': f'{len(validated_jobs)} jobs validés'
             }
             
         except JobCreationError:
@@ -506,8 +502,7 @@ class JobService(JobServiceInterface):
         ressources_deleted = JobDetailRessource.objects.filter(job__in=jobs).delete()[0]
         
         return {
-            'jobs_processed': len(jobs),
+            'jobs_reset': len(jobs),
             'assignments_reset': updated_count,
-            'ressources_deleted': ressources_deleted,
-            'message': f'Jobs et assignements remis en attente pour {len(jobs)} jobs, {ressources_deleted} ressources supprimées'
+            'ressources_deleted': ressources_deleted
         } 

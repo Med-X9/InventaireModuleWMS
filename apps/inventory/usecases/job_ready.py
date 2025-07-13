@@ -44,32 +44,64 @@ class JobReadyUseCase:
                     missing_jobs_str = ', '.join(map(str, sorted(missing_job_ids)))
                     raise JobCreationError(f"Jobs non trouvés avec les IDs : {missing_jobs_str}")
                 
-                # Vérifier que tous les jobs ont le statut AFFECTE et que tous leurs comptages sont affectés
+                # Vérifier que tous les jobs ont le statut AFFECTE et que leurs comptages sont correctement affectés
                 invalid_jobs = []
                 for job in jobs:
                     if job.status != 'AFFECTE':
                         invalid_jobs.append(f"Job {job.reference} (statut: {job.status})")
                         continue
                     
-                    # Vérifier que tous les comptages du job sont affectés
+                    # Vérifier que le job a au moins une affectation
                     job_assignments = Assigment.objects.filter(job=job)
                     if not job_assignments.exists():
                         invalid_jobs.append(f"Job {job.reference} (aucun comptage affecté)")
                         continue
                     
-                    # Vérifier que tous les comptages d'ordre 1 et 2 de l'inventaire sont affectés pour ce job
+                    # Récupérer les comptages d'ordre 1 et 2 de l'inventaire
                     inventory_countings = Counting.objects.filter(inventory=job.inventory, order__in=[1, 2])
                     job_counting_ids = set(job_assignments.values_list('counting_id', flat=True))
                     inventory_counting_ids = set(inventory_countings.values_list('id', flat=True))
                     
-                    missing_countings = inventory_counting_ids - job_counting_ids
-                    if missing_countings:
-                        missing_counting_refs = [f"comptage {cnt.reference}" for cnt in inventory_countings.filter(id__in=missing_countings)]
-                        invalid_jobs.append(f"Job {job.reference} (comptages non affectés: {', '.join(missing_counting_refs)})")
+                    # Vérifier la configuration des comptages
+                    counting1 = inventory_countings.filter(order=1).first()
+                    counting2 = inventory_countings.filter(order=2).first()
+                    
+                    if not counting1 or not counting2:
+                        invalid_jobs.append(f"Job {job.reference} (comptages d'ordre 1 et 2 requis)")
+                        continue
+                    
+                    # Vérifier que les assignments ont des sessions (sont affectés)
+                    assignments_with_session = job_assignments.filter(session__isnull=False)
+                    if not assignments_with_session.exists():
+                        invalid_jobs.append(f"Job {job.reference} (aucun comptage avec session affectée)")
+                        continue
+                    
+                    # Cas spécial : Si le 1er comptage est "image de stock", seul le 2ème comptage doit être affecté
+                    if counting1.count_mode == "image de stock":
+                        # Vérifier que le 2ème comptage est affecté avec une session
+                        assignment2 = assignments_with_session.filter(counting=counting2).first()
+                        if not assignment2:
+                            invalid_jobs.append(f"Job {job.reference} (2ème comptage non affecté avec session alors que 1er est image de stock)")
+                            continue
+                        
+                        # Vérifier que le 2ème comptage a une session (pas d'image de stock)
+                        if assignment2.counting.count_mode == "image de stock":
+                            invalid_jobs.append(f"Job {job.reference} (2ème comptage ne peut pas être image de stock)")
+                            continue
+                        
+                        # Le 1er comptage (image de stock) n'a pas besoin d'être affecté avec une session
+                        logger.info(f"Job {job.reference}: Configuration valide - 1er comptage image de stock, 2ème comptage affecté avec session")
+                    
+                    else:
+                        # Cas normal : Vérifier que tous les comptages d'ordre 1 et 2 sont affectés avec des sessions
+                        missing_countings = inventory_counting_ids - set(assignments_with_session.values_list('counting_id', flat=True))
+                        if missing_countings:
+                            missing_counting_refs = [f"comptage {cnt.reference}" for cnt in inventory_countings.filter(id__in=missing_countings)]
+                            invalid_jobs.append(f"Job {job.reference} (comptages non affectés avec session: {', '.join(missing_counting_refs)})")
                 
                 if invalid_jobs:
                     raise JobCreationError(
-                        f"Seuls les jobs avec le statut AFFECTE et tous leurs comptages affectés peuvent être mis au statut PRET. "
+                        f"Seuls les jobs avec le statut AFFECTE et leurs comptages correctement affectés avec des sessions peuvent être mis au statut PRET. "
                         f"Jobs invalides : {', '.join(invalid_jobs)}"
                     )
                 

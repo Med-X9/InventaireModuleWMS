@@ -22,6 +22,8 @@ from ..serializers.job_serializer import (
     JobResetAssignmentsRequestSerializer,
     PendingJobReferenceSerializer
 )
+from ..serializers.job_assignment_batch_serializer import JobBatchAssignmentRequestSerializer
+from ..usecases.job_batch_assignment import JobBatchAssignmentUseCase
 from ..exceptions import JobCreationError
 import logging
 from datetime import datetime
@@ -384,4 +386,45 @@ class JobResetAssignmentsView(APIView):
             return Response({
                 'success': False,
                 'message': f'Erreur interne : {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
+
+class JobBatchAssignmentView(APIView):
+    """
+    API pour affecter des sessions et ressources à plusieurs jobs en lot
+    """
+    def post(self, request):
+        serializer = JobBatchAssignmentRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({
+                'success': False,
+                'message': 'Erreur de validation des données',
+                'errors': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        assignments_data = serializer.validated_data['assignments']
+        try:
+            # Utiliser le use case pour la logique métier
+            use_case = JobBatchAssignmentUseCase()
+            result = use_case.execute(assignments_data)
+            
+            return Response({
+                'success': True,
+                'message': result['message'],
+                'data': result
+            }, status=status.HTTP_200_OK)
+        except JobCreationError as e:
+            return Response({
+                'success': False,
+                'message': 'Erreur lors du traitement',
+                'errors': {
+                    'detail': str(e)
+                }
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': 'Erreur interne du serveur',
+                'errors': {
+                    'detail': f'Erreur interne : {str(e)}'
+                }
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 

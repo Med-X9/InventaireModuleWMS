@@ -118,6 +118,10 @@ class JobRepository(JobRepositoryInterface):
             job__inventory=inventory
         ).exclude(job=job).first()
     
+    def get_job_detail_by_job_and_location(self, job: Job, location: Location) -> Optional[JobDetail]:
+        """Récupère un job detail pour un job et un emplacement spécifiques"""
+        return JobDetail.objects.filter(job=job, location=location).first()
+    
     def get_jobs_by_ids(self, job_ids: List[int]) -> List[Job]:
         """Récupère des jobs par leurs IDs"""
         return list(Job.objects.filter(id__in=job_ids))
@@ -134,6 +138,10 @@ class JobRepository(JobRepositoryInterface):
         job_detail_ids = [jd.id for jd in job_details]
         deleted_count, _ = JobDetail.objects.filter(id__in=job_detail_ids).delete()
         return deleted_count
+    
+    def delete_job_detail(self, job_detail: JobDetail) -> None:
+        """Supprime un job detail spécifique"""
+        job_detail.delete()
     
     def delete_assignments_by_job(self, job: Job) -> int:
         """Supprime tous les assignments d'un job"""
