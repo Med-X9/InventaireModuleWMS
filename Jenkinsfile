@@ -112,7 +112,7 @@ pipeline {
                 script {
                     withCredentials([usernamePassword(credentialsId: env.DEPLOY_CREDS, usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                         sh '''
-                            sshpass -p "$PASS" ssh "$USER@$DEPLOY_HOST" "bash -c 'cd /tmp/deployment/backend && docker-compose pull && docker-compose up -d'"
+                            ssh "$USER@$DEPLOY_HOST" "bash -c 'cd /tmp/deployment/backend && docker-compose down && docker-compose pull && docker-compose up -d'"
                         '''
                     }
                 }
