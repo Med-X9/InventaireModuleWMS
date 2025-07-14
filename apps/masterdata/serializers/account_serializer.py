@@ -6,7 +6,7 @@ class AccountSerializer(serializers.ModelSerializer):
         model = Account
         fields = [
             'id',
-            'account_code',
+            'reference',
             'account_name',
             'account_statuts',
             'description'

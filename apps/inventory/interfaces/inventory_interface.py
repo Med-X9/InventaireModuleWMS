@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 from django.db import models
+from ..models import Inventory, Counting
 
 class IInventoryService(ABC):
     """Interface pour le service d'inventaire."""
@@ -10,48 +11,18 @@ class IInventoryService(ABC):
         pass
 
     @abstractmethod
-    def update_inventory(self, inventory_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Met à jour un inventaire existant."""
-        pass
-
-    @abstractmethod
-    def get_inventory_by_id(self, inventory_id: int) -> Any:
+    def get_inventory_by_id(self, inventory_id: int) -> Inventory:
         """Récupère un inventaire par son ID."""
         pass
 
     @abstractmethod
-    def get_inventory_detail(self, inventory_id: int) -> Any:
-        """Récupère un inventaire avec toutes ses données associées."""
-        pass
-
-    @abstractmethod
-    def get_inventory_list(self, filters_dict: Dict[str, Any] = None, ordering: str = '-date', page: int = 1, page_size: int = 10) -> Dict[str, Any]:
-        """Récupère la liste des inventaires avec filtres, tri et pagination."""
-        pass
-
-    @abstractmethod
-    def validate_inventory_data(self, data: Dict[str, Any]) -> None:
-        """Valide les données d'un inventaire."""
+    def update_inventory(self, inventory_id: int, data: Dict[str, Any]) -> Inventory:
+        """Met à jour un inventaire."""
         pass
 
     @abstractmethod
     def delete_inventory(self, inventory_id: int) -> None:
-        """Supprime complètement un inventaire et tous ses enregistrements liés."""
-        pass
-
-    @abstractmethod
-    def soft_delete_inventory(self, inventory_id: int) -> None:
-        """Effectue un soft delete d'un inventaire."""
-        pass
-
-    @abstractmethod
-    def restore_inventory(self, inventory_id: int) -> None:
-        """Restaure un inventaire qui a été soft delete."""
-        pass
-
-    @abstractmethod
-    def validate_counting_modes(self, comptages: List[Dict[str, Any]]) -> List[str]:
-        """Valide les modes de comptage."""
+        """Supprime un inventaire."""
         pass
 
     @abstractmethod
@@ -61,7 +32,24 @@ class IInventoryService(ABC):
 
     @abstractmethod
     def cancel_inventory(self, inventory_id: int) -> None:
-        """Annule le lancement d'un inventaire."""
+        """Annule un inventaire."""
+        pass
+
+    @abstractmethod
+    def validate_inventory_data(self, data: Dict[str, Any]) -> None:
+        """Valide les données d'un inventaire."""
+        pass
+
+class ICountingService(ABC):
+    """Interface pour le service de comptage."""
+    @abstractmethod
+    def create_counting(self, data: Dict[str, Any]) -> models.Model:
+        """Crée un nouveau comptage."""
+        pass
+
+    @abstractmethod
+    def validate_counting_data(self, data: Dict[str, Any]) -> None:
+        """Valide les données d'un comptage."""
         pass
 
 class IInventoryRepository(ABC):
@@ -114,5 +102,39 @@ class IInventoryRepository(ABC):
     def get_with_related_data(self, inventory_id: int) -> Any:
         """
         Récupère un inventaire avec ses données associées
+        """
+        pass
+
+class IInventoryUpdateService(ABC):
+    """Interface pour le service de mise à jour d'inventaire."""
+    
+    @abstractmethod
+    def update_inventory(self, inventory_id: int, data: Dict[str, Any]) -> Inventory:
+        """
+        Met à jour un inventaire avec validation complète.
+        
+        Args:
+            inventory_id: L'ID de l'inventaire à mettre à jour
+            data: Les nouvelles données de l'inventaire
+            
+        Returns:
+            Inventory: L'inventaire mis à jour
+            
+        Raises:
+            InventoryNotFoundError: Si l'inventaire n'existe pas
+            InventoryValidationError: Si les données sont invalides
+        """
+        pass
+    
+    @abstractmethod
+    def validate_update_data(self, data: Dict[str, Any]) -> None:
+        """
+        Valide les données de mise à jour.
+        
+        Args:
+            data: Les données à valider
+            
+        Raises:
+            InventoryValidationError: Si les données sont invalides
         """
         pass 

@@ -5,16 +5,16 @@ from typing import Dict, Any, List
 from django.utils import timezone
 from ..repositories import InventoryRepository
 from ..exceptions import InventoryValidationError, InventoryNotFoundError
-from ..models import Inventory,  Counting, CountingDetail
+from ..models import Inventory, Setting, Counting, CountingDetail
+from django.db import IntegrityError
 import logging
 from .counting_service import CountingService
 from apps.masterdata.models import Warehouse
-from ..interfaces.inventory_interface import IInventoryService
 
 # Configuration du logger
 logger = logging.getLogger(__name__)
 
-class InventoryService(IInventoryService):
+class InventoryService:
     """Service pour la gestion des inventaires."""
     
     def __init__(self, repository: InventoryRepository = None):
@@ -44,6 +44,11 @@ class InventoryService(IInventoryService):
         
         if not data.get('warehouse'):
             errors.append("Au moins un entrepôt est obligatoire")
+        
+        # Validation du type d'inventaire
+        inventory_type = data.get('inventory_type', 'GENERAL')
+        if inventory_type not in ['TOURNANT', 'GENERAL']:
+            errors.append("Le type d'inventaire doit être 'TOURNANT' ou 'GENERAL'")
         
         comptages = data.get('comptages', [])
         if not comptages:
@@ -76,7 +81,7 @@ class InventoryService(IInventoryService):
     def validate_counting_modes(self, comptages: List[Dict[str, Any]]) -> List[str]:
         """Valide les modes de comptage."""
         errors = []
-        valid_modes = ['Liste d\'emplacement', 'Liste emplacement et article']
+        valid_modes = ['en vrac', 'par article']
         for i, comptage in enumerate(comptages, 1):
             if comptage.get('count_mode') not in valid_modes:
                 errors.append(f"Mode de comptage invalide pour le comptage {i}")
@@ -84,7 +89,7 @@ class InventoryService(IInventoryService):
     
     def create_inventory(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Crée un nouvel inventaire en utilisant le use case.
+        Crée un nouvel inventaire en utilisant le use case de gestion.
         
         Args:
             data: Les données de l'inventaire
@@ -96,13 +101,10 @@ class InventoryService(IInventoryService):
             InventoryValidationError: Si les données sont invalides
         """
         try:
-            # Utilisation du use case unifié pour la création
-            from ..usecases.inventory_usecase import InventoryUseCase
-            use_case = InventoryUseCase()
-            result = use_case.create_inventory(data)
-            
-            # Ajouter le message spécifique à la création
-            result['message'] = "Inventaire créé avec succès"
+            # Utilisation du use case de gestion pour la création
+            from ..usecases.inventory_management import InventoryManagementUseCase
+            use_case = InventoryManagementUseCase()
+            result = use_case.create(data)
             return result
             
         except Exception as e:
@@ -111,7 +113,7 @@ class InventoryService(IInventoryService):
 
     def delete_inventory(self, inventory_id: int) -> None:
         """
-        Supprime complètement un inventaire et tous ses enregistrements liés si son statut est en préparation.
+        Effectue un soft delete d'un inventaire si son statut est en attente.
         
         Args:
             inventory_id: L'ID de l'inventaire à supprimer
@@ -123,45 +125,14 @@ class InventoryService(IInventoryService):
         try:
             inventory = self.repository.get_by_id(inventory_id)
             
-            if inventory.status != 'EN PREPARATION':
+            if inventory.status != 'EN ATTENTE':
                 raise InventoryValidationError(
-                    "Seuls les inventaires en préparation peuvent être supprimés"
+                    "Seuls les inventaires en attente peuvent être supprimés"
                 )
             
-            # Suppression en cascade de tous les enregistrements liés
+            # Soft delete de l'inventaire
+            inventory.hard_delete()
             
-            # 1. Supprimer les CountingDetail liés aux comptages de cet inventaire
-            from ..models import CountingDetail
-            countings = inventory.countings.all()
-            for counting in countings:
-                CountingDetail.objects.filter(counting=counting).delete()
-            
-            # 2. Supprimer les comptages (Counting)
-            inventory.countings.all().delete()
-            
-            # 3. Supprimer les settings (Setting)
-            inventory.awi_links.all().delete()
-            
-            # 4. Supprimer les jobs liés à cet inventaire
-            from ..models import Job
-            Job.objects.filter(inventory=inventory).delete()
-            
-            # 5. Supprimer les écarts de comptage
-            from ..models import EcartComptage
-            EcartComptage.objects.filter(inventory=inventory).delete()
-            
-            # 6. Supprimer les ressources d'inventaire
-            from ..models import InventoryDetailRessource
-            InventoryDetailRessource.objects.filter(inventory=inventory).delete()
-            
-            # 7. Supprimer les planifications
-            from ..models import Planning
-            Planning.objects.filter(inventory=inventory).delete()
-            
-            # 8. Enfin, supprimer l'inventaire lui-même
-            inventory.delete()
-            
-            logger.info(f"Inventaire {inventory_id} et tous ses enregistrements liés supprimés avec succès")
             
         except InventoryNotFoundError:
             raise
@@ -192,7 +163,7 @@ class InventoryService(IInventoryService):
 
     def update_inventory(self, inventory_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Met à jour un inventaire en utilisant le use case.
+        Met à jour un inventaire en utilisant le use case de gestion.
         
         Args:
             inventory_id: L'ID de l'inventaire à mettre à jour
@@ -206,15 +177,16 @@ class InventoryService(IInventoryService):
             InventoryValidationError: Si les données sont invalides
         """
         try:
-            # Utilisation du use case unifié pour la mise à jour
-            from ..usecases.inventory_usecase import InventoryUseCase
-            use_case = InventoryUseCase()
-            result = use_case.update_inventory(inventory_id, data)
-            
-            # Ajouter le message spécifique à la mise à jour
-            result['message'] = "Inventaire mis à jour avec succès"
+            # Utilisation du use case de gestion pour la mise à jour
+            from ..usecases.inventory_management import InventoryManagementUseCase
+            use_case = InventoryManagementUseCase()
+            result = use_case.update(inventory_id, data)
             return result
             
+        except InventoryNotFoundError:
+            raise
+        except InventoryValidationError:
+            raise
         except Exception as e:
             logger.error(f"Erreur lors de la mise à jour de l'inventaire: {str(e)}", exc_info=True)
             raise InventoryValidationError(f"Erreur lors de la mise à jour de l'inventaire: {str(e)}")
@@ -300,10 +272,7 @@ class InventoryService(IInventoryService):
         
         self._create_inventory_details_from_stocks(first_counting, warehouses, inventory_id)
         
-        # Mettre à jour le statut du premier comptage en END
-        first_counting.status = 'END'
-        first_counting.date_status_end = timezone.now()
-        first_counting.save()
+        # Note: Le comptage n'a plus de champ status, donc on ne met plus à jour le statut
 
     # def _handle_liste_emplacement_article_mode(self, warehouses: List[Warehouse]) -> None:
     #     """
@@ -337,10 +306,10 @@ class InventoryService(IInventoryService):
             # Récupérer l'inventaire
             inventory = self.repository.get_by_id(inventory_id)
             
-            # Vérifier si l'inventaire est en préparation
+            # Vérifier si l'inventaire est en attente
             if inventory.status != 'EN PREPARATION':
                 raise InventoryValidationError(
-                    "Seuls les inventaires en préparation peuvent être lancés"
+                    "Seuls les inventaires en attente peuvent être lancés"
                 )
             
             # Récupérer le premier comptage
@@ -364,7 +333,7 @@ class InventoryService(IInventoryService):
             # soit il y a des comptages en mode "Liste emplacement et article" et les stocks existent
             # On peut donc lancer l'inventaire
             inventory.status = 'EN REALISATION'
-            inventory.en_realisation_status_date = timezone.now()
+            inventory.lunch_status_date = timezone.now()
             inventory.save()
             
         except InventoryNotFoundError:
@@ -408,8 +377,10 @@ class InventoryService(IInventoryService):
             
             # Mettre à jour le statut de l'inventaire
             inventory.status = 'EN PREPARATION'
-            inventory.en_preparation_status_date = timezone.now()
+            inventory.lunch_status_date = None
             inventory.save()
+            
+            # Note: Le comptage n'a plus de champ status, donc on ne met plus à jour le statut
             
         except InventoryNotFoundError:
             raise
@@ -419,156 +390,86 @@ class InventoryService(IInventoryService):
             logger.error(f"Erreur lors de l'annulation de l'inventaire: {str(e)}", exc_info=True)
             raise InventoryValidationError(f"Erreur lors de l'annulation de l'inventaire: {str(e)}")
 
-    def get_inventory_list(self, filters_dict: Dict[str, Any] = None, ordering: str = '-date', page: int = 1, page_size: int = 10) -> Dict[str, Any]:
+    def get_warehouse_stats_for_inventory(self, inventory_id: int) -> List[Dict[str, Any]]:
         """
-        Récupère la liste des inventaires avec filtres, tri et pagination.
+        Récupère les statistiques des warehouses pour un inventaire
         
         Args:
-            filters_dict: Dictionnaire des filtres à appliquer
-            ordering: Champ de tri (ex: '-date', 'label')
-            page: Numéro de page
-            page_size: Taille de page
+            inventory_id: ID de l'inventaire
             
         Returns:
-            Dict[str, Any]: Résultat paginé avec les inventaires
+            List[Dict[str, Any]]: Liste des statistiques par warehouse
         """
-        try:
-            # Récupérer le queryset filtré via le repository
-            queryset = self.repository.get_by_filters(filters_dict or {})
-            
-            # Appliquer le tri
-            if ordering:
-                if ordering.startswith('-'):
-                    field = ordering[1:]
-                    queryset = queryset.order_by(f'-{field}')
-                else:
-                    queryset = queryset.order_by(ordering)
-            
-            # Appliquer la pagination
-            from django.core.paginator import Paginator
-            paginator = Paginator(queryset, page_size)
-            
-            try:
-                page_obj = paginator.page(page)
-            except:
-                page_obj = paginator.page(1)
-            
-            # Sérialiser les résultats
-            from ..serializers.inventory_serializer import InventoryDetailSerializer
-            serializer = InventoryDetailSerializer(page_obj.object_list, many=True)
-            
-            return {
-                "success": True,
-                "message": "Liste des inventaires récupérée avec succès",
-                "data": serializer.data,
-                "pagination": {
-                    "count": paginator.count,
-                    "num_pages": paginator.num_pages,
-                    "current_page": page_obj.number,
-                    "has_next": page_obj.has_next(),
-                    "has_previous": page_obj.has_previous(),
-                    "next_page_number": page_obj.next_page_number() if page_obj.has_next() else None,
-                    "previous_page_number": page_obj.previous_page_number() if page_obj.has_previous() else None,
-                }
-            }
-            
-        except Exception as e:
-            logger.error(f"Erreur lors de la récupération de la liste des inventaires: {str(e)}", exc_info=True)
-            raise InventoryValidationError(f"Erreur lors de la récupération de la liste des inventaires: {str(e)}")
-
-    def get_inventory_detail(self, inventory_id: int) -> Inventory:
-        """
-        Récupère un inventaire avec toutes ses données associées.
+        from django.db.models import Count, Q
+        from ..models import Job, Assigment, Setting
+        from apps.users.models import UserApp
         
-        Args:
-            inventory_id: L'ID de l'inventaire à récupérer
-            
-        Returns:
-            Inventory: L'inventaire trouvé avec ses données associées
-            
-        Raises:
-            InventoryNotFoundError: Si l'inventaire n'existe pas
-        """
         try:
-            return self.repository.get_with_related_data(inventory_id)
-        except Inventory.DoesNotExist:
-            logger.error(f"Inventaire non trouvé avec l'ID: {inventory_id}")
-            raise InventoryNotFoundError("L'inventaire demandé n'existe pas")
-        except Exception as e:
-            logger.error(f"Erreur lors de la récupération de l'inventaire: {str(e)}", exc_info=True)
-            raise InventoryNotFoundError(f"Erreur lors de la récupération de l'inventaire: {str(e)}")
-
-    def soft_delete_inventory(self, inventory_id: int) -> None:
-        """
-        Effectue un soft delete d'un inventaire si son statut est en préparation.
-        
-        Args:
-            inventory_id: L'ID de l'inventaire à soft delete
-            
-        Raises:
-            InventoryNotFoundError: Si l'inventaire n'existe pas
-            InventoryValidationError: Si l'inventaire ne peut pas être soft delete
-        """
-        try:
+            # Récupérer l'inventaire
             inventory = self.repository.get_by_id(inventory_id)
+            if not inventory:
+                raise InventoryNotFoundError(f"L'inventaire avec l'ID {inventory_id} n'existe pas.")
             
-            if inventory.status != 'EN PREPARATION':
-                raise InventoryValidationError(
-                    "Seuls les inventaires en préparation peuvent être supprimés"
-                )
+            # Récupérer tous les warehouses associés à cet inventaire
+            warehouse_settings = Setting.objects.filter(
+                inventory=inventory
+            ).select_related('warehouse')
             
-            # Soft delete de l'inventaire (marquer comme supprimé sans supprimer physiquement)
-            inventory.is_deleted = True
-            inventory.deleted_at = timezone.now()
-            inventory.save()
+            stats = []
             
-            logger.info(f"Inventaire {inventory_id} supprimés avec succès")
+            for setting in warehouse_settings:
+                warehouse = setting.warehouse
+                
+                # Compter les jobs pour ce warehouse et cet inventaire
+                jobs_count = Job.objects.filter(
+                    warehouse=warehouse,
+                    inventory=inventory
+                ).count()
+                
+                # Compter les équipes (sessions mobiles uniques) pour ce warehouse et cet inventaire
+                teams_count = Assigment.objects.filter(
+                    job__warehouse=warehouse,
+                    job__inventory=inventory,
+                    session__isnull=False,
+                    session__type='Mobile'
+                ).values('session').distinct().count()
+                
+                stats.append({
+                    'warehouse_id': warehouse.id,
+                    'warehouse_reference': warehouse.reference,
+                    'warehouse_name': warehouse.warehouse_name,
+                    'jobs_count': jobs_count,
+                    'teams_count': teams_count
+                })
             
-        except InventoryNotFoundError:
-            raise
-        except InventoryValidationError:
-            raise
+            return stats
+            
         except Exception as e:
-            logger.error(f"Erreur lors du soft delete de l'inventaire: {str(e)}", exc_info=True)
-            raise InventoryValidationError(f"Erreur lors du supprimés de l'inventaire: {str(e)}")
+            raise InventoryValidationError(f"Erreur lors de la récupération des statistiques: {str(e)}")
 
-    def restore_inventory(self, inventory_id: int) -> None:
+    def get_warehouse_jobs_sessions_count(self, inventory_id: int) -> List[Dict[str, Any]]:
         """
-        Restaure un inventaire qui a été soft delete.
+        Récupère le nom du warehouse avec le count des jobs et sessions associés
         
         Args:
-            inventory_id: L'ID de l'inventaire à restaurer
+            inventory_id: ID de l'inventaire
             
-        Raises:
-            InventoryNotFoundError: Si l'inventaire n'existe pas
-            InventoryValidationError: Si l'inventaire ne peut pas être restauré
+        Returns:
+            List[Dict[str, Any]]: Liste avec nom warehouse, count jobs et count sessions
         """
         try:
-            # Utiliser directement la méthode restore du repository
-            # qui gère le cas où l'inventaire n'est pas supprimé
-            inventory = self.repository.restore(inventory_id)
+            # Vérifier que l'inventaire existe
+            inventory = self.repository.get_by_id(inventory_id)
+            if not inventory:
+                raise InventoryNotFoundError(f"L'inventaire avec l'ID {inventory_id} n'existe pas.")
             
-            logger.info(f"Inventaire {inventory_id} restauré avec succès")
+            # Utiliser le repository pour récupérer les statistiques
+            return self.repository.get_warehouse_jobs_sessions_stats(inventory_id)
             
         except InventoryNotFoundError:
             raise
-        except InventoryValidationError:
-            raise
         except Exception as e:
-            logger.error(f"Erreur lors de la restauration de l'inventaire: {str(e)}", exc_info=True)
-            raise InventoryValidationError(f"Erreur lors de la restauration de l'inventaire: {str(e)}")
-
-    def get_inventory_queryset(self, filters_dict: Dict[str, Any] = None, ordering: str = '-date'):
-        """
-        Retourne un queryset filtré et trié des inventaires, compatible avec la pagination DRF.
-        """
-        queryset = self.repository.get_by_filters(filters_dict or {})
-        if ordering:
-            if ordering.startswith('-'):
-                field = ordering[1:]
-                queryset = queryset.order_by(f'-{field}')
-            else:
-                queryset = queryset.order_by(ordering)
-        return queryset
+            logger.error(f"Erreur lors de la récupération des statistiques warehouse: {str(e)}", exc_info=True)
+            raise InventoryValidationError(f"Erreur lors de la récupération des statistiques warehouse: {str(e)}")
 
     

@@ -18,33 +18,39 @@ class ReferenceMixin:
     def generate_reference(self, prefix):
         """
         Génère une référence unique
-        Format: {PREFIX}{encrypted_id}{encrypted_created_at}
+        Format: {PREFIX}-{id}-{timestamp}-{hash}
         """
-        # Générer un identifiant unique temporaire
-        temp_id = str(uuid.uuid4())[:8]
+        # Si l'objet n'a pas encore d'ID (création), utiliser un UUID temporaire
+        if not self.id:
+            temp_id = str(uuid.uuid4())[:6]  # Réduire à 6 caractères
+            timestamp = int(timezone.now().timestamp())
+            # Utiliser seulement les 4 derniers chiffres du timestamp
+            timestamp_short = str(timestamp)[-4:]
+            data_to_hash = f"{temp_id}{timestamp}"
+            hash_value = hashlib.md5(data_to_hash.encode()).hexdigest()[:4].upper()  # Réduire à 4 caractères
+            reference = f"{prefix}-{temp_id}-{timestamp_short}-{hash_value}"
+        else:
+            # Si l'objet a un ID, utiliser la méthode normale
+            timestamp = int(self.created_at.timestamp())
+            # Utiliser seulement les 4 derniers chiffres du timestamp
+            timestamp_short = str(timestamp)[-4:]
+            data_to_hash = f"{self.id}{timestamp}"
+            hash_value = hashlib.md5(data_to_hash.encode()).hexdigest()[:4].upper()  # Réduire à 4 caractères
+            reference = f"{prefix}-{self.id}-{timestamp_short}-{hash_value}"
         
-        # Créer une chaîne à crypter
-        data_to_hash = f"{temp_id}{timezone.now().timestamp()}"
-        
-        # Générer un hash MD5 et prendre les 8 premiers caractères
-        hash_value = hashlib.md5(data_to_hash.encode()).hexdigest()[:8].upper()
-        
-        # Créer la référence
-        reference = f"{prefix}{hash_value}"
+        # S'assurer que la référence ne dépasse pas 20 caractères
+        if len(reference) > 20:
+            # Tronquer la référence si nécessaire
+            reference = reference[:20]
         
         return reference
 
     def save(self, *args, **kwargs):
-        # S'assurer que la référence est générée avant la sauvegarde
-        if not hasattr(self, 'reference') or not self.reference:
+        # Générer la référence si elle n'existe pas
+        if not self.reference:
             self.reference = self.generate_reference(self.REFERENCE_PREFIX)
         super().save(*args, **kwargs)
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # Générer la référence dès l'initialisation
-        if not hasattr(self, 'reference') or not self.reference:
-            self.reference = self.generate_reference(self.REFERENCE_PREFIX)
 
 class Inventory(TimeStampedModel, ReferenceMixin):
     REFERENCE_PREFIX = 'INV'
@@ -56,14 +62,20 @@ class Inventory(TimeStampedModel, ReferenceMixin):
         ('CLOTURE', 'CLOTURE'),
         
     )
+    
+    INVENTORY_TYPE_CHOICES = (
+        ('TOURNANT', 'TOURNANT'),
+        ('GENERAL', 'GENERAL'),
+    )
 
     reference = models.CharField(max_length=50, unique=True, null=False)
     label = models.CharField(max_length=200)  
     date = models.DateTimeField()
-    status = models.CharField(max_length=50, choices=STATUS_CHOICES)  
+    status = models.CharField(max_length=50, choices=STATUS_CHOICES)
+    inventory_type = models.CharField(max_length=20, choices=INVENTORY_TYPE_CHOICES, default='GENERAL')
     en_preparation_status_date = models.DateTimeField(null=True, blank=True)
     en_realisation_status_date = models.DateTimeField(null=True, blank=True)
-    ternime_status_date = models.DateTimeField(null=True, blank=True)
+    termine_status_date = models.DateTimeField(null=True, blank=True)
     cloture_status_date = models.DateTimeField(null=True, blank=True)
 
     history = HistoricalRecords()
@@ -105,8 +117,6 @@ class Planning(TimeStampedModel, ReferenceMixin):
 class Counting(TimeStampedModel, ReferenceMixin):
     REFERENCE_PREFIX = 'CNT'
     
-    
-
     reference = models.CharField(_('Référence'), max_length=20, unique=True, null=False)
     order = models.IntegerField(_('Ordre'))
     count_mode = models.CharField(_('Mode de comptage'), max_length=100)     
@@ -135,24 +145,23 @@ class Job(TimeStampedModel, ReferenceMixin):
     
     STATUS_CHOICES = (
         ('EN ATTENTE', 'EN ATTENTE'),
-        ('VALIDE', 'VALIDE'),
         ('AFFECTE', 'AFFECTE'),
         ('PRET', 'PRET'),
         ('TRANSFERT', 'TRANSFERT'), 
         ('ENTAME', 'ENTAME'),
+        ('VALIDE', 'VALIDE'),
         ('TERMINE', 'TERMINE'),
     )
    
     
     reference = models.CharField(max_length=20, unique=True, null=False)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES)
-    date_estime = models.DateTimeField(null=True, blank=True)
-    transfert_date = models.DateTimeField(null=True, blank=True)
     en_attente_date = models.DateTimeField(null=True, blank=True)
-    entame_date = models.DateTimeField(null=True, blank=True)
-    valide_date = models.DateTimeField(null=True, blank=True)
     affecte_date = models.DateTimeField(null=True, blank=True)
     pret_date = models.DateTimeField(null=True, blank=True)
+    transfert_date = models.DateTimeField(null=True, blank=True)
+    entame_date = models.DateTimeField(null=True, blank=True)
+    valide_date = models.DateTimeField(null=True, blank=True)
     termine_date = models.DateTimeField(null=True, blank=True)
     warehouse = models.ForeignKey('masterdata.Warehouse', on_delete=models.CASCADE)
     inventory = models.ForeignKey(Inventory, on_delete=models.CASCADE)
@@ -191,14 +200,33 @@ class JobDetail(TimeStampedModel, ReferenceMixin):
 
 
 class Assigment(TimeStampedModel, ReferenceMixin):
+
+    STATUS_CHOICES = (
+        ('EN ATTENTE', 'EN ATTENTE'),
+        ('AFFECTE', 'AFFECTE'),
+        ('PRET', 'PRET'),
+        ('TRANSFERT', 'TRANSFERT'), 
+        ('ENTAME', 'ENTAME'),
+        ('TERMINE', 'TERMINE'),
+    )
     REFERENCE_PREFIX = 'ASS'
     reference = models.CharField(unique=True, max_length=20, null=False)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES)
+    transfert_date = models.DateTimeField(null=True, blank=True)
+    entame_date = models.DateTimeField(null=True, blank=True)
+    affecte_date = models.DateTimeField(null=True, blank=True)
+    pret_date = models.DateTimeField(null=True, blank=True)
     job = models.ForeignKey('Job', on_delete=models.CASCADE)
     date_start = models.DateTimeField(null=True, blank=True)
-    session = models.ForeignKey('users.UserApp', on_delete=models.CASCADE, null=True, blank=True,limit_choices_to={'role__name': 'Operateur'})
+    session = models.ForeignKey('users.UserApp', on_delete=models.CASCADE, null=True, blank=True, limit_choices_to={'type': 'Mobile'})
     personne = models.ForeignKey('Personne', on_delete=models.CASCADE, related_name='primary_job_details',null=True,blank=True)
     personne_two = models.ForeignKey('Personne', on_delete=models.CASCADE, related_name='secondary_job_details',null=True,blank=True)   
+    counting = models.ForeignKey(Counting, on_delete=models.CASCADE)
     history = HistoricalRecords()
+    
+    class Meta:
+        verbose_name = _('Affectation')
+        verbose_name_plural = _('Affectations')
     
     def __str__(self):
         return f"{self.job.reference} - {self.personne} - {self.personne_two}"
@@ -225,7 +253,7 @@ class InventoryDetailRessource(TimeStampedModel, ReferenceMixin):
     history = HistoricalRecords()
     
     def __str__(self):
-        return f"{self.job.reference} - {self.ressource} - {self.quantity}"
+        return f"{self.inventory.reference} - {self.ressource} - {self.quantity}"
 
 
 class CountingDetail(TimeStampedModel, ReferenceMixin):
@@ -233,12 +261,26 @@ class CountingDetail(TimeStampedModel, ReferenceMixin):
     reference = models.CharField(unique=True, max_length=20, null=False)
     quantity_inventoried = models.IntegerField()
     product = models.ForeignKey('masterdata.Product',on_delete=models.CASCADE,blank=True,null=True)
+    dlc = models.DateField(null=True,blank=True)
+    n_lot = models.CharField(max_length=100,null=True,blank=True)
     location = models.ForeignKey('masterdata.Location',on_delete=models.CASCADE)
     counting = models.ForeignKey(Counting,on_delete=models.CASCADE)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     history = HistoricalRecords()
     
+
+class NSerie(TimeStampedModel, ReferenceMixin):
+    REFERENCE_PREFIX = 'NS'
+    reference = models.CharField(unique=True, max_length=20, null=False)
+    n_serie = models.CharField(max_length=100,null=True,blank=True)
+    counting_detail = models.ForeignKey(CountingDetail,on_delete=models.CASCADE)
+    history = HistoricalRecords()
     
+    def __str__(self):
+        return f"{self.counting_detail.product.Short_Description} - {self.n_serie}"
+
+
+
     
 class EcartComptage(TimeStampedModel, ReferenceMixin): 
     REFERENCE_PREFIX = 'ECT'

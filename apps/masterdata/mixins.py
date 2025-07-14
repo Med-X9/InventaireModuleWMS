@@ -18,32 +18,36 @@ class CodeGeneratorMixin(models.Model):
     def generate_unique_code(cls, prefix, created_at, id):
         """
         Génère un code unique pour le modèle en utilisant created_at et l'ID.
-        Format: PREFIX-TIMESTAMP-ID-HASH
+        Format: PREFIX-XXXX où XXXX est un nombre aléatoire
         """
-        # Convertir created_at en timestamp
-        timestamp = int(created_at.timestamp())
-        
-        # Créer une chaîne à chiffrer
-        data_to_hash = f"{prefix}{timestamp}{id}"
-        
-        # Chiffrer avec SHA-256 et prendre les 8 premiers caractères
-        hash_value = hashlib.sha256(data_to_hash.encode()).hexdigest()[:8].upper()
+        # Générer un nombre aléatoire entre 1000 et 9999
+        random_num = random.randint(1000, 9999)
         
         # Construire le code final
-        code = f"{prefix}-{timestamp}-{id}-{hash_value}"
+        code = f"{prefix}-{random_num}"
         
-        return code
+        # Vérifier si le code existe déjà et en générer un nouveau si nécessaire
+        max_attempts = 100
+        attempt = 0
+        while attempt < max_attempts:
+            if not cls.objects.filter(reference=code).exists():
+                return code
+            random_num = random.randint(1000, 9999)
+            code = f"{prefix}-{random_num}"
+            attempt += 1
+        
+        # Si on n'a pas trouvé de code unique après 100 tentatives, utiliser un timestamp
+        import time
+        timestamp = int(time.time())
+        return f"{prefix}-{timestamp}"
 
     @classmethod
     def get_code_field_name(cls):
         """
         Retourne le nom du champ qui contient le code.
-        Par défaut, cherche un champ contenant 'code' dans son nom.
+        Par défaut, retourne 'reference'.
         """
-        for field in cls._meta.fields:
-            if 'code' in field.name.lower():
-                return field.name
-        raise AttributeError(f"No code field found in {cls.__name__}")
+        return 'reference'
 
     def clean(self):
         """
@@ -51,6 +55,9 @@ class CodeGeneratorMixin(models.Model):
         """
         code_field = self.get_code_field_name()
         if not getattr(self, code_field):
+            # Ne pas lever d'erreur si c'est un nouveau modèle
+            if not self.pk:
+                return
             raise ValidationError({
                 code_field: "Le code est requis"
             })
@@ -59,14 +66,13 @@ class CodeGeneratorMixin(models.Model):
         """
         Surcharge de la méthode save pour générer un code unique si nécessaire
         """
-        code_field = self.get_code_field_name()
-        if not getattr(self, code_field):
+        if not self.reference:
             prefix = getattr(self, 'CODE_PREFIX', self.__class__.__name__[:3].upper())
             # Sauvegarder d'abord pour obtenir l'ID
             super().save(*args, **kwargs)
             # Générer le code avec created_at et l'ID
             code = self.generate_unique_code(prefix, self.created_at, self.id)
-            setattr(self, code_field, code)
+            self.reference = code
             # Sauvegarder à nouveau avec le code
             super().save(*args, **kwargs)
         else:

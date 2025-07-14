@@ -2,18 +2,6 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 from django.db import models
 
-class ICountingService(ABC):
-    """Interface pour le service de comptage."""
-    @abstractmethod
-    def create_counting(self, data: Dict[str, Any]) -> models.Model:
-        """Crée un nouveau comptage."""
-        pass
-
-    @abstractmethod
-    def validate_counting_data(self, data: Dict[str, Any]) -> None:
-        """Valide les données d'un comptage."""
-        pass
-
 class ICountingRepository(ABC):
     """
     Interface pour le repository de comptages

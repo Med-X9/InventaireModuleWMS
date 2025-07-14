@@ -1,1 +1,2 @@
-# Ce fichier est vide car les serializers ont été déplacés dans le package serializers 
+# Ce fichier est vide car les serializers sont organisés dans le dossier serializers/
+# Voir apps/inventory/serializers/ pour les serializers disponibles 

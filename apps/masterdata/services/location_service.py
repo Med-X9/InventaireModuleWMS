@@ -2,10 +2,17 @@ from ..models import Warehouse, Location, Zone
 from ..exceptions import WarehouseNotFoundError
 from apps.inventory.models import Job, JobDetail
 import logging
+from django.db.models import Q
+from ..exceptions import LocationError
+from ..repositories.warehouse_repository import WarehouseRepository
+from ..repositories.location_repository import LocationRepository
 
 logger = logging.getLogger(__name__)
 
 class LocationService:
+    warehouse_repo = WarehouseRepository()
+    location_repo = LocationRepository()
+
     @staticmethod
     def get_all_warehouse_locations(warehouse_id):
         """
@@ -21,7 +28,7 @@ class LocationService:
             logger.info(f"Récupération de toutes les locations pour le warehouse {warehouse_id}")
             
             # 1. Vérifier si le warehouse existe
-            warehouse = Warehouse.objects.filter(id=warehouse_id).first()
+            warehouse = LocationService.warehouse_repo.get_by_id(warehouse_id)
             if not warehouse:
                 logger.error(f"L'entrepôt avec l'ID {warehouse_id} n'existe pas")
                 return {
@@ -98,7 +105,7 @@ class LocationService:
             logger.info(f"Récupération des locations par job pour le warehouse {warehouse_id}")
             
             # 1. Vérifier si le warehouse existe
-            warehouse = Warehouse.objects.filter(id=warehouse_id).first()
+            warehouse = LocationService.warehouse_repo.get_by_id(warehouse_id)
             if not warehouse:
                 logger.error(f"L'entrepôt avec l'ID {warehouse_id} n'existe pas")
                 return {
@@ -156,4 +163,74 @@ class LocationService:
                 'status': 'error',
                 'message': f"Une erreur est survenue lors de la récupération des locations par job: {str(e)}",
                 'data': []
-            } 
+            }
+
+    @staticmethod
+    def get_unassigned_locations(warehouse_id=None, filters=None):
+        """
+        Récupère les emplacements qui ne sont pas affectés à des jobs
+        avec les informations complètes de zone et sous-zone
+        """
+        try:
+            # Récupérer tous les emplacements actifs
+            locations = LocationService.location_repo.get_all().filter(is_active=True)
+            
+            # Filtrer par warehouse si spécifié
+            if warehouse_id:
+                locations = locations.filter(sous_zone__zone__warehouse_id=warehouse_id)
+            
+            # Exclure les emplacements qui sont déjà affectés à des jobs
+            # (via JobDetail dans l'app inventory)
+            assigned_location_ids = JobDetail.objects.values_list('location_id', flat=True)
+            locations = locations.exclude(id__in=assigned_location_ids)
+            
+            # Précharger les relations pour optimiser les performances
+            locations = locations.select_related(
+                'sous_zone',
+                'sous_zone__zone',
+                'sous_zone__zone__warehouse',
+                'location_type'
+            )
+            
+            # Appliquer les filtres django-filter si fournis
+            if filters:
+                from ..filters.location_filters import UnassignedLocationFilter
+                filter_instance = UnassignedLocationFilter(filters, queryset=locations)
+                locations = filter_instance.qs
+            
+            # Formater les données de retour
+            unassigned_locations = []
+            for location in locations:
+                unassigned_locations.append({
+                    'id': location.id,
+                    'reference': location.reference,
+                    'location_reference': location.location_reference,
+                    'description': location.description,
+                    'sous_zone': {
+                        'id': location.sous_zone.id,
+                        'reference': location.sous_zone.reference,
+                        'sous_zone_name': location.sous_zone.sous_zone_name,
+                        'sous_zone_status': location.sous_zone.sous_zone_status,
+                        'description': location.sous_zone.description
+                    },
+                    'zone': {
+                        'id': location.sous_zone.zone.id,
+                        'reference': location.sous_zone.zone.reference,
+                        'zone_name': location.sous_zone.zone.zone_name,
+                        'zone_status': location.sous_zone.zone.zone_status,
+                        'description': location.sous_zone.zone.description
+                    },
+                    'warehouse': {
+                        'id': location.sous_zone.zone.warehouse.id,
+                        'reference': location.sous_zone.zone.warehouse.reference,
+                        'warehouse_name': location.sous_zone.zone.warehouse.warehouse_name,
+                        'warehouse_type': location.sous_zone.zone.warehouse.warehouse_type,
+                        'status': location.sous_zone.zone.warehouse.status
+                    }
+                })
+            
+            return unassigned_locations
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des emplacements non affectés : {str(e)}")
+            raise LocationError(f"Erreur lors de la récupération des emplacements non affectés : {str(e)}") 

@@ -13,11 +13,18 @@ from .pda_exceptions import (
     PdaNotFoundError,
     PdaLabelError
 )
-from .job_detail_exceptions import (
-    JobDetailCreationError,
-    JobDetailNotFoundError,
-    JobDetailStatusError
+from .assignment_exceptions import (
+    AssignmentError,
+    AssignmentNotFoundError,
+    AssignmentValidationError,
+    AssignmentBusinessRuleError,
+    AssignmentSessionError
 )
+# from .job_detail_exceptions import (
+#     JobDetailCreationError,
+#     JobDetailNotFoundError,
+#     JobDetailStatusError
+# )
 from .inventory_exceptions import (
     InventoryError,
     InventoryValidationError,
@@ -31,7 +38,8 @@ from .inventory_exceptions import (
 from .stock_exceptions import (
     StockValidationError,
     StockNotFoundError,
-    StockImportError
+    StockImportError,
+    StockDuplicateError
 )
 
 __all__ = [
@@ -50,10 +58,17 @@ __all__ = [
     'PdaNotFoundError',
     'PdaLabelError',
     
+    # Assignment exceptions
+    'AssignmentError',
+    'AssignmentNotFoundError',
+    'AssignmentValidationError',
+    'AssignmentBusinessRuleError',
+    'AssignmentSessionError',
+    
     # JobDetail exceptions
-    'JobDetailCreationError',
-    'JobDetailNotFoundError',
-    'JobDetailStatusError',
+    # 'JobDetailCreationError',
+    # 'JobDetailNotFoundError',
+    # 'JobDetailStatusError',
 
     # Inventory exceptions
     'InventoryError',
@@ -68,5 +83,6 @@ __all__ = [
     # Stock exceptions
     'StockValidationError',
     'StockNotFoundError',
-    'StockImportError'
+    'StockImportError',
+    'StockDuplicateError'
 ] 

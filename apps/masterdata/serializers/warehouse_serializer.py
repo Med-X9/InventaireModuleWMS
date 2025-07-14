@@ -6,7 +6,7 @@ class WarehouseSerializer(serializers.ModelSerializer):
         model = Warehouse
         fields = [
             'id',
-            'warehouse_code',
+            'reference',
             'warehouse_name',
             'warehouse_type',
             'description',

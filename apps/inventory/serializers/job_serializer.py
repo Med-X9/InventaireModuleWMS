@@ -1,57 +1,222 @@
 from rest_framework import serializers
-from ..models import Job, JobDetail, Location, Pda
-from django.utils import timezone
-import datetime
+from ..models import Job, JobDetail, Location, Assigment, JobDetailRessource
+from apps.masterdata.serializers.location_serializer import LocationSerializer
+from apps.masterdata.serializers.sous_zone_serializer import SousZoneSerializer
+from apps.masterdata.serializers.zone_serializer import ZoneSerializer
 
-class EmplacementSerializer(serializers.Serializer):
-    emplacements = serializers.ListField(child=serializers.IntegerField())
+class JobCreateRequestSerializer(serializers.Serializer):
+    emplacements = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False
+    )
 
-class PdaSerializer(serializers.Serializer):
-    id = serializers.IntegerField()
-    nom = serializers.CharField()
-    session = serializers.IntegerField()
+class JobRemoveEmplacementsSerializer(serializers.Serializer):
+    emplacement_id = serializers.IntegerField()
 
-class JobDetailSerializer(serializers.ModelSerializer):
-    location_id = serializers.IntegerField(source='location.id')
-    location_name = serializers.CharField(source='location.location_code')
-    pda_name = serializers.CharField(source='pda.lebel')
-    pda_session = serializers.IntegerField(source='pda.session.id')
+class JobAddEmplacementsSerializer(serializers.Serializer):
+    emplacement_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False
+    )
 
-    class Meta:
-        model = JobDetail
-        fields = ['id', 'location_id', 'location_name', 'pda_name', 'pda_session', 'status']
+class JobValidateRequestSerializer(serializers.Serializer):
+    job_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False
+    )
 
 class JobSerializer(serializers.ModelSerializer):
-    details = JobDetailSerializer(source='jobdetail_set', many=True, read_only=True)
-
     class Meta:
         model = Job
-        fields = ['id', 'reference', 'status', 'details']
+        fields = ['id', 'reference', 'status', 'warehouse', 'inventory']
 
-class InventoryJobRetrieveSerializer(serializers.Serializer):
-    date = serializers.DateTimeField()
-    jobs = EmplacementSerializer(many=True)
-    pda = PdaSerializer(many=True)
+class JobDetailSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = JobDetail
+        fields = ['id', 'reference', 'location', 'job', 'status']
 
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-        # Convertir le datetime en date si c'est un objet datetime
-        if isinstance(data['date'], (datetime.datetime, datetime.date)):
-            data['date'] = data['date'].date()
-        return data 
+class EmplacementSerializer(serializers.Serializer):
+    emplacements = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False
+    )
 
-class PdaUpdateSerializer(serializers.Serializer):
-    id = serializers.IntegerField()
-    nom = serializers.CharField()
+class PdaSerializer(serializers.Serializer):
+    reference = serializers.CharField()
     session = serializers.IntegerField()
 
 class InventoryJobUpdateSerializer(serializers.Serializer):
-    date = serializers.DateTimeField()
-    jobs = serializers.ListField(
-        child=serializers.DictField(
-            child=serializers.ListField(
-                child=serializers.IntegerField()
-            )
-        )
+    date = serializers.DateField(required=False)
+    jobs = serializers.ListField(child=EmplacementSerializer(), required=False)
+
+class JobAssignmentRequestSerializer(serializers.Serializer):
+    job_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False
     )
-    pda = PdaUpdateSerializer(many=True, required=False) 
+    personne_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False
+    )
+
+class InventoryJobRetrieveSerializer(serializers.Serializer):
+    date = serializers.DateTimeField()
+    warehouse_id = serializers.IntegerField()
+    warehouse_name = serializers.CharField()
+    inventory_id = serializers.IntegerField()
+    inventory_label = serializers.CharField()
+    jobs = JobSerializer(many=True)
+
+class JobLocationDetailSerializer(serializers.ModelSerializer):
+    sous_zone = SousZoneSerializer(source='location.sous_zone', read_only=True)
+    zone = ZoneSerializer(source='location.sous_zone.zone', read_only=True)
+    location_reference = serializers.CharField(source='location.location_reference', read_only=True)
+    location_id = serializers.IntegerField(source='location.id', read_only=True)
+
+    class Meta:
+        model = JobDetail
+        fields = ['id', 'location_id', 'reference', 'location_reference', 'sous_zone', 'zone', 'status']
+
+class JobListWithLocationsSerializer(serializers.ModelSerializer):
+    locations = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Job
+        fields = ['id', 'reference', 'status', 'created_at', 'locations']
+
+    def get_locations(self, obj):
+        # Récupérer les paramètres de filtrage depuis la requête
+        request = self.context.get('request')
+        if not request:
+            # Si pas de requête, retourner tous les emplacements
+            job_details = obj.jobdetail_set.select_related('location__sous_zone__zone').all()
+            return JobLocationDetailSerializer(job_details, many=True).data
+        
+        # Filtrer les emplacements selon les paramètres
+        job_details = obj.jobdetail_set.select_related('location__sous_zone__zone').all()
+        
+        # Filtre par location_reference
+        location_reference = request.query_params.get('location_reference')
+        if location_reference:
+            job_details = job_details.filter(location__location_reference__icontains=location_reference)
+        
+        # Filtre par sous_zone
+        sous_zone = request.query_params.get('sous_zone')
+        if sous_zone:
+            job_details = job_details.filter(location__sous_zone_id=sous_zone)
+        
+        # Filtre par zone
+        zone = request.query_params.get('zone')
+        if zone:
+            job_details = job_details.filter(location__sous_zone__zone_id=zone)
+        
+        return JobLocationDetailSerializer(job_details, many=True).data 
+
+class JobDeleteRequestSerializer(serializers.Serializer):
+    job_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        min_length=1,
+        help_text="Liste des IDs des jobs à supprimer"
+    )
+
+class JobReadyRequestSerializer(serializers.Serializer):
+    job_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        min_length=1,
+        help_text="Liste des IDs des jobs à marquer comme PRET"
+    )
+
+class JobAssignmentDetailSerializer(serializers.ModelSerializer):
+    counting_order = serializers.IntegerField(source='counting.order', read_only=True)
+    status = serializers.CharField()
+    session = serializers.SerializerMethodField()
+    date_start = serializers.DateTimeField(read_only=True)
+    class Meta:
+        model = Assigment
+        fields = ['counting_order', 'status', 'session', 'date_start']
+    def get_session(self, obj):
+        if obj.session:
+            return {'id': obj.session.id, 'username': obj.session.username}
+        return None
+
+class JobRessourceSerializer(serializers.ModelSerializer):
+    reference = serializers.CharField(source='ressource.reference')
+    class Meta:
+        model = JobDetailRessource
+        fields = ['id', 'reference', 'quantity']
+
+class JobEmplacementDetailSerializer(serializers.ModelSerializer):
+    sous_zone = SousZoneSerializer(source='location.sous_zone', read_only=True)
+    zone = ZoneSerializer(source='location.sous_zone.zone', read_only=True)
+    reference = serializers.CharField(source='location.location_reference', read_only=True)
+    class Meta:
+        model = JobDetail
+        fields = ['id', 'reference', 'sous_zone', 'zone']
+
+class JobFullDetailSerializer(serializers.ModelSerializer):
+    emplacements = serializers.SerializerMethodField()
+    assignments = serializers.SerializerMethodField()
+    ressources = serializers.SerializerMethodField()
+    class Meta:
+        model = Job
+        fields = ['id', 'reference', 'status', 'emplacements', 'assignments', 'ressources']
+    def get_emplacements(self, obj):
+        job_details = obj.jobdetail_set.select_related('location__sous_zone__zone').all()
+        return JobEmplacementDetailSerializer(job_details, many=True).data
+    def get_assignments(self, obj):
+        assignments = obj.assigment_set.select_related('counting', 'session').all()
+        return JobAssignmentDetailSerializer(assignments, many=True).data
+    def get_ressources(self, obj):
+        ressources = obj.jobdetailressource_set.select_related('ressource').all()
+        return JobRessourceSerializer(ressources, many=True).data
+
+class JobPendingSerializer(serializers.ModelSerializer):
+    emplacements = serializers.SerializerMethodField()
+    assignments = serializers.SerializerMethodField()
+    ressources = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Job
+        fields = ['id', 'reference', 'status', 'emplacements', 'assignments', 'ressources']
+    
+    def get_emplacements(self, obj):
+        job_details = obj.jobdetail_set.select_related('location__sous_zone__zone').all()
+        return JobEmplacementDetailSerializer(job_details, many=True).data
+    
+    def get_assignments(self, obj):
+        assignments = obj.assigment_set.select_related('counting', 'session').all()
+        return JobAssignmentDetailSerializer(assignments, many=True).data
+    
+    def get_ressources(self, obj):
+        ressources = obj.jobdetailressource_set.select_related('ressource').all()
+        return JobRessourceSerializer(ressources, many=True).data 
+
+class PendingJobReferenceSerializer(serializers.Serializer):
+    """
+    Serializer pour les jobs en attente avec détails pour filtrage et pagination
+    """
+    id = serializers.IntegerField()
+    reference = serializers.CharField()
+    status = serializers.CharField()
+    created_at = serializers.DateTimeField()
+    inventory_id = serializers.IntegerField(source='inventory.id')
+    inventory_reference = serializers.CharField(source='inventory.reference')
+    inventory_label = serializers.CharField(source='inventory.label')
+    warehouse_id = serializers.IntegerField(source='warehouse.id')
+    warehouse_reference = serializers.CharField(source='warehouse.reference')
+    warehouse_name = serializers.CharField(source='warehouse.warehouse_name')
+    emplacements_count = serializers.SerializerMethodField()
+    assignments_count = serializers.SerializerMethodField()
+
+    def get_emplacements_count(self, obj):
+        return obj.jobdetail_set.count()
+
+    def get_assignments_count(self, obj):
+        return obj.assigment_set.count()
+
+class JobResetAssignmentsRequestSerializer(serializers.Serializer):
+    job_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        min_length=1,
+        help_text="Liste des IDs des jobs en attente à remettre en attente"
+    ) 

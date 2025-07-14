@@ -4,21 +4,14 @@ from .inventory_views import (
     InventoryDetailView,
     InventoryUpdateView,
     InventoryDeleteView,
-    InventorySoftDeleteView,
-    InventoryRestoreView,
-    InventoryCancelView
+    InventoryCancelView,
+    InventoryImportView,
+    StockImportView,
+    InventoryImportView
 )
 from .warehouse_views import InventoryWarehousesView
-from .job_views import (
-    InventoryJobCreateView,
-    InventoryJobRetrieveView,
-    InventoryJobUpdateView,
-    InventoryJobDeleteView
-)
-from .pda_views import InventoryPDAListView
-from .stock_views import (
-    StockImportExcelView
-)
+from .job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView
+# from .pda_views import InventoryPDAListView
 
 __all__ = [
     'InventoryListView',
@@ -26,16 +19,18 @@ __all__ = [
     'InventoryDetailView',
     'InventoryUpdateView',
     'InventoryDeleteView',
-    'InventorySoftDeleteView',
-    'InventoryRestoreView',
     'InventoryCancelView',
+    'InventoryImportView',
+    'StockImportView',
     'InventoryWarehousesView',
-    'InventoryJobCreateView',
-    'InventoryJobRetrieveView',
-    'InventoryJobUpdateView',
-    'InventoryJobDeleteView',
-    'InventoryPDAListView',
-    'StockImportExcelView'
+    'JobCreateAPIView',
+    'PendingJobsReferencesView',
+    'JobRemoveEmplacementsView',
+    'JobAddEmplacementsView',
+    'JobDeleteView',
+    'JobValidateView',
+    "InventoryImportView"
+    # 'InventoryPDAListView'
 ]
 
 # from .account_views import AccountListView

@@ -24,20 +24,6 @@ class InventoryRepository(IInventoryRepository):
             return Inventory.objects.filter(is_deleted=False).get(id=inventory_id)
         except Inventory.DoesNotExist:
             raise InventoryNotFoundError(f"L'inventaire avec l'ID {inventory_id} n'existe pas.")
-    
-    def get_by_id_deleted(self, inventory_id: int) -> Inventory:
-        """
-        Récupère un inventaire par son ID, en incluant les supprimés
-        """
-        try:
-            inventory = Inventory.objects.filter(id=inventory_id).first()
-            if inventory is None:
-                raise InventoryNotFoundError(f"L'inventaire avec l'ID {inventory_id} n'existe pas.")
-            return inventory
-        except Exception as e:
-            if isinstance(e, InventoryNotFoundError):
-                raise
-            raise InventoryNotFoundError(f"Erreur lors de la récupération de l'inventaire: {str(e)}")
 
     def get_by_filters(self, filters_dict: Dict[str, Any]) -> List[Any]:
         """
@@ -90,24 +76,48 @@ class InventoryRepository(IInventoryRepository):
                 inventory_data['status'] = 'EN PREPARATION'
             if 'date' not in inventory_data:
                 inventory_data['date'] = timezone.now()
+            
+            # S'assurer que la date de préparation est définie si le statut est EN PREPARATION
+            if inventory_data.get('status') == 'EN PREPARATION' and 'en_preparation_status_date' not in inventory_data:
+                inventory_data['en_preparation_status_date'] = timezone.now()
 
-            # Créer l'inventaire
-            inventory = Inventory.objects.create(**inventory_data)
+            # Créer l'objet Inventory sans sauvegarder
+            inventory = Inventory(**inventory_data)
+            
+            # Générer la référence manuellement
+            inventory.reference = inventory.generate_reference(inventory.REFERENCE_PREFIX)
+            
+            # Sauvegarder l'objet
+            inventory.save()
 
             # Ajouter les liens avec les entrepôts via Setting
             for warehouse_id in warehouse_ids:
-                Setting.objects.create(
+                # Créer l'objet Setting sans sauvegarder
+                setting = Setting(
                     inventory=inventory,
                     warehouse_id=warehouse_id,
                     account_id=account_id
                 )
+                
+                # Générer la référence manuellement
+                setting.reference = setting.generate_reference(setting.REFERENCE_PREFIX)
+                
+                # Sauvegarder l'objet
+                setting.save()
 
             # Ajouter les comptages
             for comptage in comptages:
-                Counting.objects.create(
+                # Créer l'objet Counting sans sauvegarder
+                counting = Counting(
                     inventory=inventory,
                     **comptage
                 )
+                
+                # Générer la référence manuellement
+                counting.reference = counting.generate_reference(counting.REFERENCE_PREFIX)
+                
+                # Sauvegarder l'objet
+                counting.save()
 
             return inventory
 
@@ -134,11 +144,18 @@ class InventoryRepository(IInventoryRepository):
                 inventory.awi_links.all().delete()
                 # Ajouter les nouvelles associations
                 for warehouse_id in warehouse_ids:
-                    Setting.objects.create(
+                    # Créer l'objet Setting sans sauvegarder
+                    setting = Setting(
                         inventory=inventory,
                         warehouse_id=warehouse_id,
                         account_id=account_id
                     )
+                    
+                    # Générer la référence manuellement
+                    setting.reference = setting.generate_reference(setting.REFERENCE_PREFIX)
+                    
+                    # Sauvegarder l'objet
+                    setting.save()
 
             # Mettre à jour les comptages si fournis
             if comptages is not None:
@@ -146,10 +163,17 @@ class InventoryRepository(IInventoryRepository):
                 inventory.countings.all().delete()
                 # Ajouter les nouveaux comptages
                 for comptage in comptages:
-                    Counting.objects.create(
+                    # Créer l'objet Counting sans sauvegarder
+                    counting = Counting(
                         inventory=inventory,
                         **comptage
                     )
+                    
+                    # Générer la référence manuellement
+                    counting.reference = counting.generate_reference(counting.REFERENCE_PREFIX)
+                    
+                    # Sauvegarder l'objet
+                    counting.save()
 
             return inventory
 
@@ -180,20 +204,13 @@ class InventoryRepository(IInventoryRepository):
         Restaure un inventaire qui a été soft deleted
         """
         try:
-            # Récupérer l'inventaire même s'il n'est pas marqué comme supprimé
-            inventory = self.get_by_id_deleted(inventory_id)
-            
-            # Si l'inventaire n'est pas supprimé, le considérer comme déjà restauré
-            if not inventory.is_deleted:
-                return inventory
-            
-            # Restaurer l'inventaire (marquer comme non supprimé)
+            inventory = Inventory.objects.get(id=inventory_id, is_deleted=True)
             inventory.is_deleted = False
             inventory.deleted_at = None
             inventory.save()
             return inventory
-        except InventoryNotFoundError:
-            raise InventoryNotFoundError(f"L'inventaire avec l'ID {inventory_id} n'existe pas.")
+        except Inventory.DoesNotExist:
+            raise InventoryNotFoundError(f"L'inventaire avec l'ID {inventory_id} n'existe pas ou n'est pas supprimé.")
 
     def get_deleted_inventories(self) -> List[Any]:
         """
@@ -321,6 +338,48 @@ class InventoryRepository(IInventoryRepository):
             is_deleted=False
         ).order_by('-created_at')
 
+    def get_warehouse_jobs_sessions_stats(self, inventory_id: int) -> List[Dict[str, Any]]:
+        """
+        Récupère les statistiques des warehouses avec count des jobs et sessions
+        
+        Args:
+            inventory_id: ID de l'inventaire
+            
+        Returns:
+            List[Dict[str, Any]]: Liste avec nom warehouse, count jobs et count sessions
+        """
+        from django.db.models import Count, Q
+        from ..models import Job, Assigment, Setting
+        
+        # Récupérer tous les warehouses associés à cet inventaire avec leurs statistiques
+        warehouse_stats = Setting.objects.filter(
+            inventory_id=inventory_id
+        ).select_related('warehouse').annotate(
+            jobs_count=Count(
+                'warehouse__job',
+                filter=Q(warehouse__job__inventory_id=inventory_id)
+            ),
+            sessions_count=Count(
+                'warehouse__job__assigment__session',
+                filter=Q(
+                    warehouse__job__inventory_id=inventory_id,
+                    warehouse__job__assigment__session__isnull=False,
+                    warehouse__job__assigment__session__type='Mobile'
+                ),
+                distinct=True
+            )
+        )
+        
+        result = []
+        for setting in warehouse_stats:
+            result.append({
+                'nom_warehouse': setting.warehouse.warehouse_name,
+                'jobs_count': setting.jobs_count,
+                'sessions_count': setting.sessions_count
+            })
+        
+        return result
+
     def update_status(self, inventory_id: int, new_status: str) -> Any:
         """
         Met à jour le statut d'un inventaire
@@ -334,7 +393,7 @@ class InventoryRepository(IInventoryRepository):
         elif new_status == 'EN REALISATION':
             inventory.en_realisation_status_date = timezone.now()
         elif new_status == 'TERMINE':
-            inventory.ternime_status_date = timezone.now()
+            inventory.termine_status_date = timezone.now()
         elif new_status == 'CLOTURE':
             inventory.cloture_status_date = timezone.now()
         

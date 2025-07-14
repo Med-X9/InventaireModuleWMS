@@ -106,15 +106,24 @@ WSGI_APPLICATION = 'project.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
+<<<<<<< HEAD
         'NAME': config('POSTGRES_DB'),
         'USER': config('POSTGRES_USER'),
         'PASSWORD': config('POSTGRES_PASSWORD'),
         'HOST': config('DB_HOST'),
         'PORT': config('DB_PORT'),
+=======
+        'NAME': config('POSTGRES_DB', default='inventairedb'),
+        'USER': config('POSTGRES_USER', default='postgres'),
+        'PASSWORD': config('POSTGRES_PASSWORD', default='root'),
+        'HOST': config('POSTGRES_HOST', default='127.0.0.1'),
+        'PORT': config('POSTGRES_PORT', default='5432'),
+
+>>>>>>> dev
     }
 }
 DEFAULT_CHARSET = 'utf-8'
-AUTH_USER_MODEL = 'users.UserWeb'
+AUTH_USER_MODEL = 'users.UserApp'
 
 
 AUTH_USER_MODEL = 'users.UserWeb'
@@ -251,7 +260,7 @@ JAZZMIN_SETTINGS = {
     # Additional links to include in the user menu on the top right ("app" url type is not allowed)
     "usermenu_links": [
         # {"name": "Support", "url": "https://github.com/farridav/django-jazzmin/issues", "new_window": True},
-        {"model": "users.UserWeb"}
+        {"model": "users.UserApp"}
     ],
 
     #############
@@ -273,12 +282,13 @@ JAZZMIN_SETTINGS = {
     # List of apps (and/or models) to base side menu ordering off of (does not need to contain all apps/models)
     "order_with_respect_to": [
        
-        "users.UserWeb",
+        "users.UserApp",
         "masterdata.Account",
         "masterdata.Family",
         "masterdata.Warehouse",
         "masterdata.ZoneType",
         "masterdata.Zone",
+        "masterdata.SousZone",
         "masterdata.LocationType",
         "masterdata.Location",
         "masterdata.Product",
@@ -306,7 +316,7 @@ JAZZMIN_SETTINGS = {
     "auth": "fas fa-users-cog",
     "auth.user": "fas fa-user",
     "auth.Group": "fas fa-users",
-    "users.UserWeb": "fas fa-user-shield",
+    "users.UserApp": "fas fa-user-shield",
 
     # Master Data
     "masterdata.Account": "fas fa-user-circle",
@@ -353,9 +363,9 @@ JAZZMIN_SETTINGS = {
     # - carousel
     "changeform_format": "horizontal_tabs",
     # override change forms on a per modeladmin basis
-    "changeform_format_overrides": {"users.UserWeb": "collapsible", "auth.group": "vertical_tabs"},
+    "changeform_format_overrides": {"users.UserApp": "collapsible", "auth.group": "vertical_tabs"},
     # Add a language dropdown into the admin
-    "language_chooser": False,
+    "language_chooser": True,
 }
 
 
@@ -392,6 +402,7 @@ JAZZMIN_UI_TWEAKS = {
 }
 
 # Security settings
+<<<<<<< HEAD
 SECURE_SSL_REDIRECT = config('DJANGO_SECURE_SSL_REDIRECT', default=True, cast=bool)
 SESSION_COOKIE_SECURE = config('DJANGO_SESSION_COOKIE_SECURE', default=True, cast=bool)
 CSRF_COOKIE_SECURE = config('DJANGO_CSRF_COOKIE_SECURE', default=True, cast=bool)
@@ -399,6 +410,15 @@ SECURE_HSTS_SECONDS = config('SECURE_HSTS_SECONDS', default=31536000, cast=int)
 SECURE_HSTS_INCLUDE_SUBDOMAINS = config('SECURE_HSTS_INCLUDE_SUBDOMAINS', default=True, cast=bool)
 SECURE_HSTS_PRELOAD = config('SECURE_HSTS_PRELOAD', default=True, cast=bool)
 CSRF_TRUSTED_ORIGINS = config('DJANGO_CSRF_TRUSTED_ORIGINS', cast=Csv())
+=======
+SECURE_SSL_REDIRECT = False
+SESSION_COOKIE_SECURE = False
+CSRF_COOKIE_SECURE = False
+# SECURE_HSTS_SECONDS = 0
+# SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+# SECURE_HSTS_PRELOAD = False
+# CSRF_TRUSTED_ORIGINS = []
+>>>>>>> dev
 
 # Email configuration
 EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.smtp.EmailBackend')
@@ -458,7 +478,7 @@ REST_FRAMEWORK = {
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
-    'ROTATE_REFRESH_TOKENS': True,
+    'ROTATE_REFRESH_TOKENS': False, # Désactivé pour permettre le refresh à chaque requête
     'BLACKLIST_AFTER_ROTATION': True,
     'UPDATE_LAST_LOGIN': True,
 
@@ -477,4 +497,46 @@ SIMPLE_JWT = {
     'TOKEN_TYPE_CLAIM': 'token_type',
 
     'JTI_CLAIM': 'jti',
+}
+
+# Swagger settings
+SWAGGER_SETTINGS = {
+    'SECURITY_DEFINITIONS': {
+        'Bearer': {
+            'type': 'apiKey',
+            'name': 'Authorization',
+            'in': 'header',
+            'description': 'Utilisez le format: Bearer <token>'
+        }
+    },
+    'USE_SESSION_AUTH': False,
+    'JSON_EDITOR': True,
+    'SUPPORTED_SUBMIT_METHODS': [
+        'get',
+        'post',
+        'put',
+        'delete',
+        'patch'
+    ],
+    'OPERATIONS_SORTER': 'alpha',
+    'TAGS_SORTER': 'alpha',
+    'DOC_EXPANSION': 'none',
+    'DEFAULT_MODEL_RENDERING': 'example',
+    'DEEP_LINKING': True,
+    'DISPLAY_OPERATION_ID': False,
+    'DEFAULT_INFO': 'project.urls.api_info',
+    'SCHEME': 'http',
+}
+
+# Redoc settings (alternative à Swagger)
+REDOC_SETTINGS = {
+    'LAZY_RENDERING': False,
+    'HIDE_HOSTNAME': False,
+    'EXPAND_RESPONSES': '200,201',
+    'HIDE_DOWNLOAD_BUTTON': False,
+    'JSON_EDITOR': True,
+    'REQUIRED_PROPS_FIRST': True,
+    'SORT_PROPS_ALPHABETICALLY': True,
+    'TAG_SORTING': 'alpha',
+    'OPERATION_SORTING': 'alpha',
 }

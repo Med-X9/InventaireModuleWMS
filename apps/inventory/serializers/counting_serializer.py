@@ -5,23 +5,13 @@ class CountingCreateSerializer(serializers.ModelSerializer):
     """Serializer pour la création des comptages."""
     class Meta:
         model = Counting
-        fields = [
-            'order', 'count_mode', 'unit_scanned', 'entry_quantity', 
-            'is_variant', 'n_lot', 'n_serie', 'dlc', 'show_product',
-            'stock_situation', 'quantity_show'
-        ]
+        fields = ['order', 'count_mode', 'unit_scanned', 'entry_quantity', 'stock_situation', 'is_variant']
 
 class CountingDetailSerializer(serializers.ModelSerializer):
     """Serializer pour les détails des comptages."""
     class Meta:
         model = Counting
-        fields = [
-            'id', 'reference', 'order', 'count_mode', 
-            'unit_scanned', 'entry_quantity', 'is_variant',
-            'n_lot', 'n_serie', 'dlc', 'show_product',
-            'stock_situation', 'quantity_show', 'inventory',
-            'created_at', 'updated_at'
-        ]
+        fields = ['order', 'count_mode', 'unit_scanned', 'entry_quantity', 'stock_situation', 'is_variant', 'n_lot', 'n_serie', 'dlc', 'show_product', 'quantity_show']
 
 class CountingSerializer(serializers.ModelSerializer):
     class Meta:
@@ -40,3 +30,30 @@ class CountingSerializer(serializers.ModelSerializer):
         if instance.stock_situation:
             data['stock_situation'] = True
         return data 
+
+class CountingModeFieldsSerializer(serializers.ModelSerializer):
+    champs_actifs = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Counting
+        fields = ['order', 'count_mode', 'champs_actifs']
+
+    def get_champs_actifs(self, obj):
+        if obj.count_mode == 'image de stock':
+            return []
+        mapping = {
+            'unit_scanned': 'Unité scannée',
+            'entry_quantity': 'Saisie quantité',
+            'stock_situation': 'Situation de stock',
+            'is_variant': 'Variante',
+            'n_lot': 'N° lot',
+            'n_serie': 'N° série',
+            'dlc': 'DLC',
+            'show_product': 'Afficher produit',
+            'quantity_show': 'Afficher quantité',
+        }
+        actifs = []
+        for field, label in mapping.items():
+            if getattr(obj, field, False):
+                actifs.append(label)
+        return actifs 

@@ -17,7 +17,7 @@ class UserService:
             logger.info("Récupération de tous les utilisateurs mobiles")
             
             # Récupérer tous les utilisateurs de type mobile
-            users = User.objects.filter(user_type='MOBILE')
+            users = User.objects.filter(type='Mobile')
             
             if not users.exists():
                 logger.info("Aucun utilisateur mobile trouvé")
