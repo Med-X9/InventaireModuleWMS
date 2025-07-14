@@ -30,7 +30,14 @@ class InventoryResourceRepository(IInventoryResourceRepository):
     
     def create_inventory_resource(self, assignment_data: Dict[str, Any]) -> InventoryDetailRessource:
         """Crée une nouvelle affectation ressource-inventaire"""
-        return InventoryDetailRessource.objects.create(**assignment_data)
+        # Supprimer la clé 'reference' si elle existe et est vide ou None
+        if 'reference' in assignment_data and not assignment_data['reference']:
+            assignment_data.pop('reference')
+        inventory_resource = InventoryDetailRessource(**assignment_data)
+        # Générer la référence manuellement
+        inventory_resource.reference = inventory_resource.generate_reference(inventory_resource.REFERENCE_PREFIX)
+        inventory_resource.save()
+        return inventory_resource
     
     def update_inventory_resource(self, inventory_resource: InventoryDetailRessource, **kwargs) -> None:
         """Met à jour une affectation ressource-inventaire"""
