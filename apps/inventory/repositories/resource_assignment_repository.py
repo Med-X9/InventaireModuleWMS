@@ -30,7 +30,9 @@ class ResourceAssignmentRepository(IResourceAssignmentRepository):
     
     def create_job_resource(self, assignment_data: Dict[str, Any]) -> JobDetailRessource:
         """Crée une nouvelle affectation ressource-job"""
-        return JobDetailRessource.objects.create(**assignment_data)
+        job_resource = JobDetailRessource(**assignment_data)
+        job_resource.save()
+        return job_resource
     
     def update_job_resource(self, job_resource: JobDetailRessource, **kwargs) -> None:
         """Met à jour une affectation ressource-job"""

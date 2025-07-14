@@ -116,6 +116,7 @@ class AssignJobsToCountingView(APIView):
                 'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+
 class AssignResourcesToInventoryView(APIView):
     """
     Affecte des ressources à un inventaire.

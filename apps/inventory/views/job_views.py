@@ -115,6 +115,7 @@ class JobValidateView(APIView):
 
 class JobReadyView(APIView):
     def post(self, request):
+        print(request.data)
         serializer = JobReadyRequestSerializer(data=request.data)
         if not serializer.is_valid():
             # Formater les erreurs de manière sécurisée
@@ -141,7 +142,6 @@ class JobReadyView(APIView):
             return Response({
                 'success': True,
                 'message': result['message'],
-                'data': result
             }, status=status.HTTP_200_OK)
         except JobCreationError as e:
             return Response({
