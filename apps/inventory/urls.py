@@ -15,6 +15,7 @@ from .views.inventory_views import (
 )
 from apps.inventory.views import InventoryWarehousesView
 from .views.job_views import (
+    JobBatchAssignmentView,
     JobCreateAPIView, 
     PendingJobsReferencesView, 
     JobRemoveEmplacementsView, 
@@ -89,6 +90,8 @@ urlpatterns = [
     # ========================================
     
     path('inventory/<int:inventory_id>/assign-jobs/', AssignJobsToCountingView.as_view(), name='assign-jobs-to-counting'),
+    path('inventory/assign-jobs-manual/', JobBatchAssignmentView.as_view(), name='assign-jobs-manual'),
+
     
     # ========================================
     # URLs POUR L'AFFECTATION DES RESSOURCES AUX JOBS
@@ -104,4 +107,9 @@ urlpatterns = [
     
     path('inventory/<int:inventory_id>/assign-resources-inventory/', AssignResourcesToInventoryView.as_view(), name='assign-resources-to-inventory'),
     path('inventory/<int:inventory_id>/resources/', InventoryResourcesView.as_view(), name='get-inventory-resources'),
+    
+
+    # Nouvelle URL pour les jobs validés d'un entrepôt et d'un inventaire spécifique
+    
+    # URL pour lister les jobs en attente
 ]
