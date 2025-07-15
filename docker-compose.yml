@@ -20,6 +20,7 @@ services:
       - static_volume:/app/staticfiles
       - media_volume:/app/media
       - logs_volume:/app/logs
+      - static_dir:/app/static
     ports:
       - "8000:8000"
     env_file: .env
@@ -54,3 +55,4 @@ volumes:
   static_volume:
   media_volume:
   logs_volume:
+  static_dir:
