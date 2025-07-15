@@ -10,7 +10,7 @@ from ..models import Counting, Inventory
 from ..usecases import CountingByArticle, CountingByInBulk, CountingByStockimage
 
 class CountingService(ICountingService):
-    """Service pour la gestion des comptages d'inventaire."""
+    """Service pour la gestion des comptages d'inventaire."""   
     
     def __init__(self, repository: InventoryRepository = None):
         self.repository = repository or InventoryRepository()
