@@ -3,7 +3,7 @@ Service pour la gestion des comptages d'inventaire.
 """
 from typing import Dict, Any, List
 from django.utils import timezone
-from ..interfaces.counting_interface import ICountingService
+from ..interfaces.inventory_interface import ICountingService
 from ..repositories import InventoryRepository
 from ..exceptions import CountingValidationError
 from ..models import Counting, Inventory

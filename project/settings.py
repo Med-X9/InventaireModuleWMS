@@ -14,7 +14,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-
 SECRET_KEY = config('DJANGO_SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
@@ -64,15 +63,13 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'django.middleware.locale.LocaleMiddleware', 
-
     'project.middleware.ActionLoggingMiddleware',
 ]
 
 
 CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=False, cast=bool)
 
-CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', cast=Csv())
-CORS_ALLOW_CREDENTIALS = config('CORS_ALLOW_CREDENTIALS', default=True, cast=bool)
+CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='', cast=Csv())
 CORS_ALLOW_HEADERS = list(default_headers) + [
     'authorization',
 ]
@@ -106,16 +103,15 @@ WSGI_APPLICATION = 'project.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('POSTGRES_DB'),
-        'USER': config('POSTGRES_USER'),
-        'PASSWORD': config('POSTGRES_PASSWORD'),
-        'HOST': config('DB_HOST'),
-        'PORT': config('DB_PORT'),
+        'NAME': config('POSTGRES_DB', default='inventairedb'),
+        'USER': config('POSTGRES_USER', default='postgres'),
+        'PASSWORD': config('POSTGRES_PASSWORD', default='root'),
+        'HOST': config('POSTGRES_HOST', default='127.0.0.1'),
+        'PORT': config('POSTGRES_PORT', default='5432'),
 
     }
 }
 DEFAULT_CHARSET = 'utf-8'
-
 AUTH_USER_MODEL = 'users.UserApp'
 
 
@@ -161,11 +157,10 @@ LANGUAGE_CODE = 'en'
 
 
 # Static files (CSS, JavaScript, Images)
-STATIC_URL = config('DJANGO_STATIC_URL', default='/static/')
-
+STATIC_URL = '/static/'
 
 # Répertoire où Django collecte les fichiers statiques
-STATIC_ROOT = config('DJANGO_STATIC_ROOT', default=os.path.join(BASE_DIR, 'staticfiles'))
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 # Si vous avez des fichiers statiques personnalisés dans votre projet (ex : CSS ou JS spécifiques)
 STATICFILES_DIRS = [
@@ -174,8 +169,8 @@ STATICFILES_DIRS = [
 
 
 # Media files
-MEDIA_URL = config('DJANGO_MEDIA_URL', default='/media/')
-MEDIA_ROOT = config('DJANGO_MEDIA_ROOT', default=os.path.join(BASE_DIR, 'media'))
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -339,7 +334,6 @@ JAZZMIN_SETTINGS = {
     # Whether to link font from fonts.googleapis.com (use custom_css to supply font otherwise)
     "use_google_fonts_cdn": True,
     # Whether to show the UI customizer on the sidebar
-
     "show_ui_builder": False,
 
     ###############
@@ -392,7 +386,6 @@ JAZZMIN_UI_TWEAKS = {
 }
 
 # Security settings
-
 SECURE_SSL_REDIRECT = False
 SESSION_COOKIE_SECURE = False
 CSRF_COOKIE_SECURE = False
@@ -402,7 +395,7 @@ CSRF_COOKIE_SECURE = False
 # CSRF_TRUSTED_ORIGINS = []
 
 # Email configuration
-EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.smtp.EmailBackend')
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = config('EMAIL_HOST')
 EMAIL_PORT = config('EMAIL_PORT', cast=int)
 EMAIL_HOST_USER = config('EMAIL_HOST_USER')
@@ -459,7 +452,7 @@ REST_FRAMEWORK = {
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
-    'ROTATE_REFRESH_TOKENS': True,
+    'ROTATE_REFRESH_TOKENS': False, # Désactivé pour permettre le refresh à chaque requête
     'BLACKLIST_AFTER_ROTATION': True,
     'UPDATE_LAST_LOGIN': True,
 

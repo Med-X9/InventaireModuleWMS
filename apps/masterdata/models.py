@@ -301,11 +301,10 @@ class UnitOfMeasure(CodeGeneratorMixin, TimeStampedModel):
     def __str__(self):
         return self.name
 
-class Stock(CodeGeneratorMixin,TimeStampedModel):
+class Stock(TimeStampedModel):
     """
     Modèle pour les stocks
     """
-    CODE_PREFIX = 'STK'
     reference = models.CharField(unique=True, max_length=20)
     location = models.ForeignKey(Location, on_delete=models.CASCADE)
     product = models.ForeignKey(Product, on_delete=models.CASCADE,blank=True,null=True)
@@ -317,6 +316,14 @@ class Stock(CodeGeneratorMixin,TimeStampedModel):
     inventory = models.ForeignKey('inventory.Inventory', on_delete=models.CASCADE)
     history = HistoricalRecords()
 
+    def save(self, *args, **kwargs):
+        if not self.reference:
+            # Générer une référence unique basée sur l'ID et le timestamp
+            timestamp = int(self.created_at.timestamp())
+            data_to_hash = f"STK{self.id}{timestamp}"
+            hash_value = hashlib.sha256(data_to_hash.encode()).hexdigest()[:8].upper()
+            self.reference = f"STK-{timestamp}-{self.id}-{hash_value}"
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.product.Short_Description} - {self.location.location_reference}"
