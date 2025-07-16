@@ -265,7 +265,7 @@ class Product(CodeGeneratorMixin, TimeStampedModel):
     Short_Description = models.CharField(_('Désignation'), max_length=100)
     Barcode = models.CharField(_('Code-barres'), unique=True, max_length=30, null=True, blank=True)
     Product_Group = models.CharField(_('Groupe de produit'), max_length=10,null=True, blank=True)
-    Stock_Unit = models.CharField(_('Unité de stock'), max_length=3)
+    Stock_Unit = models.CharField(_('Unité de stock'), max_length=30)
     Product_Status = models.CharField(_('Statut'), choices=STATUS_CHOICES)  
     Product_Family = models.ForeignKey(Family, on_delete=models.CASCADE, verbose_name=_('Famille de produit'))
     Is_Variant = models.BooleanField(_('variante'),default=False)

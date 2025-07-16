@@ -11,6 +11,7 @@ from django.contrib import admin
 from import_export.admin import ImportExportModelAdmin
 from import_export import resources, fields, widgets
 from import_export.formats.base_formats import XLSX, CSV, XLS
+from import_export.widgets import ForeignKeyWidget
 
 from .models import (
     Account, Family, Warehouse, ZoneType, Zone,
@@ -22,8 +23,13 @@ from apps.users.models import UserApp
 # ---------------- Resources ---------------- #
 
 class AccountResource(resources.ModelResource):
+    account_name = fields.Field(column_name='account_name', attribute='account_name')
+    account_statuts = fields.Field(column_name='account_statuts', attribute='account_statuts')
+
     class Meta:
         model = Account
+        fields = ('account_name', 'account_statuts')
+        import_id_fields = ('account_name',)
 
 
 
@@ -111,71 +117,155 @@ class StockUnitWidget(widgets.CharWidget):
         return str(value)[:3].upper()
 
 class FamilyResource(resources.ModelResource):
-    compte_name = fields.Field(column_name='compte', attribute='compte', widget=widgets.CharWidget())
+    compte = fields.Field(
+        column_name='nom de compte',
+        attribute='compte',
+        widget=ForeignKeyWidget(Account, 'account_name')
+    )
+    name = fields.Field(
+        column_name='nom de famille',
+        attribute='family_name'
+    )
+    statut = fields.Field(
+        column_name='statut',
+        attribute='family_status'
+    )
+
     class Meta:
         model = Family
-        fields = ('family_name', 'family_status', 'family_description', 'compte_name')
+        fields = ('name', 'compte', 'statut')
+        import_id_fields = ('name',)
 
 class WarehouseResource(resources.ModelResource):
+    name = fields.Field(column_name='nom de warehouse', attribute='warehouse_name')
+    type = fields.Field(column_name='type', attribute='warehouse_type')
+    statut = fields.Field(column_name='statut', attribute='status')
+    description = fields.Field(column_name='description', attribute='description')
+    adresse = fields.Field(column_name='adresse', attribute='address')
     class Meta:
         model = Warehouse
+        fields = ('name', 'type', 'statut', 'description', 'adresse')
+        import_id_fields = ('name',)
 
 class ZoneTypeResource(resources.ModelResource):
+    name = fields.Field(column_name='nom de type', attribute='type_name')
+    statut = fields.Field(column_name='statut', attribute='status')
+    description = fields.Field(column_name='description', attribute='description')
     class Meta:
         model = ZoneType
+        fields = ('name', 'statut', 'description')
+        import_id_fields = ('name',)
 
 class ZoneResource(resources.ModelResource):
-    zone_type_name = fields.Field(column_name='zone_type', attribute='zone_type', widget=widgets.CharWidget())
-    warehouse_name = fields.Field(column_name='warehouse', attribute='warehouse', widget=widgets.CharWidget())
+    name = fields.Field(column_name='nom de zone', attribute='zone_name')
+    statut = fields.Field(column_name='statut', attribute='zone_status')
+    description = fields.Field(column_name='description', attribute='description')
+    type = fields.Field(column_name='type de zone', attribute='zone_type', widget=ForeignKeyWidget(ZoneType, 'type_name'))
+    warehouse = fields.Field(column_name='warehouse', attribute='warehouse', widget=ForeignKeyWidget(Warehouse, 'warehouse_name'))
     class Meta:
         model = Zone
-        fields = ('zone_name', 'zone_status', 'description', 'zone_type_name', 'warehouse_name')
+        fields = ('name', 'statut', 'description', 'type', 'warehouse')
+        import_id_fields = ('name',)
 
 class SousZoneResource(resources.ModelResource):
-    zone_name = fields.Field(column_name='zone', attribute='zone', widget=widgets.CharWidget())
+    name = fields.Field(column_name='nom de sous-zone', attribute='sous_zone_name')
+    statut = fields.Field(column_name='statut', attribute='sous_zone_status')
+    description = fields.Field(column_name='description', attribute='description')
+    zone = fields.Field(column_name='zone', attribute='zone', widget=ForeignKeyWidget(Zone, 'zone_name'))
     class Meta:
         model = SousZone
-        fields = ('sous_zone_name', 'sous_zone_status', 'description', 'zone_name')
+        fields = ('name', 'statut', 'description', 'zone')
+        import_id_fields = ('name',)
 
 class LocationTypeResource(resources.ModelResource):
+    name = fields.Field(column_name='nom de type', attribute='name')
+    actif = fields.Field(column_name='actif', attribute='is_active')
+    description = fields.Field(column_name='description', attribute='description')
     class Meta:
         model = LocationType
+        fields = ('name', 'actif', 'description')
+        import_id_fields = ('name',)
 
 class LocationResource(resources.ModelResource):
-    location_type_name = fields.Field(column_name='location_type', attribute='location_type', widget=widgets.CharWidget())
-    sous_zone_name = fields.Field(column_name='sous_zone', attribute='sous_zone', widget=widgets.CharWidget())
+    location_type = fields.Field(
+        column_name='location type',
+        attribute='location_type',
+        widget=ForeignKeyWidget(LocationType, 'name')
+    )
+    sous_zone = fields.Field(
+        column_name='sous zone',
+        attribute='sous_zone',
+        widget=ForeignKeyWidget(SousZone, 'sous_zone_name')
+    )
+    location_reference = fields.Field(
+        column_name='location reference',
+        attribute='location_reference'
+    )
+
     class Meta:
         model = Location
-        fields = ('location_reference', 'capacity', 'is_active', 'description', 'location_type_name', 'sous_zone_name')
+        fields = ('location_reference', 'location_type', 'sous_zone')
+        import_id_fields = ('location_reference',)
 
 class ProductResource(resources.ModelResource):
-    product_family_name = fields.Field(column_name='product_family', attribute='Product_Family', widget=widgets.CharWidget())
-    parent_product_reference = fields.Field(column_name='parent_product', attribute='parent_product', widget=widgets.CharWidget())
+    short_description = fields.Field(column_name='short description', attribute='Short_Description')
+    barcode = fields.Field(column_name='barcode', attribute='Barcode')
+    product_group = fields.Field(column_name='product group', attribute='Product_Group')
+    stock_unit = fields.Field(column_name='stock unit', attribute='Stock_Unit')
+    product_status = fields.Field(column_name='product status', attribute='Product_Status')
+    internal_product_code = fields.Field(column_name='internal product code', attribute='Internal_Product_Code')
+    product_family = fields.Field(column_name='product family', attribute='Product_Family', widget=ForeignKeyWidget(Family, 'family_name'))
+
     class Meta:
         model = Product
-        fields = ('reference', 'Short_Description', 'Barcode', 'Product_Group', 'Stock_Unit', 'Product_Status', 'Internal_Product_Code', 'product_family_name', 'parent_product_reference', 'Is_Variant')
+        fields = ('short_description', 'barcode', 'product_group', 'stock_unit', 'product_status', 'internal_product_code', 'product_family')
+        import_id_fields = ('barcode',)
 
 class UnitOfMeasureResource(resources.ModelResource):
+    name = fields.Field(column_name='nom', attribute='name')
+    description = fields.Field(column_name='description', attribute='description')
     class Meta:
         model = UnitOfMeasure
+        fields = ('name', 'description')
+        import_id_fields = ('name',)
 
 class StockResource(resources.ModelResource):
-    location_reference = fields.Field(column_name='location', attribute='location', widget=widgets.CharWidget())
-    product_reference = fields.Field(column_name='product', attribute='product', widget=widgets.CharWidget())
-    unit_of_measure_name = fields.Field(column_name='unit_of_measure', attribute='unit_of_measure', widget=widgets.CharWidget())
+    reference = fields.Field(column_name='référence', attribute='reference')
+    emplacement = fields.Field(column_name='emplacement', attribute='location', widget=ForeignKeyWidget(Location, 'location_reference'))
+    article = fields.Field(column_name='article', attribute='product', widget=ForeignKeyWidget(Product, 'reference'))
+    quantite = fields.Field(column_name='quantité', attribute='quantity_available')
+    reservee = fields.Field(column_name='réservée', attribute='quantity_reserved')
+    transit = fields.Field(column_name='transit', attribute='quantity_in_transit')
+    reception = fields.Field(column_name='réception', attribute='quantity_in_receiving')
+    unite = fields.Field(column_name='unité', attribute='unit_of_measure', widget=ForeignKeyWidget(UnitOfMeasure, 'name'))
+    inventaire = fields.Field(column_name='inventaire', attribute='inventory')
     class Meta:
         model = Stock
-        fields = ('location_reference', 'product_reference', 'quantity_available', 'quantity_reserved', 'quantity_in_transit', 'quantity_in_receiving', 'unit_of_measure_name', 'inventory')
+        fields = ('reference', 'emplacement', 'article', 'quantite', 'reservee', 'transit', 'reception', 'unite', 'inventaire')
+        import_id_fields = ('reference',)
 
 class TypeRessourceResource(resources.ModelResource):
+    nom = fields.Field(column_name='nom', attribute='libelle')
+
     class Meta:
         model = TypeRessource
+        fields = ('nom',)
+        import_id_fields = ('nom',)
 
 class RessourceResource(resources.ModelResource):
-    type_ressource_libelle = fields.Field(column_name='type_ressource', attribute='type_ressource', widget=widgets.CharWidget())
+    libelle = fields.Field(column_name='libelle', attribute='libelle')
+    description = fields.Field(column_name='description', attribute='description')
+    status = fields.Field(column_name='status', attribute='status')
+    type_ressource = fields.Field(
+        column_name='type ressource',
+        attribute='type_ressource',
+        widget=ForeignKeyWidget(TypeRessource, 'libelle')
+    )
+
     class Meta:
         model = Ressource
-        fields = ('libelle', 'description', 'status', 'type_ressource_libelle')
+        fields = ('libelle', 'description', 'status', 'type_ressource')
+        import_id_fields = ('libelle',)
 
 
 # ---------------- Admins ---------------- #
@@ -478,6 +568,7 @@ class StockAdmin(ImportExportModelAdmin):
         'quantity_in_transit',
         'quantity_in_receiving',
         'get_unit_of_measure_name',
+        'get_inventory_reference',  # Ajout de la colonne référence inventaire
     )
     search_fields = (
         'location__location_reference',
@@ -487,6 +578,9 @@ class StockAdmin(ImportExportModelAdmin):
     )
     exclude = ('created_at', 'updated_at', 'deleted_at', 'is_deleted', 'reference')
     readonly_fields = ('reference',)
+
+    def has_import_permission(self, request):
+        return False
 
     def get_location_name(self, obj):
         return obj.location.location_reference if obj.location else '-'
@@ -502,6 +596,10 @@ class StockAdmin(ImportExportModelAdmin):
         return obj.unit_of_measure.name if obj.unit_of_measure else '-'
     get_unit_of_measure_name.short_description = 'Unit of Measure'
     get_unit_of_measure_name.admin_order_field = 'unit_of_measure__name'
+
+    def get_inventory_reference(self, obj):
+        return obj.inventory.reference if obj.inventory else '-'
+    get_inventory_reference.short_description = 'Réf. inventaire'
 
     def get_form(self, request, obj=None, **kwargs):
         form = super().get_form(request, obj, **kwargs)
