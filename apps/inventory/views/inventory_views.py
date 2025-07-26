@@ -25,6 +25,7 @@ from ..repositories import InventoryRepository
 from ..interfaces import IInventoryRepository
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
+from apps.inventory.usecases.inventory_launch_validation import InventoryLaunchValidationUseCase
 
 # Configuration du logger
 logger = logging.getLogger(__name__)
@@ -273,6 +274,8 @@ class InventoryLaunchView(APIView):
         Lance un inventaire en vérifiant le mode de comptage et en remplissant les détails si nécessaire.
         """
         try:
+            # Validation métier avant lancement via le service
+            self.service.validate_launch_inventory(pk)
             self.service.launch_inventory(pk)
             return Response({
                 "message": "L'inventaire a été lancé avec succès"

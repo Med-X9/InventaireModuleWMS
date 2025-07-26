@@ -10,6 +10,7 @@ from django.db import IntegrityError
 import logging
 from .counting_service import CountingService
 from apps.masterdata.models import Warehouse
+from apps.inventory.usecases.inventory_launch_validation import InventoryLaunchValidationUseCase
 
 # Configuration du logger
 logger = logging.getLogger(__name__)
@@ -471,5 +472,12 @@ class InventoryService:
         except Exception as e:
             logger.error(f"Erreur lors de la récupération des statistiques warehouse: {str(e)}", exc_info=True)
             raise InventoryValidationError(f"Erreur lors de la récupération des statistiques warehouse: {str(e)}")
+
+    def validate_launch_inventory(self, inventory_id: int) -> None:
+        """
+        Valide le lancement d'un inventaire via le usecase métier.
+        """
+        validator = InventoryLaunchValidationUseCase()
+        validator.validate(inventory_id)
 
     
