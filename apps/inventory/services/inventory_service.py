@@ -334,7 +334,7 @@ class InventoryService:
             # soit il y a des comptages en mode "Liste emplacement et article" et les stocks existent
             # On peut donc lancer l'inventaire
             inventory.status = 'EN REALISATION'
-            inventory.lunch_status_date = timezone.now()
+            inventory.en_realisation_status_date = timezone.now()
             inventory.save()
             
         except InventoryNotFoundError:
@@ -473,11 +473,11 @@ class InventoryService:
             logger.error(f"Erreur lors de la récupération des statistiques warehouse: {str(e)}", exc_info=True)
             raise InventoryValidationError(f"Erreur lors de la récupération des statistiques warehouse: {str(e)}")
 
-    def validate_launch_inventory(self, inventory_id: int) -> None:
+    def validate_launch_inventory(self, inventory_id: int) -> Dict[str, Any]:
         """
         Valide le lancement d'un inventaire via le usecase métier.
         """
         validator = InventoryLaunchValidationUseCase()
-        validator.validate(inventory_id)
+        return validator.validate(inventory_id)
 
     

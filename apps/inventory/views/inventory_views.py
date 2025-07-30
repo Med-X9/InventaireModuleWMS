@@ -275,17 +275,34 @@ class InventoryLaunchView(APIView):
         """
         try:
             # Validation métier avant lancement via le service
-            self.service.validate_launch_inventory(pk)
+            validation_result = self.service.validate_launch_inventory(pk)
             self.service.launch_inventory(pk)
-            return Response({
+            
+            # Préparer la réponse avec les informations de validation
+            response_data = {
                 "message": "L'inventaire a été lancé avec succès"
-            }, status=status.HTTP_200_OK)
+            }
+            
+            # Ajouter les messages d'information s'ils existent
+            if validation_result and 'infos' in validation_result:
+                response_data['infos'] = validation_result['infos']
+            
+            return Response(response_data, status=status.HTTP_200_OK)
         except InventoryNotFoundError as e:
             logger.warning(f"Inventaire non trouvé lors du lancement: {str(e)}")
             return Response({"error": str(e)}, status=status.HTTP_404_NOT_FOUND)
         except InventoryValidationError as e:
             logger.warning(f"Erreur de validation lors du lancement: {str(e)}")
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            # Séparer les erreurs multiples si elles sont séparées par " | "
+            error_message = str(e)
+            if " | " in error_message:
+                errors = error_message.split(" | ")
+                return Response({
+                    "errors": errors,
+                    "message": "Plusieurs erreurs de validation ont été détectées"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                return Response({"error": error_message}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             logger.error(f"Erreur lors du lancement de l'inventaire: {str(e)}", exc_info=True)
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -676,6 +693,13 @@ class StockImportView(APIView):
                 'success': False,
                 'message': str(e)
             }, status=status.HTTP_404_NOT_FOUND)
+            
+        except StockValidationError as e:
+            logger.warning(f"Erreur de validation lors de l'import de stocks: {str(e)}")
+            return Response({
+                'success': False,
+                'message': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
             
         except Exception as e:
             logger.error(f"Erreur lors de l'import de stocks: {str(e)}", exc_info=True)

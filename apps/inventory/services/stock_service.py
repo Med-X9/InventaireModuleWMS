@@ -6,6 +6,7 @@ from ..interfaces.stock_interface import IStockService
 from ..repositories.stock_repository import StockRepository
 from ..repositories import InventoryRepository
 from apps.masterdata.models import Stock, Location, Product, UnitOfMeasure
+from ..models import Inventory
 from ..exceptions import InventoryNotFoundError, StockValidationError, StockNotFoundError
 import uuid
 
@@ -42,6 +43,9 @@ class StockService(IStockService):
             
             # Valider la structure du fichier
             self._validate_excel_structure(df)
+            
+            # Valider que les emplacements du fichier appartiennent au regroupement du compte de l'inventaire
+            self._validate_locations_belong_to_account_regroupement(df, inventory)
             
             # Traiter chaque ligne
             results = {
@@ -328,6 +332,52 @@ class StockService(IStockService):
         if df.empty:
             raise StockValidationError("Le fichier Excel est vide")
     
+    def _validate_locations_belong_to_account_regroupement(self, df: pd.DataFrame, inventory: Inventory) -> None:
+        """
+        Valide que tous les emplacements du fichier Excel appartiennent au regroupement du compte de l'inventaire.
+        
+        Args:
+            df: Le DataFrame du fichier Excel
+            inventory: L'inventaire
+            
+        Raises:
+            StockValidationError: Si des emplacements ne correspondent pas au regroupement
+        """
+        from apps.masterdata.models import RegroupementEmplacement, Location
+        
+        # Récupérer le compte lié à l'inventaire
+        account_links = inventory.awi_links.all()
+        if not account_links.exists():
+            raise StockValidationError("Aucun compte lié à cet inventaire.")
+        
+        account = account_links.first().account
+        
+        # Récupérer le regroupement d'emplacement pour ce compte
+        regroupement = RegroupementEmplacement.objects.filter(account=account).first()
+        if not regroupement:
+            raise StockValidationError(f"Aucun regroupement d'emplacement trouvé pour le compte '{account.account_name}'.")
+        
+        # Récupérer tous les emplacements du regroupement
+        regroupement_locations = set(Location.objects.filter(
+            regroupement=regroupement,
+            is_active=True
+        ).values_list('location_reference', flat=True))
+        
+        if not regroupement_locations:
+            raise StockValidationError(f"Aucun emplacement actif trouvé dans le regroupement '{regroupement.nom}' du compte '{account.account_name}'.")
+        
+        # Vérifier que tous les emplacements du fichier Excel sont dans le regroupement
+        excel_locations = set(df['emplacement'].unique())
+        invalid_locations = excel_locations - regroupement_locations
+        
+        if invalid_locations:
+            raise StockValidationError(
+                f"Les emplacements suivants ne font pas partie du regroupement '{regroupement.nom}' du compte '{account.account_name}': "
+                f"{', '.join(invalid_locations)}"
+            )
+        
+        logger.info(f"Validation des emplacements réussie: {len(excel_locations)} emplacements valides trouvés")
+
     def _row_to_stock_data(self, row: pd.Series, inventory_id: int) -> Dict[str, Any]:
         """
         Convertit une ligne Excel en données de stock.
