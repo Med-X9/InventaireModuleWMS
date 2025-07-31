@@ -20,7 +20,8 @@ from ..serializers.job_serializer import (
     JobFullDetailSerializer,
     JobPendingSerializer,
     JobResetAssignmentsRequestSerializer,
-    PendingJobReferenceSerializer
+    PendingJobReferenceSerializer,
+    JobTransferRequestSerializer
 )
 from ..serializers.job_assignment_batch_serializer import JobBatchAssignmentRequestSerializer
 from ..usecases.job_batch_assignment import JobBatchAssignmentUseCase
@@ -368,14 +369,46 @@ class JobResetAssignmentsView(APIView):
         
         job_ids = serializer.validated_data['job_ids']
         try:
-            # Utiliser le use case pour la logique métier
-            from ..usecases.job_reset_assignments import JobResetAssignmentsUseCase
-            use_case = JobResetAssignmentsUseCase()
-            result = use_case.execute(job_ids)
-            
+            job_service = JobService()
+            result = job_service.reset_jobs_assignments(job_ids)
             return Response({
                 'success': True,
-                'message': result['message'],
+                'message': f'{result["jobs_reset"]} jobs remis en attente avec succès',
+                'data': result
+            }, status=status.HTTP_200_OK)
+        except JobCreationError as e:
+            return Response({
+                'success': False,
+                'message': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': f'Erreur interne : {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class JobTransferView(APIView):
+    """
+    Vue pour transférer les jobs par comptage qui sont au statut PRET
+    """
+    def post(self, request):
+        serializer = JobTransferRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({
+                'success': False,
+                'message': 'Erreur de validation',
+                'errors': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        job_ids = serializer.validated_data['job_ids']
+        counting_order = serializer.validated_data['counting_order']
+        
+        try:
+            job_service = JobService()
+            result = job_service.transfer_jobs_by_counting_order(job_ids, counting_order)
+            return Response({
+                'success': True,
+                'message': f'{result["total_transferred"]} jobs transférés avec succès pour le comptage d\'ordre {counting_order}',
                 'data': result
             }, status=status.HTTP_200_OK)
         except JobCreationError as e:

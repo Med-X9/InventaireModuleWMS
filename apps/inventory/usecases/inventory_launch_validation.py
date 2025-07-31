@@ -29,6 +29,9 @@ class InventoryLaunchValidationUseCase:
 
         logger.info(f"Validation de l'inventaire {inventory_id} de type {inventory_type}")
 
+        # Vérification qu'il n'y a pas d'autre inventaire en cours pour le même compte
+        self._validate_no_running_inventory_for_same_account(inventory, account_id, errors)
+
         # Vérification de l'image de stock pour tous les comptages
         self._validate_stock_image(inventory, errors, info_messages)
 
@@ -48,6 +51,24 @@ class InventoryLaunchValidationUseCase:
 
         logger.info("Validation réussie pour le lancement de l'inventaire")
         return {"success": True, "message": "Validation OK pour le lancement de l'inventaire.", "infos": info_messages}
+
+    def _validate_no_running_inventory_for_same_account(self, inventory, account_id, errors):
+        """
+        Vérifie qu'il n'y a pas d'autre inventaire en cours pour le même compte.
+        """
+        # Récupérer tous les inventaires en cours (EN REALISATION) pour le même compte
+        running_inventories = Inventory.objects.filter(
+            awi_links__account_id=account_id,
+            status='EN REALISATION'
+        ).exclude(id=inventory.id)  # Exclure l'inventaire actuel
+        
+        if running_inventories.exists():
+            running_inventory = running_inventories.first()
+            error_message = f"Impossible de lancer cet inventaire. Un autre inventaire (ID: {running_inventory.id}, Référence: {running_inventory.reference}) est déjà en cours pour le même compte."
+            errors.append(error_message)
+            logger.warning(f"Inventaire en cours détecté: {running_inventory.id} pour le compte {account_id}")
+        else:
+            logger.info(f"Aucun inventaire en cours trouvé pour le compte {account_id}")
 
     def _validate_stock_image(self, inventory, errors, info_messages):
         stocks_count = Stock.objects.filter(inventory=inventory, is_deleted=False).count()
