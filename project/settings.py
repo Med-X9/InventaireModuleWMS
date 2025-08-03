@@ -106,8 +106,8 @@ DATABASES = {
         'NAME': config('POSTGRES_DB', default='inventairedb'),
         'USER': config('POSTGRES_USER', default='postgres'),
         'PASSWORD': config('POSTGRES_PASSWORD', default='root'),
-        'HOST': config('DB_HOST', default='localhost'),
-        'PORT': config('DB_PORT', default='5432'),
+        'HOST': config('POSTGRES_HOST', default='127.0.0.1'),
+        'PORT': config('POSTGRES_PORT', default='5432'),
     }
 }
 DEFAULT_CHARSET = 'utf-8'
