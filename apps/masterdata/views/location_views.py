@@ -12,6 +12,7 @@ from ..exceptions import LocationError
 from ..repositories.location_repository import LocationRepository
 from rest_framework.generics import ListAPIView
 from ..filters.location_filters import UnassignedLocationFilter
+from apps.inventory.models import Setting
 
 logger = logging.getLogger(__name__)
 
@@ -144,30 +145,42 @@ class UnassignedLocationsView(ListAPIView):
 
     def get_queryset(self):
         """
-        Récupère les emplacements non affectés pour le warehouse spécifié avec relations préchargées.
+        Récupère les emplacements non affectés pour le warehouse et l'account spécifiés avec relations préchargées.
         """
         warehouse_id = self.kwargs.get('warehouse_id')
+        account_id = self.kwargs.get('account_id')
+        if not account_id:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({'account_id': 'Ce paramètre est obligatoire dans l\'URL.'})
+        if not warehouse_id:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({'warehouse_id': 'Ce paramètre est obligatoire dans l\'URL.'})
+
         queryset = Location.objects.filter(is_active=True)
-        
         # Filtrer par warehouse si spécifié
         if warehouse_id:
             queryset = queryset.filter(sous_zone__zone__warehouse_id=warehouse_id)
-        
+
+        # Filtrer par regroupement.account lié à l'account_id
+        queryset = queryset.filter(regroupement__account_id=account_id)
+
         # Exclure les emplacements qui sont déjà affectés à des jobs
         from apps.inventory.models import JobDetail
         assigned_location_ids = JobDetail.objects.values_list('location_id', flat=True)
         queryset = queryset.exclude(id__in=assigned_location_ids)
-        
+
         # Précharger les relations pour optimiser les performances
         queryset = queryset.select_related(
             'sous_zone',
             'sous_zone__zone',
             'sous_zone__zone__warehouse',
-            'location_type'
+            'location_type',
+            'regroupement',
+            'regroupement__account',
         ).prefetch_related(
             'stock_set__product__Product_Family'
         ).order_by('location_reference')
-        
+
         return queryset
 
     def get(self, request, *args, **kwargs):

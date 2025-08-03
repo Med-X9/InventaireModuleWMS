@@ -239,6 +239,7 @@ class Location(CodeGeneratorMixin, TimeStampedModel):
     capacity = models.IntegerField(_('Capacité'), null=True, blank=True, validators=[MinValueValidator(0)])
     is_active = models.BooleanField(_('Actif'), default=True)
     description = models.TextField(_('Description'), max_length=100, null=True, blank=True)
+    regroupement = models.ForeignKey('RegroupementEmplacement', on_delete=models.SET_NULL, null=True, blank=True, related_name='locations')
     history = HistoricalRecords()
     
     class Meta:
@@ -359,3 +360,11 @@ class Procedure(CodeGeneratorMixin, TimeStampedModel):
     """
     Modèle pour les procédures
     """
+
+class RegroupementEmplacement(models.Model):
+    account = models.OneToOneField('Account', on_delete=models.CASCADE, related_name='regroupement_emplacement')
+    nom = models.CharField(max_length=255)
+
+    def __str__(self):
+        return self.nom
+
