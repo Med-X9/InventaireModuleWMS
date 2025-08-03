@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('masterdata', '0004_alter_historicalproduct_stock_unit_and_more'),
+        ('masterdata', '0001_initial'),
     ]
 
     operations = [
