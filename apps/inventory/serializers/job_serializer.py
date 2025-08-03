@@ -220,3 +220,17 @@ class JobResetAssignmentsRequestSerializer(serializers.Serializer):
         min_length=1,
         help_text="Liste des IDs des jobs en attente à remettre en attente"
     ) 
+
+class JobTransferRequestSerializer(serializers.Serializer):
+    """
+    Serializer pour transférer les jobs par comptage
+    """
+    job_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False,
+        help_text="Liste des IDs des jobs à transférer"
+    )
+    counting_order = serializers.IntegerField(
+        min_value=1,
+        help_text="Ordre du comptage pour lequel transférer les jobs"
+    ) 

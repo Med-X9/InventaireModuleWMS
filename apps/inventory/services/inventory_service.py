@@ -10,6 +10,7 @@ from django.db import IntegrityError
 import logging
 from .counting_service import CountingService
 from apps.masterdata.models import Warehouse
+from apps.inventory.usecases.inventory_launch_validation import InventoryLaunchValidationUseCase
 
 # Configuration du logger
 logger = logging.getLogger(__name__)
@@ -159,6 +160,44 @@ class InventoryService:
             return self.repository.get_by_id(inventory_id)
         except Inventory.DoesNotExist:
             logger.error(f"Inventaire non trouvé avec l'ID: {inventory_id}")
+            raise InventoryNotFoundError("L'inventaire demandé n'existe pas")
+
+    def get_inventory_by_reference(self, reference: str) -> Inventory:
+        """
+        Récupère un inventaire par sa référence.
+        
+        Args:
+            reference: La référence de l'inventaire
+            
+        Returns:
+            Inventory: L'inventaire trouvé
+            
+        Raises:
+            InventoryNotFoundError: Si l'inventaire n'existe pas
+        """
+        try:
+            return self.repository.get_by_reference(reference)
+        except Inventory.DoesNotExist:
+            logger.error(f"Inventaire non trouvé avec la référence: {reference}")
+            raise InventoryNotFoundError("L'inventaire demandé n'existe pas")
+
+    def get_inventory_with_related_data_by_reference(self, reference: str) -> Inventory:
+        """
+        Récupère un inventaire avec ses données liées par sa référence.
+        
+        Args:
+            reference: La référence de l'inventaire
+            
+        Returns:
+            Inventory: L'inventaire trouvé avec ses données liées
+            
+        Raises:
+            InventoryNotFoundError: Si l'inventaire n'existe pas
+        """
+        try:
+            return self.repository.get_with_related_data_by_reference(reference)
+        except Inventory.DoesNotExist:
+            logger.error(f"Inventaire non trouvé avec la référence: {reference}")
             raise InventoryNotFoundError("L'inventaire demandé n'existe pas")
 
     def update_inventory(self, inventory_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -333,7 +372,7 @@ class InventoryService:
             # soit il y a des comptages en mode "Liste emplacement et article" et les stocks existent
             # On peut donc lancer l'inventaire
             inventory.status = 'EN REALISATION'
-            inventory.lunch_status_date = timezone.now()
+            inventory.en_realisation_status_date = timezone.now()
             inventory.save()
             
         except InventoryNotFoundError:
@@ -471,5 +510,12 @@ class InventoryService:
         except Exception as e:
             logger.error(f"Erreur lors de la récupération des statistiques warehouse: {str(e)}", exc_info=True)
             raise InventoryValidationError(f"Erreur lors de la récupération des statistiques warehouse: {str(e)}")
+
+    def validate_launch_inventory(self, inventory_id: int) -> Dict[str, Any]:
+        """
+        Valide le lancement d'un inventaire via le usecase métier.
+        """
+        validator = InventoryLaunchValidationUseCase()
+        return validator.validate(inventory_id)
 
     

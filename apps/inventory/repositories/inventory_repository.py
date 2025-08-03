@@ -25,6 +25,15 @@ class InventoryRepository(IInventoryRepository):
         except Inventory.DoesNotExist:
             raise InventoryNotFoundError(f"L'inventaire avec l'ID {inventory_id} n'existe pas.")
 
+    def get_by_reference(self, reference: str) -> Any:
+        """
+        Récupère un inventaire par sa référence, en excluant les supprimés
+        """
+        try:
+            return Inventory.objects.filter(is_deleted=False).get(reference=reference)
+        except Inventory.DoesNotExist:
+            raise InventoryNotFoundError(f"L'inventaire avec la référence {reference} n'existe pas.")
+
     def get_by_filters(self, filters_dict: Dict[str, Any]) -> List[Any]:
         """
         Récupère les inventaires selon les filtres, en excluant les supprimés
@@ -281,6 +290,20 @@ class InventoryRepository(IInventoryRepository):
             ).get(id=inventory_id, is_deleted=False)
         except Inventory.DoesNotExist:
             raise InventoryNotFoundError(f"L'inventaire avec l'ID {inventory_id} n'existe pas.")
+
+    def get_with_related_data_by_reference(self, reference: str) -> Any:
+        """
+        Récupère un inventaire avec ses données associées par sa référence
+        """
+        try:
+            return Inventory.objects.prefetch_related(
+                'awi_links',
+                'awi_links__account',
+                'awi_links__warehouse',
+                'countings'
+            ).get(reference=reference, is_deleted=False)
+        except Inventory.DoesNotExist:
+            raise InventoryNotFoundError(f"L'inventaire avec la référence {reference} n'existe pas.")
 
     def get_warehouses_by_inventory_id(self, inventory_id: int) -> List[Any]:
         """

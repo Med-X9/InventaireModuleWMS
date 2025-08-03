@@ -43,6 +43,17 @@ class StockImportValidationUseCase:
             # Récupérer l'inventaire
             inventory = self.inventory_repository.get_by_id(inventory_id)
             
+            # Vérifier les emplacements du regroupement de compte
+            location_validation = self._validate_account_locations(inventory)
+            if not location_validation['valid']:
+                return {
+                    'can_import': False,
+                    'inventory_type': inventory.inventory_type,
+                    'existing_stocks_count': 0,
+                    'message': location_validation['message'],
+                    'action_required': 'FIX_LOCATIONS'
+                }
+            
             # Vérifier le type d'inventaire
             if inventory.inventory_type == 'TOURNANT':
                 return self._validate_tournant_inventory(inventory)
@@ -56,6 +67,54 @@ class StockImportValidationUseCase:
         except Exception as e:
             logger.error(f"Erreur lors de la validation d'import de stock: {str(e)}", exc_info=True)
             raise StockValidationError(f"Erreur lors de la validation: {str(e)}")
+    
+    def _validate_account_locations(self, inventory: Inventory) -> Dict[str, Any]:
+        """
+        Valide que les emplacements du regroupement de compte sont correctement configurés.
+        
+        Args:
+            inventory: L'inventaire à valider
+            
+        Returns:
+            Dict[str, Any]: Résultat de la validation des emplacements
+        """
+        from apps.masterdata.models import RegroupementEmplacement, Location
+        
+        # Récupérer le compte lié à l'inventaire
+        account_links = inventory.awi_links.all()
+        if not account_links.exists():
+            return {
+                'valid': False,
+                'message': "Aucun compte lié à cet inventaire."
+            }
+        
+        account = account_links.first().account
+        
+        # Vérifier qu'il existe un regroupement d'emplacement pour ce compte
+        regroupement = RegroupementEmplacement.objects.filter(account=account).first()
+        if not regroupement:
+            return {
+                'valid': False,
+                'message': f"Aucun regroupement d'emplacement trouvé pour le compte {account.reference}."
+            }
+        
+        # Vérifier qu'il y a au moins un emplacement actif dans le regroupement
+        active_locations = Location.objects.filter(
+            regroupement=regroupement,
+            is_active=True
+        ).count()
+        
+        if active_locations == 0:
+            return {
+                'valid': False,
+                'message': f"Aucun emplacement actif trouvé dans le regroupement du compte {account.reference}."
+            }
+        
+        logger.info(f"Validation des emplacements réussie: {active_locations} emplacements actifs trouvés")
+        return {
+            'valid': True,
+            'message': f"Validation des emplacements OK: {active_locations} emplacements actifs."
+        }
     
     def _validate_tournant_inventory(self, inventory: Inventory) -> Dict[str, Any]:
         """
