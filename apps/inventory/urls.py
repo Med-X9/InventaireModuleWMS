@@ -17,7 +17,7 @@ from .views.inventory_views import (
 from apps.inventory.views import InventoryWarehousesView
 
 from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView, JobBatchAssignmentView, JobTransferView
-from .views.assignment_views import AssignJobsToCountingView, AssignmentRulesView, AssignmentsBySessionView
+from .views.assignment_views import AssignJobsToCountingView, AssignResourcesToInventoryView, InventoryResourcesView
 from .views.resource_assignment_views import AssignResourcesToJobsView, JobResourcesView, RemoveResourcesFromJobView
 
 urlpatterns = [
