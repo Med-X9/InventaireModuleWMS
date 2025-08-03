@@ -174,6 +174,38 @@ class InventoryDetailView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+class InventoryDetailByReferenceView(APIView):
+    """
+    Vue pour récupérer les détails d'un inventaire par sa référence avec informations complètes des warehouses.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.service = InventoryService()
+
+    def get(self, request, reference, *args, **kwargs):
+        """
+        Récupère les détails d'un inventaire par sa référence avec informations complètes des warehouses.
+        """
+        try:
+            inventory = self.service.get_inventory_with_related_data_by_reference(reference)
+            serializer = InventoryDetailWithWarehouseSerializer(inventory)
+            return Response({
+                "message": "Détails de l'inventaire récupérés avec succès",
+                "data": serializer.data
+            })
+        except InventoryNotFoundError as e:
+            logger.warning(f"Inventaire non trouvé: {str(e)}")
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des détails d'un inventaire: {str(e)}", exc_info=True)
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 class InventoryUpdateView(APIView):
     """
     Vue pour mettre à jour un inventaire en utilisant la structure Interface, Service, Serializer, Repository, Use Cases.

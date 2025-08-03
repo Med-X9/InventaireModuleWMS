@@ -162,6 +162,44 @@ class InventoryService:
             logger.error(f"Inventaire non trouvé avec l'ID: {inventory_id}")
             raise InventoryNotFoundError("L'inventaire demandé n'existe pas")
 
+    def get_inventory_by_reference(self, reference: str) -> Inventory:
+        """
+        Récupère un inventaire par sa référence.
+        
+        Args:
+            reference: La référence de l'inventaire
+            
+        Returns:
+            Inventory: L'inventaire trouvé
+            
+        Raises:
+            InventoryNotFoundError: Si l'inventaire n'existe pas
+        """
+        try:
+            return self.repository.get_by_reference(reference)
+        except Inventory.DoesNotExist:
+            logger.error(f"Inventaire non trouvé avec la référence: {reference}")
+            raise InventoryNotFoundError("L'inventaire demandé n'existe pas")
+
+    def get_inventory_with_related_data_by_reference(self, reference: str) -> Inventory:
+        """
+        Récupère un inventaire avec ses données liées par sa référence.
+        
+        Args:
+            reference: La référence de l'inventaire
+            
+        Returns:
+            Inventory: L'inventaire trouvé avec ses données liées
+            
+        Raises:
+            InventoryNotFoundError: Si l'inventaire n'existe pas
+        """
+        try:
+            return self.repository.get_with_related_data_by_reference(reference)
+        except Inventory.DoesNotExist:
+            logger.error(f"Inventaire non trouvé avec la référence: {reference}")
+            raise InventoryNotFoundError("L'inventaire demandé n'existe pas")
+
     def update_inventory(self, inventory_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Met à jour un inventaire en utilisant le use case de gestion.
