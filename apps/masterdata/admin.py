@@ -16,7 +16,7 @@ from import_export.widgets import ForeignKeyWidget
 from .models import (
     Account, Family, Warehouse, ZoneType, Zone,
     LocationType, Location, Product, UnitOfMeasure,Stock,SousZone,
-    Ressource, TypeRessource
+    Ressource, TypeRessource, RegroupementEmplacement
 )
 from django.contrib.auth.admin import UserAdmin
 from apps.users.models import UserApp
@@ -197,6 +197,13 @@ class LocationResource(resources.ModelResource):
         attribute='sous_zone',
         widget=ForeignKeyWidget(SousZone, 'sous_zone_name')
     )
+
+    regroupement = fields.Field(
+        column_name='regroupement',
+        attribute='regroupement',
+        widget=ForeignKeyWidget(RegroupementEmplacement, 'nom')
+    )
+
     location_reference = fields.Field(
         column_name='location reference',
         attribute='location_reference'
@@ -204,7 +211,7 @@ class LocationResource(resources.ModelResource):
 
     class Meta:
         model = Location
-        fields = ('location_reference', 'location_type', 'sous_zone')
+        fields = ('location_reference', 'location_type', 'sous_zone', 'regroupement')
         import_id_fields = ('location_reference',)
 
 class ProductResource(resources.ModelResource):
@@ -266,6 +273,17 @@ class RessourceResource(resources.ModelResource):
         model = Ressource
         fields = ('libelle', 'description', 'status', 'type_ressource')
         import_id_fields = ('libelle',)
+
+class RegroupementEmplacementResource(resources.ModelResource):
+    account = fields.Field(
+        column_name='account',
+        attribute='account',
+        widget=ForeignKeyWidget(Account, 'account_name')
+    )
+    class Meta:
+        model = RegroupementEmplacement
+        import_id_fields = ('nom',)
+        fields = ('nom', 'account')
 
 
 # ---------------- Admins ---------------- #
@@ -450,6 +468,7 @@ class LocationForm(forms.ModelForm):
             'capacity',
             'is_active',
             'description',
+            'regroupement',
         )
 
     def clean(self):
@@ -461,7 +480,7 @@ class LocationForm(forms.ModelForm):
 class LocationAdmin(ImportExportModelAdmin):
     form = LocationForm
     resource_class = LocationResource
-    list_display = ('location_reference', 'get_sous_zone_name', 'get_location_type_name', 'capacity', 'is_active')
+    list_display = ('location_reference', 'get_sous_zone_name', 'get_location_type_name', 'capacity', 'is_active','get_regroupement_name')
     search_fields = ('location_reference',)
     list_filter = ('sous_zone_id', 'location_type_id', 'is_active')
     exclude = ('created_at', 'updated_at', 'deleted_at','is_deleted','reference')
@@ -476,6 +495,11 @@ class LocationAdmin(ImportExportModelAdmin):
         return obj.location_type.name if obj.location_type else '-'
     get_location_type_name.short_description = 'Location Type'
     get_location_type_name.admin_order_field = 'location_type__name'
+
+    def get_regroupement_name(self, obj):
+        return obj.regroupement.nom if obj.regroupement else '-'
+    get_regroupement_name.short_description = 'Regroupement'
+    get_regroupement_name.admin_order_field = 'regroupement__nom'
 
     def get_form(self, request, obj=None, **kwargs):
         form = super().get_form(request, obj, **kwargs)
@@ -628,6 +652,13 @@ class RessourceAdmin(ImportExportModelAdmin):
         return obj.type_ressource.libelle if obj.type_ressource else '-'
     get_type_ressource.short_description = 'Type de ressource'
     get_type_ressource.admin_order_field = 'type_ressource__libelle'
+
+
+@admin.register(RegroupementEmplacement)
+class RegroupementEmplacementAdmin(ImportExportModelAdmin):
+    resource_class = RegroupementEmplacementResource
+    list_display = ('nom', 'account')
+    search_fields = ('nom', 'account__account_name')
 
 
 

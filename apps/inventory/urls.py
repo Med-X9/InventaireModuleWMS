@@ -4,6 +4,7 @@ from .views.inventory_views import (
     InventoryListView,
     InventoryCreateView,
     InventoryDetailView,
+    InventoryDetailByReferenceView,
     InventoryUpdateView,
     InventoryDeleteView,
     InventoryLaunchView,
@@ -14,31 +15,10 @@ from .views.inventory_views import (
     StockImportView,
 )
 from apps.inventory.views import InventoryWarehousesView
-from .views.job_views import (
-    JobBatchAssignmentView,
-    JobCreateAPIView, 
-    PendingJobsReferencesView, 
-    JobRemoveEmplacementsView, 
-    JobAddEmplacementsView, 
-    JobDeleteView, 
-    JobValidateView, 
-    JobListWithLocationsView, 
-    WarehouseJobsView, 
-    JobReadyView, 
-    JobFullDetailListView, 
-    JobPendingListView, 
-    JobResetAssignmentsView
-)
-from .views.assignment_views import (
-    AssignJobsToCountingView,
-    AssignResourcesToInventoryView,
-    InventoryResourcesView
-)
-from .views.resource_assignment_views import (
-    AssignResourcesToJobsView, 
-    JobResourcesView, 
-    RemoveResourcesFromJobView
-)
+
+from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView, JobBatchAssignmentView, JobTransferView
+from .views.assignment_views import AssignJobsToCountingView, AssignmentRulesView, AssignmentsBySessionView
+from .views.resource_assignment_views import AssignResourcesToJobsView, JobResourcesView, RemoveResourcesFromJobView
 
 urlpatterns = [
     # ========================================
@@ -50,6 +30,7 @@ urlpatterns = [
     path('inventory/create/', InventoryCreateView.as_view(), name='inventory-create'),
     path('inventory/import/', InventoryImportView.as_view(), name='inventory-import'),
     path('inventory/<int:pk>/edit/', InventoryDetailView.as_view(), name='inventory-edit'),
+    path('inventory/by-reference/<str:reference>/', InventoryDetailByReferenceView.as_view(), name='inventory-by-reference'),
     path('inventory/<int:pk>/update/', InventoryUpdateView.as_view(), name='inventory-update'),
     path('inventory/<int:pk>/delete/', InventoryDeleteView.as_view(), name='inventory-delete'),
     path('inventory/<int:pk>/launch/', InventoryLaunchView.as_view(), name='inventory-launch'),
@@ -91,6 +72,9 @@ urlpatterns = [
     
     path('inventory/<int:inventory_id>/assign-jobs/', AssignJobsToCountingView.as_view(), name='assign-jobs-to-counting'),
     path('inventory/assign-jobs-manual/', JobBatchAssignmentView.as_view(), name='assign-jobs-manual'),
+    # URL pour transférer les jobs par comptage
+    path('jobs/transfer/', JobTransferView.as_view(), name='job-transfer'),
+    
 
     
     # ========================================

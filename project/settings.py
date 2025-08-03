@@ -108,7 +108,6 @@ DATABASES = {
         'PASSWORD': config('POSTGRES_PASSWORD', default='root'),
         'HOST': config('DB_HOST', default='localhost'),
         'PORT': config('DB_PORT', default='5432'),
-
     }
 }
 DEFAULT_CHARSET = 'utf-8'
