@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from ..models import Job, JobDetail, Location, Assigment, JobDetailRessource
+from ..models import Job, JobDetail, Location, Assigment, JobDetailRessource, CountingDetail, Counting
 from apps.masterdata.serializers.location_serializer import LocationSerializer
 from apps.masterdata.serializers.sous_zone_serializer import SousZoneSerializer
 from apps.masterdata.serializers.zone_serializer import ZoneSerializer
@@ -11,7 +11,10 @@ class JobCreateRequestSerializer(serializers.Serializer):
     )
 
 class JobRemoveEmplacementsSerializer(serializers.Serializer):
-    emplacement_id = serializers.IntegerField()
+    emplacement_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False
+    )
 
 class JobAddEmplacementsSerializer(serializers.Serializer):
     emplacement_ids = serializers.ListField(
@@ -234,3 +237,29 @@ class JobTransferRequestSerializer(serializers.Serializer):
         min_value=1,
         help_text="Ordre du comptage pour lequel transférer les jobs"
     ) 
+
+class JobProgressByCountingSerializer(serializers.Serializer):
+    """
+    Sérialiseur pour l'avancement des emplacements par job et par counting
+    """
+    job_id = serializers.IntegerField()
+    job_reference = serializers.CharField()
+    job_status = serializers.CharField()
+    counting_order = serializers.IntegerField()
+    counting_reference = serializers.CharField()
+    counting_count_mode = serializers.CharField()
+    total_emplacements = serializers.IntegerField()
+    completed_emplacements = serializers.IntegerField()
+    progress_percentage = serializers.FloatField()
+    emplacements_details = serializers.ListField(child=serializers.DictField())
+
+class EmplacementProgressSerializer(serializers.Serializer):
+    """
+    Sérialiseur pour les détails de progression d'un emplacement
+    """
+    location_id = serializers.IntegerField()
+    location_reference = serializers.CharField()
+    sous_zone_name = serializers.CharField()
+    zone_name = serializers.CharField()
+    status = serializers.CharField()
+    counting_details = serializers.ListField(child=serializers.DictField()) 

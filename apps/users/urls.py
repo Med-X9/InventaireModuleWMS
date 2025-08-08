@@ -9,4 +9,5 @@ urlpatterns = [
     path('login/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('logout/', LogoutView.as_view(), name='auth_logout'),
     path('mobile-users/', MobileUserListView.as_view(), name='mobile-users-list'),
+    path('mobile-users/inventory/<int:inventory_id>/', MobileUserListView.as_view(), name='mobile-users-by-inventory'),
 ]

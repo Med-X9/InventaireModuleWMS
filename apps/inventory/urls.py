@@ -15,7 +15,7 @@ from .views.inventory_views import (
     StockImportView,
 )
 from apps.inventory.views import InventoryWarehousesView
-from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView, JobBatchAssignmentView, JobTransferView
+from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView, JobBatchAssignmentView, JobTransferView, JobProgressByCountingView, InventoryProgressByCountingView
 from .views.assignment_views import AssignJobsToCountingView, AssignmentRulesView, AssignmentsBySessionView
 from .views.resource_assignment_views import AssignResourcesToJobsView, JobResourcesView, RemoveResourcesFromJobView
 
@@ -95,6 +95,10 @@ urlpatterns = [
     
     # URL pour transférer les jobs par comptage
     path('jobs/transfer/', JobTransferView.as_view(), name='job-transfer'),
+    
+    # URLs pour l'avancement des emplacements par job et par counting
+    path('jobs/<int:job_id>/progress-by-counting/', JobProgressByCountingView.as_view(), name='job-progress-by-counting'),
+    path('inventory/<int:inventory_id>/progress-by-counting/', InventoryProgressByCountingView.as_view(), name='inventory-progress-by-counting'),
     
 
     

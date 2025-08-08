@@ -284,6 +284,81 @@ class Product(CodeGeneratorMixin, TimeStampedModel):
     def __str__(self):
         return self.Short_Description
 
+class NSerie(CodeGeneratorMixin, TimeStampedModel):
+    """
+    Modèle pour les numéros de série des produits
+    """
+    CODE_PREFIX = 'NS'
+    
+    STATUS_CHOICES = (
+        ('ACTIVE', _('Actif')),
+        ('INACTIVE', _('Inactif')),
+        ('USED', _('Utilisé')),
+        ('EXPIRED', _('Expiré')),
+        ('BLOCKED', _('Bloqué')),
+    )
+    
+    reference = models.CharField(_('Référence'), unique=True, max_length=20)
+    n_serie = models.CharField(_('Numéro de série'), max_length=100, unique=True)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, verbose_name=_('Produit'), related_name='numeros_serie')
+    status = models.CharField(_('Statut'), choices=STATUS_CHOICES, default='ACTIVE')
+    description = models.TextField(_('Description'), blank=True, null=True)
+    date_fabrication = models.DateField(_('Date de fabrication'), null=True, blank=True)
+    date_expiration = models.DateField(_('Date d\'expiration'), null=True, blank=True)
+    warranty_end_date = models.DateField(_('Date de fin de garantie'), null=True, blank=True)
+    
+    history = HistoricalRecords()
+    
+    class Meta:
+        verbose_name = _('Numéro de série')
+        verbose_name_plural = _('Numéros de série')
+        unique_together = ['n_serie', 'product']
+        indexes = [
+            models.Index(fields=['n_serie']),
+            models.Index(fields=['product', 'status']),
+        ]
+    
+    def __str__(self):
+        return f"{self.n_serie} - {self.product.Short_Description}"
+    
+    def clean(self):
+        """
+        Validation personnalisée
+        """
+        from django.core.exceptions import ValidationError
+        
+        # Vérifier que le produit a l'option n_serie activée
+        if self.product and not self.product.n_serie:
+            raise ValidationError(_('Ce produit ne supporte pas les numéros de série'))
+        
+        # Vérifier que le numéro de série est unique pour ce produit
+        if NSerie.objects.filter(n_serie=self.n_serie, product=self.product).exclude(id=self.id).exists():
+            raise ValidationError(_('Ce numéro de série existe déjà pour ce produit'))
+    
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+    
+    @property
+    def is_expired(self):
+        """
+        Vérifie si le numéro de série est expiré
+        """
+        if self.date_expiration:
+            from django.utils import timezone
+            return timezone.now().date() > self.date_expiration
+        return False
+    
+    @property
+    def is_warranty_valid(self):
+        """
+        Vérifie si la garantie est encore valide
+        """
+        if self.warranty_end_date:
+            from django.utils import timezone
+            return timezone.now().date() <= self.warranty_end_date
+        return False
+
 class UnitOfMeasure(CodeGeneratorMixin, TimeStampedModel):
     """
     Modèle pour les unités de mesure

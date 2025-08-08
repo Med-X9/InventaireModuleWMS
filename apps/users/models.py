@@ -43,6 +43,7 @@ class UserApp(AbstractBaseUser, PermissionsMixin, models.Model):
     nom = models.CharField(_('Nom'), max_length=255)
     prenom = models.CharField(_('Prénom'), max_length=255)
     type = models.CharField(_('Type'), max_length=100, choices=TYPES)
+    compte=models.ForeignKey('masterdata.Account', on_delete=models.CASCADE, null=True, blank=True)
     is_active = models.BooleanField(_('Actif'), default=True)
     is_staff = models.BooleanField(_('Administrateur'), default=False)
     

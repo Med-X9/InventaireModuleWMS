@@ -11,19 +11,26 @@ logger = logging.getLogger(__name__)
 class MobileUserListView(APIView):
     permission_classes = [IsAuthenticated]
     
-    def get(self, request):
+    def get(self, request, inventory_id=None):
         """
-        Récupère la liste de tous les utilisateurs mobiles
+        Récupère la liste des utilisateurs mobiles
+        Si inventory_id est fourni dans l'URL, récupère les utilisateurs du même compte que l'inventaire
+        Sinon, récupère tous les utilisateurs mobiles
         
         Args:
             request: La requête HTTP
+            inventory_id: L'ID de l'inventaire (optionnel, depuis l'URL)
             
         Returns:
             Response: La réponse HTTP avec la liste des utilisateurs mobiles
         """
         try:
-            # Récupérer les utilisateurs via le service
-            result = UserService.get_all_mobile_users()
+            if inventory_id:
+                # Récupérer les utilisateurs du même compte que l'inventaire
+                result = UserService.get_mobile_users_by_inventory_account(inventory_id)
+            else:
+                # Récupérer tous les utilisateurs mobiles
+                result = UserService.get_all_mobile_users()
             
             if result['status'] == 'error':
                 return Response(result, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
