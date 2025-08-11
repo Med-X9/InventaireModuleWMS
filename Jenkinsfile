@@ -109,12 +109,13 @@ pipeline {
                         sh """
                             sshpass -p "\$PASS" ssh -o StrictHostKeyChecking=no "\$USER@\$DEPLOY_HOST" "
                                 cd /tmp/deployment/backend &&
-                                # Remove any existing IMAGE_TAG line and add the new one
+                                # Ensure .env ends with a newline, then remove any existing IMAGE_TAG line
+                                sed -i '\$a\\' .env &&
                                 sed -i '/^IMAGE_TAG=/d' .env &&
                                 echo 'IMAGE_TAG=${imageTag}' >> .env &&
                                 echo 'Set IMAGE_TAG=${imageTag} in .env file' &&
-                                echo 'Contents of .env file:' &&
-                                grep IMAGE_TAG .env || echo 'No IMAGE_TAG found after setting'
+                                echo 'Last 5 lines of .env file:' &&
+                                tail -5 .env
                             "
                         """
                     }
