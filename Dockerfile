@@ -38,15 +38,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copie de l'environnement virtuel du builder
 COPY --from=builder /opt/venv /opt/venv
 
-# Copie du code de l'application
-COPY . .
+# Création de l'utilisateur d'abord
+RUN useradd -m -u 1000 app_user
 
-# Création des dossiers nécessaires
+# Copie du code de l'application avec le bon propriétaire
+COPY --chown=app_user:app_user . .
+
+# Création des dossiers nécessaires avec les bonnes permissions
 RUN mkdir -p /app/static /app/media /app/logs \
-    && chmod -R 755 /app/static /app/media \
-    && chmod -R 777 /app/logs \
-    && useradd -U app_user \
-    && chown -R app_user:app_user /app
+    && chown -R app_user:app_user /app \
+    && chmod -R 755 /app/static /app/media /app/logs
 
 # Passage à l'utilisateur non-root
 USER app_user
