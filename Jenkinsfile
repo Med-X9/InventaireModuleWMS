@@ -105,11 +105,16 @@ pipeline {
                             sshpass -p "$PASS" scp -o StrictHostKeyChecking=no "/tmp/backend/.env copy" "$USER@$DEPLOY_HOST:/tmp/deployment/backend/.env"
                         '''
                         
+                        // Set IMAGE_TAG variable in .env file on remote server
                         sh """
                             sshpass -p "\$PASS" ssh -o StrictHostKeyChecking=no "\$USER@\$DEPLOY_HOST" "
                                 cd /tmp/deployment/backend &&
+                                # Remove any existing IMAGE_TAG line and add the new one
+                                sed -i '/^IMAGE_TAG=/d' .env &&
                                 echo 'IMAGE_TAG=${imageTag}' >> .env &&
-                                echo 'Added IMAGE_TAG=${imageTag} to .env file'
+                                echo 'Set IMAGE_TAG=${imageTag} in .env file' &&
+                                echo 'Contents of .env file:' &&
+                                grep IMAGE_TAG .env || echo 'No IMAGE_TAG found after setting'
                             "
                         """
                     }
