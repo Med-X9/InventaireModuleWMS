@@ -53,3 +53,6 @@ EMAIL_HOST_PASSWORD=your-app-password
 
 # Logging
 DJANGO_LOG_LEVEL=INFO
+
+# Docker Image Tag
+imageTag=dev-latest
