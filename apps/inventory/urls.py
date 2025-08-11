@@ -13,6 +13,7 @@ from .views.inventory_views import (
     InventoryWarehouseStatsView,
     InventoryImportView,
     StockImportView,
+    InventoryOrderingTestView,
 )
 from apps.inventory.views import InventoryWarehousesView
 
@@ -27,6 +28,7 @@ urlpatterns = [
     
     # Gestion des inventaires
     path('inventory/', InventoryListView.as_view(), name='inventory-list'),
+    path('inventory/test-ordering/', InventoryOrderingTestView.as_view(), name='inventory-test-ordering'),
     path('inventory/create/', InventoryCreateView.as_view(), name='inventory-create'),
     path('inventory/import/', InventoryImportView.as_view(), name='inventory-import'),
     path('inventory/<int:pk>/edit/', InventoryDetailView.as_view(), name='inventory-edit'),

@@ -18,6 +18,7 @@ from .models import (
     LocationType, Location, Product, UnitOfMeasure,Stock,SousZone,
     Ressource, TypeRessource, RegroupementEmplacement
 )
+from apps.inventory.models import Personne
 from django.contrib.auth.admin import UserAdmin
 from apps.users.models import UserApp
 # ---------------- Resources ---------------- #
@@ -284,6 +285,16 @@ class RegroupementEmplacementResource(resources.ModelResource):
         model = RegroupementEmplacement
         import_id_fields = ('nom',)
         fields = ('nom', 'account')
+
+
+class PersonneResource(resources.ModelResource):
+    nom = fields.Field(column_name='nom', attribute='nom')
+    prenom = fields.Field(column_name='prenom', attribute='prenom')
+    
+    class Meta:
+        model = Personne
+        fields = ('nom', 'prenom')
+        import_id_fields = ('nom', 'prenom')
 
 
 # ---------------- Admins ---------------- #
@@ -659,6 +670,15 @@ class RegroupementEmplacementAdmin(ImportExportModelAdmin):
     resource_class = RegroupementEmplacementResource
     list_display = ('nom', 'account')
     search_fields = ('nom', 'account__account_name')
+
+
+@admin.register(Personne)
+class PersonneAdmin(ImportExportModelAdmin):
+    resource_class = PersonneResource
+    list_display = ('reference', 'nom', 'prenom')
+    search_fields = ('reference', 'nom', 'prenom')
+    exclude = ('created_at', 'updated_at', 'deleted_at', 'is_deleted', 'reference')
+    readonly_fields = ('reference',)
 
 
 
