@@ -105,12 +105,11 @@ pipeline {
                             sshpass -p "$PASS" scp -o StrictHostKeyChecking=no "/tmp/backend/.env copy" "$USER@$DEPLOY_HOST:/tmp/deployment/backend/.env"
                         '''
                         
-                        // Update docker-compose.yml to use the correct image tag
                         sh """
                             sshpass -p "\$PASS" ssh -o StrictHostKeyChecking=no "\$USER@\$DEPLOY_HOST" "
                                 cd /tmp/deployment/backend &&
-                                sed -i 's|image: oussamafannouch/backend-app:.*|image: ${BACKEND_IMAGE}:${imageTag}|g' docker-compose.yml &&
-                                echo 'Updated docker-compose.yml to use image: ${BACKEND_IMAGE}:${imageTag}'
+                                echo 'IMAGE_TAG=${imageTag}' >> .env &&
+                                echo 'Added IMAGE_TAG=${imageTag} to .env file'
                             "
                         """
                     }
