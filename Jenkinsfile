@@ -81,7 +81,7 @@ pipeline {
             }
         }
 
-        stage('Uploading Files') {
+        stage('Upload Essential Files') {
             when {
                 anyOf {
                     branch 'dev'
@@ -90,12 +90,29 @@ pipeline {
             }
             steps {
                 script {
+                    def imageTag = env.BRANCH_NAME == 'main' ? 'prod-latest' : 'dev-latest'
+                    echo "Preparing deployment files for ${env.ENV_NAME} environment with image: ${BACKEND_IMAGE}:${imageTag}"
+                    
                     withCredentials([usernamePassword(credentialsId: env.DEPLOY_CREDS, usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                         sh '''
-                            sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$DEPLOY_HOST" "rm -rf /tmp/deployment/backend && mkdir -p /tmp/deployment/backend"
-                            sshpass -p "$PASS" scp -r -o StrictHostKeyChecking=no /tmp/backend/. "$USER@$DEPLOY_HOST:/tmp/deployment/backend/"
+                            # Create deployment directory on remote server
+                            sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$DEPLOY_HOST" "rm -rf /tmp/deployment/backend && mkdir -p /tmp/deployment/backend/nginx"
+                            
+                            # Upload only essential files
+                            sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/docker-compose.yml "$USER@$DEPLOY_HOST:/tmp/deployment/backend/"
+                            sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/Dockerfile "$USER@$DEPLOY_HOST:/tmp/deployment/backend/"
+                            sshpass -p "$PASS" scp -r -o StrictHostKeyChecking=no /tmp/backend/nginx/* "$USER@$DEPLOY_HOST:/tmp/deployment/backend/nginx/"
                             sshpass -p "$PASS" scp -o StrictHostKeyChecking=no "/tmp/backend/.env copy" "$USER@$DEPLOY_HOST:/tmp/deployment/backend/.env"
                         '''
+                        
+                        // Update docker-compose.yml to use the correct image tag
+                        sh """
+                            sshpass -p "\$PASS" ssh -o StrictHostKeyChecking=no "\$USER@\$DEPLOY_HOST" "
+                                cd /tmp/deployment/backend &&
+                                sed -i 's|image: oussamafannouch/backend-app:.*|image: ${BACKEND_IMAGE}:${imageTag}|g' docker-compose.yml &&
+                                echo 'Updated docker-compose.yml to use image: ${BACKEND_IMAGE}:${imageTag}'
+                            "
+                        """
                     }
                 }
             }
@@ -121,15 +138,27 @@ pipeline {
     }
 
     post {
+        always {
+            script {
+                // Clean up temporary files
+                sh '''
+                    rm -rf /tmp/backend || true
+                    docker system prune -f || true
+                '''
+            }
+        }
         success {
             script {
                 if (env.BRANCH_NAME == 'dev') {
-                    echo "✅ Deployment to development environment (${env.DEPLOY_HOST}) completed successfully!"
+                    echo "✅ Successfully deployed to development environment (${env.DEPLOY_HOST})!"
+                    echo "🐳 Using image: ${env.BACKEND_IMAGE}:dev-latest"
                 } else if (env.BRANCH_NAME == 'main') {
-                    echo "✅ Deployment to production environment (${env.DEPLOY_HOST}) completed successfully!"
+                    echo "✅ Successfully deployed to production environment (${env.DEPLOY_HOST})!"
+                    echo "🐳 Using image: ${env.BACKEND_IMAGE}:prod-latest"
                 } else {
                     echo "✅ Pipeline completed - no deployment needed for branch: ${env.BRANCH_NAME}"
                 }
+                echo "📁 Transferred files: docker-compose.yml, nginx/, .env"
             }
         }
         failure {
