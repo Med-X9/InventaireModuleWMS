@@ -1,6 +1,14 @@
 pipeline {
     agent any
 
+    triggers {
+        // Poll SCM every 2 minutes as backup for missed webhooks
+        pollSCM('H/2 * * * *')
+        // GitHub webhook trigger
+        githubPush()
+        upstream(upstreamProjects: '', threshold: hudson.model.Result.SUCCESS)
+    }
+
     environment {
         BACKEND_REPO  = 'https://github.com/Med-X9/InventaireModuleWMS.git'
         IMAGE_PREFIX = 'smatchdigital'
