@@ -6,8 +6,8 @@ networks:
 
 services:
   web:
-    # Use pre-built image instead of building
-    image: oussamafannouch/backend-app:prod-latest
+    # Use pre-built image with environment variable for tag
+    image: oussamafannouch/backend-app:${IMAGE_TAG:-prod-latest}
     container_name: inventaire-web
     networks:
       - inventaire-net
