@@ -7,7 +7,7 @@ networks:
 services:
   web:
     # Use pre-built image with environment variable for tag
-    image: oussamafannouch/backend-app:${IMAGE_TAG:-prod-latest}
+    image: oussamafannouch/backend-app:${IMAGE_TAG}
     container_name: inventaire-web
     networks:
       - inventaire-net
