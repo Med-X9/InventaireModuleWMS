@@ -6,16 +6,19 @@ networks:
 
 services:
   web:
+    # Use pre-built image with environment variable for tag
     image: oussamafannouch/backend-app:${IMAGE_TAG:-prod-latest}
     container_name: inventaire-web
     networks:
       - inventaire-net
+    user: "1000:1000"
     command: >
       sh -c "
         python manage.py migrate --noinput &&
         python manage.py collectstatic --noinput &&
         gunicorn project.wsgi:application -b 0.0.0.0:8000
       "
+    # Removed: .:/app volume (don't override production image code)
     volumes:
       - static_volume:/app/staticfiles
       - media_volume:/app/media
