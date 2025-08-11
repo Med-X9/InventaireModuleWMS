@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         BACKEND_REPO  = 'https://github.com/Med-X9/InventaireModuleWMS.git'
-        IMAGE_PREFIX = 'oussamafannouch'
+        IMAGE_PREFIX = 'smatchdigital'
         BACKEND_IMAGE  = "${IMAGE_PREFIX}/backend-app"
         IMAGE_TAG = "latest"
         
@@ -71,7 +71,7 @@ pipeline {
             }
             steps {
                 script {
-                    withCredentials([usernamePassword(credentialsId: 'docker-hub-creds', passwordVariable: 'PASS', usernameVariable: 'USER')]) {
+                    withCredentials([usernamePassword(credentialsId: 'docker-hub-company', passwordVariable: 'PASS', usernameVariable: 'USER')]) {
                         sh "echo $PASS | docker login -u $USER --password-stdin"
                     }
                     def imageTag = env.BRANCH_NAME == 'main' ? 'prod-latest' : 'dev-latest'
