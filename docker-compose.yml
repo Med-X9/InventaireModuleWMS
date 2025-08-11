@@ -7,11 +7,10 @@ networks:
 services:
   web:
     # Use pre-built image with environment variable for tag
-    image: oussamafannouch/backend-app:${IMAGE_TAG}
+    image: oussamafannouch/backend-app:${imageTag}
     container_name: inventaire-web
     networks:
       - inventaire-net
-    user: "1000:1000"
     command: >
       sh -c "
         python manage.py migrate --noinput &&
