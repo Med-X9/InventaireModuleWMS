@@ -13,9 +13,8 @@ services:
       - inventaire-net
     command: >
       sh -c "
-        rm -rf /app/staticfiles/* &&
         python manage.py migrate --noinput &&
-        python manage.py collectstatic --noinput --clear &&
+        python manage.py collectstatic --noinput --clear --verbosity=0 &&
         gunicorn project.wsgi:application -b 0.0.0.0:8000
       "
     # Removed: .:/app volume (don't override production image code)
