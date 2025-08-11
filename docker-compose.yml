@@ -6,17 +6,19 @@ networks:
 
 services:
   web:
+    # Use pre-built image instead of building
+    image: oussamafannouch/backend-app:prod-latest
+    container_name: inventaire-web
     networks:
       - inventaire-net
-    build: .
     command: >
       sh -c "
-        python manage.py migrate &&
+        python manage.py migrate --noinput &&
         python manage.py collectstatic --noinput &&
-        python manage.py runserver 0.0.0.0:8000
+        gunicorn project.wsgi:application -b 0.0.0.0:8000
       "
+    # Removed: .:/app volume (don't override production image code)
     volumes:
-      - .:/app
       - static_volume:/app/staticfiles
       - media_volume:/app/media
       - logs_volume:/app/logs
