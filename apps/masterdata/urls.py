@@ -8,6 +8,12 @@ from .views.user_views import MobileUserListView, MobileUserDetailView, Warehous
 from django.conf.urls.i18n import set_language
 from .views.zone_view import ZoneListView, ZoneDetailView
 from .views.sous_zone_view import SousZoneListView, SousZoneDetailView, ZoneSousZonesView
+from .views.nserie_views import (
+    NSerieListView, NSerieDetailView, NSerieCreateView, NSerieUpdateView, NSerieDeleteView,
+    NSerieByProductView, NSerieByLocationView, NSerieByStatusView, NSerieExpiredView,
+    NSerieExpiringView, NSerieStatisticsView, NSerieMoveToLocationView, NSerieUpdateStatusView,
+    ProductWithNSerieView
+)
 
 app_name = 'masterdata'
 
@@ -39,13 +45,40 @@ urlpatterns = [
     path('locations/unassigned/', UnassignedLocationsView.as_view(), name='unassigned-locations'),
     path('warehouses/<int:account_id>/warehouse/<int:warehouse_id>/locations/unassigned/', UnassignedLocationsView.as_view(), name='account-warehouse-unassigned-locations'),
     
-    
-    
     # URLs pour les emplacements
     path('locations/<int:pk>/', LocationDetailView.as_view(), name='location-detail'),
-        # URLs pour les ressources
+    
+    # URLs pour les ressources
     path('ressources/', RessourceListView.as_view(), name='ressource-list'),
     path('ressources/<int:pk>/', RessourceDetailView.as_view(), name='ressource-detail'),
     path('ressources/inventaire/', RessourceInventaireListView.as_view(), name='ressource-inventaire-list'),
     path('ressources/job/', RessourceJobListView.as_view(), name='ressource-job-list'),
+    
+    # URLs pour les numéros de série
+    path('nseries/', NSerieListView.as_view(), name='nserie-list'),
+    path('nseries/<int:id>/', NSerieDetailView.as_view(), name='nserie-detail'),
+    path('nseries/create/', NSerieCreateView.as_view(), name='nserie-create'),
+    path('nseries/<int:id>/update/', NSerieUpdateView.as_view(), name='nserie-update'),
+    path('nseries/<int:id>/delete/', NSerieDeleteView.as_view(), name='nserie-delete'),
+    
+    # URLs pour les numéros de série par produit
+    path('products/<int:product_id>/nseries/', NSerieByProductView.as_view(), name='nserie-by-product'),
+    path('products/<int:id>/with-nseries/', ProductWithNSerieView.as_view(), name='product-with-nseries'),
+    
+    # URLs pour les numéros de série par emplacement
+    path('locations/<int:location_id>/nseries/', NSerieByLocationView.as_view(), name='nserie-by-location'),
+    
+    # URLs pour les numéros de série par statut
+    path('nseries/status/<str:status>/', NSerieByStatusView.as_view(), name='nserie-by-status'),
+    
+    # URLs pour les numéros de série expirés
+    path('nseries/expired/', NSerieExpiredView.as_view(), name='nserie-expired'),
+    path('nseries/expiring/', NSerieExpiringView.as_view(), name='nserie-expiring'),
+    
+    # URLs pour les statistiques
+    path('nseries/statistics/', NSerieStatisticsView.as_view(), name='nserie-statistics'),
+    
+    # URLs pour les actions spéciales
+    path('nseries/<int:nserie_id>/move/', NSerieMoveToLocationView.as_view(), name='nserie-move'),
+    path('nseries/<int:nserie_id>/status/', NSerieUpdateStatusView.as_view(), name='nserie-update-status'),
 ]

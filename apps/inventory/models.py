@@ -190,7 +190,8 @@ class JobDetail(TimeStampedModel, ReferenceMixin):
     REFERENCE_PREFIX = 'JBD' 
     reference = models.CharField(unique=True, max_length=20, null=False)
     location = models.ForeignKey('masterdata.Location', on_delete=models.CASCADE)
-    job = models.ForeignKey('Job', on_delete=models.CASCADE)   
+    job = models.ForeignKey('Job', on_delete=models.CASCADE)  
+    counting = models.ForeignKey('Counting', on_delete=models.CASCADE, null=True, blank=True)
     status = models.CharField(max_length=50)  
     history = HistoricalRecords()
 

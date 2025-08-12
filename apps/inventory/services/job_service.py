@@ -1,10 +1,11 @@
 from django.db import transaction
 from ..repositories.job_repository import JobRepository
 from ..exceptions.job_exceptions import JobCreationError
-from ..models import Job, JobDetail, Assigment, JobDetailRessource
+from ..models import Job, JobDetail, Assigment, JobDetailRessource, CountingDetail, Counting
 from django.utils import timezone
 from ..interfaces.job_interface import JobServiceInterface
 from typing import List, Dict, Any
+from django.db.models import Q, Count, Case, When, IntegerField
 
 class JobService(JobServiceInterface):
     """
@@ -583,3 +584,175 @@ class JobService(JobServiceInterface):
             'counting_order': counting_order,
             'total_transferred': len(transferred_assignments)
         } 
+
+    def get_job_progress_by_counting(self, job_id: int) -> Dict[str, Any]:
+        """
+        Calcule l'avancement des emplacements par job et par counting
+        """
+        try:
+            job = self.repository.get_job_by_id(job_id)
+            if not job:
+                raise JobCreationError(f"Job avec l'ID {job_id} non trouvé")
+            
+            # Récupérer tous les emplacements du job
+            job_details = job.jobdetail_set.select_related(
+                'location__sous_zone__zone'
+            ).all()
+            
+            # Récupérer tous les countings de l'inventaire
+            countings = job.inventory.countings.all().order_by('order')
+            
+            progress_data = []
+            
+            for counting in countings:
+                # Récupérer les affectations pour ce counting
+                assignments = job.assigment_set.filter(counting=counting)
+                
+                if not assignments.exists():
+                    continue
+                
+                # Calculer l'avancement pour ce counting
+                total_emplacements = job_details.count()
+                completed_emplacements = 0
+                emplacements_details = []
+                
+                for job_detail in job_details:
+                    location = job_detail.location
+                    
+                    # Vérifier si des CountingDetail existent pour cette location et ce counting
+                    counting_details = CountingDetail.objects.filter(
+                        location=location,
+                        counting=counting
+                    )
+                    
+                    # Déterminer le statut de l'emplacement
+                    if counting_details.exists():
+                        status = "TERMINE"
+                        completed_emplacements += 1
+                    else:
+                        status = "EN ATTENTE"
+                    
+                    # Récupérer les détails du comptage
+                    counting_details_data = []
+                    for cd in counting_details:
+                        counting_details_data.append({
+                            'id': cd.id,
+                            'reference': cd.reference,
+                            'quantity_inventoried': cd.quantity_inventoried,
+                            'product_reference': cd.product.reference if cd.product else None,
+                            'dlc': cd.dlc,
+                            'n_lot': cd.n_lot,
+                            'last_synced_at': cd.last_synced_at
+                        })
+                    
+                    emplacement_detail = {
+                        'location_id': location.id,
+                        'location_reference': location.location_reference,
+                        'sous_zone_name': location.sous_zone.sous_zone_name if location.sous_zone else None,
+                        'zone_name': location.sous_zone.zone.zone_name if location.sous_zone and location.sous_zone.zone else None,
+                        'status': status,
+                        'counting_details': counting_details_data
+                    }
+                    emplacements_details.append(emplacement_detail)
+                
+                # Calculer le pourcentage de progression
+                progress_percentage = (completed_emplacements / total_emplacements * 100) if total_emplacements > 0 else 0
+                
+                progress_info = {
+                    'job_id': job.id,
+                    'job_reference': job.reference,
+                    'job_status': job.status,
+                    'counting_order': counting.order,
+                    'counting_reference': counting.reference,
+                    'counting_count_mode': counting.count_mode,
+                    'total_emplacements': total_emplacements,
+                    'completed_emplacements': completed_emplacements,
+                    'progress_percentage': round(progress_percentage, 2),
+                    'emplacements_details': emplacements_details
+                }
+                
+                progress_data.append(progress_info)
+            
+            return {
+                'success': True,
+                'job_id': job.id,
+                'job_reference': job.reference,
+                'inventory_reference': job.inventory.reference,
+                'warehouse_name': job.warehouse.warehouse_name,
+                'progress_by_counting': progress_data
+            }
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+    def get_inventory_progress_by_counting(self, inventory_id: int) -> Dict[str, Any]:
+        """
+        Calcule l'avancement global de tous les jobs d'un inventaire par counting
+        """
+        try:
+            # Récupérer tous les jobs de l'inventaire
+            jobs = self.repository.get_jobs_by_inventory(inventory_id)
+            
+            if not jobs:
+                return {
+                    'success': False,
+                    'error': f"Aucun job trouvé pour l'inventaire {inventory_id}"
+                }
+            
+            # Récupérer tous les countings de l'inventaire
+            countings = jobs[0].inventory.countings.all().order_by('order')
+            
+            inventory_progress = []
+            
+            for counting in countings:
+                total_emplacements = 0
+                completed_emplacements = 0
+                jobs_progress = []
+                
+                for job in jobs:
+                    job_progress = self.get_job_progress_by_counting(job.id)
+                    
+                    if job_progress['success']:
+                        for progress in job_progress['progress_by_counting']:
+                            if progress['counting_order'] == counting.order:
+                                total_emplacements += progress['total_emplacements']
+                                completed_emplacements += progress['completed_emplacements']
+                                jobs_progress.append({
+                                    'job_id': job.id,
+                                    'job_reference': job.reference,
+                                    'job_status': job.status,
+                                    'total_emplacements': progress['total_emplacements'],
+                                    'completed_emplacements': progress['completed_emplacements'],
+                                    'progress_percentage': progress['progress_percentage']
+                                })
+                
+                progress_percentage = (completed_emplacements / total_emplacements * 100) if total_emplacements > 0 else 0
+                
+                counting_progress = {
+                    'counting_order': counting.order,
+                    'counting_reference': counting.reference,
+                    'counting_count_mode': counting.count_mode,
+                    'total_emplacements': total_emplacements,
+                    'completed_emplacements': completed_emplacements,
+                    'progress_percentage': round(progress_percentage, 2),
+                    'jobs_progress': jobs_progress
+                }
+                
+                inventory_progress.append(counting_progress)
+            
+            return {
+                'success': True,
+                'inventory_id': inventory_id,
+                'inventory_reference': jobs[0].inventory.reference,
+                'total_jobs': len(jobs),
+                'progress_by_counting': inventory_progress
+            }
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            } 

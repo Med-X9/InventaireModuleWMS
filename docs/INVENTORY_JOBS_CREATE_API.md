@@ -4,9 +4,17 @@
 
 Cette API permet de créer des jobs d'inventaire pour un entrepôt spécifique dans le cadre d'un inventaire donné. Un job est créé avec les emplacements spécifiés et est automatiquement assigné aux comptages selon la configuration de l'inventaire.
 
-**Note importante** : La création des assignments dépend du mode de comptage du 1er comptage :
-- Si le 1er comptage est "image de stock" : seul le 2ème comptage reçoit une affectation
-- Sinon : les deux premiers comptages reçoivent des affectations
+**Note importante** : La création des JobDetails et Assignments dépend du mode de comptage du 1er comptage :
+
+### Cas 1 : 1er comptage = "image de stock"
+- Les emplacements sont créés **uniquement** pour le 2ème comptage
+- Une seule affectation (Assignment) est créée pour le 2ème comptage
+- Le 1er comptage (image de stock) n'a pas d'affectation
+
+### Cas 2 : 1er comptage différent de "image de stock"
+- Les emplacements sont **dupliqués** pour les deux comptages
+- Deux affectations (Assignments) sont créées (une pour chaque comptage)
+- Chaque emplacement apparaît deux fois dans les JobDetails (une fois par comptage)
 
 ## Endpoint
 

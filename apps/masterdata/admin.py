@@ -16,7 +16,7 @@ from import_export.widgets import ForeignKeyWidget
 from .models import (
     Account, Family, Warehouse, ZoneType, Zone,
     LocationType, Location, Product, UnitOfMeasure,Stock,SousZone,
-    Ressource, TypeRessource, RegroupementEmplacement
+    Ressource, TypeRessource, RegroupementEmplacement, NSerie
 )
 from apps.inventory.models import Personne
 from django.contrib.auth.admin import UserAdmin
@@ -281,6 +281,8 @@ class RegroupementEmplacementResource(resources.ModelResource):
         attribute='account',
         widget=ForeignKeyWidget(Account, 'account_name')
     )
+    nom = fields.Field(column_name='nom', attribute='nom')
+
     class Meta:
         model = RegroupementEmplacement
         import_id_fields = ('nom',)
@@ -295,6 +297,26 @@ class PersonneResource(resources.ModelResource):
         model = Personne
         fields = ('nom', 'prenom')
         import_id_fields = ('nom', 'prenom')
+class NSerieResource(resources.ModelResource):
+    """
+    Resource pour l'import/export des numéros de série
+    """
+    product = fields.Field(
+        column_name='produit',
+        attribute='product',
+        widget=ForeignKeyWidget(Product, 'Internal_Product_Code')
+    )
+    n_serie = fields.Field(column_name='numéro de série', attribute='n_serie')
+    status = fields.Field(column_name='statut', attribute='status')
+    description = fields.Field(column_name='description', attribute='description')
+    date_fabrication = fields.Field(column_name='date fabrication', attribute='date_fabrication')
+    date_expiration = fields.Field(column_name='date expiration', attribute='date_expiration')
+    warranty_end_date = fields.Field(column_name='date fin garantie', attribute='warranty_end_date')
+
+    class Meta:
+        model = NSerie
+        fields = ('n_serie', 'product', 'status', 'description', 'date_fabrication', 'date_expiration', 'warranty_end_date')
+        import_id_fields = ('n_serie', 'product')
 
 
 # ---------------- Admins ---------------- #
@@ -303,9 +325,9 @@ class PersonneResource(resources.ModelResource):
 
 @admin.register(UserApp)
 class UserAppAdmin(UserAdmin):
-    list_display = ('nom', 'prenom', 'username', 'email', 'type','is_staff', 'is_active')
-    list_filter = ('type','is_staff', 'is_active')
-    search_fields = ('username', 'email', 'nom', 'prenom')
+    list_display = ('nom', 'prenom', 'username', 'email', 'type','is_staff', 'is_active','compte')
+    list_filter = ('type','is_staff', 'is_active','compte')
+    search_fields = ('username', 'email', 'nom', 'prenom','compte')
     ordering = ('username',)
 
     
@@ -315,7 +337,7 @@ class UserAppAdmin(UserAdmin):
     # Champs à afficher dans le formulaire d'édition
     fieldsets = (
         (None, {'fields': ('username', 'email', 'password')}),
-        ('Informations personnelles', {'fields': ('nom', 'prenom', 'type')}),
+        ('Informations personnelles', {'fields': ('nom', 'prenom', 'type','compte')}),
         ('Permissions', {'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')}),
         ('Dates importantes', {'fields': ('last_login',)}),
     )
@@ -324,7 +346,7 @@ class UserAppAdmin(UserAdmin):
     add_fieldsets = (
         (None, {
             'classes': ('wide',),
-            'fields': ('username', 'email', 'nom', 'prenom', 'type', 'password1', 'password2', 'is_staff', 'is_superuser', 'groups')}
+            'fields': ('username', 'email', 'nom', 'prenom', 'type', 'compte', 'password1', 'password2', 'is_staff', 'is_superuser', 'groups')}
         ),
     )
 
@@ -663,6 +685,33 @@ class RessourceAdmin(ImportExportModelAdmin):
         return obj.type_ressource.libelle if obj.type_ressource else '-'
     get_type_ressource.short_description = 'Type de ressource'
     get_type_ressource.admin_order_field = 'type_ressource__libelle'
+
+
+@admin.register(NSerie)
+class NSerieAdmin(ImportExportModelAdmin):
+    resource_class = NSerieResource
+    list_display = ('reference', 'n_serie', 'get_product_name', 'status', 'get_product_family', 'date_fabrication', 'date_expiration', 'warranty_end_date', 'is_expired', 'is_warranty_valid')
+    list_filter = ('status', 'product__Product_Family', 'date_fabrication', 'date_expiration', 'warranty_end_date')
+    search_fields = ('reference', 'n_serie', 'product__Short_Description', 'product__Internal_Product_Code', 'description')
+    exclude = ('created_at', 'updated_at', 'deleted_at', 'is_deleted', 'reference')
+    readonly_fields = ('reference',)
+    date_hierarchy = 'created_at'
+    
+    def get_product_name(self, obj):
+        return obj.product.Short_Description if obj.product else '-'
+    get_product_name.short_description = 'Produit'
+    get_product_name.admin_order_field = 'product__Short_Description'
+    
+    def get_product_family(self, obj):
+        return obj.product.Product_Family.family_name if obj.product and obj.product.Product_Family else '-'
+    get_product_family.short_description = 'Famille'
+    get_product_family.admin_order_field = 'product__Product_Family__family_name'
+    
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        if not obj:  # Si c'est un nouveau numéro de série
+            form.base_fields['reference'] = forms.CharField(required=False, widget=forms.HiddenInput())
+        return form
 
 
 @admin.register(RegroupementEmplacement)

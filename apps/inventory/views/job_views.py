@@ -1,6 +1,7 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from django.core.exceptions import ValidationError
 from ..serializers import (
     InventoryJobCreateSerializer,
     JobSerializer
@@ -21,7 +22,8 @@ from ..serializers.job_serializer import (
     JobPendingSerializer,
     JobResetAssignmentsRequestSerializer,
     PendingJobReferenceSerializer,
-    JobTransferRequestSerializer
+    JobTransferRequestSerializer,
+    JobProgressByCountingSerializer
 )
 from ..serializers.job_assignment_batch_serializer import JobBatchAssignmentRequestSerializer
 from ..usecases.job_batch_assignment import JobBatchAssignmentUseCase
@@ -59,13 +61,19 @@ class JobCreateAPIView(APIView):
                 'message': 'Erreur de validation',
                 'errors': ' | '.join(error_messages)
             }, status=status.HTTP_400_BAD_REQUEST)
+        
         emplacements = serializer.validated_data['emplacements']
+        
         try:
-            job_service = JobService()
-            jobs = job_service.create_jobs_for_inventory_warehouse(inventory_id, warehouse_id, emplacements)
+            # Utiliser le use case pour la logique métier
+            from ..usecases.job_creation import JobCreationUseCase
+            use_case = JobCreationUseCase()
+            result = use_case.execute(inventory_id, warehouse_id, emplacements)
+            
             return Response({
                 'success': True,
-                'message': 'Jobs créés avec succès',
+                'message': result['message'],
+                'data': result
             }, status=status.HTTP_201_CREATED)
         except JobCreationError as e:
             return Response({
@@ -205,31 +213,84 @@ class JobDeleteView(APIView):
 
 class JobRemoveEmplacementsView(APIView):
     def delete(self, request, job_id):
+        """
+        Supprime des emplacements d'un job avec gestion des comptages multiples
+        """
+        # Validation du job_id
+        if not job_id or job_id <= 0:
+            return Response({
+                'success': False,
+                'message': 'ID de job invalide',
+                'error_type': 'validation_error'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validation des données de la requête
         serializer = JobRemoveEmplacementsSerializer(data=request.data)
         if not serializer.is_valid():
             return Response({
                 'success': False,
-                'message': 'Erreur de validation', 
-                'errors': serializer.errors
+                'message': 'Erreur de validation des données', 
+                'errors': serializer.errors,
+                'error_type': 'validation_error'
             }, status=status.HTTP_400_BAD_REQUEST)
-        emplacement_id = serializer.validated_data['emplacement_id']
+        
+        emplacement_ids = serializer.validated_data['emplacement_ids']
+        
+        # Validation supplémentaire des emplacement_ids
+        if not emplacement_ids or len(emplacement_ids) == 0:
+            return Response({
+                'success': False,
+                'message': 'Liste d\'emplacements vide',
+                'error_type': 'validation_error'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validation des types d'IDs
+        invalid_ids = [id for id in emplacement_ids if not isinstance(id, int) or id <= 0]
+        if invalid_ids:
+            return Response({
+                'success': False,
+                'message': f'IDs d\'emplacements invalides: {invalid_ids}',
+                'error_type': 'validation_error'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
         try:
-            job_service = JobService()
-            result = job_service.remove_job_emplacements(job_id, emplacement_id)
+            # Utiliser le use case pour la logique métier
+            from ..usecases.job_remove_emplacements import JobRemoveEmplacementsUseCase
+            use_case = JobRemoveEmplacementsUseCase()
+            result = use_case.execute(job_id, emplacement_ids)
+            
             return Response({
                 'success': True,
-                'message': 'Emplacement supprimé avec succès',
+                'message': result['message'],
                 'data': result
             }, status=status.HTTP_200_OK)
+            
         except JobCreationError as e:
+            # Erreurs métier - retourner 400 Bad Request
             return Response({
                 'success': False,
-                'message': str(e)
+                'message': str(e),
+                'error_type': 'business_error'
             }, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
+            
+        except ValidationError as e:
+            # Erreurs de validation Django
             return Response({
                 'success': False,
-                'message': f'Erreur interne : {str(e)}'
+                'message': f'Erreur de validation: {str(e)}',
+                'error_type': 'validation_error'
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Exception as e:
+            # Erreurs inattendues - logger et retourner 500
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Erreur inattendue dans JobRemoveEmplacementsView: {str(e)}")
+            
+            return Response({
+                'success': False,
+                'message': 'Erreur interne du serveur',
+                'error_type': 'internal_error'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class JobAddEmplacementsView(APIView):
@@ -241,13 +302,18 @@ class JobAddEmplacementsView(APIView):
                 'message': 'Erreur de validation',
                 'errors': serializer.errors
             }, status=status.HTTP_400_BAD_REQUEST)
+        
         emplacement_ids = serializer.validated_data['emplacement_ids']
+        
         try:
-            job_service = JobService()
-            result = job_service.add_job_emplacements(job_id, emplacement_ids)
+            # Utiliser le use case pour la logique métier
+            from ..usecases.job_add_emplacements import JobAddEmplacementsUseCase
+            use_case = JobAddEmplacementsUseCase()
+            result = use_case.execute(job_id, emplacement_ids)
+            
             return Response({
                 'success': True,
-                'message': 'Emplacements ajoutés avec succès',
+                'message': result['message'],
                 'data': result
             }, status=status.HTTP_200_OK)
         except JobCreationError as e:
@@ -504,5 +570,59 @@ class JobBatchAssignmentView(APIView):
             return Response({
                 'success': False,
                 'message': 'Erreur interne du serveur',
-                'error': f'Erreur interne : {str(e)}'
+                'errors': {
+                    'detail': f'Erreur interne : {str(e)}'
+                }
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
+
+class JobProgressByCountingView(APIView):
+    """
+    Vue pour afficher l'avancement des emplacements par job et par counting
+    """
+    def get(self, request, job_id):
+        try:
+            job_service = JobService()
+            progress_data = job_service.get_job_progress_by_counting(job_id)
+            
+            if progress_data['success']:
+                return Response({
+                    'success': True,
+                    'data': progress_data
+                }, status=status.HTTP_200_OK)
+            else:
+                return Response({
+                    'success': False,
+                    'message': progress_data['error']
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': f'Erreur interne : {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class InventoryProgressByCountingView(APIView):
+    """
+    Vue pour afficher l'avancement global d'un inventaire par counting
+    """
+    def get(self, request, inventory_id):
+        try:
+            job_service = JobService()
+            progress_data = job_service.get_inventory_progress_by_counting(inventory_id)
+            
+            if progress_data['success']:
+                return Response({
+                    'success': True,
+                    'data': progress_data
+                }, status=status.HTTP_200_OK)
+            else:
+                return Response({
+                    'success': False,
+                    'message': progress_data['error']
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': f'Erreur interne : {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
