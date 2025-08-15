@@ -138,11 +138,6 @@ class JobReadyUseCase:
                         logger.info(f"Assignment {assignment.reference} marqué comme PRET (comptage: {assignment.counting.reference})")
                 
                 return {
-                    'success': True,
-                    'ready_jobs_count': len(updated_jobs),
-                    'ready_jobs': updated_jobs,
-                    'updated_assignments': updated_assignments,
-                    'ready_date': current_time,
                     'message': f'{len(updated_jobs)} jobs et {len(updated_assignments)} assignments marqués comme PRET'
                 }
                 

@@ -106,8 +106,8 @@ DATABASES = {
         'NAME': config('POSTGRES_DB', default='inventairedb'),
         'USER': config('POSTGRES_USER', default='postgres'),
         'PASSWORD': config('POSTGRES_PASSWORD', default='root'),
-        'HOST': config('DB_HOST', default='127.0.0.1'),
-        'PORT': config('DB_PORT', default='5432'),
+        'HOST': config('POSTGRES_HOST', default='127.0.0.1'),
+        'PORT': config('POSTGRES_PORT', default='5432'),
 
     }
 }
@@ -278,6 +278,7 @@ JAZZMIN_SETTINGS = {
         "masterdata.Location",
         "masterdata.Product",
         "masterdata.UnitOfMeasure",
+        "inventory.Personne",
         "auth", 
         
     ],

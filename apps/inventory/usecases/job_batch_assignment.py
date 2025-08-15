@@ -118,9 +118,15 @@ class JobBatchAssignmentUseCase:
                 
                 if valid_resource_ids:
                     try:
+                        # Convertir la liste d'IDs en liste d'objets avec resource_id et quantity
+                        resource_assignments = [
+                            {'resource_id': resource_id, 'quantity': 1} 
+                            for resource_id in valid_resource_ids
+                        ]
+                        
                         result = self.resource_assignment_service.assign_resources_to_job({
                             'job_id': job_id,
-                            'resource_ids': valid_resource_ids
+                            'resource_assignments': resource_assignments
                         })
                         resources_created += result.get('assignments_created', 0)
                         resources_updated += result.get('assignments_updated', 0)

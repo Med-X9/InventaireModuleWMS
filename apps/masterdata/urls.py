@@ -43,7 +43,7 @@ urlpatterns = [
     
     # URLs pour les emplacements non affectés
     path('locations/unassigned/', UnassignedLocationsView.as_view(), name='unassigned-locations'),
-    path('account/<int:account_id>/warehouse/<int:warehouse_id>/locations/unassigned/', UnassignedLocationsView.as_view(), name='account-warehouse-unassigned-locations'),
+    path('warehouses/<int:account_id>/warehouse/<int:warehouse_id>/locations/unassigned/', UnassignedLocationsView.as_view(), name='account-warehouse-unassigned-locations'),
     
     # URLs pour les emplacements
     path('locations/<int:pk>/', LocationDetailView.as_view(), name='location-detail'),

@@ -127,13 +127,13 @@ class IResourceAssignmentRepository(ABC):
     @abstractmethod
     def get_job_resources(self, job_id: int) -> List[Any]:
         """
-        Récupère toutes les ressources affectées à un job
+        Récupère les ressources affectées à un job
         
         Args:
             job_id: ID du job
             
         Returns:
-            List[Any]: Liste des affectations ressource-job
+            List[Any]: Liste des objets JobDetailRessource
         """
         pass
     

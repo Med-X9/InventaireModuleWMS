@@ -12,10 +12,11 @@ class RessourceService(IRessourceService):
     
     def get_all_resources(self) -> List[Dict[str, Any]]:
         """
-        Récupère toutes les ressources avec reference, libelle et type_ressource
+        Récupère toutes les ressources avec id, reference, libelle et type_ressource
         """
         resources = self.repository.get_all_resources()
         return [{
+            'id': resource.id,
             'reference': resource.reference,
             'libelle': resource.libelle,
             'type_ressource': resource.type_ressource.libelle if resource.type_ressource else None
@@ -28,6 +29,7 @@ class RessourceService(IRessourceService):
         resource = self.repository.get_resource_by_id(resource_id)
         if resource:
             return {
+                'id': resource.id,
                 'reference': resource.reference,
                 'libelle': resource.libelle,
                 'type_ressource': resource.type_ressource.libelle if resource.type_ressource else None
@@ -40,6 +42,7 @@ class RessourceService(IRessourceService):
         """
         resources = self.repository.get_resources_by_type(type_ressource_id)
         return [{
+            'id': resource.id,
             'reference': resource.reference,
             'libelle': resource.libelle,
             'type_ressource': resource.type_ressource.libelle if resource.type_ressource else None

@@ -18,6 +18,7 @@ from .models import (
     LocationType, Location, Product, UnitOfMeasure,Stock,SousZone,
     Ressource, TypeRessource, RegroupementEmplacement, NSerie
 )
+from apps.inventory.models import Personne
 from django.contrib.auth.admin import UserAdmin
 from apps.users.models import UserApp
 from apps.inventory.models import Personne
@@ -289,6 +290,14 @@ class RegroupementEmplacementResource(resources.ModelResource):
         fields = ('nom', 'account')
 
 
+class PersonneResource(resources.ModelResource):
+    nom = fields.Field(column_name='nom', attribute='nom')
+    prenom = fields.Field(column_name='prenom', attribute='prenom')
+    
+    class Meta:
+        model = Personne
+        fields = ('nom', 'prenom')
+        import_id_fields = ('nom', 'prenom')
 class NSerieResource(resources.ModelResource):
     """
     Resource pour l'import/export des numéros de série
@@ -731,7 +740,8 @@ class PersonneAdmin(ImportExportModelAdmin):
     resource_class = PersonneResource
     list_display = ('reference', 'nom', 'prenom')
     search_fields = ('reference', 'nom', 'prenom')
-    exclude = ('created_at', 'updated_at', 'deleted_at', 'is_deleted')
+    exclude = ('created_at', 'updated_at', 'deleted_at', 'is_deleted', 'reference')
+    readonly_fields = ('reference',)
     
     def get_form(self, request, obj=None, **kwargs):
         form = super().get_form(request, obj, **kwargs)

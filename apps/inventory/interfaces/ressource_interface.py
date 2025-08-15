@@ -42,7 +42,7 @@ class IRessourceService(ABC):
     @abstractmethod
     def get_all_resources(self) -> List[Dict[str, Any]]:
         """
-        Récupère toutes les ressources avec reference, libelle et type_ressource
+        Récupère toutes les ressources avec id, reference, libelle et type_ressource
         """
         pass
     

@@ -26,6 +26,13 @@ from ..interfaces import IInventoryRepository
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from apps.inventory.usecases.inventory_launch_validation import InventoryLaunchValidationUseCase
+from apps.core.datatables.mixins import ServerSideDataTableView, quick_datatable_view
+from apps.core.datatables.base import DataTableConfig, IDataTableFilter
+from apps.core.datatables.filters import (
+    DjangoFilterDataTableFilter, DateRangeFilter, StatusFilter, CompositeDataTableFilter,
+    StringFilter, DateFilter, NumberFilter
+)
+from apps.core.datatables.serializers import DataTableSerializer
 
 # Configuration du logger
 logger = logging.getLogger(__name__)
@@ -35,57 +42,216 @@ class StandardResultsSetPagination(PageNumberPagination):
     page_size_query_param = 'page_size'
     max_page_size = 100
 
-class InventoryListView(APIView):
+class InventoryListView(ServerSideDataTableView):
     """
     Vue pour lister les inventaires avec pagination et filtres.
+    Supporte à la fois l'API REST normale et DataTable ServerSide.
+    
+    FONCTIONNALITÉS AUTOMATIQUES:
+    - Tri sur tous les champs configurés (ordering=field ou -field)
+    - Tri DataTable (order[0][column]=index&order[0][dir]=asc/desc)
+    - Recherche sur champs multiples
+    - Filtrage avancé avec django-filter
+    - Filtrage par date (date_exact, date_start, date_end)
+    - Filtrage par statut (status, status_in)
+    - Pagination optimisée
+    - Sérialisation flexible
+    
+    PARAMÈTRES DE REQUÊTE SUPPORTÉS:
+    - Tri: ordering=label, ordering=-date, ordering=created_at, ordering=reference, ordering=status, ordering=inventory_type
+    - Tri DataTable: order[0][column]=2&order[0][dir]=asc
+    - Recherche: search=terme
+    - Pagination: page=1&page_size=25
+    - Filtres: status=active, inventory_type=general, reference=INV-xxx
+    - Dates: date_exact=2024-01-01, date_start=2024-01-01, date_end=2024-12-31
+    - Statuts: status=active, status_in=active,pending,completed
     """
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    
+    # Configuration de base
+    model = Inventory
+    serializer_class = InventoryDetailSerializer
     filterset_class = InventoryFilter
-    ordering = '-created_at'  # Tri par défaut par date décroissante
-    pagination_class = StandardResultsSetPagination
+    
+    # Champs de recherche et tri - TOUS LES CHAMPS
+    search_fields = [
+        'label', 'reference', 'status', 'inventory_type', 
+        'account_name', 'warehouse_name', 'created_at', 'date',
+        'en_preparation_status_date', 'en_realisation_status_date', 
+        'termine_status_date', 'cloture_status_date'
+    ]
+    order_fields = [
+        'id', 'reference', 'label', 'date', 'status', 'inventory_type', 
+        'created_at', 'updated_at', 'en_preparation_status_date', 
+        'en_realisation_status_date', 'termine_status_date', 'cloture_status_date'
+    ]
+    default_order = '-created_at'
+    
+    # Configuration de pagination
+    page_size = 25
+    min_page_size = 1
+    max_page_size = 100
+    
+    # Champs de filtrage automatique - TOUS LES CHAMPS
+    filter_fields = [
+        'status', 'inventory_type', 'reference', 'label', 'id'
+    ]
+    date_fields = [
+        'date', 'created_at', 'updated_at', 'en_preparation_status_date', 
+        'en_realisation_status_date', 'termine_status_date', 'cloture_status_date'
+    ]
+    status_fields = ['status']
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.repository = InventoryRepository()
+    def get_datatable_filter(self) -> IDataTableFilter:
+        """Filtre composite avec tous les types de filtres et opérateurs avancés"""
+        composite_filter = CompositeDataTableFilter()
+        
+        # Filtre Django Filter si configuré
+        if self.filterset_class:
+            composite_filter.add_filter(DjangoFilterDataTableFilter(self.filterset_class))
+        
+        # Filtres de chaînes avec tous les opérateurs
+        composite_filter.add_filter(StringFilter([
+            'label', 'reference', 'status', 'inventory_type'
+        ]))
+        
+        # Filtres de dates avec tous les opérateurs
+        composite_filter.add_filter(DateFilter([
+            'date', 'created_at', 'updated_at', 'en_preparation_status_date',
+            'en_realisation_status_date', 'termine_status_date', 'cloture_status_date'
+        ]))
+        
+        # Filtres numériques
+        composite_filter.add_filter(NumberFilter(['id']))
+        
+        # Filtres de statut (hérité)
+        composite_filter.add_filter(StatusFilter('status'))
+        
+        return composite_filter
 
-    def get(self, request, *args, **kwargs):
-        """
-        Récupère la liste des inventaires avec filtres et pagination.
-        """
-        try:
-            # Récupérer les paramètres de filtrage
-            filters_dict = request.query_params.dict()
+# Exemple d'utilisation avec quick_datatable_view (DRY)
+InventoryDataTableView = quick_datatable_view(
+    model_cls=Inventory,
+    serializer_cls=InventoryDetailSerializer,
+    filterset_cls=InventoryFilter,
+    search_fields_list=[
+        'label', 'reference', 'status', 'inventory_type', 
+        'account_name', 'warehouse_name', 'created_at', 'date',
+        'en_preparation_status_date', 'en_realisation_status_date', 
+        'termine_status_date', 'cloture_status_date'
+    ],
+    order_fields_list=[
+        'id', 'reference', 'label', 'date', 'status', 'inventory_type', 
+        'created_at', 'updated_at', 'en_preparation_status_date', 
+        'en_realisation_status_date', 'termine_status_date', 'cloture_status_date'
+    ],
+    default_order_str='-created_at',
+    page_size_int=25
+)
+
+# Exemples d'utilisation de ServerSideDataTableView pour différents cas d'usage
+
+class SimpleInventoryListView(ServerSideDataTableView):
+    """
+    Exemple simple - configuration minimale
+    Supporte automatiquement : tri, recherche, pagination
+    """
+    model = Inventory
+    serializer_class = InventoryDetailSerializer
+    search_fields = ['label', 'reference']
+    order_fields = ['id', 'label', 'created_at']
+
+class AdvancedInventoryListView(ServerSideDataTableView):
+    """
+    Exemple avancé - avec tous les types de filtres
+    Supporte : tri, recherche, filtres django-filter, filtres de date, filtres de statut
+    """
+    model = Inventory
+    serializer_class = InventoryDetailSerializer
+    filterset_class = InventoryFilter
+    search_fields = ['label', 'reference', 'status', 'inventory_type']
+    order_fields = ['id', 'reference', 'label', 'date', 'status', 'inventory_type', 'created_at']
+    default_order = '-created_at'
+    page_size = 50
+    filter_fields = ['status', 'inventory_type']
+    date_fields = ['date', 'created_at']
+    status_fields = ['status']
+
+class CustomInventoryListView(ServerSideDataTableView):
+    """
+    Exemple avec personnalisation avancée
+    Surcharge des méthodes pour comportement personnalisé
+    """
+    model = Inventory
+    serializer_class = InventoryDetailSerializer
+    search_fields = ['label', 'reference', 'status']
+    order_fields = ['id', 'label', 'created_at']
+    
+    def get_datatable_queryset(self):
+        """Queryset personnalisé - seulement les inventaires non supprimés"""
+        return Inventory.objects.filter(is_deleted=False)
+    
+    def get_datatable_config(self):
+        """Configuration personnalisée"""
+        config = super().get_datatable_config()
+        # Personnaliser la configuration si nécessaire
+        return config
+
+class InventoryOrderingTestView(APIView):
+    """Vue de test pour vérifier le tri"""
+    
+    def get(self, request):
+        """Teste différents paramètres de tri"""
+        from apps.core.datatables.base import DataTableProcessor
+        
+        # Créer une instance de InventoryListView pour récupérer la configuration
+        inventory_view = InventoryListView()
+        queryset = inventory_view.get_datatable_queryset()
+        config = inventory_view.get_datatable_config()
+        
+        # Test avec différents paramètres de tri
+        test_params = [
+            ('ordering=label', 'Tri par label'),
+            ('ordering=-label', 'Tri par label décroissant'),
+            ('order[0][column]=2&order[0][dir]=asc', 'Tri DataTable colonne 2'),
+            ('order[0][column]=2&order[0][dir]=desc', 'Tri DataTable colonne 2 décroissant'),
+        ]
+        
+        results = []
+        for param, description in test_params:
+            # Créer une requête de test
+            from django.test import RequestFactory
+            factory = RequestFactory()
+            test_request = factory.get(f'/test/?{param}')
             
-            # Récupérer le queryset filtré via le repository
-            queryset = self.repository.get_by_filters(filters_dict)
-
             # Appliquer le tri
-            ordering = request.query_params.get('ordering', self.ordering)
-            if ordering:
-                if ordering.startswith('-'):
-                    field = ordering[1:]
-                    queryset = queryset.order_by(f'-{field}')
-                else:
-                    queryset = queryset.order_by(ordering)
-
-            # Appliquer la pagination
-            paginator = self.pagination_class()
-            page = paginator.paginate_queryset(queryset, request)
-
-            # Sérialiser les résultats
-            serializer = InventoryDetailSerializer(page, many=True)
-
-            # Retourner la réponse paginée avec un message de succès
-            response = paginator.get_paginated_response(serializer.data)
-            response.data['message'] = "Liste des inventaires récupérée avec succès"
-            return response
-
-        except Exception as e:
-            logger.error(f"Erreur lors de la récupération de la liste des inventaires: {str(e)}", exc_info=True)
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            processor = DataTableProcessor(
+                config=config,
+                filter_handler=inventory_view.get_datatable_filter(),
+                serializer_handler=inventory_view.get_datatable_serializer()
             )
+            
+            # Tester le tri
+            try:
+                response = processor.process(test_request, queryset)
+                results.append({
+                    'param': param,
+                    'description': description,
+                    'success': True,
+                    'response': response.content.decode()[:200] + '...'
+                })
+            except Exception as e:
+                results.append({
+                    'param': param,
+                    'description': description,
+                    'success': False,
+                    'error': str(e)
+                })
+        
+        return Response({
+            'test_results': results,
+            'order_fields': config.get_order_fields(),
+            'default_order': config.get_default_order()
+        })
 
 class InventoryCreateView(APIView):
     """

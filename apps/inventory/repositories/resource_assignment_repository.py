@@ -30,7 +30,14 @@ class ResourceAssignmentRepository(IResourceAssignmentRepository):
     
     def create_job_resource(self, assignment_data: Dict[str, Any]) -> JobDetailRessource:
         """Crée une nouvelle affectation ressource-job"""
-        return JobDetailRessource.objects.create(**assignment_data)
+        # Supprimer la clé 'reference' si elle existe et est vide ou None
+        if 'reference' in assignment_data and not assignment_data['reference']:
+            assignment_data.pop('reference')
+        job_resource = JobDetailRessource(**assignment_data)
+        # Générer la référence manuellement
+        job_resource.reference = job_resource.generate_reference(job_resource.REFERENCE_PREFIX)
+        job_resource.save()
+        return job_resource
     
     def update_job_resource(self, job_resource: JobDetailRessource, **kwargs) -> None:
         """Met à jour une affectation ressource-job"""

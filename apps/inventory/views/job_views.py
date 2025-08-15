@@ -48,10 +48,18 @@ class JobCreateAPIView(APIView):
     def post(self, request, inventory_id, warehouse_id):
         serializer = JobCreateRequestSerializer(data=request.data)
         if not serializer.is_valid():
+            # Formater les erreurs de manière sécurisée
+            error_messages = []
+            for field, errors in serializer.errors.items():
+                if isinstance(errors, list):
+                    error_messages.append(f"{field}: {', '.join(str(e) for e in errors)}")
+                else:
+                    error_messages.append(f"{field}: {str(errors)}")
+            
             return Response({
                 'success': False,
                 'message': 'Erreur de validation',
-                'errors': serializer.errors
+                'errors': ' | '.join(error_messages)
             }, status=status.HTTP_400_BAD_REQUEST)
         
         emplacements = serializer.validated_data['emplacements']
@@ -82,10 +90,18 @@ class JobValidateView(APIView):
     def post(self, request):
         serializer = JobValidateRequestSerializer(data=request.data)
         if not serializer.is_valid():
+            # Formater les erreurs de manière sécurisée
+            error_messages = []
+            for field, errors in serializer.errors.items():
+                if isinstance(errors, list):
+                    error_messages.append(f"{field}: {', '.join(str(e) for e in errors)}")
+                else:
+                    error_messages.append(f"{field}: {str(errors)}")
+            
             return Response({
                 'success': False,
                 'message': 'Erreur de validation',
-                'errors': serializer.errors
+                'errors': ' | '.join(error_messages)
             }, status=status.HTTP_400_BAD_REQUEST)
         job_ids = serializer.validated_data['job_ids']
         try:
@@ -108,12 +124,21 @@ class JobValidateView(APIView):
 
 class JobReadyView(APIView):
     def post(self, request):
+        print(request.data)
         serializer = JobReadyRequestSerializer(data=request.data)
         if not serializer.is_valid():
+            # Formater les erreurs de manière sécurisée
+            error_messages = []
+            for field, errors in serializer.errors.items():
+                if isinstance(errors, list):
+                    error_messages.append(f"{field}: {', '.join(str(e) for e in errors)}")
+                else:
+                    error_messages.append(f"{field}: {str(errors)}")
+            
             return Response({
                 'success': False,
                 'message': 'Erreur de validation',
-                'errors': serializer.errors
+                'errors': ' | '.join(error_messages)
             }, status=status.HTTP_400_BAD_REQUEST)
         
         job_ids = serializer.validated_data['job_ids']
@@ -126,7 +151,6 @@ class JobReadyView(APIView):
             return Response({
                 'success': True,
                 'message': result['message'],
-                'data': result
             }, status=status.HTTP_200_OK)
         except JobCreationError as e:
             return Response({
@@ -399,7 +423,7 @@ class JobFullDetailListView(ListAPIView):
     pagination_class = JobFullDetailPagination
 
     def get_queryset(self):
-        queryset = Job.objects.filter(status='VALIDE').order_by('-created_at')
+        queryset = Job.objects.filter(status__in=['VALIDE', 'AFFECTE']).order_by('-created_at')
         warehouse_id = self.kwargs.get('warehouse_id')
         inventory_id = self.kwargs.get('inventory_id')
         if warehouse_id is not None:
@@ -407,7 +431,6 @@ class JobFullDetailListView(ListAPIView):
         if inventory_id is not None:
             queryset = queryset.filter(inventory_id=inventory_id)
         return queryset
-
 class JobPendingListView(ListAPIView):
     """
     Liste tous les jobs en attente avec leurs détails
@@ -427,10 +450,18 @@ class JobResetAssignmentsView(APIView):
     def post(self, request):
         serializer = JobResetAssignmentsRequestSerializer(data=request.data)
         if not serializer.is_valid():
+            # Formater les erreurs de manière sécurisée
+            error_messages = []
+            for field, errors in serializer.errors.items():
+                if isinstance(errors, list):
+                    error_messages.append(f"{field}: {', '.join(str(e) for e in errors)}")
+                else:
+                    error_messages.append(f"{field}: {str(errors)}")
+            
             return Response({
                 'success': False,
                 'message': 'Erreur de validation',
-                'errors': serializer.errors
+                'errors': ' | '.join(error_messages)
             }, status=status.HTTP_400_BAD_REQUEST)
         
         job_ids = serializer.validated_data['job_ids']
@@ -493,16 +524,31 @@ class JobBatchAssignmentView(APIView):
     API pour affecter des sessions et ressources à plusieurs jobs en lot
     """
     def post(self, request):
-        serializer = JobBatchAssignmentRequestSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response({
-                'success': False,
-                'message': 'Erreur de validation des données',
-                'errors': serializer.errors
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        assignments_data = serializer.validated_data['assignments']
         try:
+            print(request.data)
+            serializer = JobBatchAssignmentRequestSerializer(data=request.data)
+            if not serializer.is_valid():
+                # Formater les erreurs de manière sécurisée
+                error_messages = []
+                for field, errors in serializer.errors.items():
+                    if isinstance(errors, list):
+                        for error in errors:
+                            if isinstance(error, dict):
+                                # Si l'erreur est un dictionnaire, extraire le message
+                                error_messages.append(f"{field}: {str(error)}")
+                            else:
+                                error_messages.append(f"{field}: {str(error)}")
+                    else:
+                        error_messages.append(f"{field}: {str(errors)}")
+                
+                return Response({
+                    'success': False,
+                    'message': 'Erreur de validation des données',
+                    'errors': ' | '.join(error_messages)
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            assignments_data = serializer.validated_data['assignments']
+            
             # Utiliser le use case pour la logique métier
             use_case = JobBatchAssignmentUseCase()
             result = use_case.execute(assignments_data)
@@ -512,15 +558,15 @@ class JobBatchAssignmentView(APIView):
                 'message': result['message'],
                 'data': result
             }, status=status.HTTP_200_OK)
+            
         except JobCreationError as e:
             return Response({
                 'success': False,
                 'message': 'Erreur lors du traitement',
-                'errors': {
-                    'detail': str(e)
-                }
+                'error': str(e)
             }, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
+            logger.error(f"Erreur dans JobBatchAssignmentView: {str(e)}", exc_info=True)
             return Response({
                 'success': False,
                 'message': 'Erreur interne du serveur',

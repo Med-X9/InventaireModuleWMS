@@ -305,7 +305,7 @@ class ResourceAssignmentService(IResourceAssignmentService):
         if errors:
             raise ResourceAssignmentValidationError(" | ".join(errors))
 
-    def get_job_resources(self, job_id: int) -> List[Dict[str, Any]]:
+    def get_job_resources(self, job_id: int) -> List[Any]:
         """
         Récupère les ressources affectées à un job
         
@@ -313,7 +313,7 @@ class ResourceAssignmentService(IResourceAssignmentService):
             job_id: ID du job
             
         Returns:
-            List[Dict[str, Any]]: Liste des ressources affectées
+            List[Any]: Liste des objets JobDetailRessource
         """
         try:
             # Vérifier que le job existe
@@ -324,21 +324,9 @@ class ResourceAssignmentService(IResourceAssignmentService):
             # Récupérer les ressources affectées
             job_resources = self.repository.get_job_resources(job_id)
             
-            # Formater les données de réponse
-            resources_data = []
-            for job_resource in job_resources:
-                resources_data.append({
-                    'id': job_resource.id,
-                    'reference': job_resource.reference,
-                    'resource_id': job_resource.ressource.id,
-                    'resource_name': job_resource.ressource.libelle,
-                    'resource_code': job_resource.ressource.reference,
-                    'quantity': job_resource.quantity,
-                    'created_at': job_resource.created_at,
-                    'updated_at': job_resource.updated_at
-                })
-            
-            return resources_data
+            # Retourner directement les objets JobDetailRessource
+            # Le serializer JobResourceDetailSerializer s'occupera de la sérialisation
+            return job_resources
             
         except ResourceAssignmentNotFoundError:
             raise
