@@ -32,6 +32,14 @@ from .user_exceptions import (
     StockNotFoundException,
 )
 
+from .assignment_exceptions import (
+    AssignmentNotFoundException,
+    UserNotAssignedException,
+    InvalidStatusTransitionException,
+    JobNotFoundException,
+    AssignmentValidationException,
+)
+
 __all__ = [
     # Auth exceptions
     'AuthException',
@@ -60,4 +68,11 @@ __all__ = [
     'ProductNotFoundException',
     'LocationNotFoundException',
     'StockNotFoundException',
+    
+    # Assignment exceptions
+    'AssignmentNotFoundException',
+    'UserNotAssignedException',
+    'InvalidStatusTransitionException',
+    'JobNotFoundException',
+    'AssignmentValidationException',
 ] 

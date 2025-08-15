@@ -151,11 +151,12 @@ class Job(TimeStampedModel, ReferenceMixin):
         ('ENTAME', 'ENTAME'),
         ('VALIDE', 'VALIDE'),
         ('TERMINE', 'TERMINE'),
+        ('SAISIE MANUELLE', 'SAISIE MANUELLE'),
     )
    
     
     reference = models.CharField(max_length=20, unique=True, null=False)
-    status = models.CharField(max_length=10, choices=STATUS_CHOICES)
+    status = models.CharField(max_length=30, choices=STATUS_CHOICES)
     en_attente_date = models.DateTimeField(null=True, blank=True)
     affecte_date = models.DateTimeField(null=True, blank=True)
     pret_date = models.DateTimeField(null=True, blank=True)
@@ -163,6 +164,7 @@ class Job(TimeStampedModel, ReferenceMixin):
     entame_date = models.DateTimeField(null=True, blank=True)
     valide_date = models.DateTimeField(null=True, blank=True)
     termine_date = models.DateTimeField(null=True, blank=True)
+    saisie_manuelle_date = models.DateTimeField(null=True, blank=True)
     warehouse = models.ForeignKey('masterdata.Warehouse', on_delete=models.CASCADE)
     inventory = models.ForeignKey(Inventory, on_delete=models.CASCADE)
     history = HistoricalRecords()
@@ -187,12 +189,18 @@ class Personne(TimeStampedModel, ReferenceMixin):
     
 
 class JobDetail(TimeStampedModel, ReferenceMixin):
+    STATUS_CHOICES = (
+        ('EN ATTENTE', 'EN ATTENTE'),
+        ('TERMINE', 'TERMINE'),
+    )
     REFERENCE_PREFIX = 'JBD' 
     reference = models.CharField(unique=True, max_length=20, null=False)
     location = models.ForeignKey('masterdata.Location', on_delete=models.CASCADE)
     job = models.ForeignKey('Job', on_delete=models.CASCADE)  
     counting = models.ForeignKey('Counting', on_delete=models.CASCADE, null=True, blank=True)
-    status = models.CharField(max_length=50)  
+    status = models.CharField(max_length=50, choices=STATUS_CHOICES, default='EN ATTENTE') 
+    en_attente_date = models.DateTimeField(null=True, blank=True)
+    termine_date = models.DateTimeField(null=True, blank=True)
     history = HistoricalRecords()
 
     def __str__(self):

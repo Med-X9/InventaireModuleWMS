@@ -1,18 +1,6 @@
-from .job_exceptions import (
-    JobCreationError,
-    JobNotFoundError,
-    JobStatusError
-)
-from .planning_exceptions import (
-    PlanningCreationError,
-    PlanningNotFoundError,
-    PlanningDateError
-)
-from .pda_exceptions import (
-    PdaCreationError,
-    PdaNotFoundError,
-    PdaLabelError
-)
+# Exceptions pour l'application inventory
+
+# Import des exceptions d'assignment
 from .assignment_exceptions import (
     AssignmentError,
     AssignmentNotFoundError,
@@ -20,11 +8,16 @@ from .assignment_exceptions import (
     AssignmentBusinessRuleError,
     AssignmentSessionError
 )
-# from .job_detail_exceptions import (
-#     JobDetailCreationError,
-#     JobDetailNotFoundError,
-#     JobDetailStatusError
-# )
+
+# Import des exceptions de stock
+from .stock_exceptions import (
+    StockValidationError,
+    StockNotFoundError,
+    StockImportError,
+    StockDuplicateError
+)
+
+# Import des exceptions d'inventaire
 from .inventory_exceptions import (
     InventoryError,
     InventoryValidationError,
@@ -35,14 +28,68 @@ from .inventory_exceptions import (
     CountingError,
     CountingValidationError
 )
-from .stock_exceptions import (
-    StockValidationError,
-    StockNotFoundError,
-    StockImportError,
-    StockDuplicateError
+
+# Import des exceptions de job
+from .job_exceptions import (
+    JobCreationError,
+    JobNotFoundError,
+    JobStatusError
 )
 
+# Import des exceptions de planning
+from .planning_exceptions import (
+    PlanningCreationError,
+    PlanningNotFoundError,
+    PlanningDateError
+)
+
+# Import des exceptions de PDA
+from .pda_exceptions import (
+    PdaCreationError,
+    PdaNotFoundError,
+    PdaLabelError
+)
+
+# Import des exceptions de resource assignment
+from .resource_assignment_exceptions import (
+    ResourceAssignmentValidationError
+)
+
+# Import des exceptions de counting detail (nouvelles)
+from .counting_detail_exceptions import (
+    CountingDetailValidationError,
+    ProductPropertyValidationError,
+    CountingAssignmentValidationError,
+    JobDetailValidationError,
+    NumeroSerieValidationError,
+    CountingModeValidationError
+)
+
+# Liste des exceptions disponibles
 __all__ = [
+    # Assignment exceptions
+    'AssignmentError',
+    'AssignmentNotFoundError',
+    'AssignmentValidationError',
+    'AssignmentBusinessRuleError',
+    'AssignmentSessionError',
+    
+    # Stock exceptions
+    'StockValidationError',
+    'StockNotFoundError',
+    'StockImportError',
+    'StockDuplicateError',
+    
+    # Inventory exceptions
+    'InventoryError',
+    'InventoryValidationError',
+    'InventoryNotFoundError',
+    'InventoryCreationError',
+    'InventoryStatusError',
+    'InventoryDateError',
+    'CountingError',
+    'CountingValidationError',
+    
     # Job exceptions
     'JobCreationError',
     'JobNotFoundError',
@@ -58,31 +105,14 @@ __all__ = [
     'PdaNotFoundError',
     'PdaLabelError',
     
-    # Assignment exceptions
-    'AssignmentError',
-    'AssignmentNotFoundError',
-    'AssignmentValidationError',
-    'AssignmentBusinessRuleError',
-    'AssignmentSessionError',
+    # Resource assignment exceptions
+    'ResourceAssignmentValidationError',
     
-    # JobDetail exceptions
-    # 'JobDetailCreationError',
-    # 'JobDetailNotFoundError',
-    # 'JobDetailStatusError',
-
-    # Inventory exceptions
-    'InventoryError',
-    'InventoryValidationError',
-    'InventoryNotFoundError',
-    'InventoryCreationError',
-    'InventoryStatusError',
-    'InventoryDateError',
-    'CountingError',
-    'CountingValidationError',
-    
-    # Stock exceptions
-    'StockValidationError',
-    'StockNotFoundError',
-    'StockImportError',
-    'StockDuplicateError'
-] 
+    # CountingDetail exceptions (nouvelles)
+    'CountingDetailValidationError',
+    'ProductPropertyValidationError',
+    'CountingAssignmentValidationError',
+    'JobDetailValidationError',
+    'NumeroSerieValidationError',
+    'CountingModeValidationError'
+]
