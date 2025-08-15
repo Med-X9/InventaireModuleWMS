@@ -270,7 +270,7 @@ class CountingDetail(TimeStampedModel, ReferenceMixin):
     history = HistoricalRecords()
     
 
-class NSerie(TimeStampedModel, ReferenceMixin):
+class NSerieInventory(TimeStampedModel, ReferenceMixin):
     REFERENCE_PREFIX = 'NS'
     reference = models.CharField(unique=True, max_length=20, null=False)
     n_serie = models.CharField(max_length=100,null=True,blank=True)
