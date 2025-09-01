@@ -5,7 +5,7 @@ from typing import Dict, Any, List, Optional
 from django.utils import timezone
 from ..usecases.counting_detail_creation import CountingDetailCreationUseCase
 from ..exceptions import CountingValidationError
-from ..models import CountingDetail, NSerie, Counting
+from ..models import CountingDetail, NSerieInventory, Counting
 import logging
 
 logger = logging.getLogger(__name__)
@@ -90,7 +90,7 @@ class CountingDetailService:
         """
         return CountingDetail.objects.filter(product_id=product_id).order_by('-created_at')
     
-    def get_numeros_serie_by_counting_detail(self, counting_detail_id: int) -> List[NSerie]:
+    def get_numeros_serie_by_counting_detail(self, counting_detail_id: int) -> List[NSerieInventory]:
         """
         Récupère tous les NumeroSerie d'un CountingDetail.
         
@@ -98,11 +98,11 @@ class CountingDetailService:
             counting_detail_id: ID du CountingDetail
             
         Returns:
-            List[NSerie]: Liste des NumeroSerie
+            List[NSerieInventory]: Liste des NumeroSerie
         """
         try:
             counting_detail = CountingDetail.objects.get(id=counting_detail_id)
-            return NSerie.objects.filter(counting_detail=counting_detail)
+            return NSerieInventory.objects.filter(counting_detail=counting_detail)
         except CountingDetail.DoesNotExist:
             logger.warning(f"CountingDetail avec l'ID {counting_detail_id} non trouvé")
             return []
@@ -160,7 +160,7 @@ class CountingDetailService:
             
             total_quantity = sum(cd.quantity_inventoried for cd in counting_details)
             total_numeros_serie = sum(
-                NSerie.objects.filter(counting_detail=cd).count() 
+                NSerieInventory.objects.filter(counting_detail=cd).count() 
                 for cd in counting_details
             )
             

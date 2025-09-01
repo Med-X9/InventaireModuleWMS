@@ -3,6 +3,7 @@
 # Vues d'authentification
 from .auth import (
     LoginView,
+    JWTLoginView,
     LogoutView,
     RefreshTokenView
 )
@@ -38,6 +39,7 @@ from .counting import (
 __all__ = [
     # Auth views
     'LoginView',
+    'JWTLoginView',
     'LogoutView',
     'RefreshTokenView',
 

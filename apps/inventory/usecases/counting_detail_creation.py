@@ -6,7 +6,7 @@ import logging
 from typing import Dict, Any, List, Optional
 from django.utils import timezone
 from django.db import transaction
-from ..models import CountingDetail, NSerie, Counting, JobDetail
+from ..models import CountingDetail, NSerieInventory, Counting, JobDetail
 from ..exceptions import (
     CountingDetailValidationError,
     ProductPropertyValidationError,
@@ -185,9 +185,9 @@ class CountingDetailCreationUseCase:
                             # Vérifier que le numéro de série existe dans masterdata.NSerie pour ce produit
                             if not self._is_nserie_exists_in_masterdata(ns['n_serie'], product.id):
                                 errors.append(f"Numéro de série {ns['n_serie']} n'existe pas dans masterdata pour ce produit")
-                            # Vérifier aussi qu'il n'est pas déjà utilisé dans les CountingDetail
-                            elif self._is_nserie_already_used(ns['n_serie'], product.id):
-                                errors.append(f"Numéro de série {ns['n_serie']} déjà utilisé pour ce produit")
+                            # Note: On ne vérifie plus si le numéro de série est déjà utilisé
+                            # car il peut être légitime de réutiliser un numéro de série
+                            # dans différents CountingDetail (emplacements différents, comptages différents)
             
         except Product.DoesNotExist:
             errors.append(f"Produit avec l'ID {data['product_id']} non trouvé")
@@ -207,10 +207,10 @@ class CountingDetailCreationUseCase:
         """
         try:
             # Vérifier dans les CountingDetail existants
-            from ..models import CountingDetail, NSerie
+            from ..models import CountingDetail, NSerieInventory
             
-            # Chercher dans les NSerie existants pour ce produit
-            existing_nserie = NSerie.objects.filter(
+            # Chercher dans les NSerieInventory existants pour ce produit
+            existing_nserie = NSerieInventory.objects.filter(
                 counting_detail__product_id=product_id,
                 n_serie=n_serie
             ).exists()
@@ -351,7 +351,7 @@ class CountingDetailCreationUseCase:
         
         return counting_detail
     
-    def _create_numeros_serie(self, data: Dict[str, Any], counting_detail: CountingDetail) -> List[NSerie]:
+    def _create_numeros_serie(self, data: Dict[str, Any], counting_detail: CountingDetail) -> List[NSerieInventory]:
         """
         Crée les NumeroSerie si nécessaire.
         
@@ -360,14 +360,14 @@ class CountingDetailCreationUseCase:
             counting_detail: Le CountingDetail créé
             
         Returns:
-            List[NSerie]: Liste des NumeroSerie créés
+            List[NSerieInventory]: Liste des NumeroSerie créés
         """
         numeros_serie = []
         
         # Créer les numéros de série si fournis dans la requête, peu importe la configuration du comptage
         if data.get('numeros_serie'):
             for ns_data in data['numeros_serie']:
-                nserie = NSerie(
+                nserie = NSerieInventory(
                     n_serie=ns_data['n_serie'],
                     counting_detail=counting_detail
                 )
@@ -405,7 +405,7 @@ class CountingDetailCreationUseCase:
         return job_detail
     
     def _format_response(self, counting_detail: CountingDetail, 
-                        numeros_serie: List[NSerie], 
+                        numeros_serie: List[NSerieInventory], 
                         job_detail: JobDetail) -> Dict[str, Any]:
         """
         Formate la réponse de l'API.

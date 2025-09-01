@@ -6,6 +6,7 @@ app_name = 'mobile'
 urlpatterns = [
     # Authentification
     path('auth/login/', views.LoginView.as_view(), name='mobile_login'),
+    path('auth/jwt-login/', views.JWTLoginView.as_view(), name='mobile_jwt_login'),
     path('auth/logout/', views.LogoutView.as_view(), name='mobile_logout'),
     path('auth/refresh/', views.RefreshTokenView.as_view(), name='mobile_refresh_token'),
     
