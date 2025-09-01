@@ -21,6 +21,7 @@ from .models import (
 from apps.inventory.models import Personne
 from django.contrib.auth.admin import UserAdmin
 from apps.users.models import UserApp
+from apps.inventory.models import Personne
 # ---------------- Resources ---------------- #
 
 class AccountResource(resources.ModelResource):
@@ -317,6 +318,19 @@ class NSerieResource(resources.ModelResource):
         model = NSerie
         fields = ('n_serie', 'product', 'status', 'description', 'date_fabrication', 'date_expiration', 'warranty_end_date')
         import_id_fields = ('n_serie', 'product')
+
+
+class PersonneResource(resources.ModelResource):
+    """
+    Resource pour l'import/export des personnes
+    """
+    nom = fields.Field(column_name='nom', attribute='nom')
+    prenom = fields.Field(column_name='prénom', attribute='prenom')
+
+    class Meta:
+        model = Personne
+        fields = ('nom', 'prenom')
+        import_id_fields = ('nom', 'prenom')
 
 
 # ---------------- Admins ---------------- #
@@ -728,6 +742,20 @@ class PersonneAdmin(ImportExportModelAdmin):
     search_fields = ('reference', 'nom', 'prenom')
     exclude = ('created_at', 'updated_at', 'deleted_at', 'is_deleted', 'reference')
     readonly_fields = ('reference',)
+    
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        if not obj:  # Si c'est une nouvelle personne
+            # Permettre au champ reference d'être vide lors de la création
+            form.base_fields['reference'].required = False
+            form.base_fields['reference'].widget = forms.HiddenInput()
+        return form
+    
+    def save_model(self, request, obj, form, change):
+        # S'assurer que la référence est générée si elle est vide
+        if not obj.reference:
+            obj.reference = obj.generate_reference(obj.REFERENCE_PREFIX)
+        super().save_model(request, obj, form, change)
 
 
 

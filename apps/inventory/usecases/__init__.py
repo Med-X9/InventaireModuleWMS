@@ -6,6 +6,7 @@ from .counting_dispatcher import CountingDispatcher
 from .counting_by_article import CountingByArticle
 from .counting_by_stockimage import CountingByStockimage
 from .counting_by_in_bulk import CountingByInBulk
+from .counting_detail_creation import CountingDetailCreationUseCase
 from .job_assignment import JobAssignmentUseCase
 from .job_creation import JobCreationUseCase
 from .job_add_emplacements import JobAddEmplacementsUseCase
@@ -19,7 +20,7 @@ __all__ = [
     'CountingByArticle',
     'CountingByStockimage',
     'CountingByInBulk',
-    'CountingDispatcher',
+    'CountingDetailCreationUseCase',
     'JobAssignmentUseCase',
     'JobCreationUseCase',
     'JobAddEmplacementsUseCase',
