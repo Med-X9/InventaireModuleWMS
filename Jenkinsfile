@@ -72,7 +72,6 @@ pipeline {
                                     -Dsonar.projectKey=${SONAR_PROJECT_KEY} \\
                                     -Dsonar.projectName="${SONAR_PROJECT_NAME}" \\
                                     -Dsonar.projectVersion=${SONAR_PROJECT_VERSION} \\
-                                    -Dsonar.branch.name=${env.BRANCH_NAME ?: 'devops'} \\
                                     -Dsonar.sources=apps,project,config \\
                                     -Dsonar.sourceEncoding=UTF-8 \\
                                     -Dsonar.language=py \\
