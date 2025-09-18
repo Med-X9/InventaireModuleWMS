@@ -7,6 +7,10 @@ pipeline {
         BACKEND_IMAGE  = "${IMAGE_PREFIX}/backend-app"
         IMAGE_TAG = "latest"
         
+        // Deployment configuration
+        DEPLOY_CREDS = "${env.BRANCH_NAME == 'main' ? 'prod-creds' : 'dev-creds'}"
+        ENV_NAME = "${env.BRANCH_NAME == 'main' ? 'production' : 'development'}"
+        DEPLOY_HOST = "${env.BRANCH_NAME == 'main' ? 'your-prod-server.com' : 'your-dev-server.com'}"
         
         // SonarQube
         SONAR_PROJECT_KEY = "inventaire-module-wms-${env.BRANCH_NAME}"
@@ -153,6 +157,13 @@ pipeline {
                     def imageTag = env.BRANCH_NAME == 'main' ? 'prod-latest' : 'dev-latest'
                     echo "Preparing deployment files for ${env.ENV_NAME} environment with image: ${BACKEND_IMAGE}:${imageTag}"
                     
+                    if (!env.DEPLOY_CREDS) {
+                        error("DEPLOY_CREDS environment variable is not set!")
+                    }
+                    if (!env.DEPLOY_HOST) {
+                        error("DEPLOY_HOST environment variable is not set!")
+                    }
+                    
                     withCredentials([usernamePassword(credentialsId: env.DEPLOY_CREDS, usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                         sh '''
                             # Create deployment directory on remote server
@@ -187,6 +198,13 @@ pipeline {
             }
             steps {
                 script {
+                    if (!env.DEPLOY_CREDS) {
+                        error("DEPLOY_CREDS environment variable is not set!")
+                    }
+                    if (!env.DEPLOY_HOST) {
+                        error("DEPLOY_HOST environment variable is not set!")
+                    }
+                    
                     withCredentials([usernamePassword(credentialsId: env.DEPLOY_CREDS, usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                         sh '''
                             sshpass -p "$PASS" ssh "$USER@$DEPLOY_HOST" "bash -c 'cd /tmp/deployment/backend && docker-compose down -v && docker-compose pull && docker-compose up -d'"
