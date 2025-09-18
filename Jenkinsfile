@@ -8,9 +8,9 @@ pipeline {
         IMAGE_TAG = "latest"
         
         // Deployment configuration
-        DEPLOY_CREDS = "${env.BRANCH_NAME == 'main' ? 'prod-creds' : 'dev-creds'}"
-        ENV_NAME = "${env.BRANCH_NAME == 'main' ? 'production' : 'development'}"
-        DEPLOY_HOST = "${env.BRANCH_NAME == 'main' ? 'your-prod-server.com' : 'your-dev-server.com'}"
+        DEPLOY_HOST  = "${env.BRANCH_NAME == 'main' ? '31.97.158.68' : (env.BRANCH_NAME == 'dev' ? '147.93.55.221' : '')}"
+        DEPLOY_CREDS = "${env.BRANCH_NAME == 'main' ? 'prod-creds' : (env.BRANCH_NAME == 'dev' ? 'dev-test-creds' : '')}"
+        ENV_NAME     = "${env.BRANCH_NAME == 'main' ? 'production' : (env.BRANCH_NAME == 'dev' ? 'development' : '')}"
         
         // SonarQube
         SONAR_PROJECT_KEY = "inventaire-module-wms-${env.BRANCH_NAME}"
