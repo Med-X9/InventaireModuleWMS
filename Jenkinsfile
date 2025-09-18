@@ -13,9 +13,9 @@ pipeline {
         DEPLOY_HOST = '167.99.219.120'
         DEPLOY_USER = credentials('devops-creds')
         
-        // SonarQube configuration
-        SONAR_PROJECT_KEY = 'inventaire-module-wms'
-        SONAR_PROJECT_NAME = 'InventaireModuleWMS'
+        // SonarQube configuration - Dynamic per branch
+        SONAR_PROJECT_KEY = "inventaire-module-wms-${env.BRANCH_NAME ?: 'devops'}"
+        SONAR_PROJECT_NAME = "InventaireModuleWMS-${env.BRANCH_NAME ?: 'devops'}"
         SONAR_PROJECT_VERSION = '1.0'
     }
 
@@ -67,11 +67,12 @@ pipeline {
                         // Run SonarQube analysis
                         withSonarQubeEnv(credentialsId: 'sonar-token', installationName: 'SonarQube-Server') {
                             sh """
-                                echo "Starting SonarQube analysis..."
+                                echo "Starting SonarQube analysis for branch: ${env.BRANCH_NAME ?: 'devops'}"
                                 \${scannerHome}/bin/sonar-scanner \\
                                     -Dsonar.projectKey=${SONAR_PROJECT_KEY} \\
                                     -Dsonar.projectName="${SONAR_PROJECT_NAME}" \\
                                     -Dsonar.projectVersion=${SONAR_PROJECT_VERSION} \\
+                                    -Dsonar.branch.name=${env.BRANCH_NAME ?: 'devops'} \\
                                     -Dsonar.sources=apps,project,config \\
                                     -Dsonar.sourceEncoding=UTF-8 \\
                                     -Dsonar.language=py \\
@@ -82,7 +83,7 @@ pipeline {
                                     -Dsonar.coverage.exclusions="**/migrations/**,**/tests/**,**/test_*.py,**/conftest.py,**/manage.py,**/wsgi.py,**/asgi.py,**/settings/**,**/__init__.py" \\
                                     -Dsonar.cpd.exclusions="**/migrations/**,**/tests/**" \\
                                     -Dsonar.qualitygate.wait=true
-                                echo "SonarQube analysis completed."
+                                echo "SonarQube analysis completed for branch: ${env.BRANCH_NAME ?: 'devops'}"
                             """
                         }
                     }
@@ -151,7 +152,11 @@ pipeline {
         }
         success {
             echo 'Pipeline completed successfully!'
-            echo 'SonarQube analysis results: Check http://147.93.55.221:9000/dashboard?id=inventaire-module-wms'
+            script {
+                def branchName = env.BRANCH_NAME ?: 'devops'
+                def projectKey = "inventaire-module-wms-${branchName}"
+                echo "SonarQube analysis results for ${branchName}: http://147.93.55.221:9000/dashboard?id=${projectKey}"
+            }
         }
         failure {
             echo 'Pipeline failed!'
