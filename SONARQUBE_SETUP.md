@@ -26,9 +26,10 @@ docker run -d --name sonarqube \
 
 ### 1.2 Access SonarQube UI
 
-1. Navigate to `http://your-server-ip:9000` in your web browser
-2. Default login credentials: `admin/admin`
+1. Navigate to `http://147.93.55.221:9000` in your web browser
+2. Default login credentials: `admin/admin` (or `admin/Sm@tch2025-IT` if already configured)
 3. You'll be prompted to change the password on first login
+4. **For this project, use**: `admin/Sm@tch2025-IT`
 
 ## Step 2: Configure SonarQube Project
 
@@ -65,7 +66,7 @@ docker run -d --name sonarqube \
 2. Scroll to **"SonarQube Scanner"** section
 3. Click **"Add SonarQube Scanner"**
 4. Configure:
-   - **Name**: `sonar-scanner`
+   - **Name**: `sonar-scanner` (this name must match the Jenkinsfile)
    - **Install automatically**: ✅ Check this
    - **Version**: Select latest version
 
@@ -75,8 +76,8 @@ docker run -d --name sonarqube \
 2. Scroll to **"SonarQube servers"** section
 3. Click **"Add SonarQube"**
 4. Configure:
-   - **Name**: `SonarQube-Server`
-   - **Server URL**: `http://your-sonar-server:9000`
+   - **Name**: `SonarQube-Server` (this name must match the Jenkinsfile)
+   - **Server URL**: `http://147.93.55.221:9000`
    - **Server authentication token**: Select credential (see next step)
 
 ### 3.4 Add SonarQube Credentials
@@ -87,7 +88,7 @@ docker run -d --name sonarqube \
 4. Configure:
    - **Kind**: Secret text
    - **Secret**: Paste the SonarQube token from Step 2.2
-   - **ID**: `sonar-token`
+   - **ID**: `sonar-token` (this ID must match the Jenkinsfile)
    - **Description**: `SonarQube Authentication Token`
 
 ## Step 4: Project Configuration Files
@@ -137,7 +138,7 @@ The Jenkinsfile has been updated with a new `SonarQube Analysis` stage that:
 ### 6.2 View Results
 
 1. **Jenkins Console**: Check build logs for SonarQube output
-2. **SonarQube Dashboard**: Visit `http://your-sonar-server:9000/dashboard?id=inventaire-module-wms`
+2. **SonarQube Dashboard**: Visit `http://147.93.55.221:9000/dashboard?id=inventaire-module-wms`
 
 ## Step 7: Quality Gate Configuration
 
@@ -163,11 +164,17 @@ SonarQube comes with a default "Sonar way" quality gate that checks:
    - Check tool name matches pipeline configuration (`sonar-scanner`)
    - Ensure tool type is `hudson.plugins.sonar.SonarRunnerInstallation` in Jenkinsfile
 
-2. **Invalid tool type error**
+2. **Tool installation not found error**
+   - Error: `Tool type "hudson.plugins.sonar.SonarRunnerInstallation" does not have an install of "sonar-scanner" configured`
+   - **Solution**: Go to Jenkins → Manage Jenkins → Global Tool Configuration → SonarQube Scanner
+   - Add a new SonarQube Scanner with name exactly `sonar-scanner`
+   - Enable "Install automatically"
+
+3. **Invalid tool type error**
    - If you see `Invalid tool type "org.sonarsource.scanner.jenkins.tool.SonarRunnerInstallation"` error
    - Use `hudson.plugins.sonar.SonarRunnerInstallation` instead in the Jenkinsfile tools section
 
-3. **Authentication failed**
+4. **Authentication failed**
    - Verify SonarQube token is correct
    - Check credential ID matches pipeline configuration
 

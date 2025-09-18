@@ -1,11 +1,6 @@
 pipeline {
     agent any
 
-    tools {
-        // Ensure SonarQube Scanner is available
-        'hudson.plugins.sonar.SonarRunnerInstallation' 'sonar-scanner'
-    }
-
     environment {
         FRONTEND_REPO = 'https://github.com/Med-X9/inventaireModuleWMSFront.git'
         BACKEND_REPO  = 'https://github.com/Med-X9/InventaireModuleWMS.git'
@@ -46,6 +41,9 @@ pipeline {
         }
 
         stage('SonarQube Analysis') {
+            environment {
+                scannerHome = tool 'sonar-scanner'
+            }
             when {
                 anyOf {
                     branch 'main'
@@ -67,10 +65,10 @@ pipeline {
                         }
                         
                         // Run SonarQube analysis
-                        withSonarQubeEnv('SonarQube-Server') {
+                        withSonarQubeEnv(credentialsId: 'sonar-token', installationName: 'SonarQube-Server') {
                             sh """
                                 echo "Starting SonarQube analysis..."
-                                sonar-scanner \\
+                                \${scannerHome}/bin/sonar-scanner \\
                                     -Dsonar.projectKey=${SONAR_PROJECT_KEY} \\
                                     -Dsonar.projectName="${SONAR_PROJECT_NAME}" \\
                                     -Dsonar.projectVersion=${SONAR_PROJECT_VERSION} \\
@@ -153,7 +151,7 @@ pipeline {
         }
         success {
             echo 'Pipeline completed successfully!'
-            echo 'SonarQube analysis results: Check http://your-sonar-server:9000/dashboard?id=inventaire-module-wms'
+            echo 'SonarQube analysis results: Check http://147.93.55.221:9000/dashboard?id=inventaire-module-wms'
         }
         failure {
             echo 'Pipeline failed!'
