@@ -1,0 +1,47 @@
+# SonarQube additional configuration
+# This file contains additional exclusions and settings
+
+# File patterns to exclude from analysis
+**/migrations/**
+**/__pycache__/**
+**/staticfiles/**
+**/static/**
+**/media/**
+**/*.pyc
+**/*.pyo
+**/*.min.js
+**/*.min.css
+**/node_modules/**
+**/venv/**
+**/env/**
+**/.pytest_cache/**
+**/.coverage
+**/htmlcov/**
+**/build/**
+**/dist/**
+**/*.egg-info/**
+
+# Django specific files to exclude
+**/manage.py
+**/wsgi.py
+**/asgi.py
+**/settings.py
+**/local_settings.py
+
+# Test files (will be analyzed separately)
+**/test_*.py
+**/tests/**
+**/conftest.py
+
+# Documentation and config files
+**/*.md
+**/*.txt
+**/*.yml
+**/*.yaml
+**/*.json
+**/Dockerfile*
+**/docker-compose*
+**/.git/**
+**/.gitignore
+**/LICENSE
+**/README*
