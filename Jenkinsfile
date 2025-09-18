@@ -3,7 +3,7 @@ pipeline {
 
     tools {
         // Ensure SonarQube Scanner is available
-        'org.sonarsource.scanner.jenkins.tool.SonarRunnerInstallation' 'sonar-scanner'
+        'hudson.plugins.sonar.SonarRunnerInstallation' 'sonar-scanner'
     }
 
     environment {

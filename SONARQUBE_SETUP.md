@@ -14,14 +14,14 @@ This guide provides step-by-step instructions to set up SonarQube integration wi
 ### 1.1 Pull and Run SonarQube Container
 
 ```bash
-# Pull SonarQube Docker image
-docker pull sonarqube:lts
+# Pull SonarQube Docker image (latest)
+docker pull sonarqube:latest
 
 # Run SonarQube container
 docker run -d --name sonarqube \
   -p 9000:9000 \
   -e SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true \
-  sonarqube:lts
+  sonarqube:latest
 ```
 
 ### 1.2 Access SonarQube UI
@@ -160,9 +160,14 @@ SonarQube comes with a default "Sonar way" quality gate that checks:
 
 1. **Scanner not found**
    - Verify SonarQube Scanner installation in Jenkins Global Tools
-   - Check tool name matches pipeline configuration
+   - Check tool name matches pipeline configuration (`sonar-scanner`)
+   - Ensure tool type is `hudson.plugins.sonar.SonarRunnerInstallation` in Jenkinsfile
 
-2. **Authentication failed**
+2. **Invalid tool type error**
+   - If you see `Invalid tool type "org.sonarsource.scanner.jenkins.tool.SonarRunnerInstallation"` error
+   - Use `hudson.plugins.sonar.SonarRunnerInstallation` instead in the Jenkinsfile tools section
+
+3. **Authentication failed**
    - Verify SonarQube token is correct
    - Check credential ID matches pipeline configuration
 
