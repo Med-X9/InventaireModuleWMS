@@ -7,9 +7,11 @@ pipeline {
         BACKEND_IMAGE  = "${IMAGE_PREFIX}/backend-app"
         IMAGE_TAG = "latest"
         
-        DEPLOY_HOST  = "${env.BRANCH_NAME == 'main' ? '31.97.158.68' : (env.BRANCH_NAME == 'dev' ? '147.93.55.221' : '')}"
-        DEPLOY_CREDS = "${env.BRANCH_NAME == 'main' ? 'prod-creds' : (env.BRANCH_NAME == 'dev' ? 'dev-test-creds' : '')}"
-        ENV_NAME     = "${env.BRANCH_NAME == 'main' ? 'production' : (env.BRANCH_NAME == 'dev' ? 'development' : '')}"
+        
+        // SonarQube
+        SONAR_PROJECT_KEY = "inventaire-module-wms-${env.BRANCH_NAME}"
+        SONAR_PROJECT_NAME = "InventaireModuleWMS-${env.BRANCH_NAME}"
+        SONAR_PROJECT_VERSION = '1.0'
     }
 
     stages {
@@ -40,6 +42,64 @@ pipeline {
                         rm -rf /tmp/backend
                         git clone --single-branch --branch ${BRANCH_NAME} https://$GIT_USER:$GIT_PASS@github.com/Med-X9/InventaireModuleWMS.git /tmp/backend
                     '''
+                }
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            environment {
+                scannerHome = tool 'sonar-scanner'
+            }
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'devops'
+                    branch 'dev'
+                }
+            }
+            steps {
+                dir('/tmp/backend') {
+                    script {
+                        try {
+                            // Install Python dependencies for testing (optional)
+                            sh '''
+                                echo "Setting up Python environment..."
+                                python3 -m pip install --user -r requirements.txt || echo "Warning: Failed to install some dependencies, continuing with analysis..."
+                            '''
+                        } catch (Exception e) {
+                            echo "Warning: Python setup failed, but continuing with SonarQube analysis: ${e.getMessage()}"
+                        }
+                        
+                        // Run SonarQube analysis
+                        withSonarQubeEnv(credentialsId: 'sonar-token', installationName: 'SonarQube-Server') {
+                            sh """
+                                echo "Starting SonarQube analysis for branch: ${env.BRANCH_NAME}"
+                                \${scannerHome}/bin/sonar-scanner \\
+                                    -Dsonar.projectKey=${SONAR_PROJECT_KEY} \\
+                                    -Dsonar.projectName="${SONAR_PROJECT_NAME}" \\
+                                    -Dsonar.projectVersion=${SONAR_PROJECT_VERSION} \\
+                                    -Dsonar.sources=apps,project,config \\
+                                    -Dsonar.sourceEncoding=UTF-8 \\
+                                    -Dsonar.language=py \\
+                                    -Dsonar.python.version=3.12 \\
+                                    -Dsonar.tests=apps \\
+                                    -Dsonar.test.inclusions="**/tests/**/*.py,**/test_*.py" \\
+                                    -Dsonar.exclusions="**/migrations/**,**/staticfiles/**,**/static/**,**/media/**,**/__pycache__/**,**/venv/**,**/env/**,**/node_modules/**,**/*.pyc,**/manage.py,**/wsgi.py,**/asgi.py,**/settings/**,**/*.min.js,**/*.min.css" \\
+                                    -Dsonar.coverage.exclusions="**/migrations/**,**/tests/**,**/test_*.py,**/conftest.py,**/manage.py,**/wsgi.py,**/asgi.py,**/settings/**,**/__init__.py" \\
+                                    -Dsonar.cpd.exclusions="**/migrations/**,**/tests/**" \\
+                                    -Dsonar.qualitygate.wait=true
+                                echo "SonarQube analysis completed for branch: ${env.BRANCH_NAME}"
+                            """
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: false
                 }
             }
         }
@@ -152,9 +212,13 @@ pipeline {
                 if (env.BRANCH_NAME == 'dev') {
                     echo "✅ Successfully deployed to development environment (${env.DEPLOY_HOST})!"
                     echo "🐳 Using image: ${env.BACKEND_IMAGE}:dev-latest"
+                    def projectKey = "inventaire-module-wms-${branchName}"
+                    echo "SonarQube analysis results for ${branchName}: http://147.93.55.221:9000/dashboard?id=${projectKey}"
                 } else if (env.BRANCH_NAME == 'main') {
                     echo "✅ Successfully deployed to production environment (${env.DEPLOY_HOST})!"
                     echo "🐳 Using image: ${env.BACKEND_IMAGE}:prod-latest"
+                    def projectKey = "inventaire-module-wms-${branchName}"
+                    echo "SonarQube analysis results for ${branchName}: http://147.93.55.221:9000/dashboard?id=${projectKey}"
                 } else {
                     echo "✅ Pipeline completed - no deployment needed for branch: ${env.BRANCH_NAME}"
                 }
@@ -169,6 +233,9 @@ pipeline {
                     echo "❌ Pipeline failed!"
                 }
             }
+        }
+        unstable {
+            echo 'Pipeline completed with warnings. Check SonarQube Quality Gate results.'
         }
     }
 }
