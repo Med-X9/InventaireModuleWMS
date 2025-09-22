@@ -49,6 +49,208 @@ class CountingDetailService:
             logger.error(f"Erreur lors de la création du CountingDetail: {str(e)}")
             raise
     
+    def create_counting_details_batch(self, data_list: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Crée plusieurs CountingDetail et leurs NumeroSerie associés en lot.
+        
+        Args:
+            data_list: Liste des données de comptage détaillé
+            
+        Returns:
+            Dict[str, Any]: Résultat de la création en lot
+        """
+        try:
+            logger.info(f"Création en lot de {len(data_list)} CountingDetail")
+            
+            results = []
+            errors = []
+            
+            for i, data in enumerate(data_list):
+                try:
+                    # Vérifier si l'enregistrement existe déjà
+                    existing_detail = self._find_existing_counting_detail(data)
+                    
+                    if existing_detail:
+                        # Modifier l'enregistrement existant
+                        result = self._update_counting_detail(existing_detail, data)
+                        result['action'] = 'updated'
+                    else:
+                        # Créer un nouvel enregistrement
+                        result = self.use_case.execute(data)
+                        result['action'] = 'created'
+                    
+                    results.append({
+                        'index': i,
+                        'data': data,
+                        'result': result
+                    })
+                    
+                except Exception as e:
+                    logger.error(f"Erreur lors du traitement de l'enregistrement {i}: {str(e)}")
+                    errors.append({
+                        'index': i,
+                        'data': data,
+                        'error': str(e)
+                    })
+            
+            return {
+                'success': True,
+                'total_processed': len(data_list),
+                'successful': len(results),
+                'failed': len(errors),
+                'results': results,
+                'errors': errors
+            }
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de la création en lot: {str(e)}")
+            raise
+    
+    def validate_counting_details_batch(self, data_list: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Valide plusieurs CountingDetail sans les créer.
+        
+        Args:
+            data_list: Liste des données à valider
+            
+        Returns:
+            Dict[str, Any]: Résultat de la validation
+        """
+        try:
+            logger.info(f"Validation en lot de {len(data_list)} CountingDetail")
+            
+            results = []
+            errors = []
+            
+            for i, data in enumerate(data_list):
+                try:
+                    # Valider les données
+                    validation_result = self.use_case._validate_data(data)
+                    
+                    # Vérifier si l'enregistrement existe
+                    existing_detail = self._find_existing_counting_detail(data)
+                    
+                    results.append({
+                        'index': i,
+                        'data': data,
+                        'valid': True,
+                        'exists': existing_detail is not None,
+                        'existing_id': existing_detail.id if existing_detail else None,
+                        'action_needed': 'update' if existing_detail else 'create'
+                    })
+                    
+                except Exception as e:
+                    logger.error(f"Erreur de validation pour l'enregistrement {i}: {str(e)}")
+                    errors.append({
+                        'index': i,
+                        'data': data,
+                        'error': str(e)
+                    })
+            
+            return {
+                'success': True,
+                'total_processed': len(data_list),
+                'valid': len(results),
+                'invalid': len(errors),
+                'results': results,
+                'errors': errors
+            }
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de la validation en lot: {str(e)}")
+            raise
+    
+    def _find_existing_counting_detail(self, data: Dict[str, Any]) -> Optional[CountingDetail]:
+        """
+        Recherche un CountingDetail existant basé sur les critères de matching.
+        
+        Args:
+            data: Données du comptage
+            
+        Returns:
+            Optional[CountingDetail]: CountingDetail existant ou None
+        """
+        try:
+            # Critères de recherche pour trouver un enregistrement existant
+            # Combinaison counting + location + product (si fourni)
+            filters = {
+                'counting_id': data.get('counting_id'),
+                'location_id': data.get('location_id')
+            }
+            
+            # Ajouter le produit si fourni
+            if data.get('product_id'):
+                filters['product_id'] = data.get('product_id')
+            
+            # Rechercher l'enregistrement existant
+            existing = CountingDetail.objects.filter(**filters).first()
+            
+            return existing
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de la recherche d'enregistrement existant: {str(e)}")
+            return None
+    
+    def _update_counting_detail(self, counting_detail: CountingDetail, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Met à jour un CountingDetail existant.
+        
+        Args:
+            counting_detail: CountingDetail à mettre à jour
+            data: Nouvelles données
+            
+        Returns:
+            Dict[str, Any]: Résultat de la mise à jour
+        """
+        try:
+            # Mettre à jour les champs
+            if 'quantity_inventoried' in data:
+                counting_detail.quantity_inventoried = data['quantity_inventoried']
+            
+            if 'dlc' in data:
+                counting_detail.dlc = data.get('dlc')
+            
+            if 'n_lot' in data:
+                counting_detail.n_lot = data.get('n_lot')
+            
+            # Sauvegarder les modifications
+            counting_detail.save()
+            
+            # Mettre à jour les numéros de série si fournis
+            numeros_serie = []
+            if data.get('numeros_serie'):
+                # Supprimer les anciens numéros de série
+                NSerieInventory.objects.filter(counting_detail=counting_detail).delete()
+                
+                # Créer les nouveaux
+                numeros_serie = self.use_case._create_numeros_serie(data, counting_detail)
+            
+            logger.info(f"CountingDetail {counting_detail.id} mis à jour avec succès")
+            
+            return {
+                'counting_detail': {
+                    'id': counting_detail.id,
+                    'reference': counting_detail.reference,
+                    'quantity_inventoried': counting_detail.quantity_inventoried,
+                    'product_id': counting_detail.product.id if counting_detail.product else None,
+                    'location_id': counting_detail.location.id,
+                    'counting_id': counting_detail.counting.id,
+                    'created_at': counting_detail.created_at,
+                    'updated_at': counting_detail.updated_at
+                },
+                'numeros_serie': [
+                    {
+                        'id': ns.id,
+                        'n_serie': ns.n_serie,
+                        'reference': ns.reference
+                    } for ns in numeros_serie
+                ]
+            }
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de la mise à jour du CountingDetail: {str(e)}")
+            raise
+    
     def get_counting_details_by_counting(self, counting_id: int) -> List[CountingDetail]:
         """
         Récupère tous les CountingDetail d'un comptage.
