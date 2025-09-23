@@ -1,5 +1,5 @@
 """
-Service simplifié pour la gestion des CountingDetail et NumeroSerie dans l'app mobile.
+Service pour la gestion des CountingDetail et NumeroSerie dans l'app mobile.
 Utilise le CountingDetailCreationUseCase existant.
 """
 from typing import Dict, Any, List, Optional
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 class CountingDetailService:
     """
-    Service simplifié pour la gestion des CountingDetail et NumeroSerie dans l'app mobile.
+    Service pour la gestion des CountingDetail et NumeroSerie dans l'app mobile.
     
     Ce service utilise le CountingDetailCreationUseCase existant pour éviter la duplication de code.
     """
@@ -275,3 +275,106 @@ class CountingDetailService:
         except Exception as e:
             logger.error(f"Erreur lors de la mise à jour du CountingDetail: {str(e)}")
             raise e
+    
+    def get_counting_details_by_counting(self, counting_id: int):
+        """
+        Récupère tous les CountingDetail d'un comptage.
+        
+        Args:
+            counting_id: ID du comptage
+            
+        Returns:
+            List[CountingDetail]: Liste des CountingDetail
+        """
+        try:
+            from apps.inventory.models import Counting
+            counting = Counting.objects.get(id=counting_id)
+            return CountingDetail.objects.filter(counting=counting).order_by('-created_at')
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des CountingDetail: {str(e)}")
+            return []
+    
+    def get_counting_details_by_location(self, location_id: int):
+        """
+        Récupère tous les CountingDetail d'un emplacement.
+        
+        Args:
+            location_id: ID de l'emplacement
+            
+        Returns:
+            List[CountingDetail]: Liste des CountingDetail
+        """
+        try:
+            return CountingDetail.objects.filter(location_id=location_id).order_by('-created_at')
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des CountingDetail par emplacement: {str(e)}")
+            return []
+    
+    def get_counting_details_by_product(self, product_id: int):
+        """
+        Récupère tous les CountingDetail d'un produit.
+        
+        Args:
+            product_id: ID du produit
+            
+        Returns:
+            List[CountingDetail]: Liste des CountingDetail
+        """
+        try:
+            return CountingDetail.objects.filter(product_id=product_id).order_by('-created_at')
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des CountingDetail par produit: {str(e)}")
+            return []
+    
+    def get_numeros_serie_by_counting_detail(self, counting_detail_id: int):
+        """
+        Récupère tous les NumeroSerie d'un CountingDetail.
+        
+        Args:
+            counting_detail_id: ID du CountingDetail
+            
+        Returns:
+            List[NSerieInventory]: Liste des NumeroSerie
+        """
+        try:
+            from apps.inventory.models import NSerieInventory
+            counting_detail = CountingDetail.objects.get(id=counting_detail_id)
+            return NSerieInventory.objects.filter(counting_detail=counting_detail)
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des NumeroSerie: {str(e)}")
+            return []
+    
+    def get_counting_summary(self, counting_id: int):
+        """
+        Récupère un résumé des comptages pour un comptage donné.
+        
+        Args:
+            counting_id: ID du comptage
+            
+        Returns:
+            Dict[str, Any]: Résumé des comptages
+        """
+        try:
+            from apps.inventory.models import Counting, NSerieInventory
+            counting = Counting.objects.get(id=counting_id)
+            counting_details = CountingDetail.objects.filter(counting=counting)
+            
+            total_quantity = sum(cd.quantity_inventoried for cd in counting_details)
+            total_numeros_serie = sum(
+                NSerieInventory.objects.filter(counting_detail=cd).count() 
+                for cd in counting_details
+            )
+            
+            return {
+                'counting_id': counting_id,
+                'count_mode': counting.count_mode,
+                'total_counting_details': counting_details.count(),
+                'total_quantity': total_quantity,
+                'total_numeros_serie': total_numeros_serie,
+                'created_at': counting.created_at,
+                'updated_at': counting.updated_at
+            }
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération du résumé: {str(e)}")
+            return {}
