@@ -1,0 +1,35 @@
+{
+  "timestamp": "2025-09-22T10:24:59.645485",
+  "summary": {
+    "total_tests": 3,
+    "successful_tests": 3,
+    "success_rate": 100.0
+  },
+  "results": {
+    "validation": {
+      "success": true,
+      "response_time": 3.2076187133789062,
+      "total_processed": 500,
+      "valid": 500,
+      "invalid": 0,
+      "errors_count": 0
+    },
+    "creation": {
+      "success": true,
+      "response_time": 6.547814607620239,
+      "total_processed": 500,
+      "successful": 0,
+      "failed": 500,
+      "actions": {},
+      "errors_count": 500
+    },
+    "update": {
+      "success": true,
+      "response_time": 2.271575927734375,
+      "total_processed": 10,
+      "successful": 0,
+      "failed": 10,
+      "actions": {}
+    }
+  }
+}

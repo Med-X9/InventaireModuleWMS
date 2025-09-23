@@ -6,8 +6,8 @@ from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from apps.inventory.services.counting_detail_service import CountingDetailService
-from apps.inventory.exceptions import (
+from apps.mobile.services.counting_detail_service import CountingDetailService
+from apps.mobile.exceptions import (
     CountingDetailValidationError,
     ProductPropertyValidationError,
     CountingAssignmentValidationError,
@@ -33,9 +33,9 @@ class CountingDetailView(APIView):
     
     def post(self, request):
         """
-        Crée un CountingDetail et ses NumeroSerie associés.
+        Crée un ou plusieurs CountingDetail et leurs NumeroSerie associés.
         
-        Body requis:
+        Pour un seul enregistrement:
         {
             "counting_id": 1,                    # Obligatoire
             "location_id": 1,                    # Obligatoire
@@ -49,17 +49,59 @@ class CountingDetailView(APIView):
                 {"n_serie": "NS002"}
             ]
         }
+        
+        Pour plusieurs enregistrements (mode lot):
+        {
+            "batch": true,
+            "data": [
+                {
+                    "counting_id": 1,
+                    "location_id": 1,
+                    "quantity_inventoried": 10,
+                    "assignment_id": 1,
+                    "product_id": 1,
+                    "dlc": "2024-12-31",
+                    "n_lot": "LOT123",
+                    "numeros_serie": [{"n_serie": "NS001"}]
+                },
+                {
+                    "counting_id": 1,
+                    "location_id": 2,
+                    "quantity_inventoried": 5,
+                    "assignment_id": 1,
+                    "product_id": 2
+                }
+            ]
+        }
         """
         try:
-            logger.info(f"Création de CountingDetail avec les données: {request.data}")
+            logger.info(f"Traitement de CountingDetail avec les données: {request.data}")
             
-            # Créer le CountingDetail et les NumeroSerie
-            result = self.counting_detail_service.create_counting_detail(request.data)
-            
-            return Response({
-                'success': True,
-                'data': result
-            }, status=status.HTTP_201_CREATED)
+            # Vérifier si c'est un traitement en lot
+            if request.data.get('batch', False):
+                # Traitement en lot
+                data_list = request.data.get('data', [])
+                if not data_list:
+                    return Response({
+                        'success': False,
+                        'error': 'La liste de données est vide pour le traitement en lot'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                result = self.counting_detail_service.create_counting_details_batch(data_list)
+                
+                return Response({
+                    'success': True,
+                    'data': result
+                }, status=status.HTTP_201_CREATED)
+                
+            else:
+                # Traitement d'un seul enregistrement
+                result = self.counting_detail_service.create_counting_detail(request.data)
+                
+                return Response({
+                    'success': True,
+                    'data': result
+                }, status=status.HTTP_201_CREATED)
             
         except CountingDetailValidationError as e:
             logger.warning(f"Erreur de validation des données: {str(e)}")
@@ -111,6 +153,106 @@ class CountingDetailView(APIView):
             
         except Exception as e:
             logger.error(f"Erreur interne: {str(e)}", exc_info=True)
+            return Response({
+                'success': False,
+                'error': f'Erreur interne: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def put(self, request):
+        """
+        Valide plusieurs CountingDetail sans les créer (validation en lot).
+        
+        Body requis:
+        {
+            "data": [
+                {
+                    "counting_id": 1,
+                    "location_id": 1,
+                    "quantity_inventoried": 10,
+                    "assignment_id": 1,
+                    "product_id": 1,
+                    "dlc": "2024-12-31",
+                    "n_lot": "LOT123",
+                    "numeros_serie": [{"n_serie": "NS001"}]
+                },
+                {
+                    "counting_id": 1,
+                    "location_id": 2,
+                    "quantity_inventoried": 5,
+                    "assignment_id": 1,
+                    "product_id": 2
+                }
+            ]
+        }
+        """
+        try:
+            logger.info(f"Validation en lot de CountingDetail avec les données: {request.data}")
+            
+            data_list = request.data.get('data', [])
+            if not data_list:
+                return Response({
+                    'success': False,
+                    'error': 'La liste de données est vide pour la validation'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Valider les enregistrements en lot
+            result = self.counting_detail_service.validate_counting_details_batch(data_list)
+            
+            return Response({
+                'success': True,
+                'data': result
+            }, status=status.HTTP_200_OK)
+            
+        except CountingDetailValidationError as e:
+            logger.warning(f"Erreur de validation des données: {str(e)}")
+            return Response({
+                'success': False,
+                'error': str(e),
+                'error_type': 'validation_error'
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except ProductPropertyValidationError as e:
+            logger.warning(f"Erreur de validation des propriétés du produit: {str(e)}")
+            return Response({
+                'success': False,
+                'error': str(e),
+                'error_type': 'product_property_error'
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except CountingAssignmentValidationError as e:
+            logger.warning(f"Erreur de validation de l'assignment: {str(e)}")
+            return Response({
+                'success': False,
+                'error': str(e),
+                'error_type': 'assignment_error'
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except JobDetailValidationError as e:
+            logger.warning(f"Erreur de validation du JobDetail: {str(e)}")
+            return Response({
+                'success': False,
+                'error': str(e),
+                'error_type': 'job_detail_error'
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except NumeroSerieValidationError as e:
+            logger.warning(f"Erreur de validation des numéros de série: {str(e)}")
+            return Response({
+                'success': False,
+                'error': str(e),
+                'error_type': 'numero_serie_error'
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except CountingModeValidationError as e:
+            logger.warning(f"Erreur de validation du mode de comptage: {str(e)}")
+            return Response({
+                'success': False,
+                'error': str(e),
+                'error_type': 'counting_mode_error'
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Exception as e:
+            logger.error(f"Erreur interne lors de la validation: {str(e)}", exc_info=True)
             return Response({
                 'success': False,
                 'error': f'Erreur interne: {str(e)}'
