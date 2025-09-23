@@ -1,11 +1,11 @@
 # Test direct pour le shell Django - Copiez-collez ce code
-print("🚀 TEST COMPLET 1000 LIGNES - VERSION SHELL")
+print("TEST COMPLET 1000 LIGNES - VERSION SHELL")
 print("=" * 60)
 
 from django.contrib.auth import get_user_model
 from apps.inventory.models import *
 from apps.masterdata.models import *
-from apps.inventory.services.counting_detail_service import CountingDetailService
+from apps.mobile.services.counting_detail_service import CountingDetailService
 import time, random
 from datetime import datetime, timedelta
 
@@ -178,13 +178,13 @@ for case in test_cases:
 total_time = time.time() - start_time
 
 # Rapport final
-print(f"\n📊 RAPPORT FINAL")
+print(f"\nRAPPORT FINAL")
 print("=" * 40)
-print(f"🎯 RÉSULTATS:")
-print(f"   • ✅ Succès: {created}/1000 ({created/10:.1f}%)")
-print(f"   • ❌ Erreurs: {errors}/1000 ({errors/10:.1f}%)")
-print(f"   • ⏱️ Temps: {total_time:.1f}s ({total_time/60:.1f}min)")
-print(f"   • 🚀 Débit: {1000/total_time:.1f} lignes/sec")
+print(f"RESULTATS:")
+print(f"   • Succes: {created}/1000 ({created/10:.1f}%)")
+print(f"   • Erreurs: {errors}/1000 ({errors/10:.1f}%)")
+print(f"   • Temps: {total_time:.1f}s ({total_time/60:.1f}min)")
+print(f"   • Debit: {1000/total_time:.1f} lignes/sec")
 
 # Vérification
 try:
@@ -196,23 +196,23 @@ try:
         counting_detail__counting__inventory__name="TestInv1000"
     ).count()
     
-    print(f"\n📈 VÉRIFICATION:")
+    print(f"\nVERIFICATION:")
     print(f"   • Total CountingDetail en base: {total_cd}")
     print(f"   • CountingDetail de ce test: {test_cd}")
     print(f"   • Numéros de série créés: {ns_count}")
     print(f"   • Créés avec succès: {created}")
 except Exception as e:
-    print(f"   ⚠️ Erreur vérification: {e}")
+    print(f"   Erreur verification: {e}")
 
 # Évaluation
 if created >= 950:
-    print("\n🎉 EXCELLENT! Votre API est très performante!")
+    print("\nEXCELLENT! Votre API est tres performante!")
 elif created >= 850:
-    print("\n👏 TRÈS BIEN! Votre API fonctionne très bien!")
+    print("\nTRES BIEN! Votre API fonctionne tres bien!")
 elif created >= 700:
-    print("\n👍 CORRECT! Votre API fonctionne correctement!")
+    print("\nCORRECT! Votre API fonctionne correctement!")
 else:
-    print("\n🔧 Quelques améliorations nécessaires.")
+    print("\nQuelques ameliorations necessaires.")
 
-print(f"\n✨ {created} CountingDetail créés avec tous les cas de test!")
-print("🏁 TEST COMPLET TERMINÉ!")
+print(f"\n{created} CountingDetail crees avec tous les cas de test!")
+print("TEST COMPLET TERMINE!")
