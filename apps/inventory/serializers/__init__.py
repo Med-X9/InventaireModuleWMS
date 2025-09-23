@@ -22,6 +22,7 @@ from .job_serializer import (
 )
 # from .planning_serializer import PlanningSerializer
 from .inventory_job_serializer import InventoryJobCreateSerializer
+from .counting_tracking_serializer import InventoryCountingTrackingSerializer
 
 __all__ = [
     # Inventory serializers
@@ -54,5 +55,8 @@ __all__ = [
     # 'PlanningSerializer',
     
     # Inventory Job serializers
-    'InventoryJobCreateSerializer'
+    'InventoryJobCreateSerializer',
+    
+    # Counting Tracking serializers
+    'InventoryCountingTrackingSerializer'
 ] 

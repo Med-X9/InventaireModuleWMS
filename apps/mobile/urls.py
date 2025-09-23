@@ -6,6 +6,7 @@ app_name = 'mobile'
 urlpatterns = [
     # Authentification
     path('auth/login/', views.LoginView.as_view(), name='mobile_login'),
+    path('auth/jwt-login/', views.JWTLoginView.as_view(), name='mobile_jwt_login'),
     path('auth/logout/', views.LogoutView.as_view(), name='mobile_logout'),
     path('auth/refresh/', views.RefreshTokenView.as_view(), name='mobile_refresh_token'),
     
@@ -25,4 +26,10 @@ urlpatterns = [
      
      # Stocks du même compte qu'un utilisateur
      path('user/<int:user_id>/stocks/', views.UserStocksView.as_view(), name='mobile_user_stocks'),
+     
+     # Gestion des assignments et jobs
+     path('user/<int:user_id>/assignment/<int:assignment_id>/status/', views.AssignmentStatusView.as_view(), name='mobile_assignment_status'),
+    
+    # Gestion des CountingDetail et NumeroSerie
+    path('counting-detail/', views.CountingDetailView.as_view(), name='mobile_counting_detail'),
 ]
