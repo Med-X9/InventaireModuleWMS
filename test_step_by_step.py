@@ -11,7 +11,7 @@ import django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'project.settings')
 django.setup()
 
-from apps.inventory.models import CountingDetail, NSerie
+from apps.inventory.models import CountingDetail, NSerieInventory as NSerie
 from apps.masterdata.models import NSerie as MasterNSerie
 from apps.masterdata.models import Product
 

@@ -28,7 +28,6 @@ from rest_framework.test import APIClient
 from rest_framework import status
 from apps.inventory.models import Inventory, Counting, CountingDetail, Job, JobDetail, Assigment
 from apps.masterdata.models import Product, Location, Warehouse, Account
-from apps.users.models import User
 
 User = get_user_model()
 

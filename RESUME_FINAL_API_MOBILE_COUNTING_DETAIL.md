@@ -128,3 +128,4 @@ L'API `CountingDetail` est maintenant **prête pour la production** avec :
 - **Réutilisation optimale du code existant**
 
 Vous pouvez maintenant utiliser les données corrigées dans Postman ou vos applications pour tester l'API ! 🚀
+
