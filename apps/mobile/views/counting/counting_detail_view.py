@@ -31,6 +31,104 @@ class CountingDetailView(APIView):
         super().__init__(**kwargs)
         self.counting_detail_service = CountingDetailService()
     
+    def _handle_exception(self, e, error_type=None):
+        """
+        Gère les exceptions communes et retourne une réponse appropriée.
+        """
+        if isinstance(e, CountingDetailValidationError):
+            logger.warning(f"Erreur de validation des données: {str(e)}")
+            return Response({
+                'success': False,
+                'error': str(e),
+                'error_type': 'validation_error'
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        elif isinstance(e, ProductPropertyValidationError):
+            logger.warning(f"Erreur de validation des propriétés du produit: {str(e)}")
+            return Response({
+                'success': False,
+                'error': str(e),
+                'error_type': 'product_property_error'
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        elif isinstance(e, CountingAssignmentValidationError):
+            logger.warning(f"Erreur de validation de l'assignment: {str(e)}")
+            return Response({
+                'success': False,
+                'error': str(e),
+                'error_type': 'assignment_error'
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        elif isinstance(e, JobDetailValidationError):
+            logger.warning(f"Erreur de validation du JobDetail: {str(e)}")
+            return Response({
+                'success': False,
+                'error': str(e),
+                'error_type': 'job_detail_error'
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        elif isinstance(e, NumeroSerieValidationError):
+            logger.warning(f"Erreur de validation des numéros de série: {str(e)}")
+            return Response({
+                'success': False,
+                'error': str(e),
+                'error_type': 'numero_serie_error'
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        elif isinstance(e, CountingModeValidationError):
+            logger.warning(f"Erreur de validation du mode de comptage: {str(e)}")
+            return Response({
+                'success': False,
+                'error': str(e),
+                'error_type': 'counting_mode_error'
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        else:
+            logger.error(f"Erreur interne: {str(e)}", exc_info=True)
+            return Response({
+                'success': False,
+                'error': f'Erreur interne: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def _serialize_counting_detail(self, cd):
+        """
+        Sérialise un objet CountingDetail en dictionnaire.
+        """
+        return {
+            'id': cd.id,
+            'reference': cd.reference,
+            'quantity_inventoried': cd.quantity_inventoried,
+            'product_id': cd.product.id if cd.product else None,
+            'location_id': cd.location.id,
+            'counting_id': cd.counting.id,
+            'created_at': cd.created_at,
+            'numeros_serie': [
+                {
+                    'id': ns.id,
+                    'n_serie': ns.n_serie,
+                    'reference': ns.reference
+                } for ns in self.counting_detail_service.get_numeros_serie_by_counting_detail(cd.id)
+            ]
+        }
+    
+    def _create_success_response(self, data, status_code=status.HTTP_200_OK):
+        """
+        Crée une réponse de succès standardisée.
+        """
+        return Response({
+            'success': True,
+            'data': data
+        }, status=status_code)
+    
+    def _create_error_response(self, error_message, status_code=status.HTTP_400_BAD_REQUEST):
+        """
+        Crée une réponse d'erreur standardisée.
+        """
+        return Response({
+            'success': False,
+            'error': error_message
+        }, status=status_code)
+    
     def post(self, request):
         """
         Crée un ou plusieurs CountingDetail et leurs NumeroSerie associés.
@@ -82,81 +180,20 @@ class CountingDetailView(APIView):
                 # Traitement en lot
                 data_list = request.data.get('data', [])
                 if not data_list:
-                    return Response({
-                        'success': False,
-                        'error': 'La liste de données est vide pour le traitement en lot'
-                    }, status=status.HTTP_400_BAD_REQUEST)
+                    return self._create_error_response(
+                        'La liste de données est vide pour le traitement en lot'
+                    )
                 
                 result = self.counting_detail_service.create_counting_details_batch(data_list)
-                
-                return Response({
-                    'success': True,
-                    'data': result
-                }, status=status.HTTP_201_CREATED)
+                return self._create_success_response(result, status.HTTP_201_CREATED)
                 
             else:
                 # Traitement d'un seul enregistrement
                 result = self.counting_detail_service.create_counting_detail(request.data)
-                
-                return Response({
-                    'success': True,
-                    'data': result
-                }, status=status.HTTP_201_CREATED)
-            
-        except CountingDetailValidationError as e:
-            logger.warning(f"Erreur de validation des données: {str(e)}")
-            return Response({
-                'success': False,
-                'error': str(e),
-                'error_type': 'validation_error'
-            }, status=status.HTTP_400_BAD_REQUEST)
-            
-        except ProductPropertyValidationError as e:
-            logger.warning(f"Erreur de validation des propriétés du produit: {str(e)}")
-            return Response({
-                'success': False,
-                'error': str(e),
-                'error_type': 'product_property_error'
-            }, status=status.HTTP_400_BAD_REQUEST)
-            
-        except CountingAssignmentValidationError as e:
-            logger.warning(f"Erreur de validation de l'assignment: {str(e)}")
-            return Response({
-                'success': False,
-                'error': str(e),
-                'error_type': 'assignment_error'
-            }, status=status.HTTP_400_BAD_REQUEST)
-            
-        except JobDetailValidationError as e:
-            logger.warning(f"Erreur de validation du JobDetail: {str(e)}")
-            return Response({
-                'success': False,
-                'error': str(e),
-                'error_type': 'job_detail_error'
-            }, status=status.HTTP_400_BAD_REQUEST)
-            
-        except NumeroSerieValidationError as e:
-            logger.warning(f"Erreur de validation des numéros de série: {str(e)}")
-            return Response({
-                'success': False,
-                'error': str(e),
-                'error_type': 'numero_serie_error'
-            }, status=status.HTTP_400_BAD_REQUEST)
-            
-        except CountingModeValidationError as e:
-            logger.warning(f"Erreur de validation du mode de comptage: {str(e)}")
-            return Response({
-                'success': False,
-                'error': str(e),
-                'error_type': 'counting_mode_error'
-            }, status=status.HTTP_400_BAD_REQUEST)
+                return self._create_success_response(result, status.HTTP_201_CREATED)
             
         except Exception as e:
-            logger.error(f"Erreur interne: {str(e)}", exc_info=True)
-            return Response({
-                'success': False,
-                'error': f'Erreur interne: {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return self._handle_exception(e)
     
     def put(self, request):
         """
@@ -190,73 +227,16 @@ class CountingDetailView(APIView):
             
             data_list = request.data.get('data', [])
             if not data_list:
-                return Response({
-                    'success': False,
-                    'error': 'La liste de données est vide pour la validation'
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return self._create_error_response(
+                    'La liste de données est vide pour la validation'
+                )
             
             # Valider les enregistrements en lot
             result = self.counting_detail_service.validate_counting_details_batch(data_list)
-            
-            return Response({
-                'success': True,
-                'data': result
-            }, status=status.HTTP_200_OK)
-            
-        except CountingDetailValidationError as e:
-            logger.warning(f"Erreur de validation des données: {str(e)}")
-            return Response({
-                'success': False,
-                'error': str(e),
-                'error_type': 'validation_error'
-            }, status=status.HTTP_400_BAD_REQUEST)
-            
-        except ProductPropertyValidationError as e:
-            logger.warning(f"Erreur de validation des propriétés du produit: {str(e)}")
-            return Response({
-                'success': False,
-                'error': str(e),
-                'error_type': 'product_property_error'
-            }, status=status.HTTP_400_BAD_REQUEST)
-            
-        except CountingAssignmentValidationError as e:
-            logger.warning(f"Erreur de validation de l'assignment: {str(e)}")
-            return Response({
-                'success': False,
-                'error': str(e),
-                'error_type': 'assignment_error'
-            }, status=status.HTTP_400_BAD_REQUEST)
-            
-        except JobDetailValidationError as e:
-            logger.warning(f"Erreur de validation du JobDetail: {str(e)}")
-            return Response({
-                'success': False,
-                'error': str(e),
-                'error_type': 'job_detail_error'
-            }, status=status.HTTP_400_BAD_REQUEST)
-            
-        except NumeroSerieValidationError as e:
-            logger.warning(f"Erreur de validation des numéros de série: {str(e)}")
-            return Response({
-                'success': False,
-                'error': str(e),
-                'error_type': 'numero_serie_error'
-            }, status=status.HTTP_400_BAD_REQUEST)
-            
-        except CountingModeValidationError as e:
-            logger.warning(f"Erreur de validation du mode de comptage: {str(e)}")
-            return Response({
-                'success': False,
-                'error': str(e),
-                'error_type': 'counting_mode_error'
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return self._create_success_response(result)
             
         except Exception as e:
-            logger.error(f"Erreur interne lors de la validation: {str(e)}", exc_info=True)
-            return Response({
-                'success': False,
-                'error': f'Erreur interne: {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return self._handle_exception(e)
     
     def get(self, request):
         """
@@ -277,87 +257,36 @@ class CountingDetailView(APIView):
                 counting_details = self.counting_detail_service.get_counting_details_by_counting(int(counting_id))
                 summary = self.counting_detail_service.get_counting_summary(int(counting_id))
                 
-                return Response({
-                    'success': True,
-                    'data': {
-                        'summary': summary,
-                        'counting_details': [
-                            {
-                                'id': cd.id,
-                                'reference': cd.reference,
-                                'quantity_inventoried': cd.quantity_inventoried,
-                                'product_id': cd.product.id if cd.product else None,
-                                'location_id': cd.location.id,
-                                'created_at': cd.created_at,
-                                'numeros_serie': [
-                                    {
-                                        'id': ns.id,
-                                        'n_serie': ns.n_serie,
-                                        'reference': ns.reference
-                                    } for ns in self.counting_detail_service.get_numeros_serie_by_counting_detail(cd.id)
-                                ]
-                            } for cd in counting_details
-                        ]
-                    }
-                }, status=status.HTTP_200_OK)
+                return self._create_success_response({
+                    'summary': summary,
+                    'counting_details': [self._serialize_counting_detail(cd) for cd in counting_details]
+                })
                 
             elif location_id:
                 # Récupérer les CountingDetail d'un emplacement
                 counting_details = self.counting_detail_service.get_counting_details_by_location(int(location_id))
                 
-                return Response({
-                    'success': True,
-                    'data': {
-                        'location_id': location_id,
-                        'counting_details': [
-                            {
-                                'id': cd.id,
-                                'reference': cd.reference,
-                                'quantity_inventoried': cd.quantity_inventoried,
-                                'product_id': cd.product.id if cd.product else None,
-                                'counting_id': cd.counting.id,
-                                'created_at': cd.created_at
-                            } for cd in counting_details
-                        ]
-                    }
-                }, status=status.HTTP_200_OK)
+                return self._create_success_response({
+                    'location_id': location_id,
+                    'counting_details': [self._serialize_counting_detail(cd) for cd in counting_details]
+                })
                 
             elif product_id:
                 # Récupérer les CountingDetail d'un produit
                 counting_details = self.counting_detail_service.get_counting_details_by_product(int(product_id))
                 
-                return Response({
-                    'success': True,
-                    'data': {
-                        'product_id': product_id,
-                        'counting_details': [
-                            {
-                                'id': cd.id,
-                                'reference': cd.reference,
-                                'quantity_inventoried': cd.quantity_inventoried,
-                                'location_id': cd.location.id,
-                                'counting_id': cd.counting.id,
-                                'created_at': cd.created_at
-                            } for cd in counting_details
-                        ]
-                    }
-                }, status=status.HTTP_200_OK)
+                return self._create_success_response({
+                    'product_id': product_id,
+                    'counting_details': [self._serialize_counting_detail(cd) for cd in counting_details]
+                })
                 
             else:
-                return Response({
-                    'success': False,
-                    'error': 'Un des paramètres suivants est requis: counting_id, location_id, ou product_id'
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return self._create_error_response(
+                    'Un des paramètres suivants est requis: counting_id, location_id, ou product_id'
+                )
                 
         except ValueError as e:
-            return Response({
-                'success': False,
-                'error': f'Paramètre invalide: {str(e)}'
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return self._create_error_response(f'Paramètre invalide: {str(e)}')
             
         except Exception as e:
-            logger.error(f"Erreur lors de la récupération: {str(e)}", exc_info=True)
-            return Response({
-                'success': False,
-                'error': f'Erreur interne: {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return self._handle_exception(e)
