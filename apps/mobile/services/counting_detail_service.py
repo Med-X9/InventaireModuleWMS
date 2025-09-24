@@ -39,7 +39,7 @@ class CountingDetailService:
             # Utiliser le use case existant
             result = self.usecase.execute(data)
             
-            logger.info(f"CountingDetail créé avec succès via use case")
+            logger.info("CountingDetail créé avec succès via use case")
             
             return result
             
@@ -110,13 +110,20 @@ class CountingDetailService:
             
         except Exception as e:
             logger.error(f"Erreur lors de la création en lot: {str(e)}")
+            
+            # Extraire l'expression conditionnelle imbriquée
+            if errors:
+                error_list = errors
+            else:
+                error_list = [{'index': 0, 'data': data_list[0] if data_list else {}, 'error': str(e)}]
+            
             return {
                 'success': False,
                 'total_processed': len(data_list),
                 'successful': 0,
                 'failed': len(errors) if errors else 1,
                 'results': [],
-                'errors': errors if errors else [{'index': 0, 'data': data_list[0] if data_list else {}, 'error': str(e)}],
+                'errors': error_list,
                 'message': f"Transaction annulée à cause d'une erreur: {str(e)}"
             }
     
@@ -137,63 +144,115 @@ class CountingDetailService:
             errors = []
             
             for i, data in enumerate(data_list):
-                try:
-                    # Vérifier si l'enregistrement existe
-                    existing_detail = self._find_existing_counting_detail(data)
-                    
-                    results.append({
-                        'index': i,
-                        'data': data,
-                        'valid': True,
-                        'exists': existing_detail is not None,
-                        'existing_id': existing_detail.id if existing_detail else None,
-                        'action_needed': 'update' if existing_detail else 'create'
-                    })
-                    
-                except Exception as e:
-                    logger.error(f"Erreur de validation pour l'enregistrement {i}: {str(e)}")
-                    errors.append({
-                        'index': i,
-                        'data': data,
-                        'error': str(e)
-                    })
-                    
-                    # ARRÊTER la validation dès qu'il y a une erreur
+                validation_result = self._validate_single_counting_detail(i, data)
+                if validation_result['success']:
+                    results.append(validation_result['result'])
+                else:
+                    errors.append(validation_result['error'])
                     logger.error(f"Validation arrêtée à l'index {i} à cause d'une erreur")
                     break
             
-            # Si il y a des erreurs, considérer la validation comme échouée
-            if errors:
-                return {
-                    'success': False,
-                    'total_processed': len(data_list),
-                    'valid': len(results),
-                    'invalid': len(errors),
-                    'results': results,
-                    'errors': errors,
-                    'message': f"Validation arrêtée à l'index {errors[0]['index']} à cause d'une erreur"
-                }
-            
-            return {
-                'success': True,
-                'total_processed': len(data_list),
-                'valid': len(results),
-                'invalid': 0,
-                'results': results,
-                'errors': []
-            }
+            return self._build_validation_response(data_list, results, errors)
             
         except Exception as e:
             logger.error(f"Erreur lors de la validation en lot: {str(e)}")
+            return self._build_error_response(data_list, errors, e)
+    
+    def _validate_single_counting_detail(self, index: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Valide un seul CountingDetail.
+        
+        Args:
+            index: Index de l'élément dans la liste
+            data: Données du comptage détaillé
+            
+        Returns:
+            Dict[str, Any]: Résultat de la validation
+        """
+        try:
+            existing_detail = self._find_existing_counting_detail(data)
+            
+            return {
+                'success': True,
+                'result': {
+                    'index': index,
+                    'data': data,
+                    'valid': True,
+                    'exists': existing_detail is not None,
+                    'existing_id': existing_detail.id if existing_detail else None,
+                    'action_needed': 'update' if existing_detail else 'create'
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Erreur de validation pour l'enregistrement {index}: {str(e)}")
+            return {
+                'success': False,
+                'error': {
+                    'index': index,
+                    'data': data,
+                    'error': str(e)
+                }
+            }
+    
+    def _build_validation_response(self, data_list: List[Dict[str, Any]], results: List[Dict], errors: List[Dict]) -> Dict[str, Any]:
+        """
+        Construit la réponse de validation.
+        
+        Args:
+            data_list: Liste originale des données
+            results: Liste des résultats de validation
+            errors: Liste des erreurs
+            
+        Returns:
+            Dict[str, Any]: Réponse de validation
+        """
+        if errors:
             return {
                 'success': False,
                 'total_processed': len(data_list),
-                'valid': 0,
-                'invalid': len(errors) if errors else 1,
-                'results': [],
-                'errors': errors if errors else [{'index': 0, 'data': data_list[0] if data_list else {}, 'error': str(e)}],
-                'message': f"Erreur lors de la validation: {str(e)}"
+                'valid': len(results),
+                'invalid': len(errors),
+                'results': results,
+                'errors': errors,
+                'message': f"Validation arrêtée à l'index {errors[0]['index']} à cause d'une erreur"
             }
+        
+        return {
+            'success': True,
+            'total_processed': len(data_list),
+            'valid': len(results),
+            'invalid': 0,
+            'results': results,
+            'errors': []
+        }
+    
+    def _build_error_response(self, data_list: List[Dict[str, Any]], errors: List[Dict], exception: Exception) -> Dict[str, Any]:
+        """
+        Construit la réponse d'erreur.
+        
+        Args:
+            data_list: Liste originale des données
+            errors: Liste des erreurs existantes
+            exception: Exception levée
+            
+        Returns:
+            Dict[str, Any]: Réponse d'erreur
+        """
+        if errors:
+            error_list = errors
+        else:
+            error_list = [{'index': 0, 'data': data_list[0] if data_list else {}, 'error': str(exception)}]
+        
+        return {
+            'success': False,
+            'total_processed': len(data_list),
+            'valid': 0,
+            'invalid': len(errors) if errors else 1,
+            'results': [],
+            'errors': error_list,
+            'message': f"Erreur lors de la validation: {str(exception)}"
+        }
     
     def _find_existing_counting_detail(self, data: Dict[str, Any]) -> Optional[CountingDetail]:
         """
