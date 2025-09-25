@@ -107,24 +107,48 @@ pipeline {
             }
         }
 
-        stage('Quality Gate') {
+        stage('SonarQube Status Check') {
             steps {
                 script {
                     try {
-                        timeout(time: 30, unit: 'SECONDS') {
-                            def qg = waitForQualityGate abortPipeline: false
-                            if (qg.status != 'OK') {
-                                echo "⚠️  Quality Gate status: ${qg.status}"
-                                echo "📊 Check detailed results at: http://147.93.55.221:9000/dashboard?id=${SONAR_PROJECT_KEY}"
-                                echo "ℹ️  Build will continue despite Quality Gate issues"
+                        sleep(time: 10, unit: 'SECONDS')
+                        
+                        def sonarUrl = "http://147.93.55.221:9000"
+                        def analysisUrl = "${sonarUrl}/api/qualitygates/project_status?projectKey=${SONAR_PROJECT_KEY}"
+                        
+                        def response
+                        withCredentials([usernamePassword(credentialsId: 'sonar-creds', usernameVariable: 'SONAR_USER', passwordVariable: 'SONAR_PASS')]) {
+                            response = sh(
+                                script: "curl -s -u \$SONAR_USER:\$SONAR_PASS '${analysisUrl}'",
+                                returnStdout: true
+                            ).trim()
+                        }
+                        
+                        try {
+                            def jsonSlurper = new groovy.json.JsonSlurper()
+                            def result = jsonSlurper.parseText(response)
+                            def projectStatus = result.projectStatus.status
+                            
+                            if (projectStatus == 'OK') {
+                                echo "✅ SonarQube analysis passed!"
+                            } else {
+                                echo "⚠️  SonarQube analysis found issues: ${projectStatus}"
+                                currentBuild.result = 'UNSTABLE'
+                            }
+                        } catch (Exception jsonError) {
+                            if (response.contains('"status":"OK"')) {
+                                echo "✅ SonarQube analysis passed!"
+                            } else if (response.contains('"status":"ERROR"') || response.contains('"status":"WARN"')) {
+                                echo "⚠️  SonarQube analysis found issues"
                                 currentBuild.result = 'UNSTABLE'
                             } else {
-                                echo "✅ Quality Gate passed!"
+                                echo "⚠️  Could not determine SonarQube status"
+                                currentBuild.result = 'UNSTABLE'
                             }
                         }
+                        
                     } catch (Exception e) {
-                        echo "Warning: Quality Gate check failed, but continuing build: ${e.getMessage()}"
-                        echo "📊 Check SonarQube dashboard manually: http://147.93.55.221:9000/dashboard?id=${SONAR_PROJECT_KEY}"
+                        echo "⚠️  SonarQube status check failed: ${e.getMessage()}"
                         currentBuild.result = 'UNSTABLE'
                     }
                 }
