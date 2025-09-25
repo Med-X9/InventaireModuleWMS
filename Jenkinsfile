@@ -107,29 +107,29 @@ pipeline {
             }
         }
 
-        // stage('Quality Gate') {
-        //     steps {
-        //         script {
-        //             try {
-        //                 timeout(time: 5, unit: 'MINUTES') {
-        //                     def qg = waitForQualityGate abortPipeline: false
-        //                     if (qg.status != 'OK') {
-        //                         echo "⚠️  Quality Gate status: ${qg.status}"
-        //                         echo "📊 Check detailed results at: http://147.93.55.221:9000/dashboard?id=${SONAR_PROJECT_KEY}"
-        //                         echo "ℹ️  Build will continue despite Quality Gate issues"
-        //                         currentBuild.result = 'UNSTABLE'
-        //                     } else {
-        //                         echo "✅ Quality Gate passed!"
-        //                     }
-        //                 }
-        //             } catch (Exception e) {
-        //                 echo "Warning: Quality Gate check failed, but continuing build: ${e.getMessage()}"
-        //                 echo "📊 Check SonarQube dashboard manually: http://147.93.55.221:9000/dashboard?id=${SONAR_PROJECT_KEY}"
-        //                 currentBuild.result = 'UNSTABLE'
-        //             }
-        //         }
-        //     }
-        // }
+        stage('Quality Gate') {
+            steps {
+                script {
+                    try {
+                        timeout(time: 30, unit: 'SECONDS') {
+                            def qg = waitForQualityGate abortPipeline: false
+                            if (qg.status != 'OK') {
+                                echo "⚠️  Quality Gate status: ${qg.status}"
+                                echo "📊 Check detailed results at: http://147.93.55.221:9000/dashboard?id=${SONAR_PROJECT_KEY}"
+                                echo "ℹ️  Build will continue despite Quality Gate issues"
+                                currentBuild.result = 'UNSTABLE'
+                            } else {
+                                echo "✅ Quality Gate passed!"
+                            }
+                        }
+                    } catch (Exception e) {
+                        echo "Warning: Quality Gate check failed, but continuing build: ${e.getMessage()}"
+                        echo "📊 Check SonarQube dashboard manually: http://147.93.55.221:9000/dashboard?id=${SONAR_PROJECT_KEY}"
+                        currentBuild.result = 'UNSTABLE'
+                    }
+                }
+            }
+        }
 
         stage('Build Backend Docker Image') {
             when {
