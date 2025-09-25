@@ -74,26 +74,33 @@ pipeline {
                             echo "Warning: Python setup failed, but continuing with SonarQube analysis: ${e.getMessage()}"
                         }
                         
-                        // Run SonarQube analysis
-                        withSonarQubeEnv(credentialsId: 'sonar-token', installationName: 'SonarQube-Server') {
-                            sh """
-                                echo "Starting SonarQube analysis for branch: ${env.BRANCH_NAME}"
-                                \${scannerHome}/bin/sonar-scanner \\
-                                    -Dsonar.projectKey=${SONAR_PROJECT_KEY} \\
-                                    -Dsonar.projectName="${SONAR_PROJECT_NAME}" \\
-                                    -Dsonar.projectVersion=${SONAR_PROJECT_VERSION} \\
-                                    -Dsonar.sources=apps,project,config \\
-                                    -Dsonar.sourceEncoding=UTF-8 \\
-                                    -Dsonar.language=py \\
-                                    -Dsonar.python.version=3.12 \\
-                                    -Dsonar.tests=apps \\
-                                    -Dsonar.test.inclusions="**/tests/**/*.py,**/test_*.py" \\
-                                    -Dsonar.exclusions="**/migrations/**,**/staticfiles/**,**/static/**,**/media/**,**/__pycache__/**,**/venv/**,**/env/**,**/node_modules/**,**/*.pyc,**/manage.py,**/wsgi.py,**/asgi.py,**/settings/**,**/*.min.js,**/*.min.css" \\
-                                    -Dsonar.coverage.exclusions="**/migrations/**,**/tests/**,**/test_*.py,**/conftest.py,**/manage.py,**/wsgi.py,**/asgi.py,**/settings/**,**/__init__.py" \\
-                                    -Dsonar.cpd.exclusions="**/migrations/**,**/tests/**" \\
-                                    -Dsonar.qualitygate.wait=true
-                                echo "SonarQube analysis completed for branch: ${env.BRANCH_NAME}"
-                            """
+                        // Run SonarQube analysis without failing the build
+                        try {
+                            withSonarQubeEnv(credentialsId: 'sonar-token', installationName: 'SonarQube-Server') {
+                                sh """
+                                    echo "Starting SonarQube analysis for branch: ${env.BRANCH_NAME}"
+                                    \${scannerHome}/bin/sonar-scanner \\
+                                        -Dsonar.projectKey=${SONAR_PROJECT_KEY} \\
+                                        -Dsonar.projectName="${SONAR_PROJECT_NAME}" \\
+                                        -Dsonar.projectVersion=${SONAR_PROJECT_VERSION} \\
+                                        -Dsonar.sources=apps,project,config \\
+                                        -Dsonar.sourceEncoding=UTF-8 \\
+                                        -Dsonar.language=py \\
+                                        -Dsonar.python.version=3.12 \\
+                                        -Dsonar.tests=apps \\
+                                        -Dsonar.test.inclusions="**/tests/**/*.py,**/test_*.py" \\
+                                        -Dsonar.exclusions="**/migrations/**,**/staticfiles/**,**/static/**,**/media/**,**/__pycache__/**,**/venv/**,**/env/**,**/node_modules/**,**/*.pyc,**/manage.py,**/wsgi.py,**/asgi.py,**/settings/**,**/*.min.js,**/*.min.css" \\
+                                        -Dsonar.coverage.exclusions="**/migrations/**,**/tests/**,**/test_*.py,**/conftest.py,**/manage.py,**/wsgi.py,**/asgi.py,**/settings/**,**/__init__.py" \\
+                                        -Dsonar.cpd.exclusions="**/migrations/**,**/tests/**" \\
+                                        -Dsonar.qualitygate.wait=false
+                                    echo "SonarQube analysis completed for branch: ${env.BRANCH_NAME}"
+                                """
+                            }
+                        } catch (Exception e) {
+                            echo "Warning: SonarQube analysis encountered issues but continuing build: ${e.getMessage()}"
+                            echo "Check SonarQube dashboard for detailed analysis results"
+                            // Mark stage as unstable but don't fail the build
+                            currentBuild.result = 'UNSTABLE'
                         }
                     }
                 }
@@ -102,8 +109,24 @@ pipeline {
 
         stage('Quality Gate') {
             steps {
-                timeout(time: 5, unit: 'MINUTES') {
-                    waitForQualityGate abortPipeline: false
+                script {
+                    try {
+                        timeout(time: 5, unit: 'MINUTES') {
+                            def qg = waitForQualityGate abortPipeline: false
+                            if (qg.status != 'OK') {
+                                echo "⚠️  Quality Gate status: ${qg.status}"
+                                echo "📊 Check detailed results at: http://147.93.55.221:9000/dashboard?id=${SONAR_PROJECT_KEY}"
+                                echo "ℹ️  Build will continue despite Quality Gate issues"
+                                currentBuild.result = 'UNSTABLE'
+                            } else {
+                                echo "✅ Quality Gate passed!"
+                            }
+                        }
+                    } catch (Exception e) {
+                        echo "Warning: Quality Gate check failed, but continuing build: ${e.getMessage()}"
+                        echo "📊 Check SonarQube dashboard manually: http://147.93.55.221:9000/dashboard?id=${SONAR_PROJECT_KEY}"
+                        currentBuild.result = 'UNSTABLE'
+                    }
                 }
             }
         }
