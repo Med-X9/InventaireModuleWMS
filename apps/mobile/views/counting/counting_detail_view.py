@@ -21,9 +21,31 @@ logger = logging.getLogger(__name__)
 
 class CountingDetailView(APIView):
     """
-    Vue pour la création de CountingDetail et NumeroSerie.
+    Vue pour la gestion des CountingDetail et NumeroSerie dans l'application mobile.
+    
+    Permet la création, mise à jour et récupération des détails de comptage
+    pour l'application mobile. Utilise le CountingDetailService pour la logique métier.
     
     URL: /mobile/api/counting-detail/
+    
+    Fonctionnalités:
+    - Création de nouveaux CountingDetail
+    - Mise à jour des CountingDetail existants
+    - Gestion des NumeroSerie associés
+    - Validation des données selon le mode de comptage
+    - Support des opérations en lot
+    
+    Méthodes HTTP supportées:
+    - POST: Créer un nouveau CountingDetail
+    - GET: Récupérer les CountingDetail d'un comptage
+    - PUT: Mettre à jour un CountingDetail existant
+    
+    Réponses:
+    - 200: Opération réussie
+    - 201: CountingDetail créé avec succès
+    - 400: Données invalides ou erreur de validation
+    - 401: Non authentifié
+    - 404: Ressource non trouvée
     """
     permission_classes = [IsAuthenticated]  # Réactivé maintenant que le problème est corrigé
     

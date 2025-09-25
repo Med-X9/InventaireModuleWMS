@@ -13,14 +13,47 @@ from apps.mobile.exceptions import (
 
 class SyncDataView(APIView):
     """
-    API de synchronisation intelligente - Bonne pratique
-    Récupère toutes les données nécessaires en une seule requête
-    Si user_id est fourni dans l'URL, récupère les inventaires du même compte que cet utilisateur
-    Sinon, récupère tous les inventaires en réalisation
+    API de synchronisation intelligente pour l'application mobile.
+    
+    Récupère toutes les données nécessaires en une seule requête pour optimiser
+    les performances de l'application mobile. Inclut les inventaires, comptages,
+    jobs, assignments, produits, emplacements et stocks.
+    
+    Comportement:
+    - Si user_id est fourni dans l'URL, récupère les inventaires du même compte que cet utilisateur
+    - Sinon, récupère tous les inventaires en réalisation
+    
+    Paramètres d'URL:
+    - user_id (int, optionnel): ID de l'utilisateur pour la synchronisation
+    
+    Paramètres de requête:
+    - inventory_id (int, optionnel): ID d'inventaire spécifique à synchroniser
+    
+    Réponses:
+    - 200: Données de synchronisation récupérées avec succès
+    - 400: Paramètre invalide ou erreur de synchronisation
+    - 401: Non authentifié
+    - 404: Utilisateur ou compte non trouvé
+    - 500: Erreur interne du serveur
     """
     permission_classes = [IsAuthenticated]
     
     def get(self, request, user_id=None):
+        """
+        Récupère toutes les données de synchronisation pour un utilisateur.
+        
+        Args:
+            request: Requête GET avec paramètres optionnels
+            user_id: ID de l'utilisateur (optionnel, utilise l'utilisateur connecté si non fourni)
+            
+        Returns:
+            Response: Données complètes de synchronisation incluant:
+                - inventaires actifs
+                - comptages associés
+                - jobs et assignments
+                - produits et emplacements
+                - stocks disponibles
+        """
         try:
             sync_service = SyncService()
             

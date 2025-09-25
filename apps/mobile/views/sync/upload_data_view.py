@@ -9,8 +9,28 @@ from apps.mobile.exceptions import UploadDataException
 
 class UploadDataView(APIView):
     """
-    API d'upload unifiée - Bonne pratique
-    Traite tous les types d'uploads en une seule requête
+    API d'upload unifiée pour l'application mobile.
+    
+    Traite tous les types d'uploads en une seule requête pour optimiser
+    les performances et réduire la complexité côté client mobile.
+    
+    Fonctionnalités:
+    - Upload des données de comptage (CountingDetail)
+    - Upload des données d'assignment
+    - Validation et traitement en lot
+    - Gestion des conflits de données
+    - Synchronisation avec le serveur
+    
+    Paramètres de requête:
+    - sync_id (string): Identifiant de synchronisation
+    - countings (array): Données de comptage à uploader
+    - assignments (array): Données d'assignment à uploader
+    
+    Réponses:
+    - 200: Upload réussi avec résumé des opérations
+    - 400: Données invalides ou erreur de validation
+    - 401: Non authentifié
+    - 500: Erreur interne du serveur
     """
     permission_classes = [IsAuthenticated]
     

@@ -15,8 +15,32 @@ from apps.mobile.exceptions import (
 
 class AssignmentStatusView(APIView):
     """
-    Vue pour la mise à jour des statuts d'un assignment et de son job
+    Vue pour la mise à jour des statuts d'un assignment et de son job associé.
+    
+    Permet de mettre à jour le statut d'un assignment et de son job correspondant
+    vers le statut "ENTAME" dans l'application mobile. Gère la cohérence des
+    statuts entre les deux entités.
+    
     URL: /api/mobile/user/{user_id}/assignment/{assignment_id}/status/
+    
+    Fonctionnalités:
+    - Mise à jour du statut assignment vers ENTAME
+    - Mise à jour du statut job associé vers ENTAME
+    - Validation des permissions utilisateur
+    - Gestion des transitions de statut valides
+    - Cohérence des données entre assignment et job
+    
+    Paramètres d'URL:
+    - user_id (int): ID de l'utilisateur assigné
+    - assignment_id (int): ID de l'assignment à mettre à jour
+    
+    Réponses:
+    - 200: Statut mis à jour avec succès
+    - 400: Transition de statut invalide
+    - 401: Non authentifié
+    - 403: Utilisateur non autorisé pour cet assignment
+    - 404: Assignment ou job non trouvé
+    - 500: Erreur interne du serveur
     """
     permission_classes = [IsAuthenticated]
     
@@ -26,12 +50,15 @@ class AssignmentStatusView(APIView):
     
     def post(self, request, user_id, assignment_id):
         """
-        Met à jour le statut d'un assignment et de son job vers ENTAME
+        Met à jour le statut d'un assignment et de son job vers ENTAME.
         
         Args:
+            request: Requête POST
             user_id: ID de l'utilisateur (depuis l'URL)
             assignment_id: ID de l'assignment (depuis l'URL)
-            Pas besoin de body - le statut est automatiquement ENTAME
+            
+        Returns:
+            Response: Confirmation de mise à jour avec données des statuts
         """
         try:
             # Statut fixe : ENTAME

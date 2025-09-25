@@ -39,7 +39,21 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 class JWTLoginView(TokenObtainPairView):
     """
-    API de connexion qui hérite de SIMPLE_JWT et retourne la réponse formatée
+    API de connexion JWT pour l'application mobile.
+    
+    Authentifie un utilisateur mobile avec nom d'utilisateur et mot de passe
+    et retourne un token JWT pour l'authentification des requêtes suivantes.
+    Hérite de SIMPLE_JWT et retourne une réponse formatée avec les informations utilisateur.
+    
+    Paramètres de requête:
+    - username (string): Nom d'utilisateur
+    - password (string): Mot de passe
+    
+    Réponses:
+    - 200: Connexion réussie avec token JWT et données utilisateur
+    - 400: Erreur de connexion (identifiants invalides)
+    - 401: Non autorisé
+    - 500: Erreur interne du serveur
     """
     
     serializer_class = CustomTokenObtainPairSerializer

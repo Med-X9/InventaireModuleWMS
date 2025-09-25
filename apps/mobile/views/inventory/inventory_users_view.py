@@ -12,11 +12,43 @@ from apps.mobile.exceptions import (
 
 class InventoryUsersView(APIView):
     """
-    API pour récupérer les utilisateurs du même compte qu'un inventaire
+    API pour récupérer les utilisateurs du même compte qu'un inventaire.
+    
+    Permet de récupérer la liste des utilisateurs appartenant au même compte
+    qu'un inventaire spécifique. Utile pour la gestion des équipes d'inventaire
+    et l'affichage des utilisateurs disponibles pour les assignments.
+    
+    URL: /mobile/api/inventory/{inventory_id}/users/
+    
+    Fonctionnalités:
+    - Récupération des utilisateurs du même compte
+    - Validation de l'existence de l'inventaire
+    - Filtrage par compte associé à l'inventaire
+    - Gestion des erreurs spécifiques
+    
+    Paramètres d'URL:
+    - inventory_id (int): ID de l'inventaire
+    
+    Réponses:
+    - 200: Liste des utilisateurs récupérée avec succès
+    - 400: ID d'inventaire invalide
+    - 401: Non authentifié
+    - 404: Inventaire ou compte non trouvé
+    - 500: Erreur interne du serveur
     """
     permission_classes = [IsAuthenticated]
     
     def get(self, request, inventory_id):
+        """
+        Récupère les utilisateurs du même compte qu'un inventaire.
+        
+        Args:
+            request: Requête GET
+            inventory_id: ID de l'inventaire (depuis l'URL)
+            
+        Returns:
+            Response: Liste des utilisateurs du même compte que l'inventaire
+        """
         try:
             inventory_service = InventoryService()
             
