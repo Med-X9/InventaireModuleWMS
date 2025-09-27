@@ -2,6 +2,8 @@ from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 
 from apps.mobile.services.assignment_service import AssignmentService
 from apps.mobile.exceptions import (
@@ -48,6 +50,97 @@ class AssignmentStatusView(APIView):
         super().__init__(**kwargs)
         self.assignment_service = AssignmentService()
     
+    @swagger_auto_schema(
+        operation_summary="Mise à jour du statut d'assignment mobile",
+        operation_description="Met à jour le statut d'un assignment et de son job associé vers ENTAME",
+        manual_parameters=[
+            openapi.Parameter(
+                'user_id',
+                openapi.IN_PATH,
+                description="ID de l'utilisateur assigné",
+                type=openapi.TYPE_INTEGER,
+                required=True
+            ),
+            openapi.Parameter(
+                'assignment_id',
+                openapi.IN_PATH,
+                description="ID de l'assignment à mettre à jour",
+                type=openapi.TYPE_INTEGER,
+                required=True
+            )
+        ],
+        responses={
+            200: openapi.Response(
+                description="Statut mis à jour avec succès",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=True),
+                        'data': openapi.Schema(
+                            type=openapi.TYPE_OBJECT,
+                            properties={
+                                'assignment_id': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
+                                'job_id': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
+                                'new_status': openapi.Schema(type=openapi.TYPE_STRING, example='ENTAME'),
+                                'updated_at': openapi.Schema(type=openapi.TYPE_STRING, example='2024-01-01T10:00:00Z')
+                            }
+                        )
+                    }
+                )
+            ),
+            400: openapi.Response(
+                description="Transition de statut invalide",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
+                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Transition de statut invalide')
+                    }
+                )
+            ),
+            401: openapi.Response(
+                description="Non authentifié",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'detail': openapi.Schema(type=openapi.TYPE_STRING, example='Authentication credentials were not provided.')
+                    }
+                )
+            ),
+            403: openapi.Response(
+                description="Utilisateur non autorisé pour cet assignment",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
+                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Utilisateur non autorisé pour cet assignment')
+                    }
+                )
+            ),
+            404: openapi.Response(
+                description="Assignment ou job non trouvé",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
+                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Assignment non trouvé')
+                    }
+                )
+            ),
+            500: openapi.Response(
+                description="Erreur interne du serveur",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
+                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Erreur interne du serveur')
+                    }
+                )
+            )
+        },
+        security=[{'Bearer': []}],
+        tags=['Assignment Mobile']
+    )
     def post(self, request, user_id, assignment_id):
         """
         Met à jour le statut d'un assignment et de son job vers ENTAME.

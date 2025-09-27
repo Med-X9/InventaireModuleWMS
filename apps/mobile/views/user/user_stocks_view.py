@@ -2,6 +2,8 @@ from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 
 from apps.mobile.services.user_service import UserService
 from apps.mobile.exceptions import (
@@ -41,6 +43,84 @@ class UserStocksView(APIView):
     """
     permission_classes = [IsAuthenticated]
     
+    @swagger_auto_schema(
+        operation_summary="Récupération des stocks utilisateur mobile",
+        operation_description="Récupère la liste des stocks appartenant au même compte qu'un utilisateur spécifique",
+        manual_parameters=[
+            openapi.Parameter(
+                'user_id',
+                openapi.IN_PATH,
+                description="ID de l'utilisateur",
+                type=openapi.TYPE_INTEGER,
+                required=True
+            )
+        ],
+        responses={
+            200: openapi.Response(
+                description="Liste des stocks récupérée avec succès",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=True),
+                        'data': openapi.Schema(
+                            type=openapi.TYPE_OBJECT,
+                            properties={
+                                'stocks': openapi.Schema(
+                                    type=openapi.TYPE_ARRAY,
+                                    items=openapi.Schema(type=openapi.TYPE_OBJECT),
+                                    description="Liste des stocks du même compte"
+                                )
+                            }
+                        )
+                    }
+                )
+            ),
+            400: openapi.Response(
+                description="ID d'utilisateur invalide ou erreur de validation",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
+                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='ID d\'utilisateur invalide'),
+                        'error_type': openapi.Schema(type=openapi.TYPE_STRING, example='INVALID_PARAMETER')
+                    }
+                )
+            ),
+            401: openapi.Response(
+                description="Non authentifié",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'detail': openapi.Schema(type=openapi.TYPE_STRING, example='Authentication credentials were not provided.')
+                    }
+                )
+            ),
+            404: openapi.Response(
+                description="Utilisateur ou compte non trouvé",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
+                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Utilisateur non trouvé'),
+                        'error_type': openapi.Schema(type=openapi.TYPE_STRING, example='USER_NOT_FOUND')
+                    }
+                )
+            ),
+            500: openapi.Response(
+                description="Erreur interne du serveur",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
+                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Erreur interne du serveur'),
+                        'error_type': openapi.Schema(type=openapi.TYPE_STRING, example='INTERNAL_ERROR')
+                    }
+                )
+            )
+        },
+        security=[{'Bearer': []}],
+        tags=['Utilisateur Mobile']
+    )
     def get(self, request, user_id):
         """
         Récupère les stocks du même compte qu'un utilisateur.

@@ -1,6 +1,8 @@
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 
 from apps.mobile.services.auth_service import AuthService
 
@@ -22,6 +24,54 @@ class RefreshTokenView(APIView):
     - 401: Non autorisé
     """
     
+    @swagger_auto_schema(
+        operation_summary="Rafraîchissement de token mobile",
+        operation_description="Renouvelle un token d'authentification expiré en utilisant un refresh token valide",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['refresh_token'],
+            properties={
+                'refresh_token': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description='Token de rafraîchissement valide',
+                    example='eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...'
+                )
+            }
+        ),
+        responses={
+            200: openapi.Response(
+                description="Token rafraîchi avec succès",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=True),
+                        'access': openapi.Schema(type=openapi.TYPE_STRING, example='eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...'),
+                        'refresh': openapi.Schema(type=openapi.TYPE_STRING, example='eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...')
+                    }
+                )
+            ),
+            400: openapi.Response(
+                description="Refresh token invalide ou expiré",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
+                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Refresh token invalide')
+                    }
+                )
+            ),
+            401: openapi.Response(
+                description="Non autorisé",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'detail': openapi.Schema(type=openapi.TYPE_STRING, example='Token is invalid or expired')
+                    }
+                )
+            )
+        },
+        tags=['Authentification Mobile']
+    )
     def post(self, request):
         """
         Rafraîchit un token d'authentification.

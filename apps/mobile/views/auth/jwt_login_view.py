@@ -3,6 +3,8 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth import authenticate
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 from apps.users.models import UserApp
 
 
@@ -58,6 +60,70 @@ class JWTLoginView(TokenObtainPairView):
     
     serializer_class = CustomTokenObtainPairSerializer
     
+    @swagger_auto_schema(
+        operation_summary="Connexion JWT utilisateur mobile",
+        operation_description="Authentifie un utilisateur mobile avec JWT et retourne un token d'accès",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['username', 'password'],
+            properties={
+                'username': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description='Nom d\'utilisateur',
+                    example='john.doe'
+                ),
+                'password': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description='Mot de passe',
+                    example='password123'
+                )
+            }
+        ),
+        responses={
+            200: openapi.Response(
+                description="Connexion JWT réussie",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=True),
+                        'access': openapi.Schema(type=openapi.TYPE_STRING, example='eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...'),
+                        'refresh': openapi.Schema(type=openapi.TYPE_STRING, example='eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...'),
+                        'user': openapi.Schema(
+                            type=openapi.TYPE_OBJECT,
+                            properties={
+                                'user_id': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
+                                'nom': openapi.Schema(type=openapi.TYPE_STRING, example='Doe'),
+                                'prenom': openapi.Schema(type=openapi.TYPE_STRING, example='John')
+                            }
+                        )
+                    }
+                )
+            ),
+            400: openapi.Response(
+                description="Erreur de connexion",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
+                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Identifiants invalides'),
+                        'details': openapi.Schema(type=openapi.TYPE_OBJECT)
+                    }
+                )
+            ),
+            500: openapi.Response(
+                description="Erreur interne du serveur",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
+                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Erreur interne du serveur'),
+                        'details': openapi.Schema(type=openapi.TYPE_STRING, example='Exception details')
+                    }
+                )
+            )
+        },
+        tags=['Authentification Mobile']
+    )
     def post(self, request, *args, **kwargs):
         """
         Gère la requête POST de connexion
