@@ -8,7 +8,6 @@ class NSerieSerializer(serializers.ModelSerializer):
     """
     product_reference = serializers.CharField(source='product.reference', read_only=True)
     product_name = serializers.CharField(source='product.Short_Description', read_only=True)
-    location_reference = serializers.CharField(source='location.location_reference', read_only=True)
     is_expired = serializers.BooleanField(read_only=True)
     is_warranty_valid = serializers.BooleanField(read_only=True)
     
@@ -17,7 +16,6 @@ class NSerieSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'reference', 'n_serie', 'product', 'product_reference', 'product_name',
             'status', 'description', 'date_fabrication', 'date_expiration', 'warranty_end_date',
-            'location', 'location_reference', 'stock_quantity', 'is_tracked', 'notes',
             'is_expired', 'is_warranty_valid', 'created_at', 'updated_at'
         ]
         read_only_fields = ['reference', 'created_at', 'updated_at']
@@ -30,8 +28,7 @@ class NSerieCreateSerializer(serializers.ModelSerializer):
         model = NSerie
         fields = [
             'n_serie', 'product', 'status', 'description', 'date_fabrication',
-            'date_expiration', 'warranty_end_date', 'location', 'stock_quantity',
-            'is_tracked', 'notes'
+            'date_expiration', 'warranty_end_date'
         ]
     
     def validate(self, data):
@@ -59,7 +56,7 @@ class NSerieUpdateSerializer(serializers.ModelSerializer):
         model = NSerie
         fields = [
             'status', 'description', 'date_fabrication', 'date_expiration',
-            'warranty_end_date', 'location', 'stock_quantity', 'is_tracked', 'notes'
+            'warranty_end_date'
         ]
     
     def validate(self, data):
@@ -102,14 +99,14 @@ class NSerieListSerializer(serializers.ModelSerializer):
     """
     product_reference = serializers.CharField(source='product.reference', read_only=True)
     product_name = serializers.CharField(source='product.Short_Description', read_only=True)
-    location_reference = serializers.CharField(source='location.location_reference', read_only=True)
+    is_expired = serializers.BooleanField(read_only=True)
+    is_warranty_valid = serializers.BooleanField(read_only=True)
     
     class Meta:
         model = NSerie
         fields = [
             'id', 'reference', 'n_serie', 'product_reference', 'product_name',
-            'status', 'location_reference', 'stock_quantity', 'is_expired',
-            'is_warranty_valid', 'created_at'
+            'status', 'is_expired', 'is_warranty_valid', 'created_at'
         ]
 
 class NSerieDetailSerializer(serializers.ModelSerializer):
@@ -117,7 +114,6 @@ class NSerieDetailSerializer(serializers.ModelSerializer):
     Sérialiseur détaillé pour les numéros de série
     """
     product = serializers.SerializerMethodField()
-    location = serializers.SerializerMethodField()
     is_expired = serializers.BooleanField(read_only=True)
     is_warranty_valid = serializers.BooleanField(read_only=True)
     
@@ -125,9 +121,8 @@ class NSerieDetailSerializer(serializers.ModelSerializer):
         model = NSerie
         fields = [
             'id', 'reference', 'n_serie', 'product', 'status', 'description',
-            'date_fabrication', 'date_expiration', 'warranty_end_date', 'location',
-            'stock_quantity', 'is_tracked', 'notes', 'is_expired', 'is_warranty_valid',
-            'created_at', 'updated_at'
+            'date_fabrication', 'date_expiration', 'warranty_end_date',
+            'is_expired', 'is_warranty_valid', 'created_at', 'updated_at'
         ]
     
     def get_product(self, obj):
@@ -143,16 +138,3 @@ class NSerieDetailSerializer(serializers.ModelSerializer):
             'family': obj.product.Product_Family.family_name if obj.product.Product_Family else None
         }
     
-    def get_location(self, obj):
-        """
-        Retourne les informations de l'emplacement
-        """
-        if obj.location:
-            return {
-                'id': obj.location.id,
-                'reference': obj.location.reference,
-                'location_reference': obj.location.location_reference,
-                'sous_zone': obj.location.sous_zone.sous_zone_name if obj.location.sous_zone else None,
-                'zone': obj.location.sous_zone.zone.zone_name if obj.location.sous_zone and obj.location.sous_zone.zone else None
-            }
-        return None 
