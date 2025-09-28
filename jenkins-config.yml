@@ -4,40 +4,40 @@ repository:
 
 # Docker Configuration
 docker:
-  image_prefix: "smatchdigital"
-  backend_image_name: "backend-app"
+  image_prefix: "smatchdigital" # DO NOT CHANGE
+  backend_image_name: "backend-app" # Change based on project
 
 # Environment-specific Configuration
 environments:
   # Development Environment
   dev:
-    deploy_host: "147.93.55.221"
-    deploy_creds: "dev-test-creds"
-    env_name: "development"
-    image_tag_suffix: "dev-latest"
+    deploy_host: "147.93.55.221" # dev server IP
+    deploy_creds: "dev-test-creds" # Jenkins credential ID for dev server
+    env_name: "development" # Environment name
+    image_tag_suffix: "dev-latest" # Docker image tag suffix
   
   # Production Environment
   main:
-    deploy_host: "31.97.158.68"
-    deploy_creds: "prod-creds"
-    env_name: "production"
-    image_tag_suffix: "prod-latest"
+    deploy_host: "31.97.158.68" # prod server IP
+    deploy_creds: "prod-creds" # Jenkins credential ID for prod server
+    env_name: "production" # Environment name
+    image_tag_suffix: "prod-latest"  # Docker image tag suffix
 
 # Credentials Configuration
 credentials:
-  git_credentials_id: "git-cred"
-  docker_credentials_id: "docker-hub-company"
+  git_credentials_id: "git-cred" # Github creds via Jenkins
+  docker_credentials_id: "docker-hub-company" # Docker Hub creds via Jenkins
 
 # SonarQube Configuration
 sonarqube:
   enabled: true
-  project_key: "inventaire-module-wms"
-  project_name: "InventaireModuleWMS"
+  project_key: "inventaire-module-wms" # Change based on project
+  project_name: "InventaireModuleWMS" # Change based on project
   project_version: "1.0"
-  server_name: "SonarQube-Server"
-  server_url: "http://147.93.55.221:9000"
-  credentials_id: "sonar-token"
-  api_credentials_id: "sonar-creds"
+  server_name: "SonarQube-Server" # DO NOT CHANGE
+  server_url: "http://147.93.55.221:9000" # DO NOT CHANGE
+  credentials_id: "sonar-token" # DO NOT CHANGE
+  api_credentials_id: "sonar-creds" # DO NOT CHANGE
   
   # Analysis Configuration
   analysis_branches: ["main", "devops", "dev"]
@@ -46,10 +46,10 @@ sonarqube:
   language: "py"
   python_version: "3.12"
   tests: "apps"
-  test_inclusions: "**/tests/**/*.py,**/test_*.py"
-  exclusions: "**/migrations/**,**/staticfiles/**,**/static/**,**/media/**,**/__pycache__/**,**/venv/**,**/env/**,**/node_modules/**,**/*.pyc,**/manage.py,**/wsgi.py,**/asgi.py,**/settings/**,**/*.min.js,**/*.min.css"
-  coverage_exclusions: "**/migrations/**,**/tests/**,**/test_*.py,**/conftest.py,**/manage.py,**/wsgi.py,**/asgi.py,**/settings/**,**/__init__.py"
-  cpd_exclusions: "**/migrations/**,**/tests/**"
+  test_inclusions: "**/tests/**/*.py,**/test_*.py"  # Change based on project
+  exclusions: "**/migrations/**,**/staticfiles/**,**/static/**,**/media/**,**/__pycache__/**,**/venv/**,**/env/**,**/node_modules/**,**/*.pyc,**/manage.py,**/wsgi.py,**/asgi.py,**/settings/**,**/*.min.js,**/*.min.css" # Change based on project
+  coverage_exclusions: "**/migrations/**,**/tests/**,**/test_*.py,**/conftest.py,**/manage.py,**/wsgi.py,**/asgi.py,**/settings/**,**/__init__.py" # Change based on project
+  cpd_exclusions: "**/migrations/**,**/tests/**" # Change based on project
   quality_gate_wait: false
   
   # Status Check Configuration
@@ -66,13 +66,13 @@ deployment:
   remote_path: "/tmp/deployment/backend"
   
   # Files to upload to remote server
-  files_to_upload:
+  files_to_upload: # Change based on project
     - "docker-compose.yml"
     - "Dockerfile"
     - "nginx/*"
   
   # Environment file configuration
-  env_file:
+  env_file: # Change based on project
     source: ".env copy"
     target: ".env"
   
