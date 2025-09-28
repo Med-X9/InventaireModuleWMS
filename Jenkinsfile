@@ -16,8 +16,8 @@ pipeline {
                     }
                     
                     def configText = readFile(env.CONFIG_FILE)
-                    def yaml = new org.yaml.snakeyaml.Yaml()
-                    def config = yaml.load(configText)
+                    // Use readYaml step instead of creating Yaml object to avoid serialization issues
+                    def config = readYaml text: configText
                     
                     // Store config in global variable for access in other stages
                     env.PROJECT_CONFIG = writeJSON returnText: true, json: config
@@ -344,42 +344,69 @@ pipeline {
     post {
         always {
             script {
-                def config = readJSON text: env.PROJECT_CONFIG
-                def cleanupCommands = config.cleanup?.commands ?: [
-                    'rm -rf /tmp/backend || true',
-                    'docker system prune -f || true'
-                ]
-                
-                cleanupCommands.each { command ->
-                    sh "${command}"
+                try {
+                    // Check if PROJECT_CONFIG exists and is not empty
+                    if (env.PROJECT_CONFIG && env.PROJECT_CONFIG != 'null' && env.PROJECT_CONFIG.trim() != '') {
+                        def config = readJSON text: env.PROJECT_CONFIG
+                        def cleanupCommands = config.cleanup?.commands ?: [
+                            'rm -rf /tmp/backend || true',
+                            'docker system prune -f || true'
+                        ]
+                        
+                        cleanupCommands.each { command ->
+                            sh "${command}"
+                        }
+                    } else {
+                        echo "No config loaded, using default cleanup..."
+                        sh 'rm -rf /tmp/backend || true'
+                        sh 'docker system prune -f || true'
+                    }
+                } catch (Exception e) {
+                    echo "Cleanup configuration failed: ${e.getMessage()}"
+                    echo "Using default cleanup commands..."
+                    sh 'rm -rf /tmp/backend || true'
+                    sh 'docker system prune -f || true'
                 }
             }
         }
         success {
             script {
-                def config = readJSON text: env.PROJECT_CONFIG
-                def branchConfig = config.environments[env.BRANCH_NAME]
-                
-                if (branchConfig) {
-                    echo "✅ Successfully deployed to ${env.ENV_NAME} environment (${env.DEPLOY_HOST})!"
-                    echo "🐳 Using image: ${env.BACKEND_IMAGE}:${env.IMAGE_TAG_SUFFIX}"
-                    
-                    if (config.sonarqube.enabled) {
-                        echo "SonarQube analysis results for ${env.BRANCH_NAME}: ${config.sonarqube.server_url}/dashboard?id=${env.SONAR_PROJECT_KEY}"
+                try {
+                    if (env.PROJECT_CONFIG && env.PROJECT_CONFIG != 'null' && env.PROJECT_CONFIG.trim() != '') {
+                        def config = readJSON text: env.PROJECT_CONFIG
+                        def branchConfig = config.environments[env.BRANCH_NAME]
+                        
+                        if (branchConfig) {
+                            echo "✅ Successfully deployed to ${env.ENV_NAME} environment (${env.DEPLOY_HOST})!"
+                            echo "🐳 Using image: ${env.BACKEND_IMAGE}:${env.IMAGE_TAG_SUFFIX}"
+                            
+                            if (config.sonarqube.enabled) {
+                                echo "SonarQube analysis results for ${env.BRANCH_NAME}: ${config.sonarqube.server_url}/dashboard?id=${env.SONAR_PROJECT_KEY}"
+                            }
+                            
+                            def uploadedFiles = config.deployment.files_to_upload.join(', ')
+                            echo "📁 Transferred files: ${uploadedFiles}"
+                        } else {
+                            echo "✅ Pipeline completed - no deployment needed for branch: ${env.BRANCH_NAME}"
+                        }
+                    } else {
+                        echo "✅ Pipeline completed successfully!"
                     }
-                    
-                    def uploadedFiles = config.deployment.files_to_upload.join(', ')
-                    echo "📁 Transferred files: ${uploadedFiles}"
-                } else {
-                    echo "✅ Pipeline completed - no deployment needed for branch: ${env.BRANCH_NAME}"
+                } catch (Exception e) {
+                    echo "Success message configuration failed: ${e.getMessage()}"
+                    echo "✅ Pipeline completed successfully!"
                 }
             }
         }
         failure {
             script {
-                if (env.ENV_NAME) {
-                    echo "❌ Pipeline failed for ${env.ENV_NAME} deployment!"
-                } else {
+                try {
+                    if (env.ENV_NAME) {
+                        echo "❌ Pipeline failed for ${env.ENV_NAME} deployment!"
+                    } else {
+                        echo "❌ Pipeline failed!"
+                    }
+                } catch (Exception e) {
                     echo "❌ Pipeline failed!"
                 }
             }
