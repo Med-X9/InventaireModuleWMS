@@ -25,7 +25,7 @@ environments:
 
 # Credentials Configuration
 credentials:
-  git_credentials_id: "git-cred" # Github creds via Jenkins
+  git_credentials_id: "git-cred-company-tk" # Github creds via Jenkins
   docker_credentials_id: "docker-hub-company" # Docker Hub creds via Jenkins
 
 # SonarQube Configuration
