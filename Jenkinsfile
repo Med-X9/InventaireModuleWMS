@@ -412,7 +412,26 @@ pipeline {
             }
         }
         unstable {
-            echo 'Pipeline completed with warnings. Check SonarQube Quality Gate results.'
+            script {
+                if (env.BRANCH_NAME == 'dev') {
+                    echo "⚠️  Pipeline completed with warnings for development deployment!"
+                    echo "🐳 Application deployed successfully to: ${env.DEPLOY_HOST}"
+                    echo "🐳 Using image: ${env.FRONTEND_IMAGE}:dev-latest"
+                    def projectKey = "inventaire-module-wms-front-${env.BRANCH_NAME}"
+                    echo "⚠️  SonarQube found code quality issues - Check: http://147.93.55.221:9000/dashboard?id=${projectKey}"
+                    echo "✅ Deployment completed despite code quality warnings"
+                } else if (env.BRANCH_NAME == 'main') {
+                    echo "⚠️  Pipeline completed with warnings for production deployment!"
+                    echo "🐳 Application deployed successfully to: ${env.DEPLOY_HOST}"
+                    echo "🐳 Using image: ${env.FRONTEND_IMAGE}:prod-latest"
+                    def projectKey = "inventaire-module-wms-front-${env.BRANCH_NAME}"
+                    echo "⚠️  SonarQube found code quality issues - Check: http://147.93.55.221:9000/dashboard?id=${projectKey}"
+                    echo "✅ Deployment completed despite code quality warnings"
+                } else {
+                    echo "⚠️  Pipeline completed with warnings - no deployment needed for branch: ${env.BRANCH_NAME}"
+                }
+                echo "📊 Review SonarQube findings to improve code quality"
+            }
         }
     }
 }
