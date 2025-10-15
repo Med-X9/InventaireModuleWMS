@@ -38,6 +38,7 @@ from .assignment_exceptions import (
     InvalidStatusTransitionException,
     JobNotFoundException,
     AssignmentValidationException,
+    AssignmentAlreadyStartedException,
 )
 
 from .counting_detail_exceptions import (
@@ -87,6 +88,7 @@ __all__ = [
     'InvalidStatusTransitionException',
     'JobNotFoundException',
     'AssignmentValidationException',
+    'AssignmentAlreadyStartedException',
     
     # Counting detail exceptions
     'CountingDetailValidationError',

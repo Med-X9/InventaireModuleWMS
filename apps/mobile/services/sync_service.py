@@ -57,6 +57,7 @@ class SyncService:
                     continue
             
             # Récupérer et traiter les jobs
+            jobs = []
             try:
                 jobs = self.repository.get_jobs_by_inventories(inventories)
                 for job in jobs:
@@ -69,18 +70,21 @@ class SyncService:
             except Exception as e:
                 print(f"Erreur lors de la récupération des jobs: {str(e)}")
             
-            # Récupérer et traiter les assignations
-            try:
-                assignments = self.repository.get_assignments_by_jobs(jobs)
-                for assignment in assignments:
-                    try:
-                        assignment_data = self.repository.format_assignment_data(assignment)
-                        response_data['data']['assignments'].append(assignment_data)
-                    except Exception as e:
-                        print(f"Erreur lors du traitement de l'assignation {assignment.id}: {str(e)}")
-                        continue
-            except Exception as e:
-                print(f"Erreur lors de la récupération des assignations: {str(e)}")
+            # Récupérer et traiter les assignations (seulement si on a des jobs)
+            if jobs:
+                try:
+                    assignments = self.repository.get_assignments_by_jobs(jobs)
+                    for assignment in assignments:
+                        try:
+                            assignment_data = self.repository.format_assignment_data(assignment)
+                            response_data['data']['assignments'].append(assignment_data)
+                        except Exception as e:
+                            print(f"Erreur lors du traitement de l'assignation {assignment.id}: {str(e)}")
+                            continue
+                except Exception as e:
+                    print(f"Erreur lors de la récupération des assignations: {str(e)}")
+            else:
+                print("Aucun job trouvé, donc aucune assignation à récupérer")
             
             # Récupérer et traiter les comptages
             try:

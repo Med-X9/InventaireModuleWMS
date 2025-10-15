@@ -18,8 +18,11 @@ class SyncRepository:
         return queryset
     
     def get_jobs_by_inventories(self, inventories):
-        """Récupère les jobs pour les inventaires donnés"""
-        return Job.objects.filter(inventory__in=inventories)
+        """Récupère les jobs pour les inventaires donnés avec statut TRANSFERT ou ENTAME"""
+        return Job.objects.filter(
+            inventory__in=inventories,
+            status__in=['TRANSFERT', 'ENTAME']
+        )
     
     def get_assignments_by_jobs(self, jobs):
         """Récupère les assignations pour les jobs donnés"""

@@ -9,7 +9,8 @@ from apps.mobile.exceptions import (
     UserNotAssignedException,
     InvalidStatusTransitionException,
     JobNotFoundException,
-    AssignmentValidationException
+    AssignmentValidationException,
+    AssignmentAlreadyStartedException
 )
 
 
@@ -64,6 +65,13 @@ class AssignmentStatusView(APIView):
                 'success': False,
                 'error': str(e)
             }, status=status.HTTP_404_NOT_FOUND)
+            
+        except AssignmentAlreadyStartedException as e:
+            return Response({
+                'success': False,
+                'error': str(e),
+                'message': "L'assignment est déjà entamé et ne peut pas être modifié"
+            }, status=status.HTTP_409_CONFLICT)
             
         except InvalidStatusTransitionException as e:
             return Response({

@@ -454,7 +454,7 @@ class UserRepository:
             unit_name = None
             unit_id = None
             if stock.unit_of_measure:
-                unit_name = stock.unit_of_measure.unit_name
+                unit_name = stock.unit_of_measure.name  # Correction: 'name' au lieu de 'unit_name'
                 unit_id = stock.unit_of_measure.id
                 print(f"Unité trouvée: {unit_name}")
             else:

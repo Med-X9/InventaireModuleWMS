@@ -6,7 +6,8 @@ from apps.mobile.exceptions import (
     AssignmentNotFoundException,
     UserNotAssignedException,
     InvalidStatusTransitionException,
-    JobNotFoundException
+    JobNotFoundException,
+    AssignmentAlreadyStartedException
 )
 
 
@@ -70,8 +71,14 @@ class AssignmentService:
         # Vérifier que l'utilisateur est autorisé
         assignment = self.verify_user_assignment(assignment_id, user_id)
         
-        # Vérifier la transition de statut pour l'assignment
+        # Vérifier si l'assignment est déjà ENTAME et qu'on tente de le mettre à ENTAME
         current_assignment_status = assignment.status
+        if current_assignment_status == 'ENTAME' and new_status == 'ENTAME':
+            raise AssignmentAlreadyStartedException(
+                f"L'assignment {assignment_id} est déjà entamé et ne peut pas être modifié"
+            )
+        
+        # Vérifier la transition de statut pour l'assignment
         if new_status not in self.allowed_status_transitions.get(current_assignment_status, []):
             raise InvalidStatusTransitionException(
                 f"Transition de statut non autorisée: {current_assignment_status} -> {new_status}"
