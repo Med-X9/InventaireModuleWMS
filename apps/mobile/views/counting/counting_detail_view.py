@@ -23,7 +23,7 @@ class CountingDetailView(APIView):
     """
     Vue pour la création de CountingDetail et NumeroSerie.
     
-    URL: /mobile/api/counting-detail/
+    URL: /mobile/api/job/<job_id>/counting-detail/
     """
     permission_classes = [IsAuthenticated]  # Réactivé maintenant que le problème est corrigé
     
@@ -129,7 +129,7 @@ class CountingDetailView(APIView):
             'error': error_message
         }, status=status_code)
     
-    def post(self, request):
+    def post(self, request, job_id=None):
         """
         Crée un ou plusieurs CountingDetail et leurs NumeroSerie associés.
         
@@ -173,7 +173,7 @@ class CountingDetailView(APIView):
         }
         """
         try:
-            logger.info(f"Traitement de CountingDetail avec les données: {request.data}")
+            logger.info(f"Traitement de CountingDetail avec job_id={job_id} et les données: {request.data}")
             
             # Vérifier si c'est un traitement en lot
             if request.data.get('batch', False):
@@ -184,18 +184,28 @@ class CountingDetailView(APIView):
                         'La liste de données est vide pour le traitement en lot'
                     )
                 
+                # Valider que tous les assignment_id appartiennent au job_id
+                assignment_ids = [item.get('assignment_id') for item in data_list if item.get('assignment_id')]
+                if assignment_ids:
+                    self.counting_detail_service.validate_assignments_belong_to_job(job_id, assignment_ids)
+                
                 result = self.counting_detail_service.create_counting_details_batch(data_list)
                 return self._create_success_response(result, status.HTTP_201_CREATED)
                 
             else:
                 # Traitement d'un seul enregistrement
+                # Valider que l'assignment_id appartient au job_id
+                assignment_id = request.data.get('assignment_id')
+                if assignment_id:
+                    self.counting_detail_service.validate_assignments_belong_to_job(job_id, [assignment_id])
+                
                 result = self.counting_detail_service.create_counting_detail(request.data)
                 return self._create_success_response(result, status.HTTP_201_CREATED)
             
         except Exception as e:
             return self._handle_exception(e)
     
-    def put(self, request):
+    def put(self, request, job_id=None):
         """
         Valide plusieurs CountingDetail sans les créer (validation en lot).
         
@@ -223,13 +233,18 @@ class CountingDetailView(APIView):
         }
         """
         try:
-            logger.info(f"Validation en lot de CountingDetail avec les données: {request.data}")
+            logger.info(f"Validation en lot de CountingDetail avec job_id={job_id} et les données: {request.data}")
             
             data_list = request.data.get('data', [])
             if not data_list:
                 return self._create_error_response(
                     'La liste de données est vide pour la validation'
                 )
+            
+            # Valider que tous les assignment_id appartiennent au job_id
+            assignment_ids = [item.get('assignment_id') for item in data_list if item.get('assignment_id')]
+            if assignment_ids:
+                self.counting_detail_service.validate_assignments_belong_to_job(job_id, assignment_ids)
             
             # Valider les enregistrements en lot
             result = self.counting_detail_service.validate_counting_details_batch(data_list)
@@ -238,7 +253,7 @@ class CountingDetailView(APIView):
         except Exception as e:
             return self._handle_exception(e)
     
-    def get(self, request):
+    def get(self, request, job_id=None):
         """
         Récupère des informations sur les CountingDetail.
         
@@ -251,6 +266,8 @@ class CountingDetailView(APIView):
             counting_id = request.query_params.get('counting_id')
             location_id = request.query_params.get('location_id')
             product_id = request.query_params.get('product_id')
+            
+            logger.info(f"Récupération de CountingDetail avec job_id={job_id}")
             
             if counting_id:
                 # Récupérer les CountingDetail d'un comptage

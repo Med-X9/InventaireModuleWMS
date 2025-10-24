@@ -4,8 +4,9 @@ Utilise le CountingDetailCreationUseCase existant.
 """
 from typing import Dict, Any, List, Optional
 from django.db import transaction
-from apps.inventory.models import CountingDetail
+from apps.inventory.models import CountingDetail, Assigment, Job
 from apps.inventory.usecases.counting_detail_creation import CountingDetailCreationUseCase
+from apps.mobile.exceptions import CountingAssignmentValidationError
 import logging
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,41 @@ class CountingDetailService:
     
     def __init__(self):
         self.usecase = CountingDetailCreationUseCase()
+    
+    def validate_assignments_belong_to_job(self, job_id: int, assignment_ids: list) -> None:
+        """
+        Vérifie que tous les assignment_id appartiennent au job_id spécifié.
+        
+        Args:
+            job_id: L'ID du job depuis l'URL
+            assignment_ids: Liste des IDs d'assignments à vérifier
+            
+        Raises:
+            CountingAssignmentValidationError: Si un assignment n'appartient pas au job
+        """
+        if not assignment_ids:
+            return
+        
+        # Vérifier que le job existe
+        try:
+            job = Job.objects.get(id=job_id)
+        except Job.DoesNotExist:
+            raise CountingAssignmentValidationError(f"Job avec l'ID {job_id} non trouvé")
+        
+        # Récupérer tous les assignments du job
+        job_assignments = Assigment.objects.filter(job_id=job_id).values_list('id', flat=True)
+        job_assignment_ids = set(job_assignments)
+        
+        # Vérifier que tous les assignment_ids fournis appartiennent au job
+        invalid_assignments = []
+        for assignment_id in assignment_ids:
+            if assignment_id not in job_assignment_ids:
+                invalid_assignments.append(assignment_id)
+        
+        if invalid_assignments:
+            raise CountingAssignmentValidationError(
+                f"Les assignments suivants n'appartiennent pas au job {job_id}: {invalid_assignments}"
+            )
     
     def create_counting_detail(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -36,7 +72,7 @@ class CountingDetailService:
         try:
             logger.info(f"Création d'un CountingDetail avec les données: {data}")
             
-            # Utiliser le use case existant
+            # Le use case fait déjà toute la validation nécessaire
             result = self.usecase.execute(data)
             
             logger.info("CountingDetail créé avec succès via use case")
@@ -170,6 +206,7 @@ class CountingDetailService:
             Dict[str, Any]: Résultat de la validation
         """
         try:
+            # La validation complète sera faite par le use case lors de la création
             existing_detail = self._find_existing_counting_detail(data)
             
             return {

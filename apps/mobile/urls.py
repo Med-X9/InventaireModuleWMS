@@ -28,8 +28,9 @@ urlpatterns = [
      path('user/<int:user_id>/stocks/', views.UserStocksView.as_view(), name='mobile_user_stocks'),
      
      # Gestion des assignments et jobs
-     path('user/<int:user_id>/assignment/<int:assignment_id>/status/', views.AssignmentStatusView.as_view(), name='mobile_assignment_status'),
+     path('user/<int:user_id>/job/<int:job_id>/status/', views.AssignmentStatusView.as_view(), name='mobile_assignment_status'),
     
     # Gestion des CountingDetail et NumeroSerie
-    path('counting-detail/', views.CountingDetailView.as_view(), name='mobile_counting_detail'),
+    path('job/<int:job_id>/counting-detail/', views.CountingDetailView.as_view(), name='mobile_counting_detail'),
+    
 ]
