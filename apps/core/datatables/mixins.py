@@ -43,8 +43,9 @@ from rest_framework import status
 from django_filters.rest_framework import FilterSet
 
 from .base import DataTableConfig, DataTableProcessor, IDataTableFilter, IDataTableSerializer
-from .filters import DjangoFilterDataTableFilter, DateRangeFilter, StatusFilter, CompositeDataTableFilter
+from .filters import DjangoFilterDataTableFilter, DateRangeFilter, StatusFilter, CompositeDataTableFilter, FilterMappingFilter
 from .serializers import DataTableSerializer
+from .exporters import export_manager
 
 logger = logging.getLogger(__name__)
 
@@ -363,26 +364,79 @@ class DataTableMixin:
     """
     
     def get(self, request, *args, **kwargs):
-        """Gère les requêtes GET avec détection DataTable automatique"""
+        """Gère les requêtes GET avec détection Export/DataTable automatique"""
+        # Vérifier si c'est une demande d'export
+        export_format = request.GET.get('export')
+        if export_format and self.is_export_enabled():
+            return self.handle_export_request(request, export_format, *args, **kwargs)
+        
+        # Sinon, traiter comme requête DataTable normale
         if is_datatable_request(request):
             return self.handle_datatable_request(request, *args, **kwargs)
         return super().get(request, *args, **kwargs)
     
     def handle_datatable_request(self, request, *args, **kwargs):
-        """Gère les requêtes DataTable"""
+        """Gère les requêtes DataTable avec implémentation directe pour éviter les problèmes de sérialisation"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.debug(f"🚀 DataTable: {request.GET.get('affectation_personne_full_name_exact', 'sans filtre')}")
+        
         try:
-            config = self.get_datatable_config()
+            # Queryset de base
             queryset = self.get_datatable_queryset()
+            if queryset is None:
+                logger.warning("get_datatable_queryset() returned None; using empty queryset")
+                queryset = self.model.objects.none()
             
-            processor = DataTableProcessor(
-                config=config,
-                filter_handler=self.get_datatable_filter(),
-                serializer_handler=self.get_datatable_serializer()
-            )
+            # Appliquer les filtres Django Filter si configuré (en premier)
+            if self.filterset_class:
+                logger.debug(f"🔧 Django Filter: {queryset.count()} éléments avant")
+                filterset = self.filterset_class(request.GET, queryset=queryset)
+                queryset = filterset.qs
+                logger.debug(f"🔧 Django Filter: {queryset.count()} éléments après")
+                
+                # Debug: vérifier si le filtre affectation_personne_full_name_exact existe dans Django Filter
+                if 'affectation_personne_full_name_exact' in request.GET:
+                    logger.debug(f"🔧 Django Filter cherche: affectation_personne_full_name_exact")
+                    logger.debug(f"🔧 Champs disponibles dans Django Filter: {list(filterset.filters.keys())}")
+            else:
+                logger.debug(f"ℹ️  Aucun filterset_class configuré - Utilisation DataTable uniquement")
+
+            # Appliquer le mapping des filtres directement (filtres dynamiques)
+            logger.debug(f"🔧 Mapping direct: {queryset.count()} éléments avant")
+            queryset = self.apply_filter_mapping_direct(queryset, request)
+            logger.debug(f"🔧 Mapping direct: {queryset.count()} éléments après")
             
-            return processor.process(request, queryset)
+            # Recherche globale
+            queryset = self.apply_search_direct(queryset, request)
+            
+            # Tri
+            queryset = self.apply_ordering_direct(queryset, request)
+            
+            # Pagination
+            page, page_size = self.get_pagination_from_request(request)
+            start = (page - 1) * page_size
+            end = start + page_size
+            
+            total_count = queryset.count()
+            data = queryset[start:end]
+            
+            # Sérialisation
+            serializer = self.serializer_class(data, many=True)
+            
+            # Réponse DataTable
+            response_data = {
+                'draw': int(request.GET.get('draw', 1)),
+                'recordsTotal': total_count,
+                'recordsFiltered': total_count,
+                'data': serializer.data
+            }
+            
+            return Response(response_data)
+            
         except Exception as e:
-            logger.error(f"Erreur lors du traitement DataTable: {str(e)}")
+            logger.error(f"Erreur lors du traitement DataTable: {str(e)}", exc_info=True)
             return Response(
                 {"error": "Erreur lors du traitement de la requête DataTable"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -414,6 +468,143 @@ class DataTableMixin:
     def get_datatable_serializer(self) -> IDataTableSerializer:
         """Sérialiseur DataTable - à surcharger"""
         return DataTableSerializer(getattr(self, 'serializer_class', None))
+    
+    # =========================================================================
+    # MÉTHODES D'EXPORT
+    # =========================================================================
+    
+    def is_export_enabled(self) -> bool:
+        """
+        Vérifie si l'export est activé pour cette vue
+        
+        Par défaut, l'export est activé. Peut être désactivé en définissant
+        enable_export = False dans la vue.
+        
+        Returns:
+            bool: True si l'export est activé
+        """
+        return getattr(self, 'enable_export', True)
+    
+    def get_export_formats(self) -> List[str]:
+        """
+        Retourne la liste des formats d'export supportés
+        
+        Par défaut: ['excel', 'csv']
+        Peut être personnalisé en définissant export_formats dans la vue
+        
+        Returns:
+            List[str]: Liste des formats supportés
+        """
+        return getattr(self, 'export_formats', ['excel', 'csv'])
+    
+    def get_export_filename(self, format_name: str) -> str:
+        """
+        Génère le nom du fichier d'export
+        
+        Par défaut: export_<timestamp>
+        Peut être personnalisé en définissant export_filename dans la vue
+        
+        Args:
+            format_name: Format d'export ('excel', 'csv', etc.)
+            
+        Returns:
+            str: Nom du fichier sans extension
+        """
+        from datetime import datetime
+        
+        base_filename = getattr(self, 'export_filename', 'export')
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        
+        return f"{base_filename}_{timestamp}"
+    
+    def handle_export_request(self, request, export_format: str, *args, **kwargs):
+        """
+        Gère les requêtes d'export
+        
+        Args:
+            request: Requête HTTP
+            export_format: Format d'export demandé ('excel', 'csv', etc.)
+            
+        Returns:
+            HttpResponse avec le fichier à télécharger
+        """
+        logger.info(f"Requête d'export: format={export_format}")
+        
+        try:
+            # Vérifier que le format est supporté
+            if export_format not in self.get_export_formats():
+                return Response(
+                    {
+                        "error": f"Format d'export non supporté: {export_format}",
+                        "supported_formats": self.get_export_formats()
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Obtenir le queryset avec tous les filtres appliqués
+            queryset = self.get_export_queryset(request, *args, **kwargs)
+            
+            # Obtenir le serializer
+            serializer_class = getattr(self, 'serializer_class', None)
+            
+            # Générer le nom du fichier
+            filename = self.get_export_filename(export_format)
+            
+            # Exporter
+            logger.info(f"Export de {queryset.count()} éléments vers {export_format}")
+            return export_manager.export(
+                format_name=export_format,
+                queryset=queryset,
+                serializer_class=serializer_class,
+                filename=filename
+            )
+            
+        except ValueError as e:
+            logger.error(f"Erreur de validation lors de l'export: {str(e)}")
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Erreur lors de l'export: {str(e)}", exc_info=True)
+            return Response(
+                {"error": f"Erreur lors de l'export: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def get_export_queryset(self, request, *args, **kwargs) -> QuerySet:
+        """
+        Obtient le queryset pour l'export avec tous les filtres appliqués
+        
+        Cette méthode applique les mêmes filtres que pour l'affichage DataTable,
+        mais retourne TOUTES les lignes (pas de pagination).
+        
+        Args:
+            request: Requête HTTP avec paramètres de filtrage
+            
+        Returns:
+            QuerySet: Queryset filtré complet
+        """
+        # Queryset de base
+        queryset = self.get_datatable_queryset()
+        if queryset is None:
+            queryset = self.model.objects.none()
+        
+        # Appliquer les filtres Django Filter si configuré
+        if hasattr(self, 'filterset_class') and self.filterset_class:
+            filterset = self.filterset_class(request.GET, queryset=queryset)
+            queryset = filterset.qs
+        
+        # Appliquer le mapping des filtres
+        queryset = self.apply_filter_mapping_direct(queryset, request)
+        
+        # Appliquer la recherche globale
+        queryset = self.apply_search_direct(queryset, request)
+        
+        # Appliquer le tri
+        queryset = self.apply_ordering_direct(queryset, request)
+        
+        return queryset
 
 class DataTableAPIView(DataTableMixin, APIView):
     """
@@ -530,6 +721,9 @@ class ServerSideDataTableView(DataTableListView):
     date_fields = []
     status_fields = []
     
+    # Mapping des filtres frontend -> backend
+    filter_aliases = {}
+    
     def __init__(self, *args, **kwargs):
         """Initialisation avec validation des paramètres"""
         super().__init__(*args, **kwargs)
@@ -595,14 +789,139 @@ class ServerSideDataTableView(DataTableListView):
         
         return composite_filter
     
+    def get_datatable_filter_with_mapping(self, request):
+        """Filtre composite avec mapping des filtres frontend -> backend"""
+        composite_filter = CompositeDataTableFilter()
+        
+        # Filtre Django Filter si configuré
+        if self.filterset_class:
+            composite_filter.add_filter(DjangoFilterDataTableFilter(self.filterset_class))
+        
+        # Filtres automatiques pour les champs de date
+        for date_field in self.date_fields:
+            composite_filter.add_filter(DateRangeFilter(date_field))
+        
+        # Filtres automatiques pour les champs de statut
+        for status_field in self.status_fields:
+            composite_filter.add_filter(StatusFilter(status_field))
+        
+        # Ajouter un filtre de mapping si des alias sont définis
+        if self.filter_aliases or hasattr(self, 'dynamic_filters'):
+            dynamic_filters = getattr(self, 'dynamic_filters', None)
+            composite_filter.add_filter(FilterMappingFilter(self.filter_aliases, dynamic_filters))
+        
+        # Ajouter un filtre pour les colonnes composées
+        if hasattr(self, 'composite_columns'):
+            from .filters import CompositeColumnFilter
+            composite_filter.add_filter(CompositeColumnFilter(self.composite_columns))
+        
+        return composite_filter
+    
+    def apply_filter_mapping_direct(self, queryset, request):
+        """Applique le mapping des filtres directement sur le queryset"""
+        if not self.filter_aliases and not hasattr(self, 'dynamic_filters'):
+            return queryset
+            
+        import logging
+        logger = logging.getLogger(__name__)
+            
+        from django.db.models import Q
+        from .filters import FilterMappingFilter
+        
+        # Utiliser FilterMappingFilter pour appliquer tous les filtres
+        dynamic_filters = getattr(self, 'dynamic_filters', None)
+        
+        # Appliquer les filtres de mapping normaux
+        filter_handler = FilterMappingFilter(self.filter_aliases, dynamic_filters)
+        result = filter_handler.apply_filters(request, queryset)
+        
+        # Appliquer les filtres de colonnes composées
+        if hasattr(self, 'composite_columns'):
+            from .filters import CompositeColumnFilter
+            composite_handler = CompositeColumnFilter(self.composite_columns)
+            result = composite_handler.apply_filters(request, result)
+        
+        return result
+    
+    def apply_search_direct(self, queryset, request):
+        """Applique la recherche globale directement sur le queryset"""
+        search = request.GET.get('search[value]', '')
+        
+        if not search:
+            return queryset
+            
+        from django.db.models import Q
+        
+        # Nettoyer la recherche
+        search_clean = search.replace('+', ' ').strip()
+        
+        # Recherche dans tous les champs configurés
+        search_query = Q()
+        for field in self.search_fields:
+            search_query |= Q(**{f"{field}__icontains": search_clean})
+        
+        return queryset.filter(search_query)
+    
+    def apply_ordering_direct(self, queryset, request):
+        """Applique le tri directement sur le queryset"""
+        # Vérifier les paramètres DataTable
+        if 'order[0][column]' in request.GET:
+            try:
+                column_index = int(request.GET.get('order[0][column]', 0))
+                direction = request.GET.get('order[0][dir]', 'asc')
+                
+                if 0 <= column_index < len(self.order_fields):
+                    field = self.order_fields[column_index]
+                    ordering = f"-{field}" if direction == 'desc' else field
+                    return queryset.order_by(ordering)
+            except (ValueError, IndexError):
+                pass
+        
+        # Fallback vers paramètre REST API
+        ordering = request.GET.get('ordering', self.default_order)
+        if ordering:
+            return queryset.order_by(ordering)
+        
+        return queryset.order_by(self.default_order)
+    
+    def get_pagination_from_request(self, request):
+        """Convertit les paramètres de pagination DataTable ou REST API"""
+        # Vérifier les paramètres DataTable
+        if 'start' in request.GET and 'length' in request.GET:
+            try:
+                start = int(request.GET.get('start', 0))
+                length = int(request.GET.get('length', self.page_size))
+                length = min(max(self.min_page_size, length), self.max_page_size)
+                page = (start // length) + 1
+                return page, length
+            except (ValueError, TypeError):
+                pass
+        
+        # Fallback vers paramètres REST API
+        try:
+            page = max(1, int(request.GET.get('page', 1)))
+            page_size = min(max(self.min_page_size, int(request.GET.get('page_size', self.page_size))), self.max_page_size)
+            return page, page_size
+        except (ValueError, TypeError):
+            return 1, self.page_size
+    
     def get_datatable_serializer(self) -> IDataTableSerializer:
         """Sérialiseur avec fallback intelligent"""
         return DataTableSerializer(self.serializer_class)
     
     def get(self, request, *args, **kwargs):
-        """Gère les requêtes avec détection automatique"""
+        """Gère les requêtes avec détection automatique et mapping des filtres"""
+        # PRIORITÉ 1: Vérifier si c'est une demande d'export
+        export_format = request.GET.get('export')
+        if export_format and hasattr(self, 'is_export_enabled') and self.is_export_enabled():
+            if hasattr(self, 'handle_export_request'):
+                return self.handle_export_request(request, export_format, *args, **kwargs)
+        
+        # PRIORITÉ 2: Vérifier si c'est une requête DataTable
         if is_datatable_request(request):
             return self.handle_datatable_request(request, *args, **kwargs)
+        
+        # PRIORITÉ 3: Traiter comme requête REST normale
         else:
             return self.handle_rest_request(request, *args, **kwargs)
     

@@ -15,24 +15,26 @@ from ..serializers.product_serializer import (
 )
 from ..services.nserie_service import NSerieService
 from ..filters.nserie_filters import NSerieFilter
+from apps.core.datatables.mixins import ServerSideDataTableView
 
 class NSeriePagination(PageNumberPagination):
     page_size = 20
     page_size_query_param = 'page_size'
     max_page_size = 100
 
-class NSerieListView(ListAPIView):
+class NSerieListView(ServerSideDataTableView):
     """
-    Vue pour lister tous les numéros de série avec pagination et filtres
+    Vue pour lister tous les numéros de série avec pagination et filtres DataTable.
     """
-    queryset = NSerie.objects.all().order_by('-created_at')
+    model = NSerie
     serializer_class = NSerieListSerializer
-    pagination_class = NSeriePagination
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = NSerieFilter
     search_fields = ['n_serie', 'description', 'product__Short_Description', 'product__Internal_Product_Code']
-    ordering_fields = ['created_at', 'n_serie', 'status', 'date_expiration', 'warranty_end_date']
-    ordering = '-created_at'
+    order_fields = ['created_at', 'n_serie', 'status', 'date_expiration', 'warranty_end_date']
+    default_order = '-created_at'
+    page_size = 20
+    min_page_size = 1
+    max_page_size = 100
 
 class NSerieDetailView(RetrieveAPIView):
     """
@@ -154,81 +156,91 @@ class NSerieDeleteView(DestroyAPIView):
                 'message': f'Erreur interne : {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-class NSerieByProductView(ListAPIView):
+class NSerieByProductView(ServerSideDataTableView):
     """
-    Vue pour lister les numéros de série d'un produit spécifique
+    Vue pour lister les numéros de série d'un produit spécifique - Support DataTable.
     """
+    model = NSerie
     serializer_class = NSerieListSerializer
-    pagination_class = NSeriePagination
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['n_serie', 'description']
-    ordering_fields = ['created_at', 'n_serie', 'status', 'date_expiration']
-    ordering = '-created_at'
+    order_fields = ['created_at', 'n_serie', 'status', 'date_expiration']
+    default_order = '-created_at'
+    page_size = 20
+    min_page_size = 1
+    max_page_size = 100
     
-    def get_queryset(self):
+    def get_datatable_queryset(self):
         product_id = self.kwargs.get('product_id')
         nserie_service = NSerieService()
         return nserie_service.get_nseries_by_product(product_id)
 
-class NSerieByLocationView(ListAPIView):
+class NSerieByLocationView(ServerSideDataTableView):
     """
-    Vue pour lister les numéros de série d'un emplacement spécifique
+    Vue pour lister les numéros de série d'un emplacement spécifique - Support DataTable.
     Note: Cette vue n'est pas disponible car NSerie n'a pas de champ location
     """
+    model = NSerie
     serializer_class = NSerieListSerializer
-    pagination_class = NSeriePagination
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['n_serie', 'description', 'product__Short_Description']
-    ordering_fields = ['created_at', 'n_serie', 'status', 'date_expiration']
-    ordering = '-created_at'
+    order_fields = ['created_at', 'n_serie', 'status', 'date_expiration']
+    default_order = '-created_at'
+    page_size = 20
+    min_page_size = 1
+    max_page_size = 100
     
-    def get_queryset(self):
+    def get_datatable_queryset(self):
         # Cette vue n'est pas disponible car NSerie n'a pas de champ location
         return NSerie.objects.none()
 
-class NSerieByStatusView(ListAPIView):
+class NSerieByStatusView(ServerSideDataTableView):
     """
-    Vue pour lister les numéros de série par statut
+    Vue pour lister les numéros de série par statut - Support DataTable.
     """
+    model = NSerie
     serializer_class = NSerieListSerializer
-    pagination_class = NSeriePagination
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['n_serie', 'description', 'product__Short_Description']
-    ordering_fields = ['created_at', 'n_serie', 'date_expiration']
-    ordering = '-created_at'
+    order_fields = ['created_at', 'n_serie', 'date_expiration']
+    default_order = '-created_at'
+    page_size = 20
+    min_page_size = 1
+    max_page_size = 100
     
-    def get_queryset(self):
+    def get_datatable_queryset(self):
         status = self.kwargs.get('status')
         nserie_service = NSerieService()
         return nserie_service.get_nseries_by_status(status)
 
-class NSerieExpiredView(ListAPIView):
+class NSerieExpiredView(ServerSideDataTableView):
     """
-    Vue pour lister les numéros de série expirés
+    Vue pour lister les numéros de série expirés - Support DataTable.
     """
+    model = NSerie
     serializer_class = NSerieListSerializer
-    pagination_class = NSeriePagination
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['n_serie', 'description', 'product__Short_Description']
-    ordering_fields = ['date_expiration', 'created_at', 'n_serie']
-    ordering = 'date_expiration'
+    order_fields = ['date_expiration', 'created_at', 'n_serie']
+    default_order = 'date_expiration'
+    page_size = 20
+    min_page_size = 1
+    max_page_size = 100
     
-    def get_queryset(self):
+    def get_datatable_queryset(self):
         nserie_service = NSerieService()
         return nserie_service.get_expired_nseries()
 
-class NSerieExpiringView(ListAPIView):
+class NSerieExpiringView(ServerSideDataTableView):
     """
-    Vue pour lister les numéros de série qui expirent bientôt
+    Vue pour lister les numéros de série qui expirent bientôt - Support DataTable.
     """
+    model = NSerie
     serializer_class = NSerieListSerializer
-    pagination_class = NSeriePagination
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['n_serie', 'description', 'product__Short_Description']
-    ordering_fields = ['date_expiration', 'created_at', 'n_serie']
-    ordering = 'date_expiration'
+    order_fields = ['date_expiration', 'created_at', 'n_serie']
+    default_order = 'date_expiration'
+    page_size = 20
+    min_page_size = 1
+    max_page_size = 100
     
-    def get_queryset(self):
+    def get_datatable_queryset(self):
         days = self.request.query_params.get('days', 30)
         try:
             days = int(days)

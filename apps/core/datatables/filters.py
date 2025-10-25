@@ -645,4 +645,352 @@ class CompositeDataTableFilter(IDataTableFilter):
         """
         for filter_instance in self.filters:
             queryset = filter_instance.apply_filters(request, queryset)
-        return queryset 
+        return queryset
+
+
+class FilterMappingFilter(IDataTableFilter):
+    """
+    Filtre pour mapper les champs frontend vers backend
+    
+    Ce filtre applique le mapping des filtres frontend vers backend
+    en modifiant les paramètres de la requête avant l'application des filtres.
+    
+    PRINCIPE SOLID : Single Responsibility
+    - Responsabilité unique : gérer le mapping des filtres
+    - Évite les problèmes de sérialisation en modifiant directement les paramètres
+    """
+    
+    def __init__(self, filter_aliases: dict, dynamic_filters: dict = None):
+        """
+        Initialise le filtre de mapping
+        
+        Args:
+            filter_aliases (dict): Dictionnaire de mapping frontend -> backend
+            dynamic_filters (dict): Dictionnaire des filtres dynamiques
+        """
+        self.filter_aliases = filter_aliases or {}
+        self.dynamic_filters = dynamic_filters or {}
+    
+    def apply_filters(self, request: HttpRequest, queryset: QuerySet) -> QuerySet:
+        """
+        Applique le mapping des filtres frontend -> backend directement sur le queryset
+        
+        Au lieu de modifier la requête, applique directement les filtres mappés
+        sur le queryset pour éviter les problèmes de sérialisation.
+        
+        Args:
+            request (HttpRequest): Requête HTTP avec paramètres de filtrage
+            queryset (QuerySet): Queryset initial à filtrer
+            
+        Returns:
+            QuerySet: Queryset filtré avec les filtres mappés
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.debug(f"🔧 FilterMappingFilter: {queryset.count()} éléments avant")
+        
+        if not self.filter_aliases and not self.dynamic_filters:
+            logger.debug(f"🔧 Aucun mapping configuré, retour du queryset")
+            return queryset
+        
+        logger.debug(f"🔧 Filter_aliases configurés: {list(self.filter_aliases.keys())}")
+            
+        from django.db.models import Q
+        
+        # Construire les filtres Q directement
+        q_objects = []
+        
+        # Appliquer le mapping des filtres normaux
+        for frontend_field, backend_field in self.filter_aliases.items():
+            # Chercher tous les paramètres qui commencent par le champ frontend
+            for param_name, param_value in request.GET.items():
+                if param_name.startswith(f"{frontend_field}_"):
+                    # Extraire l'opérateur
+                    operator = param_name.replace(f"{frontend_field}_", "")
+                    
+                    # Normaliser l'opérateur (equals -> exact)
+                    if operator == 'equals':
+                        operator = 'exact'
+                    
+                    # Créer le nom de champ avec l'opérateur
+                    field_lookup = f"{backend_field}__{operator}"
+                    
+                    # Normaliser les espaces et caractères spéciaux
+                    if isinstance(param_value, str):
+                        param_value = param_value.replace('+', ' ')
+                        from urllib.parse import unquote
+                        param_value = unquote(param_value)
+                    
+                    logger.debug(f"🔧 Mapping: {param_name} -> {field_lookup} = '{param_value}'")
+                    
+                    # Ajouter le filtre Q
+                    try:
+                        q_objects.append(Q(**{field_lookup: param_value}))
+                    except Exception as e:
+                        logger.error(f"Erreur lors de la création du filtre Q pour {field_lookup}: {str(e)}")
+                        continue
+        
+        # Appliquer les filtres dynamiques
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.debug(f"Filtres dynamiques configurés: {list(self.dynamic_filters.keys())}")
+        logger.debug(f"Paramètres de requête: {dict(request.GET)}")
+        
+        for frontend_field, config in self.dynamic_filters.items():
+            for param_name, param_value in request.GET.items():
+                if param_name.startswith(f"{frontend_field}_"):
+                    operator = param_name.replace(f"{frontend_field}_", "")
+                    logger.debug(f"Filtre dynamique détecté: {param_name} -> {frontend_field} avec opérateur {operator}")
+                    queryset = self._apply_dynamic_filter(queryset, config, operator, param_value)
+        
+        # Appliquer tous les filtres Q normaux
+        if q_objects:
+            logger.debug(f"🔧 Application de {len(q_objects)} filtres de mapping")
+            combined_q = Q()
+            for q_obj in q_objects:
+                combined_q &= q_obj
+            queryset = queryset.filter(combined_q)
+        
+        logger.debug(f"🔧 FilterMappingFilter: {queryset.count()} éléments après")
+        return queryset
+    
+    def _apply_dynamic_filter(self, queryset, config, operator, value):
+        """Applique un filtre dynamique basé sur la configuration"""
+        if not value:
+            return queryset
+            
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Normaliser les espaces et caractères spéciaux
+        if isinstance(value, str):
+            value = value.replace('+', ' ').strip()
+            from urllib.parse import unquote
+            value = unquote(value)
+        
+        filter_type = config.get('type', 'concat')
+        fields = config.get('fields', [])
+        separator = config.get('separator', ' ')
+        
+        logger.debug(f"Filtre dynamique appliqué: type={filter_type}, fields={fields}, operator={operator}, value='{value}'")
+        
+        if filter_type == 'concat' and len(fields) >= 2:
+            result = self._apply_concat_filter(queryset, fields, separator, operator, value)
+            logger.debug(f"Résultat filtre concat: {result.count()} éléments")
+            return result
+        elif filter_type == 'split' and len(fields) >= 2:
+            result = self._apply_split_filter(queryset, fields, operator, value)
+            logger.debug(f"Résultat filtre split: {result.count()} éléments")
+            return result
+        
+        logger.debug("Aucun filtre dynamique appliqué")
+        return queryset
+    
+    def _apply_concat_filter(self, queryset, fields, separator, operator, value):
+        """Applique un filtre de concaténation"""
+        from django.db.models import Value, F
+        from django.db.models.functions import Concat
+        
+        # Créer la fonction de concaténation
+        concat_parts = []
+        for field in fields:
+            concat_parts.append(F(field))
+            if field != fields[-1]:  # Pas de séparateur après le dernier champ
+                concat_parts.append(Value(separator))
+        
+        # Appliquer l'annotation et le filtre
+        lookup_expr = f"concat_field__{operator}"
+        return queryset.annotate(
+            concat_field=Concat(*concat_parts)
+        ).filter(**{lookup_expr: value})
+    
+    def _apply_split_filter(self, queryset, fields, operator, value):
+        """Applique un filtre de division de valeurs"""
+        from django.db.models import Q
+        
+        parts = value.split()
+        if len(parts) == len(fields):
+            # Correspondance parfaite : chaque partie correspond à un champ
+            filter_dict = {}
+            for i, field in enumerate(fields):
+                lookup_expr = f"{field}__{operator}"
+                filter_dict[lookup_expr] = parts[i]
+            return queryset.filter(**filter_dict)
+        elif len(parts) == 1:
+            # Une seule partie : chercher dans tous les champs
+            q_objects = []
+            for field in fields:
+                lookup_expr = f"{field}__{operator}"
+                q_objects.append(Q(**{lookup_expr: parts[0]}))
+            if q_objects:
+                combined_q = Q()
+                for q_obj in q_objects:
+                    combined_q |= q_obj
+                return queryset.filter(combined_q)
+        
+        return queryset
+
+
+class CompositeColumnFilter(IDataTableFilter):
+    """
+    Filtre pour les colonnes composées (ex: nom complet = prenom + nom)
+    
+    Ce filtre permet de filtrer sur des colonnes qui sont composées de plusieurs champs
+    en utilisant la concaténation ou d'autres opérations sur la base de données.
+    
+    PRINCIPE SOLID : Single Responsibility
+    - Responsabilité unique : gérer les filtres de colonnes composées
+    - Support de différents types de composition
+    - Optimisé pour les performances
+    """
+    
+    def __init__(self, composite_columns: dict):
+        """
+        Initialise le filtre de colonnes composées
+        
+        Args:
+            composite_columns (dict): Configuration des colonnes composées
+                Exemple: {
+                    'affectation_personne_full_name': {
+                        'type': 'concat',
+                        'fields': ['affectation_personne__prenom', 'affectation_personne__nom'],
+                        'separator': ' '
+                    }
+                }
+        """
+        self.composite_columns = composite_columns or {}
+    
+    def apply_filters(self, request: HttpRequest, queryset: QuerySet) -> QuerySet:
+        """
+        Applique les filtres sur les colonnes composées
+        
+        Args:
+            request (HttpRequest): Requête HTTP avec paramètres de filtrage
+            queryset (QuerySet): Queryset à filtrer
+            
+        Returns:
+            QuerySet: Queryset filtré
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Chercher les paramètres qui correspondent aux colonnes composées
+        matching_params = []
+        for column_name in self.composite_columns.keys():
+            for param_name, param_value in request.GET.items():
+                if param_name.startswith(f"{column_name}_"):
+                    operator = param_name.replace(f"{column_name}_", "")
+                    matching_params.append((column_name, operator, param_value))
+        
+        if matching_params:
+            logger.debug(f"🔧 Filtres composés détectés: {matching_params}")
+            count_before = queryset.count()
+            
+            for column_name, operator, param_value in matching_params:
+                config = self.composite_columns[column_name]
+                queryset = self._apply_composite_filter(queryset, column_name, config, operator, param_value)
+            
+            count_after = queryset.count()
+            logger.debug(f"📊 Résultat: {count_before} → {count_after} éléments")
+        
+        return queryset
+    
+    def _apply_composite_filter(self, queryset, column_name, config, operator, value):
+        """Applique un filtre sur une colonne composée"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Normaliser les espaces et caractères spéciaux
+        if isinstance(value, str):
+            original_value = value
+            value = value.replace('+', ' ').strip()
+            from urllib.parse import unquote
+            value = unquote(value)
+            if original_value != value:
+                logger.debug(f"🔄 Normalisation: '{original_value}' → '{value}'")
+        
+        filter_type = config.get('type', 'concat')
+        fields = config.get('fields', [])
+        separator = config.get('separator', ' ')
+        
+        if filter_type == 'concat' and len(fields) >= 2:
+            logger.debug(f"🔗 Concat {column_name}: {fields} avec '{separator}' → '{value}' ({operator})")
+            
+            # Gérer les opérateurs spéciaux pour les colonnes composées
+            if operator == 'startswith':
+                operator = 'istartswith'
+            elif operator == 'endswith':
+                operator = 'iendswith'
+            elif operator == 'contains':
+                operator = 'icontains'
+            elif operator == 'exact':
+                # Pour exact, on peut aussi essayer icontains si pas de résultat
+                pass
+            
+            result = self._apply_concat_filter(queryset, fields, separator, operator, value)
+            return result
+        
+        return queryset
+    
+    def _apply_concat_filter(self, queryset, fields, separator, operator, value):
+        """Applique un filtre de concaténation"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        from django.db.models import Value, F
+        from django.db.models.functions import Concat
+        
+        # Créer la fonction de concaténation
+        concat_parts = []
+        for field in fields:
+            concat_parts.append(F(field))
+            if field != fields[-1]:  # Pas de séparateur après le dernier champ
+                concat_parts.append(Value(separator))
+        
+        # Appliquer l'annotation et le filtre
+        lookup_expr = f"composite_field__{operator}"
+        
+        try:
+            # Debug: vérifier d'abord s'il y a des données avec affectation_personne
+            total_count = queryset.count()
+            with_personne_count = queryset.filter(affectation_personne__isnull=False).count()
+            logger.debug(f"🔍 Debug données: Total={total_count}, Avec personne={with_personne_count}")
+            
+            # D'abord, annoter pour voir les valeurs concaténées
+            annotated_queryset = queryset.annotate(
+                composite_field=Concat(*concat_parts)
+            )
+            
+            # Debug: afficher quelques exemples de valeurs concaténées
+            if annotated_queryset.exists():
+                # Essayer de récupérer les données avec jointure
+                try:
+                    samples = list(annotated_queryset.filter(
+                        affectation_personne__isnull=False
+                    ).values('affectation_personne__prenom', 'affectation_personne__nom', 'composite_field')[:5])
+                    logger.debug(f"💡 Exemples de données avec personne:")
+                    logger.debug(f"   Valeur recherchée: '{value}' (longueur: {len(value)})")
+                    for sample in samples:
+                        concat_value = sample['composite_field']
+                        logger.debug(f"   Prenom: '{sample['affectation_personne__prenom']}', Nom: '{sample['affectation_personne__nom']}'")
+                        logger.debug(f"   Concat: '{concat_value}' (longueur: {len(concat_value)})")
+                        logger.debug(f"   Match: {concat_value == value}")
+                        # Debug des caractères
+                        if concat_value != value:
+                            logger.debug(f"   Différence - Recherché: {repr(value)}")
+                            logger.debug(f"   Différence - Concat:   {repr(concat_value)}")
+                except Exception as e:
+                    logger.debug(f"❌ Erreur récupération exemples: {str(e)}")
+            else:
+                logger.debug(f"❌ Aucune donnée dans le queryset annoté")
+            
+            # Appliquer le filtre
+            result = annotated_queryset.filter(**{lookup_expr: value})
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"❌ Erreur CONCAT: {str(e)}")
+            return queryset 
