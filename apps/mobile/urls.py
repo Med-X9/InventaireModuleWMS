@@ -29,6 +29,7 @@ urlpatterns = [
      
      # Gestion des assignments et jobs
      path('user/<int:user_id>/job/<int:job_id>/status/', views.AssignmentStatusView.as_view(), name='mobile_assignment_status'),
+     path('job/<int:job_id>/close/<int:assignment_id>/', views.CloseJobView.as_view(), name='mobile_close_job'),
     
     # Gestion des CountingDetail et NumeroSerie
     path('job/<int:job_id>/counting-detail/', views.CountingDetailView.as_view(), name='mobile_counting_detail'),
