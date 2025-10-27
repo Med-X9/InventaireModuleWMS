@@ -27,8 +27,9 @@ class InventoryCountingTrackingView(APIView):
         """
         try:
             # Récupérer l'inventaire avec tous ses comptages, jobs et emplacements
+            # Filtrer les inventaires non supprimés (soft delete)
             inventory = get_object_or_404(
-                Inventory.objects.prefetch_related(
+                Inventory.objects.filter(is_deleted=False).prefetch_related(
                     'countings',
                     'job_set__warehouse',
                     'job_set__jobdetail_set__location__sous_zone__zone',

@@ -6,7 +6,9 @@ from apps.mobile.exceptions import (
     AssignmentNotFoundException,
     UserNotAssignedException,
     InvalidStatusTransitionException,
-    JobNotFoundException
+    JobNotFoundException,
+    AssignmentAlreadyStartedException
+    
 )
 
 
@@ -53,6 +55,41 @@ class AssignmentService:
         
         return assignment
     
+    def verify_user_job(self, job_id: int, user_id: int) -> tuple[Job, Assigment]:
+        """
+        Vérifie que l'utilisateur est bien affecté au job et récupère l'assignment associé
+        
+        Args:
+            job_id: ID du job
+            user_id: ID de l'utilisateur
+            
+        Returns:
+            Tuple (job, assignment) si l'utilisateur est autorisé
+            
+        Raises:
+            JobNotFoundException: Si le job n'existe pas
+            AssignmentNotFoundException: Si l'assignment associé n'existe pas
+            UserNotAssignedException: Si l'utilisateur n'est pas affecté
+        """
+        try:
+            job = Job.objects.get(id=job_id)
+        except Job.DoesNotExist:
+            raise JobNotFoundException(f"Job avec l'ID {job_id} non trouvé")
+        
+        # Récupérer l'assignment associé à ce job
+        try:
+            assignment = Assigment.objects.get(job=job)
+        except Assigment.DoesNotExist:
+            raise AssignmentNotFoundException(f"Assignment non trouvé pour le job {job_id}")
+        
+        # Vérifier que l'utilisateur est affecté à cet assignment
+        if assignment.session_id != user_id:
+            raise UserNotAssignedException(
+                f"L'utilisateur {user_id} n'est pas affecté au job {job_id}"
+            )
+        
+        return job, assignment
+    
     @transaction.atomic
     def update_assignment_and_job_status(self, assignment_id: int, user_id: int, 
                                       new_status: str) -> dict:
@@ -70,17 +107,108 @@ class AssignmentService:
         # Vérifier que l'utilisateur est autorisé
         assignment = self.verify_user_assignment(assignment_id, user_id)
         
-        # Vérifier la transition de statut pour l'assignment
+        # Vérifier si l'assignment est déjà ENTAME et qu'on tente de le mettre à ENTAME
         current_assignment_status = assignment.status
+        if current_assignment_status == 'ENTAME' and new_status == 'ENTAME':
+            raise AssignmentAlreadyStartedException(
+                f"L'assignment {assignment_id} est déjà entamé et ne peut pas être modifié"
+            )
+        
+        # Vérifier la transition de statut pour l'assignment
         if new_status not in self.allowed_status_transitions.get(current_assignment_status, []):
             raise InvalidStatusTransitionException(
                 f"Transition de statut non autorisée: {current_assignment_status} -> {new_status}"
             )
         
         # Récupérer le job associé
+
         job = assignment.job
         if not job:
             raise JobNotFoundException(f"Job non trouvé pour l'assignment {assignment_id}")
+        
+        # Vérifier la transition de statut pour le job
+
+        current_job_status = job.status
+        if new_status not in self.allowed_status_transitions.get(current_job_status, []):
+            raise InvalidStatusTransitionException(
+                f"Transition de statut du job non autorisée: {current_job_status} -> {new_status}"
+            )
+        
+        # Mettre à jour le statut de l'assignment et la date correspondante
+        assignment.status = new_status
+        now = timezone.now()
+        
+        if new_status == 'ENTAME':
+            assignment.entame_date = now
+        elif new_status == 'PRET':
+            assignment.pret_date = now
+        elif new_status == 'TRANSFERT':
+            assignment.transfert_date = now
+        elif new_status == 'TERMINE':
+            # Pour TERMINE, on peut aussi mettre à jour la date de fin
+            pass
+        
+        assignment.save()
+        
+        # Mettre à jour le statut du job et la date correspondante
+        job.status = new_status
+        
+        if new_status == 'ENTAME':
+            job.entame_date = now
+        elif new_status == 'PRET':
+            job.pret_date = now
+        elif new_status == 'TRANSFERT':
+            job.transfert_date = now
+        elif new_status == 'TERMINE':
+            job.termine_date = now
+        
+        job.save()
+        
+        return {
+            'assignment': {
+                'id': assignment.id,
+                'reference': assignment.reference,
+                'status': assignment.status,
+                'updated_at': assignment.updated_at
+            },
+            'job': {
+                'id': job.id,
+                'reference': job.reference,
+                'status': job.status,
+                'updated_at': job.updated_at
+            },
+            'message': f'Assignment et job mis à jour vers le statut {new_status}'
+        }
+    
+    @transaction.atomic
+    def update_assignment_and_job_status_by_job_id(self, job_id: int, user_id: int, 
+                                                  new_status: str) -> dict:
+        """
+        Met à jour simultanément le statut d'un assignment et de son job en utilisant l'ID du job
+        
+        Args:
+            job_id: ID du job
+            user_id: ID de l'utilisateur
+            new_status: Nouveau statut pour l'assignment et le job
+            
+        Returns:
+            Dictionnaire avec les informations mises à jour
+        """
+        # Vérifier que l'utilisateur est autorisé et récupérer job et assignment
+        job, assignment = self.verify_user_job(job_id, user_id)
+        
+        # Vérifier si l'assignment est déjà ENTAME et qu'on tente de le mettre à ENTAME
+        current_assignment_status = assignment.status
+        if current_assignment_status == 'ENTAME' and new_status == 'ENTAME':
+            raise AssignmentAlreadyStartedException(
+                f"L'assignment {assignment.id} est déjà entamé et ne peut pas être modifié"
+            )
+        
+        # Vérifier la transition de statut pour l'assignment
+        if new_status not in self.allowed_status_transitions.get(current_assignment_status, []):
+            raise InvalidStatusTransitionException(
+                f"Transition de statut non autorisée: {current_assignment_status} -> {new_status}"
+            )
         
         # Vérifier la transition de statut pour le job
         current_job_status = job.status
@@ -148,7 +276,7 @@ class AssignmentService:
         """
         assignment = self.verify_user_assignment(assignment_id, user_id)
         
-        return {
+        return {           
             'id': assignment.id,
             'reference': assignment.reference,
             'status': assignment.status,

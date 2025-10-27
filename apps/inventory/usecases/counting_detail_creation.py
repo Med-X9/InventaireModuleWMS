@@ -127,7 +127,7 @@ class CountingDetailCreationUseCase:
                 errors.append("Le produit est obligatoire pour le mode de comptage 'par article'")
             else:
                 # Vérifier les propriétés de l'article et valider les champs correspondants
-                self._validate_product_properties(data, errors)
+                self._validate_product_properties(counting, data, errors)
         elif count_mode == "image de stock":
             # Image de stock : article non obligatoire
             pass
@@ -146,11 +146,17 @@ class CountingDetailCreationUseCase:
                     elif not ns['n_serie']:
                         errors.append(f"Numéro de série {i+1}: valeur requise")
     
-    def _validate_product_properties(self, data: Dict[str, Any], errors: List[str]) -> None:
+    def _validate_product_properties(self, counting: Counting, data: Dict[str, Any], errors: List[str]) -> None:
         """
         Valide les propriétés de l'article et les champs correspondants.
         
+        Règle de validation :
+        - Si counting.dlc == True ET product.dlc == True, alors dlc est obligatoire
+        - Si counting.n_lot == True ET product.n_lot == True, alors n_lot est obligatoire
+        - Si counting.n_serie == True ET product.n_serie == True, alors numeros_serie est obligatoire
+        
         Args:
+            counting: L'objet Counting
             data: Données à valider
             errors: Liste des erreurs à remplir
         """
@@ -158,23 +164,24 @@ class CountingDetailCreationUseCase:
             from apps.masterdata.models import Product
             product = Product.objects.get(id=data['product_id'])
             
-            # Vérifier DLC - null n'est pas accepté si dlc=True
-            if product.dlc and (data.get('dlc') is None or data.get('dlc') == ''):
-                errors.append("Le produit nécessite une DLC (Date Limite de Consommation) - null n'est pas accepté")
+            # Vérifier DLC - obligatoire seulement si activé dans counting ET product
+            if counting.dlc and product.dlc and (data.get('dlc') is None or data.get('dlc') == ''):
+                errors.append("Le champ 'dlc' est obligatoire car activé dans le comptage et le produit")
             
-            # Vérifier n_lot - null n'est pas accepté si n_lot=True
-            if product.n_lot and (data.get('n_lot') is None or data.get('n_lot') == ''):
-                errors.append("Le produit nécessite un numéro de lot - null n'est pas accepté")
+            # Vérifier n_lot - obligatoire seulement si activé dans counting ET product
+            if counting.n_lot and product.n_lot and (data.get('n_lot') is None or data.get('n_lot') == ''):
+                errors.append("Le champ 'n_lot' est obligatoire car activé dans le comptage et le produit")
             
-            # Vérifier n_serie - null n'est pas accepté si n_serie=True
-            if product.n_serie and (data.get('numeros_serie') is None or data.get('numeros_serie') == []):
-                errors.append("Le produit nécessite des numéros de série - null n'est pas accepté")
+            # Vérifier n_serie - obligatoire seulement si activé dans counting ET product
+            if counting.n_serie and product.n_serie and (data.get('numeros_serie') is None or data.get('numeros_serie') == []):
+                errors.append("Le champ 'numeros_serie' est obligatoire car activé dans le comptage et le produit")
             
-            # Validation supplémentaire pour les numéros de série
-            if product.n_serie and data.get('numeros_serie'):
+            # Validation supplémentaire pour les numéros de série (si fournis)
+            if data.get('numeros_serie'):
                 numeros_serie = data['numeros_serie']
                 if not isinstance(numeros_serie, list) or len(numeros_serie) == 0:
-                    errors.append("Le produit nécessite au moins un numéro de série")
+                    # Ce cas est déjà géré plus haut si counting.n_serie et product.n_serie sont tous deux True
+                    pass
                 else:
                     for i, ns in enumerate(numeros_serie):
                         if not isinstance(ns, dict) or 'n_serie' not in ns:
@@ -183,7 +190,7 @@ class CountingDetailCreationUseCase:
                             errors.append(f"Numéro de série {i+1}: valeur requise")
                         else:
                             # Vérifier que le numéro de série existe dans masterdata.NSerie pour ce produit
-                            if not self._is_nserie_exists_in_masterdata(ns['n_serie'], product.id):
+                            if counting.n_serie and product.n_serie and not self._is_nserie_exists_in_masterdata(ns['n_serie'], product.id):
                                 errors.append(f"Numéro de série {ns['n_serie']} n'existe pas dans masterdata pour ce produit")
                             # Note: On ne vérifie plus si le numéro de série est déjà utilisé
                             # car il peut être légitime de réutiliser un numéro de série
@@ -286,34 +293,25 @@ class CountingDetailCreationUseCase:
         except Assigment.DoesNotExist:
             raise CountingDetailValidationError(f"Assignment avec l'ID {data['assignment_id']} non trouvé")
         
-        # Récupérer le job_detail associé à cet assignment
+        # Récupérer le job_detail associé à cet assignment, counting et location
         try:
-            # Utiliser filter().first() au lieu de get() pour éviter l'erreur de multiple objets
+            # Trouver le JobDetail correspondant au job, counting et location
             job_detail = JobDetail.objects.filter(
                 job=assignment.job, 
-                counting=counting
+                counting=counting,
+                location=location
             ).first()
             
             if not job_detail:
-                raise CountingDetailValidationError(f"JobDetail non trouvé pour l'assignment {data['assignment_id']} et le comptage {data['counting_id']}")
+                raise CountingDetailValidationError(
+                    f"JobDetail non trouvé pour le job {assignment.job.id}, "
+                    f"le comptage {data['counting_id']} et la location {data['location_id']}"
+                )
+                
+            logger.info(f"JobDetail trouvé: {job_detail.id} pour location {location.id}")
                 
         except Exception as e:
-            if "more than one" in str(e):
-                # Cas spécial : plusieurs JobDetail trouvés
-                logger.warning(f"Plusieurs JobDetail trouvés pour job={assignment.job.id} et counting={counting.id}")
-                
-                # Prendre le premier ou le plus récent
-                job_detail = JobDetail.objects.filter(
-                    job=assignment.job, 
-                    counting=counting
-                ).order_by('-created_at').first()
-                
-                if not job_detail:
-                    raise CountingDetailValidationError(f"Impossible de déterminer le JobDetail pour l'assignment {data['assignment_id']} et le comptage {data['counting_id']}")
-                    
-                logger.info(f"JobDetail sélectionné: {job_detail.id}")
-            else:
-                raise CountingDetailValidationError(f"Erreur lors de la récupération du JobDetail: {str(e)}")
+            raise CountingDetailValidationError(f"Erreur lors de la récupération du JobDetail: {str(e)}")
         
         return counting, location, product, assignment, job_detail
     
@@ -386,7 +384,7 @@ class CountingDetailCreationUseCase:
     
     def _update_job_detail_status(self, data: Dict[str, Any], job_detail: JobDetail) -> JobDetail:
         """
-        Met à jour le statut du JobDetail associé.
+        Met à jour le statut du JobDetail associé au location_id fourni.
         
         Args:
             data: Données du comptage
@@ -395,12 +393,12 @@ class CountingDetailCreationUseCase:
         Returns:
             JobDetail: Le JobDetail mis à jour
         """
-        # Mettre à jour le statut vers TERMINE
+        # Mettre à jour le statut vers TERMINE pour ce JobDetail
         job_detail.status = 'TERMINE'
         job_detail.termine_date = timezone.now()
         job_detail.save()
         
-        logger.info(f"JobDetail {job_detail.id} mis à jour vers TERMINE")
+        logger.info(f"JobDetail {job_detail.id} (location_id={job_detail.location.id}) mis à jour vers TERMINE")
         
         return job_detail
     

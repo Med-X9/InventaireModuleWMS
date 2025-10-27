@@ -21,3 +21,8 @@ class JobNotFoundException(Exception):
 class AssignmentValidationException(Exception):
     """Exception levée lors de la validation d'un assignment"""
     pass
+
+
+class AssignmentAlreadyStartedException(Exception):
+    """Exception levée quand on tente de modifier un assignment déjà entamé"""
+    pass
