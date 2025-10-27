@@ -1,6 +1,7 @@
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.permissions import AllowAny
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
@@ -22,6 +23,7 @@ class LoginView(APIView):
     - 200: Connexion réussie avec données utilisateur
     - 400: Erreur de connexion (identifiants invalides)
     """
+    permission_classes = [AllowAny]  # ← CORRECTION : Permettre l'accès sans authentification
     
     @swagger_auto_schema(
         operation_summary="Connexion utilisateur mobile",

@@ -1,6 +1,7 @@
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.permissions import AllowAny
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
@@ -23,6 +24,7 @@ class RefreshTokenView(APIView):
     - 400: Refresh token invalide ou expiré
     - 401: Non autorisé
     """
+    permission_classes = [AllowAny]  # Pas d'authentification requise pour le refresh token
     
     @swagger_auto_schema(
         operation_summary="Rafraîchissement de token mobile",

@@ -39,16 +39,13 @@ class JobSerializer(serializers.ModelSerializer):
         ]
     
     def get_job_details(self, obj):
-        """Récupère les job_details pour ce job et le comptage spécifique"""
-        counting = self.context.get('counting')
-        if counting:
-            # Filtrer les job_details par comptage
-            job_details = obj.jobdetail_set.filter(counting=counting)
-        else:
-            # Si pas de comptage spécifique, retourner tous les job_details
-            job_details = obj.jobdetail_set.all()
-        
-        return JobDetailSerializer(job_details, many=True).data
+        """
+        Récupère les job_details pour ce job
+        ⚠️ Règle: Le serializer ne doit PAS filtrer ni faire de requêtes ORM
+        Les données doivent être préchargées via prefetch_related dans la vue
+        """
+        # Accéder aux job_details déjà chargés (pas de requête)
+        return JobDetailSerializer(obj.jobdetail_set, many=True).data
 
 
 class CountingSerializer(serializers.ModelSerializer):
@@ -64,14 +61,16 @@ class CountingSerializer(serializers.ModelSerializer):
         ]
     
     def get_jobs(self, obj):
-        """Récupère les jobs associés à ce comptage via JobDetail"""
-        # Récupérer les jobs qui ont des JobDetail liés à ce comptage
-        job_ids = obj.jobdetail_set.values_list('job_id', flat=True).distinct()
-        jobs = Job.objects.filter(id__in=job_ids).prefetch_related(
-            'warehouse',
-            'jobdetail_set__location__sous_zone__zone',
-            'jobdetail_set__location__sous_zone'
-        )
+        """
+        Récupère les jobs associés à ce comptage via JobDetail
+        ⚠️ Règle: Les serializers ne doivent PAS accéder directement à la base de données
+        La vue doit précharger les relations via prefetch_related
+        """
+        # Accéder aux job_details déjà chargés (évite les requêtes N+1)
+        # Note: La vue doit utiliser prefetch_related('jobdetail_set__job') pour optimiser
+        job_details = obj.jobdetail_set
+        jobs = {jd.job for jd in job_details if hasattr(jd, 'job')}  # Éliminer les doublons
+        
         # Passer le contexte du comptage pour filtrer les job_details
         context = {'counting': obj}
         return JobSerializer(jobs, many=True, context=context).data

@@ -178,4 +178,96 @@ class JobRepository(JobRepositoryInterface):
             if 'created_at_lte' in filters:
                 queryset = queryset.filter(created_at__lte=filters['created_at_lte'])
         
-        return list(queryset.order_by('-created_at')) 
+        return list(queryset.order_by('-created_at'))
+    
+    def get_jobs_for_datatable(self):
+        """
+        Récupère tous les jobs avec leurs relations préchargées pour optimiser les requêtes.
+        Utilisé par les vues DataTable.
+        """
+        return Job.objects.select_related(
+            'warehouse',
+            'inventory'
+        ).prefetch_related(
+            'jobdetail_set__location__sous_zone__zone',
+            'jobdetail_set__location__sous_zone',
+            'assigment_set__counting',
+            'assigment_set__session',
+            'jobdetailressource_set__ressource'
+        )
+    
+    def get_jobs_for_inventory_warehouse_datatable(self, inventory_id: int, warehouse_id: int):
+        """
+        Récupère les jobs d'un inventaire et warehouse spécifiques avec relations préchargées.
+        Utilisé par les vues DataTable.
+        """
+        return Job.objects.filter(
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id
+        ).select_related(
+            'warehouse',
+            'inventory'
+        ).prefetch_related(
+            'jobdetail_set__location__sous_zone__zone',
+            'jobdetail_set__location__sous_zone',
+            'assigment_set__counting',
+            'assigment_set__session',
+            'jobdetailressource_set__ressource'
+        )
+    
+    def get_pending_jobs_for_warehouse_datatable(self, warehouse_id: int):
+        """
+        Récupère les jobs en attente pour un warehouse avec relations préchargées.
+        Utilisé par les vues DataTable.
+        """
+        return Job.objects.filter(
+            warehouse_id=warehouse_id,
+            status='EN ATTENTE'
+        ).select_related(
+            'inventory',
+            'warehouse'
+        ).prefetch_related(
+            'jobdetail_set',
+            'assigment_set'
+        )
+    
+    def get_validated_jobs_datatable(self, warehouse_id: Optional[int] = None, inventory_id: Optional[int] = None):
+        """
+        Récupère les jobs validés, affectés, transférés ou prêts avec relations préchargées.
+        Utilisé par les vues DataTable.
+        
+        Statuts inclus : VALIDE, AFFECTE, TRANSFERT, PRET
+        """
+        queryset = Job.objects.filter(status__in=['VALIDE', 'AFFECTE', 'TRANSFERT', 'PRET'])
+        
+        if warehouse_id is not None:
+            queryset = queryset.filter(warehouse_id=warehouse_id)
+        
+        if inventory_id is not None:
+            queryset = queryset.filter(inventory_id=inventory_id)
+        
+        return queryset.select_related(
+            'warehouse', 'inventory'
+        ).prefetch_related(
+            'jobdetail_set__location__sous_zone__zone',
+            'jobdetail_set__location__sous_zone',
+            'assigment_set__counting',
+            'assigment_set__session',
+            'jobdetailressource_set__ressource'
+        )
+    
+    def get_pending_jobs_datatable(self):
+        """
+        Récupère tous les jobs en attente avec relations préchargées.
+        Utilisé par les vues DataTable.
+        """
+        return Job.objects.filter(status='EN ATTENTE').select_related(
+            'warehouse',
+            'inventory'
+        ).prefetch_related(
+            'jobdetail_set__location__sous_zone__zone',
+            'jobdetail_set__location__sous_zone',
+            'assigment_set__counting',
+            'assigment_set__session',
+            'jobdetailressource_set__ressource'
+        ) 

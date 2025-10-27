@@ -88,32 +88,13 @@ class JobListWithLocationsSerializer(serializers.ModelSerializer):
         fields = ['id', 'reference', 'status', 'created_at', 'locations']
 
     def get_locations(self, obj):
-        # Récupérer les paramètres de filtrage depuis la requête
-        request = self.context.get('request')
-        if not request:
-            # Si pas de requête, retourner tous les emplacements
-            job_details = obj.jobdetail_set.select_related('location__sous_zone__zone').all()
-            return JobLocationDetailSerializer(job_details, many=True).data
-        
-        # Filtrer les emplacements selon les paramètres
-        job_details = obj.jobdetail_set.select_related('location__sous_zone__zone').all()
-        
-        # Filtre par location_reference
-        location_reference = request.query_params.get('location_reference')
-        if location_reference:
-            job_details = job_details.filter(location__location_reference__icontains=location_reference)
-        
-        # Filtre par sous_zone
-        sous_zone = request.query_params.get('sous_zone')
-        if sous_zone:
-            job_details = job_details.filter(location__sous_zone_id=sous_zone)
-        
-        # Filtre par zone
-        zone = request.query_params.get('zone')
-        if zone:
-            job_details = job_details.filter(location__sous_zone__zone_id=zone)
-        
-        return JobLocationDetailSerializer(job_details, many=True).data 
+        """
+        Récupère les emplacements du job
+        ⚠️ Règle: Le serializer ne doit PAS utiliser .all(), .filter() ou toute méthode ORM
+        Les données doivent être préchargées via prefetch_related dans la vue
+        """
+        # Accéder directement aux job_details (déjà chargés via prefetch_related dans la vue)
+        return JobLocationDetailSerializer(obj.jobdetail_set, many=True).data 
 
 class JobDeleteRequestSerializer(serializers.Serializer):
     job_ids = serializers.ListField(
@@ -233,9 +214,10 @@ class JobTransferRequestSerializer(serializers.Serializer):
         allow_empty=False,
         help_text="Liste des IDs des jobs à transférer"
     )
-    counting_order = serializers.IntegerField(
-        min_value=1,
-        help_text="Ordre du comptage pour lequel transférer les jobs"
+    counting_order = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+        help_text="Liste des ordres de comptage pour lesquels transférer les jobs (ex: [1, 2, 3])"
     ) 
 
 class JobProgressByCountingSerializer(serializers.Serializer):

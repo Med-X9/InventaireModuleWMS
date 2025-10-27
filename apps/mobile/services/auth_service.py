@@ -29,8 +29,8 @@ class AuthService:
         """Récupère les informations de l'utilisateur"""
         return {
             'user_id': user.id,
-            'nom': user.last_name or '',
-            'prenom': user.first_name or ''
+            'nom': user.nom or '',
+            'prenom': user.prenom or ''
         }
     
     def login(self, username, password):
