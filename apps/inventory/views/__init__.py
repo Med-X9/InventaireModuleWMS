@@ -11,6 +11,7 @@ from .inventory_views import (
 )
 from .warehouse_views import InventoryWarehousesView
 from .job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView
+from .pdf_views import InventoryJobsPdfView
 # from .pda_views import InventoryPDAListView
 
 __all__ = [

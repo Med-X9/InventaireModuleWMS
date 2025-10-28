@@ -293,36 +293,42 @@ class NSerieInventory(TimeStampedModel, ReferenceMixin):
     
 class EcartComptage(TimeStampedModel, ReferenceMixin): 
     REFERENCE_PREFIX = 'ECT'
-    inventory = models.ForeignKey(Inventory, on_delete=models.CASCADE)
     reference = models.CharField(unique=True, max_length=20, null=False)
-    ligne_comptage_1 = models.ForeignKey(CountingDetail, on_delete=models.CASCADE, related_name='ecart_ligne_1',null=True,blank=True)
-    ligne_comptage_2 = models.ForeignKey(CountingDetail, on_delete=models.CASCADE, related_name='ecart_ligne_2',null=True,blank=True)
-    ligne_comptage_3 = models.ForeignKey(CountingDetail, on_delete=models.CASCADE, related_name='ecart_ligne_3',null=True,blank=True)
-    ecart = models.IntegerField(null=True, blank=True)
-    result = models.IntegerField(null=True, blank=True)
-    justification = models.TextField(blank=True, null=True)  # Peut être vide au début
+    inventory = models.ForeignKey(Inventory, on_delete=models.CASCADE)
+    
+    # Métadonnées du processus
+    total_sequences = models.IntegerField(default=0)
+    stopped_sequence = models.IntegerField(null=True)  # Dernier comptage effectué
+    
+    # Résultat final (du dernier comptage quand écart ≤ 0)
+    final_result = models.IntegerField(null=True)
+    justification = models.TextField(blank=True, null=True)
     resolved = models.BooleanField(default=False)
+    
+    # Écart calculé automatiquement (via property)
     history = HistoricalRecords()
 
-    class Meta:
-        constraints = [
-            models.CheckConstraint(
-                check=(
-                    models.Q(ecart__isnull=True) | models.Q(ecart__gte=0)
-                ),
-                name='ecart_positive_or_null'
-            ),
-            models.CheckConstraint(
-                check=(
-                    models.Q(result__isnull=True) | models.Q(result__gte=0)
-                ),
-                name='result_positive_or_null'
-            )
-        ]
+    
     def __str__(self):
-        return f"Ecart entre {self.ligne_comptage_1} et {self.ligne_comptage_2} (Résolu: {self.resolved})"
+        return f"{self.reference} - {self.inventory}"
  
 
     
-
-
+class ComptageSequence(TimeStampedModel, ReferenceMixin):
+    REFERENCE_PREFIX = 'CS'
+    ecart_comptage = models.ForeignKey(
+        EcartComptage, 
+        on_delete=models.CASCADE, 
+        related_name='counting_sequences'
+    )
+    sequence_number = models.IntegerField()  # 1, 2, 3, ... n
+    counting_detail = models.ForeignKey(CountingDetail, on_delete=models.CASCADE)
+    
+    # Données du comptage
+    quantity = models.IntegerField()
+    ecart_with_previous = models.IntegerField(null=True)  # Différence avec N-1
+    
+    history = HistoricalRecords()
+    class Meta:
+        ordering = ['ecart_comptage', 'sequence_number']
+        unique_together = ['ecart_comptage', 'sequence_number']

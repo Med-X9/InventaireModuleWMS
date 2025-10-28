@@ -22,6 +22,7 @@ from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRem
 from .views.assignment_views import AssignJobsToCountingView, AssignResourcesToInventoryView, InventoryResourcesView
 from .views.resource_assignment_views import AssignResourcesToJobsView, JobResourcesView, RemoveResourcesFromJobView
 from .views.counting_tracking_views import InventoryCountingTrackingView
+from .views.pdf_views import InventoryJobsPdfView
 
 urlpatterns = [
     # ========================================
@@ -90,7 +91,12 @@ urlpatterns = [
     # API pour le suivi d'un inventaire regroupé par comptages avec jobs et emplacements
     path('inventory/<int:inventory_id>/counting-tracking/', InventoryCountingTrackingView.as_view(), name='inventory-counting-tracking'),
     
-
+    # ========================================
+    # URL POUR LA GENERATION DE PDF
+    # ========================================
+    
+    # API pour generer le PDF des jobs d'inventaire (tous les comptages)
+    path('inventory/<int:inventory_id>/jobs/pdf/', InventoryJobsPdfView.as_view(), name='inventory-jobs-pdf'),
     
     # ========================================
     # URLs POUR L'AFFECTATION DES RESSOURCES AUX JOBS

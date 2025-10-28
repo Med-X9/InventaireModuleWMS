@@ -255,11 +255,15 @@ class JobProgressByCountingSerializer(serializers.Serializer):
 
 class EmplacementProgressSerializer(serializers.Serializer):
     """
-    Sérialiseur pour les détails de progression d'un emplacement
+    Sérialiseur pour les détails de progression d'un em broadcasting
     """
     location_id = serializers.IntegerField()
     location_reference = serializers.CharField()
     sous_zone_name = serializers.CharField()
     zone_name = serializers.CharField()
     status = serializers.CharField()
-    counting_details = serializers.ListField(child=serializers.DictField()) 
+    counting_details = serializers.ListField(child=serializers.DictField())
+
+class InventoryJobsPdfRequestSerializer(serializers.Serializer):
+    """Serializer pour la requête de génération du PDF des jobs d'inventaire (obsolète - plus utilisé)"""
+    pass 
