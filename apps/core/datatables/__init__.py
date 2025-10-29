@@ -75,9 +75,22 @@ from .filters import (
     AdvancedDataTableFilter,      # Filtre avancé avec jointures et optimisations
     DateRangeFilter,              # Filtre spécialisé pour les plages de dates
     StatusFilter,                 # Filtre spécialisé pour les statuts
+    CompositeColumnFilter,        # Filtre pour les colonnes composées
     
     # Filtre composite (SOLID - Open/Closed)
     CompositeDataTableFilter      # Combine plusieurs filtres en chaîne
+)
+
+# Exporters - Exporteurs pour différents formats
+from .exporters import (
+    # Interface et gestionnaire
+    IDataTableExporter,           # Interface pour les exporters
+    ExportManager,                # Gestionnaire centralisé d'exports
+    export_manager,               # Instance globale du gestionnaire
+    
+    # Exporters spécialisés
+    ExcelExporter,                # Export vers Excel (.xlsx)
+    CSVExporter,                  # Export vers CSV (.csv)
 )
 
 # =============================================================================
@@ -136,7 +149,17 @@ __all__ = [
     'AdvancedDataTableFilter',        # Filtre avancé avec jointures et optimisations
     'DateRangeFilter',                # Filtre spécialisé pour les plages de dates
     'StatusFilter',                   # Filtre spécialisé pour les statuts
+    'CompositeColumnFilter',          # Filtre pour les colonnes composées
     'CompositeDataTableFilter',       # Combine plusieurs filtres en chaîne
+    
+    # =====================================================================
+    # EXPORTERS (Exporteurs pour différents formats)
+    # =====================================================================
+    'IDataTableExporter',             # Interface pour les exporters
+    'ExportManager',                  # Gestionnaire centralisé d'exports
+    'export_manager',                 # Instance globale du gestionnaire
+    'ExcelExporter',                  # Export vers Excel (.xlsx)
+    'CSVExporter',                    # Export vers CSV (.csv)
     
     # =====================================================================
     # SÉRIALISEURS (Sérialiseurs spécialisés et composites)

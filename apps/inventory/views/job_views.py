@@ -6,11 +6,11 @@ from ..serializers import (
     InventoryJobCreateSerializer,
     JobSerializer
 )
+from apps.core.datatables.filters import CompositeDataTableFilter, DjangoFilterDataTableFilter, FilterMappingFilter
+
+from ..repositories.job_repository import JobRepository
 from ..services.job_service import JobService
 from ..serializers.job_serializer import (
-    InventoryJobRetrieveSerializer, 
-    InventoryJobUpdateSerializer,
-    JobAssignmentRequestSerializer,
     JobCreateRequestSerializer,
     JobRemoveEmplacementsSerializer,
     JobAddEmplacementsSerializer,
@@ -36,13 +36,10 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
 from rest_framework.pagination import PageNumberPagination
 from ..filters.job_filters import JobFilter, JobFullDetailFilter, PendingJobFilter
+from apps.core.datatables.mixins import ServerSideDataTableView
 
 logger = logging.getLogger(__name__)
 
-class StandardResultsSetPagination(PageNumberPagination):
-    page_size = 10
-    page_size_query_param = 'page_size'
-    max_page_size = 100
 
 class JobCreateAPIView(APIView):
     def post(self, request, inventory_id, warehouse_id):
@@ -327,121 +324,312 @@ class JobAddEmplacementsView(APIView):
                 'message': f'Erreur interne : {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-class PendingJobsReferencesView(ListAPIView):
+class PendingJobsReferencesView(ServerSideDataTableView):
     """
-    Vue pour lister les jobs en attente avec pagination et filtres.
+    Vue pour lister les jobs en attente avec pagination et filtres DataTable.
+    Supporte les paramètres DataTable (start, length, order, search, etc.)
     """
+    model = Job
     serializer_class = PendingJobReferenceSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = PendingJobFilter
     search_fields = ['reference', 'inventory__reference', 'inventory__label', 'warehouse__reference', 'warehouse__warehouse_name']
-    ordering_fields = ['created_at', 'reference', 'inventory__reference', 'warehouse__warehouse_name']
-    ordering = '-created_at'  # Tri par défaut par date de création (plus récent en premier)
-    pagination_class = StandardResultsSetPagination
+    order_fields = ['created_at', 'reference', 'inventory__reference', 'warehouse__warehouse_name']
+    default_order = '-created_at'
+    page_size = 20
+    min_page_size = 1
+    max_page_size = 100
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from ..repositories.job_repository import JobRepository
+        self.repository = JobRepository()
 
-    def get_queryset(self):
+    def get_datatable_queryset(self):
         """
-        Récupère les jobs en attente pour le warehouse spécifié avec relations préchargées.
+        Récupère les jobs en attente via le repository avec relations préchargées.
+        ⚠️ Règle: La vue ne doit PAS utiliser Job.objects directement.
         """
         warehouse_id = self.kwargs.get('warehouse_id')
-        return Job.objects.filter(
-            warehouse_id=warehouse_id,
-            status='EN ATTENTE'
-        ).select_related(
-            'inventory',
-            'warehouse'
-        ).prefetch_related(
-            'jobdetail_set',
-            'assigment_set'
-        ).order_by('-created_at')
-
-    def get(self, request, *args, **kwargs):
-        """
-        Récupère les jobs en attente avec filtres et pagination.
-        """
-        try:
-            # Utiliser la méthode parent pour le filtrage et la pagination
-            response = super().get(request, *args, **kwargs)
-            
-            # Ajouter un message de succès
-            response.data['message'] = "Liste des jobs en attente récupérée avec succès"
-            return response
-
-        except Exception as e:
-            logger.error(f"Erreur lors de la récupération de la liste des jobs en attente: {str(e)}", exc_info=True)
-            return Response({
-                'success': False,
-                'message': f'Erreur interne : {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return self.repository.get_pending_jobs_for_warehouse_datatable(warehouse_id)
 
 class JobListPagination(PageNumberPagination):
     page_size = 10
     page_size_query_param = 'page_size'
     max_page_size = 100
 
-class JobListWithLocationsView(ListAPIView):
-    queryset = Job.objects.all().order_by('-created_at')
-    serializer_class = JobListWithLocationsSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_class = JobFilter
-    search_fields = ['reference']
-    ordering_fields = ['created_at', 'status', 'reference']
-    pagination_class = JobListPagination
-
-class WarehouseJobsView(ListAPIView):
+class JobListWithLocationsView(ServerSideDataTableView):
     """
-    Récupère tous les jobs d'un warehouse spécifique pour un inventaire donné
+    Vue pour lister les jobs avec leurs emplacements - Support DataTable.
+    
+    FONCTIONNALITÉS AUTOMATIQUES:
+    - Tri sur tous les champs configurés
+    - Recherche sur champs multiples
+    - Filtrage avancé par emplacements, statut, dates
+    - Pagination optimisée
+    - Relations préchargées pour performance
+    
+    PARAMÈTRES:
+    - Tri: ordering=reference, ordering=-created_at, ordering=status
+    - Recherche: search=terme
+    - Pagination: page=1&page_size=20
+    - Filtres: status=valide, location_reference=LOC-xxx, created_at_gte=2024-01-01
     """
+    
+    model = Job
     serializer_class = JobListWithLocationsSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = JobFilter
-    search_fields = ['reference']
-    ordering_fields = ['created_at', 'status', 'reference']
-    pagination_class = JobListPagination
-
-    def get_queryset(self):
-        inventory_id = self.kwargs.get('inventory_id')
-        warehouse_id = self.kwargs.get('warehouse_id')
-        return Job.objects.filter(
-            inventory_id=inventory_id,
-            warehouse_id=warehouse_id
-        ).prefetch_related(
-            'jobdetail_set__location__sous_zone__zone'
-        ).order_by('-created_at')
-
-class JobFullDetailPagination(PageNumberPagination):
-    page_size = 10
-    page_size_query_param = 'page_size'
+    
+    # Champs de recherche et tri
+    search_fields = [
+        'reference', 'status', 'created_at', 'warehouse__warehouse_name',
+        'inventory__reference', 'jobdetail__location__location_reference',
+        'jobdetail__location__sous_zone__sous_zone_name',
+        'jobdetail__location__sous_zone__zone__zone_name'
+    ]
+    
+    order_fields = [
+        'id', 'reference', 'status', 'created_at', 'warehouse__warehouse_name'
+    ]
+    default_order = '-created_at'
+    
+    # Configuration de pagination
+    page_size = 20
+    min_page_size = 1
     max_page_size = 100
+    
+    # Mapping pour les filtres
+    filter_aliases = {
+        'reference': 'reference',
+        'status': 'status',
+        'warehouse': 'warehouse__warehouse_name',
+        'inventory': 'inventory__reference',
+        'location': 'jobdetail__location__location_reference',
+        'sous_zone': 'jobdetail__location__sous_zone__sous_zone_name',
+        'zone': 'jobdetail__location__sous_zone__zone__zone_name',
+    }
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from ..repositories.job_repository import JobRepository
+        self.repository = JobRepository()
+    
+    def get_datatable_filter(self):
+        """Filtre unifié qui gère automatiquement tout"""
 
-class JobFullDetailListView(ListAPIView):
-    serializer_class = JobFullDetailSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_class = JobFullDetailFilter
+        
+        composite_filter = CompositeDataTableFilter()
+        
+        # Filtre Django Filter si configuré
+        if self.filterset_class:
+            composite_filter.add_filter(DjangoFilterDataTableFilter(self.filterset_class))
+        
+        # Filtre de mapping qui gère automatiquement tous les opérateurs
+        mapping_filter = FilterMappingFilter(self.filter_aliases)
+        composite_filter.add_filter(mapping_filter)
+        
+        return composite_filter
+    
+    def get_datatable_queryset(self):
+        """
+        Récupère les jobs via le repository avec relations préchargées.
+        ⚠️ Règle: La vue ne doit PAS utiliser Job.objects directement.
+        """
+        return self.repository.get_jobs_for_datatable()
+
+class WarehouseJobsView(ServerSideDataTableView):
+    """
+    Récupère tous les jobs d'un warehouse spécifique pour un inventaire donné - Support DataTable.
+    """
+    model = Job
+    serializer_class = JobListWithLocationsSerializer
     search_fields = ['reference']
-    ordering_fields = ['created_at', 'status', 'reference']
-    pagination_class = JobFullDetailPagination
+    order_fields = ['created_at', 'status', 'reference']
+    default_order = '-created_at'
+    page_size = 20
+    min_page_size = 1
+    max_page_size = 100
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from ..repositories.job_repository import JobRepository
+        self.repository = JobRepository()
 
-    def get_queryset(self):
-        queryset = Job.objects.filter(status__in=['VALIDE', 'AFFECTE']).order_by('-created_at')
+    def get_datatable_queryset(self):
+        """
+        Récupère les jobs via le repository avec relations préchargées.
+        ⚠️ Règle: La vue ne doit PAS utiliser Job.objects directement.
+        """
+        inventory_id = self.kwargs.get('inventory_id')
+        warehouse_id = self.kwargs.get('warehouse_id')
+        return self.repository.get_jobs_for_inventory_warehouse_datatable(inventory_id, warehouse_id)
+
+
+class JobFullDetailListView(ServerSideDataTableView):
+    """
+    Vue pour lister les jobs valides avec détails complets - Support DataTable.
+    
+    FONCTIONNALITÉS AUTOMATIQUES:
+    - Tri sur tous les champs configurés
+    - Tri DataTable (order[0][column]=index&order[0][dir]=asc/desc)
+    - Recherche sur champs multiples
+    - Filtrage avancé avec django-filter
+    - Pagination optimisée
+    - Sérialisation flexible avec relations préchargées
+    
+    PARAMÈTRES DE REQUÊTE SUPPORTÉS:
+    - Tri: ordering=reference, ordering=-created_at, ordering=status
+    - Tri DataTable: order[0][column]=2&order[0][dir]=asc
+    - Recherche: search=terme
+    - Pagination: page=1&page_size=25
+    - Filtres: status=valide, reference=JOB-xxx, emplacement_reference=LOC-xxx
+    """
+    
+    # Configuration de base
+    model = Job
+    serializer_class = JobFullDetailSerializer
+    
+    # Champs de recherche et tri
+    search_fields = [
+        'reference', 'status', 'created_at', 'warehouse__warehouse_name',
+        'inventory__reference', 'inventory__label', 'jobdetail__location__location_reference',
+        'assigment__counting__reference', 'assigment__session__username',
+        'jobdetailressource__ressource__reference'
+    ]
+    
+    order_fields = [
+        'id', 'reference', 'status', 'created_at', 'warehouse__warehouse_name',
+        'inventory__reference', 'inventory__label'
+    ]
+    default_order = '-created_at'
+    
+    # Configuration de pagination
+    page_size = 20
+    min_page_size = 1
+    max_page_size = 100
+    
+    # Champs de filtrage automatique
+    filter_fields = [
+        'status', 'reference', 'id',
+        'emplacement_reference', 'sous_zone', 'zone',
+        'session_username', 'ressource_reference', 'assignment_status',
+        'counting_order'
+    ]
+    
+    # Mapping pour les filtres
+    filter_aliases = {
+        'reference': 'reference',
+        'status': 'status',
+        'emplacement': 'jobdetail__location__location_reference',
+        'session': 'assigment__session__username',
+        'ressource': 'jobdetailressource__ressource__reference',
+        'assignment_status': 'assigment__status',
+        'counting_order': 'assigment__counting__order',
+    }
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.repository = JobRepository()
+    
+    def get_datatable_filter(self):
+        """Filtre unifié qui gère automatiquement tout"""
+
+        
+        composite_filter = CompositeDataTableFilter()
+        
+        # Filtre Django Filter si configuré
+        if self.filterset_class:
+            composite_filter.add_filter(DjangoFilterDataTableFilter(self.filterset_class))
+        
+        # Filtre de mapping qui gère automatiquement tous les opérateurs
+        mapping_filter = FilterMappingFilter(self.filter_aliases)
+        composite_filter.add_filter(mapping_filter)
+        
+        return composite_filter
+
+    def get_datatable_queryset(self):
+        """
+        Récupère les jobs validés via le repository avec relations préchargées.
+        ⚠️ Règle: La vue ne doit PAS utiliser Job.objects directement.
+        """
         warehouse_id = self.kwargs.get('warehouse_id')
         inventory_id = self.kwargs.get('inventory_id')
-        if warehouse_id is not None:
-            queryset = queryset.filter(warehouse_id=warehouse_id)
-        if inventory_id is not None:
-            queryset = queryset.filter(inventory_id=inventory_id)
-        return queryset
-class JobPendingListView(ListAPIView):
+        return self.repository.get_validated_jobs_datatable(warehouse_id, inventory_id)
+
+class JobPendingListView(ServerSideDataTableView):
     """
-    Liste tous les jobs en attente avec leurs détails
+    Liste tous les jobs en attente avec leurs détails - Support DataTable.
+    
+    FONCTIONNALITÉS AUTOMATIQUES:
+    - Tri sur tous les champs configurés
+    - Recherche sur champs multiples
+    - Filtrage avancé avec django-filter
+    - Pagination optimisée
+    - Relations préchargées pour performance
+    
+    PARAMÈTRES:
+    - Tri: ordering=reference, ordering=-created_at
+    - Recherche: search=terme
+    - Pagination: page=1&page_size=20
+    - Filtres: reference=JOB-xxx, emplacement_reference=LOC-xxx
     """
-    queryset = Job.objects.filter(status='EN ATTENTE').order_by('-created_at')
+    
+    model = Job
     serializer_class = JobPendingSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = JobFullDetailFilter
-    search_fields = ['reference']
-    ordering_fields = ['created_at', 'reference']
-    pagination_class = JobFullDetailPagination
+    
+    # Champs de recherche et tri
+    search_fields = [
+        'reference', 'status', 'created_at',
+        'jobdetail__location__location_reference',
+        'assigment__counting__reference', 'assigment__session__username',
+        'jobdetailressource__ressource__reference'
+    ]
+    
+    order_fields = [
+        'id', 'reference', 'status', 'created_at'
+    ]
+    default_order = '-created_at'
+    
+    # Configuration de pagination
+    page_size = 20
+    min_page_size = 1
+    max_page_size = 100
+    
+    # Mapping pour les filtres
+    filter_aliases = {
+        'reference': 'reference',
+        'status': 'status',
+        'emplacement': 'jobdetail__location__location_reference',
+        'session': 'assigment__session__username',
+        'ressource': 'jobdetailressource__ressource__reference',
+    }
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        self.repository = JobRepository()
+    
+    def get_datatable_filter(self):
+        """Filtre unifié qui gère automatiquement tout"""
+        
+        composite_filter = CompositeDataTableFilter()
+        
+        # Filtre Django Filter si configuré
+        if self.filterset_class:
+            composite_filter.add_filter(DjangoFilterDataTableFilter(self.filterset_class))
+        
+        # Filtre de mapping qui gère automatiquement tous les opérateurs
+        mapping_filter = FilterMappingFilter(self.filter_aliases)
+        composite_filter.add_filter(mapping_filter)
+        
+        return composite_filter
+
+    def get_datatable_queryset(self):
+        """
+        Récupère les jobs en attente via le repository avec relations préchargées.
+        ⚠️ Règle: La vue ne doit PAS utiliser Job.objects directement.
+        """
+        return self.repository.get_pending_jobs_datatable()
 
 class JobResetAssignmentsView(APIView):
     """
@@ -498,14 +686,14 @@ class JobTransferView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
         
         job_ids = serializer.validated_data['job_ids']
-        counting_order = serializer.validated_data['counting_order']
+        counting_orders = serializer.validated_data['counting_order']
         
         try:
             job_service = JobService()
-            result = job_service.transfer_jobs_by_counting_order(job_ids, counting_order)
+            result = job_service.transfer_jobs_by_counting_orders(job_ids, counting_orders)
             return Response({
                 'success': True,
-                'message': f'{result["total_transferred"]} jobs transférés avec succès pour le comptage d\'ordre {counting_order}',
+                'message': f'{result["total_transferred"]} jobs transférés avec succès',
                 'data': result
             }, status=status.HTTP_200_OK)
         except JobCreationError as e:

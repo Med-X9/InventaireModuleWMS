@@ -79,7 +79,7 @@ class UserRepository:
             # Récupérer tous les produits du même compte via la famille
             print(f"Recherche des produits pour le compte: {account}")
             try:
-                products = Product.objects.filter(
+                products = Product.objects.select_related('Product_Family').filter(
                     Product_Family__compte=account,
                     Product_Status='ACTIVE'
                 ).order_by('Short_Description')
@@ -350,8 +350,9 @@ class UserRepository:
                 'internal_product_code': product.Internal_Product_Code,
                 'description': product.Short_Description,
                 'category': product.Product_Group,
-                'brand': family_name,
+                'family_name': family_name,
                 'family_id': family_id,
+                'brand': family_name,  # Alias pour compatibilité
                 'unit_of_measure': product.Stock_Unit,
                 'is_active': product.Product_Status == 'ACTIVE',
                 'is_variant': product.Is_Variant,
@@ -454,7 +455,7 @@ class UserRepository:
             unit_name = None
             unit_id = None
             if stock.unit_of_measure:
-                unit_name = stock.unit_of_measure.name  # Correction: 'name' au lieu de 'unit_name'
+                unit_name = stock.unit_of_measure.name
                 unit_id = stock.unit_of_measure.id
                 print(f"Unité trouvée: {unit_name}")
             else:

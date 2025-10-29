@@ -153,7 +153,7 @@ class Job(TimeStampedModel, ReferenceMixin):
         ('TERMINE', 'TERMINE'),
         ('SAISIE MANUELLE', 'SAISIE MANUELLE'),
     )
-   
+
     
     reference = models.CharField(max_length=20, unique=True, null=False)
     status = models.CharField(max_length=30, choices=STATUS_CHOICES)

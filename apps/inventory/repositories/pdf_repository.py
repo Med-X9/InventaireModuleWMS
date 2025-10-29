@@ -62,23 +62,33 @@ class PDFRepository(PDFRepositoryInterface):
         )
     
     def get_jobs_by_counting(self, inventory: Inventory, counting: Counting) -> List[Job]:
-        """Récupère les jobs d'un inventaire pour un comptage spécifique"""
-        # Récupérer les job details qui ont ce comptage
-        job_ids = JobDetail.objects.filter(
+        """
+        Récupère les jobs d'un inventaire pour un comptage spécifique
+        Filtre par statut: TRANSFERT, PRET
+        Recherche via Assigment.counting (relation principale)
+        """
+        # Récupérer les job IDs via Assigment qui ont ce comptage
+        # C'est la relation principale : un job est lié à un counting via ses assignments
+        job_ids = Assigment.objects.filter(
             job__inventory=inventory,
-            counting=counting
+            counting=counting,
+            job__status__in=['TRANSFERT', 'PRET']
         ).values_list('job_id', flat=True).distinct()
+        
+        if not job_ids:
+            return []
         
         return list(
             Job.objects.filter(
-                id__in=job_ids
+                id__in=job_ids,
+                status__in=['TRANSFERT', 'PRET']
             ).prefetch_related(
                 'jobdetail_set__location',
                 'assigment_set__counting',
                 'assigment_set__session',
                 'assigment_set__personne',
                 'assigment_set__personne_two'
-            )
+            ).order_by('reference')
         )
     
     def get_assignments_by_job(self, job: Job) -> List[Assigment]:

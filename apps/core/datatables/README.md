@@ -2,18 +2,31 @@
 
 ## Vue d'ensemble
 
-Ce package fournit une solution complète pour gérer les tableaux de données avec pagination, tri, recherche et filtres avancés. Il est conçu selon les principes SOLID et offre une architecture modulaire et extensible.
+Ce package fournit une solution complète pour gérer les tableaux de données avec pagination, tri, recherche, filtres avancés **et export Excel/CSV**. Il est conçu selon les principes SOLID et offre une architecture modulaire et extensible.
+
+## ✨ Nouvelles fonctionnalités
+
+- ✅ **Export Excel (.xlsx)** - Activé par défaut sur toutes les APIs DataTable
+- ✅ **Export CSV (.csv)** - Activé par défaut sur toutes les APIs DataTable
+- ✅ **Export avec filtres** - Respecte automatiquement tous les filtres, recherches et tris
+- ✅ **Nom de fichier avec timestamp** - Format: `export_YYYYMMDD_HHMMSS.xlsx`
+- ✅ **Configuration flexible** - Activable/désactivable par API
 
 ## Structure du package
 
 ```
-apps/core/datatables/
+datatables/
 ├── __init__.py          # Export des classes principales
 ├── base.py              # Classes de base et interfaces
-├── mixins.py            # Mixins pour les vues
+├── mixins.py            # Mixins pour les vues (avec export intégré)
 ├── filters.py           # Filtres personnalisés
 ├── serializers.py       # Sérialiseurs personnalisés
-└── README.md           # Cette documentation
+├── exporters.py         # ⭐ NOUVEAU - Exporteurs Excel/CSV
+├── README.md            # Cette documentation
+├── EXPORT_USAGE.md      # ⭐ NOUVEAU - Guide d'utilisation de l'export
+├── FRONTEND_BACKEND_CONTRACT.md   # Contrat frontend-backend
+├── INTEGRATION_VUE3_TS.md         # Guide Vue 3 + TypeScript
+└── INTEGRATION_FRONTEND.md        # Guide d'intégration frontend
 ```
 
 ## Composants principaux
@@ -62,6 +75,15 @@ Interface pour les sérialiseurs :
 @abstractmethod
 def serialize(self, queryset: QuerySet) -> List[Dict[str, Any]]:
     """Sérialise le queryset"""
+```
+
+#### ⭐ `IDataTableExporter` (NOUVEAU)
+Interface pour les exporteurs :
+```python
+@abstractmethod
+def export(self, queryset: QuerySet, serializer_class: Optional[type] = None, 
+           filename: str = 'export') -> HttpResponse:
+    """Exporte le queryset vers un format spécifique"""
 ```
 
 ### 2. **Implémentations**
