@@ -13,7 +13,8 @@ from apps.mobile.exceptions import (
     CountingAssignmentValidationError,
     JobDetailValidationError,
     NumeroSerieValidationError,
-    CountingModeValidationError
+    CountingModeValidationError,
+    EcartComptageResoluError
 )
 import logging
 
@@ -83,6 +84,15 @@ class CountingDetailView(APIView):
                 'error_type': 'counting_mode_error'
             }, status=status.HTTP_400_BAD_REQUEST)
             
+        elif isinstance(e, EcartComptageResoluError):
+            logger.warning(f"Tentative d'ajout à un écart résolu: {str(e)}")
+            return Response({
+                'success': False,
+                'error': str(e),
+                'error_type': 'ecart_resolu_error',
+                'ecart_reference': e.ecart.reference if hasattr(e, 'ecart') else None
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
         else:
             logger.error(f"Erreur interne: {str(e)}", exc_info=True)
             return Response({
@@ -101,6 +111,7 @@ class CountingDetailView(APIView):
             'product_id': cd.product.id if cd.product else None,
             'location_id': cd.location.id,
             'counting_id': cd.counting.id,
+            'job_id': cd.job.id if cd.job else None,
             'created_at': cd.created_at,
             'numeros_serie': [
                 {
@@ -131,76 +142,65 @@ class CountingDetailView(APIView):
     
     def post(self, request, job_id=None):
         """
-        Crée un ou plusieurs CountingDetail et leurs NumeroSerie associés.
+        Crée plusieurs CountingDetail et leurs NumeroSerie associés en lot.
+        L'API traite toujours en lot, même pour un seul élément.
         
-        Pour un seul enregistrement:
-        {
-            "counting_id": 1,                    # Obligatoire
-            "location_id": 1,                    # Obligatoire
-            "quantity_inventoried": 10,          # Obligatoire
-            "assignment_id": 1,                  # Obligatoire (pour récupérer le JobDetail)
-            "product_id": 1,                     # Optionnel (selon le mode de comptage)
-            "dlc": "2024-12-31",                # Optionnel
-            "n_lot": "LOT123",                  # Optionnel
-            "numeros_serie": [                   # Optionnel (si n_serie activé)
-                {"n_serie": "NS001"},
-                {"n_serie": "NS002"}
-            ]
-        }
+        Format de requête (tableau directement, ou objet unique converti automatiquement):
+        [
+            {
+                "counting_id": 1,
+                "location_id": 1,
+                "quantity_inventoried": 10,
+                "assignment_id": 1,
+                "product_id": 1,
+                "dlc": "2024-12-31",
+                "n_lot": "LOT123",
+                "numeros_serie": [{"n_serie": "NS001"}]
+            },
+            {
+                "counting_id": 1,
+                "location_id": 2,
+                "quantity_inventoried": 5,
+                "assignment_id": 1,
+                "product_id": 2
+            }
+        ]
         
-        Pour plusieurs enregistrements (mode lot):
-        {
-            "batch": true,
-            "data": [
-                {
-                    "counting_id": 1,
-                    "location_id": 1,
-                    "quantity_inventoried": 10,
-                    "assignment_id": 1,
-                    "product_id": 1,
-                    "dlc": "2024-12-31",
-                    "n_lot": "LOT123",
-                    "numeros_serie": [{"n_serie": "NS001"}]
-                },
-                {
-                    "counting_id": 1,
-                    "location_id": 2,
-                    "quantity_inventoried": 5,
-                    "assignment_id": 1,
-                    "product_id": 2
-                }
-            ]
-        }
+        Note: Les ComptageSequence sont créées AUTOMATIQUEMENT pour chaque CountingDetail.
+        L'EcartComptage est détecté/créé automatiquement basé sur :
+        - product_id + location_id + inventory (du job)
+        Si un écart existe déjà pour cette combinaison et est résolu, une erreur sera levée.
+        La résolution automatique (écart ≤ 0) n'est PAS effectuée - elle doit être faite manuellement.
         """
         try:
             logger.info(f"Traitement de CountingDetail avec job_id={job_id} et les données: {request.data}")
             
-            # Vérifier si c'est un traitement en lot
-            if request.data.get('batch', False):
-                # Traitement en lot
-                data_list = request.data.get('data', [])
-                if not data_list:
-                    return self._create_error_response(
-                        'La liste de données est vide pour le traitement en lot'
-                    )
-                
-                # Valider que tous les assignment_id appartiennent au job_id
-                assignment_ids = [item.get('assignment_id') for item in data_list if item.get('assignment_id')]
-                if assignment_ids:
-                    self.counting_detail_service.validate_assignments_belong_to_job(job_id, assignment_ids)
-                
-                result = self.counting_detail_service.create_counting_details_batch(data_list)
-                return self._create_success_response(result, status.HTTP_201_CREATED)
-                
+            # Normaliser les données : toujours traiter comme un tableau
+            if isinstance(request.data, list):
+                data_list = request.data
+            elif isinstance(request.data, dict) and 'data' in request.data:
+                data_list = request.data['data']
+            elif isinstance(request.data, dict):
+                # Si un seul objet est envoyé, le convertir en tableau
+                data_list = [request.data]
             else:
-                # Traitement d'un seul enregistrement
-                # Valider que l'assignment_id appartient au job_id
-                assignment_id = request.data.get('assignment_id')
-                if assignment_id:
-                    self.counting_detail_service.validate_assignments_belong_to_job(job_id, [assignment_id])
-                
-                result = self.counting_detail_service.create_counting_detail(request.data)
-                return self._create_success_response(result, status.HTTP_201_CREATED)
+                return self._create_error_response(
+                    'Les données doivent être un tableau ou un objet'
+                )
+            
+            if not data_list:
+                return self._create_error_response(
+                    'La liste de données est vide'
+                )
+            
+            # Valider que tous les assignment_id appartiennent au job_id
+            assignment_ids = [item.get('assignment_id') for item in data_list if item.get('assignment_id')]
+            if assignment_ids:
+                self.counting_detail_service.validate_assignments_belong_to_job(job_id, assignment_ids)
+            
+            # Traitement en lot optimisé (toujours en lot)
+            result = self.counting_detail_service.create_counting_details_batch(data_list, job_id=job_id)
+            return self._create_success_response(result, status.HTTP_201_CREATED)
             
         except Exception as e:
             return self._handle_exception(e)
@@ -246,8 +246,8 @@ class CountingDetailView(APIView):
             if assignment_ids:
                 self.counting_detail_service.validate_assignments_belong_to_job(job_id, assignment_ids)
             
-            # Valider les enregistrements en lot
-            result = self.counting_detail_service.validate_counting_details_batch(data_list)
+            # Valider les enregistrements en lot (avec job_id pour filtrer)
+            result = self.counting_detail_service.validate_counting_details_batch(data_list, job_id=job_id)
             return self._create_success_response(result)
             
         except Exception as e:
@@ -270,8 +270,11 @@ class CountingDetailView(APIView):
             logger.info(f"Récupération de CountingDetail avec job_id={job_id}")
             
             if counting_id:
-                # Récupérer les CountingDetail d'un comptage
-                counting_details = self.counting_detail_service.get_counting_details_by_counting(int(counting_id))
+                # Récupérer les CountingDetail d'un comptage (filtrés par job_id si fourni)
+                counting_details = self.counting_detail_service.get_counting_details_by_counting(
+                    int(counting_id), 
+                    job_id=job_id
+                )
                 summary = self.counting_detail_service.get_counting_summary(int(counting_id))
                 
                 return self._create_success_response({
@@ -280,8 +283,11 @@ class CountingDetailView(APIView):
                 })
                 
             elif location_id:
-                # Récupérer les CountingDetail d'un emplacement
-                counting_details = self.counting_detail_service.get_counting_details_by_location(int(location_id))
+                # Récupérer les CountingDetail d'un emplacement (filtrés par job_id si fourni)
+                counting_details = self.counting_detail_service.get_counting_details_by_location(
+                    int(location_id), 
+                    job_id=job_id
+                )
                 
                 return self._create_success_response({
                     'location_id': location_id,
@@ -289,8 +295,11 @@ class CountingDetailView(APIView):
                 })
                 
             elif product_id:
-                # Récupérer les CountingDetail d'un produit
-                counting_details = self.counting_detail_service.get_counting_details_by_product(int(product_id))
+                # Récupérer les CountingDetail d'un produit (filtrés par job_id si fourni)
+                counting_details = self.counting_detail_service.get_counting_details_by_product(
+                    int(product_id), 
+                    job_id=job_id
+                )
                 
                 return self._create_success_response({
                     'product_id': product_id,

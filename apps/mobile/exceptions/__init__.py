@@ -51,6 +51,7 @@ from .counting_detail_exceptions import (
     CountingDetailBatchError,
     CountingDetailNotFoundError,
     CountingDetailUpdateError,
+    EcartComptageResoluError,
 )
 
 __all__ = [
@@ -100,4 +101,5 @@ __all__ = [
     'CountingDetailBatchError',
     'CountingDetailNotFoundError',
     'CountingDetailUpdateError',
+    'EcartComptageResoluError',
 ] 
