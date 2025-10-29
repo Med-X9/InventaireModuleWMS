@@ -1,6 +1,6 @@
 from django.utils import timezone
 from django.db import transaction
-from apps.inventory.models import Assigment, Job
+from apps.inventory.models import Assigment, Job, JobDetail
 from apps.users.models import UserApp
 from apps.mobile.exceptions import (
     AssignmentNotFoundException,
@@ -301,4 +301,80 @@ class AssignmentService:
             } if assignment.personne_two else None,
             'created_at': assignment.created_at,
             'updated_at': assignment.updated_at
+        }
+    
+    @transaction.atomic
+    def close_job(self, job_id: int, assignment_id: int) -> dict:
+        """
+        Clôture un job en vérifiant que tous les emplacements sont terminés
+        
+        Args:
+            job_id: ID du job
+            assignment_id: ID de l'assignment
+            
+        Returns:
+            Dictionnaire avec les informations du job clôturé
+            
+        Raises:
+            JobNotFoundException: Si le job n'existe pas
+            AssignmentNotFoundException: Si l'assignment n'existe pas
+            InvalidStatusTransitionException: Si tous les emplacements ne sont pas terminés
+        """
+        # Vérifier que le job existe
+        try:
+            job = Job.objects.get(id=job_id)
+        except Job.DoesNotExist:
+            raise JobNotFoundException(f"Job avec l'ID {job_id} non trouvé")
+        
+        # Vérifier que l'assignment existe
+        try:
+            assignment = Assigment.objects.get(id=assignment_id)
+        except Assigment.DoesNotExist:
+            raise AssignmentNotFoundException(f"Assignment avec l'ID {assignment_id} non trouvé")
+        
+        # Vérifier que l'assignment appartient au job
+        if assignment.job_id != job_id:
+            raise InvalidStatusTransitionException(
+                f"L'assignment {assignment_id} n'appartient pas au job {job_id}"
+            )
+        
+        # Récupérer tous les JobDetails du job
+        job_details = JobDetail.objects.filter(job=job)
+        
+        # Vérifier que tous les emplacements sont terminés
+        for job_detail in job_details:
+            if job_detail.status != 'TERMINE':
+                raise InvalidStatusTransitionException(
+                    f"Le job ne peut pas être clôturé car certains emplacements ne sont pas terminés. "
+                    f"Emplacement {job_detail.reference} (ID: {job_detail.id}) a le statut: {job_detail.status}"
+                )
+        
+        # Si on arrive ici, tous les emplacements sont terminés
+        # Clôturer le job et l'assignment
+        now = timezone.now()
+        
+        # Mettre à jour l'assignment
+        assignment.status = 'TERMINE'
+        assignment.save()
+        
+        # Mettre à jour le job
+        job.status = 'TERMINE'
+        job.termine_date = now
+        job.save()
+        
+        return {
+            'success': True,
+            'message': f'Job {job.reference} et assignment {assignment.reference} clôturés avec succès',
+            'job': {
+                'id': job.id,
+                'reference': job.reference,
+                'status': job.status,
+                'termine_date': job.termine_date,
+                'total_emplacements': job_details.count()
+            },
+            'assignment': {
+                'id': assignment.id,
+                'reference': assignment.reference,
+                'status': assignment.status
+            }
         }
