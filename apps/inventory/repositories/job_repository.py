@@ -178,4 +178,30 @@ class JobRepository(JobRepositoryInterface):
             if 'created_at_lte' in filters:
                 queryset = queryset.filter(created_at__lte=filters['created_at_lte'])
         
-        return list(queryset.order_by('-created_at')) 
+        return list(queryset.order_by('-created_at'))
+    
+    def get_validated_jobs_datatable(self, warehouse_id: Optional[int] = None, inventory_id: Optional[int] = None):
+        """
+        Récupère les jobs validés avec optimisations pour DataTable
+        Statuts inclus: VALIDE, AFFECTE, TRANSFERT, PRET
+        """
+        queryset = Job.objects.filter(status__in=['VALIDE', 'AFFECTE', 'TRANSFERT', 'PRET'])
+        
+        if warehouse_id is not None:
+            queryset = queryset.filter(warehouse_id=warehouse_id)
+        
+        if inventory_id is not None:
+            queryset = queryset.filter(inventory_id=inventory_id)
+        
+        return queryset.select_related(
+            'warehouse',
+            'inventory'
+        ).prefetch_related(
+            'jobdetail_set',
+            'jobdetail_set__location',
+            'jobdetail_set__location__sous_zone',
+            'jobdetail_set__location__sous_zone__zone',
+            'assigment_set',
+            'assigment_set__counting',
+            'jobdetailressource_set'
+        ).order_by('-created_at') 

@@ -36,6 +36,8 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
 from rest_framework.pagination import PageNumberPagination
 from ..filters.job_filters import JobFilter, JobFullDetailFilter, PendingJobFilter
+from apps.core.datatables.mixins import ServerSideDataTableView
+from ..repositories.job_repository import JobRepository
 
 logger = logging.getLogger(__name__)
 
@@ -327,7 +329,7 @@ class JobAddEmplacementsView(APIView):
                 'message': f'Erreur interne : {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-class PendingJobsReferencesView(ListAPIView):
+class PendingJobsReferencesView(APIView):
     """
     Vue pour lister les jobs en attente avec pagination et filtres.
     """
@@ -379,7 +381,7 @@ class JobListPagination(PageNumberPagination):
     page_size_query_param = 'page_size'
     max_page_size = 100
 
-class JobListWithLocationsView(ListAPIView):
+class JobListWithLocationsView(APIView):
     queryset = Job.objects.all().order_by('-created_at')
     serializer_class = JobListWithLocationsSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -388,7 +390,7 @@ class JobListWithLocationsView(ListAPIView):
     ordering_fields = ['created_at', 'status', 'reference']
     pagination_class = JobListPagination
 
-class WarehouseJobsView(ListAPIView):
+class WarehouseJobsView(APIView):
     """
     Récupère tous les jobs d'un warehouse spécifique pour un inventaire donné
     """
@@ -414,24 +416,41 @@ class JobFullDetailPagination(PageNumberPagination):
     page_size_query_param = 'page_size'
     max_page_size = 100
 
-class JobFullDetailListView(ListAPIView):
+class JobFullDetailListView(ServerSideDataTableView):
+    """
+    Vue pour lister les jobs validés (VALIDE, AFFECTE, TRANSFERT, PRET)
+    avec support DataTable ServerSide
+    """
+    model = Job
     serializer_class = JobFullDetailSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = JobFullDetailFilter
-    search_fields = ['reference']
-    ordering_fields = ['created_at', 'status', 'reference']
-    pagination_class = JobFullDetailPagination
-
-    def get_queryset(self):
-        queryset = Job.objects.filter(status__in=['VALIDE', 'AFFECTE']).order_by('-created_at')
+    
+    # Configuration DataTable
+    search_fields = ['reference', 'status']
+    order_fields = ['id', 'reference', 'status', 'created_at', 'updated_at']
+    default_order = '-created_at'
+    
+    # Configuration pagination
+    page_size = 20
+    min_page_size = 1
+    max_page_size = 100
+    
+    # Champs de filtrage
+    filter_fields = ['status']
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.repository = JobRepository()
+    
+    def get_datatable_queryset(self):
+        """Récupère le queryset optimisé via le repository"""
         warehouse_id = self.kwargs.get('warehouse_id')
         inventory_id = self.kwargs.get('inventory_id')
-        if warehouse_id is not None:
-            queryset = queryset.filter(warehouse_id=warehouse_id)
-        if inventory_id is not None:
-            queryset = queryset.filter(inventory_id=inventory_id)
-        return queryset
-class JobPendingListView(ListAPIView):
+        return self.repository.get_validated_jobs_datatable(
+            warehouse_id=warehouse_id,
+            inventory_id=inventory_id
+        )
+class JobPendingListView(APIView):
     """
     Liste tous les jobs en attente avec leurs détails
     """
