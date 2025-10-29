@@ -5,6 +5,8 @@ from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 
 from apps.mobile.services.counting_detail_service import CountingDetailService
 from apps.mobile.exceptions import (
@@ -21,9 +23,31 @@ logger = logging.getLogger(__name__)
 
 class CountingDetailView(APIView):
     """
-    Vue pour la création de CountingDetail et NumeroSerie.
+    Vue pour la gestion des CountingDetail et NumeroSerie dans l'application mobile.
     
-    URL: /mobile/api/job/<job_id>/counting-detail/
+    Permet la création, mise à jour et récupération des détails de comptage
+    pour l'application mobile. Utilise le CountingDetailService pour la logique métier.
+    
+    URL: /mobile/api/counting-detail/
+    
+    Fonctionnalités:
+    - Création de nouveaux CountingDetail
+    - Mise à jour des CountingDetail existants
+    - Gestion des NumeroSerie associés
+    - Validation des données selon le mode de comptage
+    - Support des opérations en lot
+    
+    Méthodes HTTP supportées:
+    - POST: Créer un nouveau CountingDetail
+    - GET: Récupérer les CountingDetail d'un comptage
+    - PUT: Mettre à jour un CountingDetail existant
+    
+    Réponses:
+    - 200: Opération réussie
+    - 201: CountingDetail créé avec succès
+    - 400: Données invalides ou erreur de validation
+    - 401: Non authentifié
+    - 404: Ressource non trouvée
     """
     permission_classes = [IsAuthenticated]  # Réactivé maintenant que le problème est corrigé
     
@@ -129,7 +153,122 @@ class CountingDetailView(APIView):
             'error': error_message
         }, status=status_code)
     
-    def post(self, request, job_id=None):
+    @swagger_auto_schema(
+        operation_summary="Création de détails de comptage mobile",
+        operation_description="Crée un ou plusieurs CountingDetail et leurs NumeroSerie associés",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'batch': openapi.Schema(
+                    type=openapi.TYPE_BOOLEAN,
+                    description='Mode traitement en lot',
+                    example=False
+                ),
+                'counting_id': openapi.Schema(
+                    type=openapi.TYPE_INTEGER,
+                    description='ID du comptage (obligatoire)',
+                    example=1
+                ),
+                'location_id': openapi.Schema(
+                    type=openapi.TYPE_INTEGER,
+                    description='ID de l\'emplacement (obligatoire)',
+                    example=1
+                ),
+                'quantity_inventoried': openapi.Schema(
+                    type=openapi.TYPE_INTEGER,
+                    description='Quantité inventoriée (obligatoire)',
+                    example=10
+                ),
+                'assignment_id': openapi.Schema(
+                    type=openapi.TYPE_INTEGER,
+                    description='ID de l\'assignment (obligatoire)',
+                    example=1
+                ),
+                'product_id': openapi.Schema(
+                    type=openapi.TYPE_INTEGER,
+                    description='ID du produit (optionnel)',
+                    example=1
+                ),
+                'dlc': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description='Date limite de consommation (optionnel)',
+                    example='2024-12-31'
+                ),
+                'n_lot': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description='Numéro de lot (optionnel)',
+                    example='LOT123'
+                ),
+                'numeros_serie': openapi.Schema(
+                    type=openapi.TYPE_ARRAY,
+                    items=openapi.Schema(
+                        type=openapi.TYPE_OBJECT,
+                        properties={
+                            'n_serie': openapi.Schema(type=openapi.TYPE_STRING, example='NS001')
+                        }
+                    ),
+                    description='Liste des numéros de série (optionnel)'
+                ),
+                'data': openapi.Schema(
+                    type=openapi.TYPE_ARRAY,
+                    items=openapi.Schema(type=openapi.TYPE_OBJECT),
+                    description='Liste des données pour le traitement en lot'
+                )
+            }
+        ),
+        responses={
+            201: openapi.Response(
+                description="CountingDetail créé avec succès",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=True),
+                        'data': openapi.Schema(
+                            type=openapi.TYPE_OBJECT,
+                            properties={
+                                'counting_detail_id': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
+                                'reference': openapi.Schema(type=openapi.TYPE_STRING, example='CD001'),
+                                'numeros_serie_created': openapi.Schema(type=openapi.TYPE_INTEGER, example=2)
+                            }
+                        )
+                    }
+                )
+            ),
+            400: openapi.Response(
+                description="Données invalides ou erreur de validation",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
+                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Données invalides'),
+                        'error_type': openapi.Schema(type=openapi.TYPE_STRING, example='validation_error')
+                    }
+                )
+            ),
+            401: openapi.Response(
+                description="Non authentifié",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'detail': openapi.Schema(type=openapi.TYPE_STRING, example='Authentication credentials were not provided.')
+                    }
+                )
+            ),
+            500: openapi.Response(
+                description="Erreur interne du serveur",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
+                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Erreur interne du serveur')
+                    }
+                )
+            )
+        },
+        security=[{'Bearer': []}],
+        tags=['Comptage Mobile']
+    )
+    def post(self, request):
         """
         Crée un ou plusieurs CountingDetail et leurs NumeroSerie associés.
         
@@ -173,7 +312,7 @@ class CountingDetailView(APIView):
         }
         """
         try:
-            logger.info(f"Traitement de CountingDetail avec job_id={job_id} et les données: {request.data}")
+            logger.info(f"Traitement de CountingDetail avec les données: {request.data}")
             
             # Vérifier si c'est un traitement en lot
             if request.data.get('batch', False):
@@ -184,28 +323,107 @@ class CountingDetailView(APIView):
                         'La liste de données est vide pour le traitement en lot'
                     )
                 
-                # Valider que tous les assignment_id appartiennent au job_id
-                assignment_ids = [item.get('assignment_id') for item in data_list if item.get('assignment_id')]
-                if assignment_ids:
-                    self.counting_detail_service.validate_assignments_belong_to_job(job_id, assignment_ids)
-                
                 result = self.counting_detail_service.create_counting_details_batch(data_list)
                 return self._create_success_response(result, status.HTTP_201_CREATED)
                 
             else:
                 # Traitement d'un seul enregistrement
-                # Valider que l'assignment_id appartient au job_id
-                assignment_id = request.data.get('assignment_id')
-                if assignment_id:
-                    self.counting_detail_service.validate_assignments_belong_to_job(job_id, [assignment_id])
-                
                 result = self.counting_detail_service.create_counting_detail(request.data)
                 return self._create_success_response(result, status.HTTP_201_CREATED)
             
         except Exception as e:
             return self._handle_exception(e)
     
-    def put(self, request, job_id=None):
+    @swagger_auto_schema(
+        operation_summary="Validation de détails de comptage mobile",
+        operation_description="Valide plusieurs CountingDetail sans les créer (validation en lot)",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['data'],
+            properties={
+                'data': openapi.Schema(
+                    type=openapi.TYPE_ARRAY,
+                    items=openapi.Schema(
+                        type=openapi.TYPE_OBJECT,
+                        properties={
+                            'counting_id': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
+                            'location_id': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
+                            'quantity_inventoried': openapi.Schema(type=openapi.TYPE_INTEGER, example=10),
+                            'assignment_id': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
+                            'product_id': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
+                            'dlc': openapi.Schema(type=openapi.TYPE_STRING, example='2024-12-31'),
+                            'n_lot': openapi.Schema(type=openapi.TYPE_STRING, example='LOT123'),
+                            'numeros_serie': openapi.Schema(
+                                type=openapi.TYPE_ARRAY,
+                                items=openapi.Schema(
+                                    type=openapi.TYPE_OBJECT,
+                                    properties={
+                                        'n_serie': openapi.Schema(type=openapi.TYPE_STRING, example='NS001')
+                                    }
+                                )
+                            )
+                        }
+                    ),
+                    description='Liste des données à valider'
+                )
+            }
+        ),
+        responses={
+            200: openapi.Response(
+                description="Validation réussie",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=True),
+                        'data': openapi.Schema(
+                            type=openapi.TYPE_OBJECT,
+                            properties={
+                                'validated_count': openapi.Schema(type=openapi.TYPE_INTEGER, example=5),
+                                'errors': openapi.Schema(
+                                    type=openapi.TYPE_ARRAY,
+                                    items=openapi.Schema(type=openapi.TYPE_STRING),
+                                    description="Liste des erreurs de validation"
+                                )
+                            }
+                        )
+                    }
+                )
+            ),
+            400: openapi.Response(
+                description="Données invalides ou erreur de validation",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
+                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Données invalides'),
+                        'error_type': openapi.Schema(type=openapi.TYPE_STRING, example='validation_error')
+                    }
+                )
+            ),
+            401: openapi.Response(
+                description="Non authentifié",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'detail': openapi.Schema(type=openapi.TYPE_STRING, example='Authentication credentials were not provided.')
+                    }
+                )
+            ),
+            500: openapi.Response(
+                description="Erreur interne du serveur",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
+                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Erreur interne du serveur')
+                    }
+                )
+            )
+        },
+        security=[{'Bearer': []}],
+        tags=['Comptage Mobile']
+    )
+    def put(self, request):
         """
         Valide plusieurs CountingDetail sans les créer (validation en lot).
         
@@ -233,18 +451,13 @@ class CountingDetailView(APIView):
         }
         """
         try:
-            logger.info(f"Validation en lot de CountingDetail avec job_id={job_id} et les données: {request.data}")
+            logger.info(f"Validation en lot de CountingDetail avec les données: {request.data}")
             
             data_list = request.data.get('data', [])
             if not data_list:
                 return self._create_error_response(
                     'La liste de données est vide pour la validation'
                 )
-            
-            # Valider que tous les assignment_id appartiennent au job_id
-            assignment_ids = [item.get('assignment_id') for item in data_list if item.get('assignment_id')]
-            if assignment_ids:
-                self.counting_detail_service.validate_assignments_belong_to_job(job_id, assignment_ids)
             
             # Valider les enregistrements en lot
             result = self.counting_detail_service.validate_counting_details_batch(data_list)
@@ -253,7 +466,98 @@ class CountingDetailView(APIView):
         except Exception as e:
             return self._handle_exception(e)
     
-    def get(self, request, job_id=None):
+    @swagger_auto_schema(
+        operation_summary="Récupération des détails de comptage mobile",
+        operation_description="Récupère des informations sur les CountingDetail selon les paramètres de requête",
+        manual_parameters=[
+            openapi.Parameter(
+                'counting_id',
+                openapi.IN_QUERY,
+                description="ID du comptage",
+                type=openapi.TYPE_INTEGER,
+                required=False
+            ),
+            openapi.Parameter(
+                'location_id',
+                openapi.IN_QUERY,
+                description="ID de l'emplacement",
+                type=openapi.TYPE_INTEGER,
+                required=False
+            ),
+            openapi.Parameter(
+                'product_id',
+                openapi.IN_QUERY,
+                description="ID du produit",
+                type=openapi.TYPE_INTEGER,
+                required=False
+            )
+        ],
+        responses={
+            200: openapi.Response(
+                description="Données récupérées avec succès",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=True),
+                        'data': openapi.Schema(
+                            type=openapi.TYPE_OBJECT,
+                            properties={
+                                'summary': openapi.Schema(
+                                    type=openapi.TYPE_OBJECT,
+                                    description="Résumé du comptage (si counting_id fourni)"
+                                ),
+                                'counting_details': openapi.Schema(
+                                    type=openapi.TYPE_ARRAY,
+                                    items=openapi.Schema(type=openapi.TYPE_OBJECT),
+                                    description="Liste des détails de comptage"
+                                ),
+                                'location_id': openapi.Schema(
+                                    type=openapi.TYPE_INTEGER,
+                                    description="ID de l'emplacement (si location_id fourni)"
+                                ),
+                                'product_id': openapi.Schema(
+                                    type=openapi.TYPE_INTEGER,
+                                    description="ID du produit (si product_id fourni)"
+                                )
+                            }
+                        )
+                    }
+                )
+            ),
+            400: openapi.Response(
+                description="Paramètre invalide",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
+                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Un des paramètres suivants est requis: counting_id, location_id, ou product_id')
+                    }
+                )
+            ),
+            401: openapi.Response(
+                description="Non authentifié",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'detail': openapi.Schema(type=openapi.TYPE_STRING, example='Authentication credentials were not provided.')
+                    }
+                )
+            ),
+            500: openapi.Response(
+                description="Erreur interne du serveur",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
+                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Erreur interne du serveur')
+                    }
+                )
+            )
+        },
+        security=[{'Bearer': []}],
+        tags=['Comptage Mobile']
+    )
+    def get(self, request):
         """
         Récupère des informations sur les CountingDetail.
         
@@ -266,8 +570,6 @@ class CountingDetailView(APIView):
             counting_id = request.query_params.get('counting_id')
             location_id = request.query_params.get('location_id')
             product_id = request.query_params.get('product_id')
-            
-            logger.info(f"Récupération de CountingDetail avec job_id={job_id}")
             
             if counting_id:
                 # Récupérer les CountingDetail d'un comptage

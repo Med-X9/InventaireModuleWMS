@@ -1,0 +1,89 @@
+# Repository Configuration
+repository:
+  url: "https://github.com/Med-X9/InventaireModuleWMS.git"
+
+# Docker Configuration
+docker:
+  image_prefix: "smatchdigital" # DO NOT CHANGE
+  backend_image_name: "backend-app" # Change based on project
+
+# Environment-specific Configuration
+environments:
+  # Development Environment
+  dev:
+    deploy_host: "147.93.55.221" # dev server IP
+    deploy_creds: "dev-test-creds" # Jenkins credential ID for dev server
+    env_name: "development" # Environment name
+    image_tag_suffix: "dev-latest" # Docker image tag suffix
+  
+  # Production Environment
+  main:
+    deploy_host: "31.97.158.68" # prod server IP
+    deploy_creds: "prod-creds" # Jenkins credential ID for prod server
+    env_name: "production" # Environment name
+    image_tag_suffix: "prod-latest"  # Docker image tag suffix
+
+# Credentials Configuration
+credentials:
+  git_credentials_id: "git-cred-company-tk" # Github creds via Jenkins
+  docker_credentials_id: "docker-hub-company" # Docker Hub creds via Jenkins
+
+# SonarQube Configuration
+sonarqube:
+  enabled: true
+  project_key: "inventaire-module-wms" # Change based on project
+  project_name: "InventaireModuleWMS" # Change based on project
+  project_version: "1.0"
+  server_name: "SonarQube-Server" # DO NOT CHANGE
+  server_url: "http://147.93.55.221:9000" # DO NOT CHANGE
+  credentials_id: "sonar-token" # DO NOT CHANGE
+  api_credentials_id: "sonar-creds" # DO NOT CHANGE
+  
+  # Analysis Configuration
+  analysis_branches: ["main", "devops", "dev"]
+  sources: "apps,project,config"
+  source_encoding: "UTF-8"
+  language: "py"
+  python_version: "3.12"
+  tests: "apps"
+  test_inclusions: "**/tests/**/*.py,**/test_*.py"  # Change based on project
+  exclusions: "**/migrations/**,**/staticfiles/**,**/static/**,**/media/**,**/__pycache__/**,**/venv/**,**/env/**,**/node_modules/**,**/*.pyc,**/manage.py,**/wsgi.py,**/asgi.py,**/settings/**,**/*.min.js,**/*.min.css" # Change based on project
+  coverage_exclusions: "**/migrations/**,**/tests/**,**/test_*.py,**/conftest.py,**/manage.py,**/wsgi.py,**/asgi.py,**/settings/**,**/__init__.py" # Change based on project
+  cpd_exclusions: "**/migrations/**,**/tests/**" # Change based on project
+  quality_gate_wait: false
+  
+  # Status Check Configuration
+  status_check_enabled: true
+  status_check_delay: 10  # seconds
+  
+  # Setup Commands (run before analysis)
+  setup_commands:
+    - "echo 'Setting up Python environment...'"
+    - "python3 -m pip install --user -r requirements.txt"
+
+# Deployment Configuration
+deployment:
+  remote_path: "/tmp/deployment/backend"
+  
+  # Files to upload to remote server
+  files_to_upload: # Change based on project
+    - "docker-compose.yml"
+    - "Dockerfile"
+    - "nginx/*"
+  
+  # Environment file configuration
+  env_file: # Change based on project
+    source: ".env copy"
+    target: ".env"
+  
+  # Commands to run for deployment
+  deploy_commands:
+    - "docker-compose down -v"
+    - "docker-compose pull"
+    - "docker-compose up -d"
+
+# Cleanup Configuration
+cleanup:
+  commands:
+    - "rm -rf /tmp/backend || true"
+    - "docker system prune -f || true"

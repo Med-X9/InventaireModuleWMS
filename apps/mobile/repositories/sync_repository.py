@@ -1,5 +1,5 @@
 from django.utils import timezone
-from apps.inventory.models import Inventory, Job, Assigment, Counting, Setting
+from apps.inventory.models import Inventory, Job, Assigment, Counting, Setting, JobDetail
 from apps.mobile.exceptions.inventory_exceptions import (
     InventoryNotFoundException,
     DatabaseConnectionException,
@@ -18,10 +18,16 @@ class SyncRepository:
         return queryset
     
     def get_jobs_by_inventories(self, inventories):
-        """Récupère les jobs pour les inventaires donnés avec statut TRANSFERT ou ENTAME"""
+        """Récupère les jobs pour les inventaires donnés avec leurs job_details préchargés"""
         return Job.objects.filter(
-            inventory__in=inventories,
+            inventory__in=inventories, 
             status__in=['TRANSFERT', 'ENTAME']
+        ).prefetch_related(
+            'jobdetail_set',
+            'jobdetail_set__location',
+            'jobdetail_set__location__sous_zone',
+            'jobdetail_set__location__sous_zone__zone',
+            'jobdetail_set__counting'
         )
     
     def get_assignments_by_jobs(self, jobs):
@@ -112,14 +118,31 @@ class SyncRepository:
             'updated_at': inventory.updated_at.isoformat()
         }
     
+    def format_job_detail_data(self, job_detail):
+        """Formate les données essentielles d'un job_detail"""
+        return {
+            'web_id': job_detail.id,
+            'reference': job_detail.reference,
+            'status': job_detail.status,
+            'location_web_id': job_detail.location.id if job_detail.location else None,
+            'location_reference': job_detail.location.location_reference if job_detail.location else None,
+            'counting_web_id': job_detail.counting.id if job_detail.counting else None
+        }
+    
     def format_job_data(self, job):
-        """Formate les données d'un job"""
+        """Formate les données d'un job avec ses job_details"""
+        # Récupérer et formater les job_details
+        job_details = []
+        for job_detail in job.jobdetail_set.all():
+            job_details.append(self.format_job_detail_data(job_detail))
+        
         return {
             'web_id': job.id,
             'reference': job.reference,
             'status': job.status,
             'inventory_web_id': job.inventory.id,
             'warehouse_web_id': job.warehouse.id,
+            'job_details': job_details,
             'en_attente_date': job.en_attente_date.isoformat() if job.en_attente_date else None,
             'affecte_date': job.affecte_date.isoformat() if job.affecte_date else None,
             'pret_date': job.pret_date.isoformat() if job.pret_date else None,

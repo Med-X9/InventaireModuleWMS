@@ -30,17 +30,13 @@ from apps.core.datatables.mixins import ServerSideDataTableView, quick_datatable
 from apps.core.datatables.base import DataTableConfig, IDataTableFilter
 from apps.core.datatables.filters import (
     DjangoFilterDataTableFilter, DateRangeFilter, StatusFilter, CompositeDataTableFilter,
-    StringFilter, DateFilter, NumberFilter
+    StringFilter, DateFilter, NumberFilter, FilterMappingFilter
 )
 from apps.core.datatables.serializers import DataTableSerializer
 
 # Configuration du logger
 logger = logging.getLogger(__name__)
 
-class StandardResultsSetPagination(PageNumberPagination):
-    page_size = 10
-    page_size_query_param = 'page_size'
-    max_page_size = 100
 
 class InventoryListView(ServerSideDataTableView):
     """
@@ -70,7 +66,6 @@ class InventoryListView(ServerSideDataTableView):
     # Configuration de base
     model = Inventory
     serializer_class = InventoryDetailSerializer
-    filterset_class = InventoryFilter
     
     # Champs de recherche et tri - TOUS LES CHAMPS
     search_fields = [
@@ -87,66 +82,53 @@ class InventoryListView(ServerSideDataTableView):
     default_order = '-created_at'
     
     # Configuration de pagination
-    page_size = 25
+    page_size = 20
     min_page_size = 1
     max_page_size = 100
     
     # Champs de filtrage automatique - TOUS LES CHAMPS
     filter_fields = [
-        'status', 'inventory_type', 'reference', 'label', 'id'
+        'status', 'inventory_type', 'reference', 'label', 'id',
+        'label_contains', 'label_exact', 'label_startswith', 'label_endswith',
+        'reference_contains', 'reference_exact',
+        'account_contains', 'warehouse_contains',
+        'count_mode_contains'
     ]
     date_fields = [
         'date', 'created_at', 'updated_at', 'en_preparation_status_date', 
         'en_realisation_status_date', 'termine_status_date', 'cloture_status_date'
     ]
     status_fields = ['status']
+    
+    # Mapping ultra-simple : 1 champ frontend = 1 champ Django
+    filter_aliases = {
+        'label': 'label',
+        'reference': 'reference',
+        'status': 'status',
+        'inventory_type': 'inventory_type',
+        'date': 'date',
+        'created_at': 'created_at',
+        'updated_at': 'updated_at',
+        'account': 'awi_links__account__account_name',
+        'warehouse': 'awi_links__warehouse__warehouse_name',
+        'count_mode': 'countings__count_mode',
+    }
 
     def get_datatable_filter(self) -> IDataTableFilter:
-        """Filtre composite avec tous les types de filtres et opérateurs avancés"""
+        """Filtre unifié qui gère automatiquement tout"""
         composite_filter = CompositeDataTableFilter()
         
         # Filtre Django Filter si configuré
         if self.filterset_class:
             composite_filter.add_filter(DjangoFilterDataTableFilter(self.filterset_class))
         
-        # Filtres de chaînes avec tous les opérateurs
-        composite_filter.add_filter(StringFilter([
-            'label', 'reference', 'status', 'inventory_type'
-        ]))
-        
-        # Filtres de dates avec tous les opérateurs
-        composite_filter.add_filter(DateFilter([
-            'date', 'created_at', 'updated_at', 'en_preparation_status_date',
-            'en_realisation_status_date', 'termine_status_date', 'cloture_status_date'
-        ]))
-        
-        # Filtres numériques
-        composite_filter.add_filter(NumberFilter(['id']))
-        
-        # Filtres de statut (hérité)
-        composite_filter.add_filter(StatusFilter('status'))
+        # Filtre de mapping qui gère automatiquement tous les opérateurs
+        mapping_filter = FilterMappingFilter(self.filter_aliases)
+        composite_filter.add_filter(mapping_filter)
         
         return composite_filter
 
-# Exemple d'utilisation avec quick_datatable_view (DRY)
-InventoryDataTableView = quick_datatable_view(
-    model_cls=Inventory,
-    serializer_cls=InventoryDetailSerializer,
-    filterset_cls=InventoryFilter,
-    search_fields_list=[
-        'label', 'reference', 'status', 'inventory_type', 
-        'account_name', 'warehouse_name', 'created_at', 'date',
-        'en_preparation_status_date', 'en_realisation_status_date', 
-        'termine_status_date', 'cloture_status_date'
-    ],
-    order_fields_list=[
-        'id', 'reference', 'label', 'date', 'status', 'inventory_type', 
-        'created_at', 'updated_at', 'en_preparation_status_date', 
-        'en_realisation_status_date', 'termine_status_date', 'cloture_status_date'
-    ],
-    default_order_str='-created_at',
-    page_size_int=25
-)
+
 
 # Exemples d'utilisation de ServerSideDataTableView pour différents cas d'usage
 

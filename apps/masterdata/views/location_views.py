@@ -13,6 +13,7 @@ from ..repositories.location_repository import LocationRepository
 from rest_framework.generics import ListAPIView
 from ..filters.location_filters import UnassignedLocationFilter
 from apps.inventory.models import Setting
+from apps.core.datatables.mixins import ServerSideDataTableView
 
 logger = logging.getLogger(__name__)
 
@@ -122,12 +123,12 @@ class SousZoneLocationsView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-class UnassignedLocationsView(ListAPIView):
+class UnassignedLocationsView(ServerSideDataTableView):
     """
-    Vue pour lister les emplacements non affectés avec pagination et filtres.
+    Vue pour lister les emplacements non affectés avec pagination et filtres DataTable.
     """
+    model = Location
     serializer_class = UnassignedLocationSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = UnassignedLocationFilter
     search_fields = [
         'reference', 'location_reference', 'description',
@@ -135,15 +136,17 @@ class UnassignedLocationsView(ListAPIView):
         'sous_zone__zone__reference', 'sous_zone__zone__zone_name',
         'sous_zone__zone__warehouse__reference', 'sous_zone__zone__warehouse__warehouse_name'
     ]
-    ordering_fields = [
+    order_fields = [
         'reference', 'location_reference', 'created_at', 'updated_at',
         'sous_zone__sous_zone_name', 'sous_zone__zone__zone_name',
         'sous_zone__zone__warehouse__warehouse_name'
     ]
-    ordering = 'location_reference'  # Tri par défaut par référence d'emplacement
-    pagination_class = StandardResultsSetPagination
+    default_order = 'location_reference'
+    page_size = 20
+    min_page_size = 1
+    max_page_size = 100
 
-    def get_queryset(self):
+    def get_datatable_queryset(self):
         """
         Récupère les emplacements non affectés pour le warehouse et l'account spécifiés avec relations préchargées.
         """
@@ -179,28 +182,9 @@ class UnassignedLocationsView(ListAPIView):
             'regroupement__account',
         ).prefetch_related(
             'stock_set__product__Product_Family'
-        ).order_by('location_reference')
+        )
 
         return queryset
-
-    def get(self, request, *args, **kwargs):
-        """
-        Récupère les emplacements non affectés avec filtres et pagination.
-        """
-        try:
-            # Utiliser la méthode parent pour le filtrage et la pagination
-            response = super().get(request, *args, **kwargs)
-            
-            # Ajouter un message de succès
-            response.data['message'] = "Liste des emplacements non affectés récupérée avec succès"
-            return response
-
-        except Exception as e:
-            logger.error(f"Erreur lors de la récupération de la liste des emplacements non affectés: {str(e)}", exc_info=True)
-            return Response({
-                'success': False,
-                'message': f'Erreur interne : {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class LocationDetailView(APIView):
     permission_classes = [IsAuthenticated]

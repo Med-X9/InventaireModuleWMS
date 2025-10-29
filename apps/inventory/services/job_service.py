@@ -583,6 +583,89 @@ class JobService(JobServiceInterface):
             'transfer_date': current_time,
             'counting_order': counting_order,
             'total_transferred': len(transferred_assignments)
+        }
+    
+    @transaction.atomic
+    def transfer_jobs_by_counting_orders(self, job_ids: list, counting_orders: list):
+        """
+        Transfère les jobs qui sont au statut PRET vers le statut TRANSFERT pour plusieurs ordres de comptage.
+        
+        Args:
+            job_ids: Liste des IDs des jobs à transférer
+            counting_orders: Liste des ordres de comptage pour lesquels transférer les jobs
+            
+        Returns:
+            Dict contenant les informations sur les jobs transférés
+        """
+        from ..models import Assigment, Counting
+        
+        current_time = timezone.now()
+        transferred_assignments = []
+        transferred_jobs = []
+        errors = []
+        
+        # Vérifier que tous les comptages existent
+        countings = Counting.objects.filter(order__in=counting_orders).order_by('order')
+        found_orders = set(countings.values_list('order', flat=True))
+        requested_orders = set(counting_orders)
+        missing_orders = requested_orders - found_orders
+        
+        if missing_orders:
+            raise JobCreationError(f"Aucun comptage trouvé avec les ordres : {sorted(missing_orders)}")
+        
+        for job_id in job_ids:
+            for counting_order in counting_orders:
+                # Récupérer l'assignement pour ce job et cet ordre de comptage
+                assignment = Assigment.objects.select_related('job', 'counting').filter(
+                    job_id=job_id,
+                    counting__order=counting_order
+                ).first()
+                
+                if not assignment:
+                    errors.append(f"Aucune assignation trouvée pour le job {job_id} et le comptage d'ordre {counting_order}")
+                    continue
+                    
+                # Vérifier que l'assignement est au statut PRET
+                if assignment.status != 'PRET':
+                    errors.append(f"Le job {job_id} pour le comptage d'ordre {counting_order} n'est pas au statut PRET (statut actuel : {assignment.status})")
+                    continue
+                
+                # Transférer l'assignement
+                assignment.status = 'TRANSFERT'
+                assignment.transfert_date = current_time
+                assignment.save()
+                
+                # Transférer le job lui-même (une seule fois par job)
+                if job_id not in [j['job_id'] for j in transferred_jobs]:
+                    job = assignment.job
+                    job.status = 'TRANSFERT'
+                    job.transfert_date = current_time
+                    job.save()
+                    
+                    transferred_jobs.append({
+                        'job_id': job_id,
+                        'job_reference': job.reference
+                    })
+                
+                transferred_assignments.append({
+                    'job_id': job_id,
+                    'job_reference': assignment.job.reference,
+                    'counting_order': counting_order,
+                    'counting_reference': assignment.counting.reference,
+                    'assignment_id': assignment.id
+                })
+        
+        # Si des erreurs ont été collectées, les lever
+        if errors:
+            error_message = " | ".join(errors)
+            raise JobCreationError(f"Erreurs lors du transfert : {error_message}")
+        
+        return {
+            'transferred_assignments': transferred_assignments,
+            'transferred_jobs': transferred_jobs,
+            'transfer_date': current_time,
+            'counting_orders': counting_orders,
+            'total_transferred': len(transferred_assignments)
         } 
 
     def get_job_progress_by_counting(self, job_id: int) -> Dict[str, Any]:
