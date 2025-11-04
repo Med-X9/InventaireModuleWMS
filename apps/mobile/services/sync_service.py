@@ -25,13 +25,21 @@ class SyncService:
             # Générer un ID de synchronisation
             sync_id = f"sync_{user_id}_{int(timezone.now().timestamp())}"
             
-            # Récupérer les inventaires en réalisation
-            if inventory_id:
-                # Si un inventaire spécifique est demandé, l'utiliser
-                inventories = self.repository.get_inventories_in_realisation(inventory_id)
+            # Si user_id est fourni, récupérer les inventaires liés aux jobs assignés à l'utilisateur
+            if user_id:
+                if inventory_id:
+                    # Si un inventaire spécifique est demandé, l'utiliser
+                    inventories = self.repository.get_inventories_in_realisation(inventory_id)
+                else:
+                    # Récupérer les inventaires liés aux assignments de l'utilisateur
+                    inventories = self.repository.get_inventories_by_user_assignments(user_id)
             else:
-                # Sinon, récupérer les inventaires du même compte que l'utilisateur
-                inventories = self.repository.get_inventories_by_user_account(user_id)
+                # Si pas de user_id, utiliser la logique par défaut
+                if inventory_id:
+                    inventories = self.repository.get_inventories_in_realisation(inventory_id)
+                else:
+                    # Récupérer les inventaires du même compte (sans user_id, utiliser une valeur par défaut)
+                    inventories = self.repository.get_inventories_in_realisation()
             
             # Préparer la réponse
             response_data = {
@@ -55,14 +63,22 @@ class SyncService:
                 except Exception as e:
                     print(f"Erreur lors du traitement de l'inventaire {inventory.id}: {str(e)}")
                     continue
-            
+
             # Récupérer et traiter les jobs
+            # Filtrer par assignments de l'utilisateur si user_id est fourni
             jobs = []
             try:
-                jobs = self.repository.get_jobs_by_inventories(inventories)
+                if user_id:
+                    # Filtrer les jobs par assignments de l'utilisateur
+                    jobs = self.repository.get_jobs_by_inventories_and_user(inventories, user_id)
+                else:
+                    # Récupérer tous les jobs des inventaires
+                    jobs = self.repository.get_jobs_by_inventories(inventories)
+
                 for job in jobs:
                     try:
-                        job_data = self.repository.format_job_data(job)
+                        # Passer user_id pour filtrer les job_details par assignments
+                        job_data = self.repository.format_job_data(job, user_id=user_id if user_id else None)
                         response_data['data']['jobs'].append(job_data)
                     except Exception as e:
                         print(f"Erreur lors du traitement du job {job.id}: {str(e)}")
@@ -73,7 +89,12 @@ class SyncService:
             # Récupérer et traiter les assignations (seulement si on a des jobs)
             if jobs:
                 try:
-                    assignments = self.repository.get_assignments_by_jobs(jobs)
+                    # Filtrer par utilisateur si user_id est fourni
+                    if user_id:
+                        assignments = self.repository.get_assignments_by_jobs_and_user(jobs, user_id)
+                    else:
+                        assignments = self.repository.get_assignments_by_jobs(jobs)
+                    
                     for assignment in assignments:
                         try:
                             assignment_data = self.repository.format_assignment_data(assignment)
@@ -88,7 +109,13 @@ class SyncService:
             
             # Récupérer et traiter les comptages
             try:
-                countings = self.repository.get_countings_by_inventories(inventories)
+                if user_id:
+                    # Récupérer uniquement les countings liés aux assignments de l'utilisateur
+                    countings = self.repository.get_countings_by_user_assignments(user_id)
+                else:
+                    # Récupérer tous les countings des inventaires
+                    countings = self.repository.get_countings_by_inventories(inventories)
+                
                 for counting in countings:
                     try:
                         counting_data = self.repository.format_counting_data(counting)
