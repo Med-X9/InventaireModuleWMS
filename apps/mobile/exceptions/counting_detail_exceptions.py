@@ -37,3 +37,23 @@ class CountingDetailNotFoundError(Exception):
 class CountingDetailUpdateError(Exception):
     """Exception levée lors d'une erreur de mise à jour d'un CountingDetail."""
     pass
+
+class EcartComptageResoluError(Exception):
+    """
+    Exception levée quand on essaie d'ajouter un comptage à un écart résolu.
+    """
+    def __init__(self, ecart, product, location):
+        self.ecart = ecart
+        self.product = product
+        self.location = location
+        product_name = getattr(product, 'Short_Description', str(product))
+        location_code = getattr(location, 'code', str(location))
+        
+        message = (
+            f"Les comptages pour cet emplacement sont terminés. "
+            f"Écart {ecart.reference} déjà résolu. "
+            f"Impossible d'ajouter un nouveau comptage pour "
+            f"Produit: {product_name}, "
+            f"Location: {location_code}"
+        )
+        super().__init__(message)

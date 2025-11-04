@@ -5,8 +5,6 @@ from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from drf_yasg.utils import swagger_auto_schema
-from drf_yasg import openapi
 
 from apps.mobile.services.counting_detail_service import CountingDetailService
 from apps.mobile.exceptions import (
@@ -15,7 +13,8 @@ from apps.mobile.exceptions import (
     CountingAssignmentValidationError,
     JobDetailValidationError,
     NumeroSerieValidationError,
-    CountingModeValidationError
+    CountingModeValidationError,
+    EcartComptageResoluError
 )
 import logging
 
@@ -23,31 +22,9 @@ logger = logging.getLogger(__name__)
 
 class CountingDetailView(APIView):
     """
-    Vue pour la gestion des CountingDetail et NumeroSerie dans l'application mobile.
+    Vue pour la création de CountingDetail et NumeroSerie.
     
-    Permet la création, mise à jour et récupération des détails de comptage
-    pour l'application mobile. Utilise le CountingDetailService pour la logique métier.
-    
-    URL: /mobile/api/counting-detail/
-    
-    Fonctionnalités:
-    - Création de nouveaux CountingDetail
-    - Mise à jour des CountingDetail existants
-    - Gestion des NumeroSerie associés
-    - Validation des données selon le mode de comptage
-    - Support des opérations en lot
-    
-    Méthodes HTTP supportées:
-    - POST: Créer un nouveau CountingDetail
-    - GET: Récupérer les CountingDetail d'un comptage
-    - PUT: Mettre à jour un CountingDetail existant
-    
-    Réponses:
-    - 200: Opération réussie
-    - 201: CountingDetail créé avec succès
-    - 400: Données invalides ou erreur de validation
-    - 401: Non authentifié
-    - 404: Ressource non trouvée
+    URL: /mobile/api/job/<job_id>/counting-detail/
     """
     permission_classes = [IsAuthenticated]  # Réactivé maintenant que le problème est corrigé
     
@@ -107,6 +84,15 @@ class CountingDetailView(APIView):
                 'error_type': 'counting_mode_error'
             }, status=status.HTTP_400_BAD_REQUEST)
             
+        elif isinstance(e, EcartComptageResoluError):
+            logger.warning(f"Tentative d'ajout à un écart résolu: {str(e)}")
+            return Response({
+                'success': False,
+                'error': str(e),
+                'error_type': 'ecart_resolu_error',
+                'ecart_reference': e.ecart.reference if hasattr(e, 'ecart') else None
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
         else:
             logger.error(f"Erreur interne: {str(e)}", exc_info=True)
             return Response({
@@ -125,6 +111,7 @@ class CountingDetailView(APIView):
             'product_id': cd.product.id if cd.product else None,
             'location_id': cd.location.id,
             'counting_id': cd.counting.id,
+            'job_id': cd.job.id if cd.job else None,
             'created_at': cd.created_at,
             'numeros_serie': [
                 {
@@ -153,277 +140,72 @@ class CountingDetailView(APIView):
             'error': error_message
         }, status=status_code)
     
-    @swagger_auto_schema(
-        operation_summary="Création de détails de comptage mobile",
-        operation_description="Crée un ou plusieurs CountingDetail et leurs NumeroSerie associés",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                'batch': openapi.Schema(
-                    type=openapi.TYPE_BOOLEAN,
-                    description='Mode traitement en lot',
-                    example=False
-                ),
-                'counting_id': openapi.Schema(
-                    type=openapi.TYPE_INTEGER,
-                    description='ID du comptage (obligatoire)',
-                    example=1
-                ),
-                'location_id': openapi.Schema(
-                    type=openapi.TYPE_INTEGER,
-                    description='ID de l\'emplacement (obligatoire)',
-                    example=1
-                ),
-                'quantity_inventoried': openapi.Schema(
-                    type=openapi.TYPE_INTEGER,
-                    description='Quantité inventoriée (obligatoire)',
-                    example=10
-                ),
-                'assignment_id': openapi.Schema(
-                    type=openapi.TYPE_INTEGER,
-                    description='ID de l\'assignment (obligatoire)',
-                    example=1
-                ),
-                'product_id': openapi.Schema(
-                    type=openapi.TYPE_INTEGER,
-                    description='ID du produit (optionnel)',
-                    example=1
-                ),
-                'dlc': openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    description='Date limite de consommation (optionnel)',
-                    example='2024-12-31'
-                ),
-                'n_lot': openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    description='Numéro de lot (optionnel)',
-                    example='LOT123'
-                ),
-                'numeros_serie': openapi.Schema(
-                    type=openapi.TYPE_ARRAY,
-                    items=openapi.Schema(
-                        type=openapi.TYPE_OBJECT,
-                        properties={
-                            'n_serie': openapi.Schema(type=openapi.TYPE_STRING, example='NS001')
-                        }
-                    ),
-                    description='Liste des numéros de série (optionnel)'
-                ),
-                'data': openapi.Schema(
-                    type=openapi.TYPE_ARRAY,
-                    items=openapi.Schema(type=openapi.TYPE_OBJECT),
-                    description='Liste des données pour le traitement en lot'
-                )
-            }
-        ),
-        responses={
-            201: openapi.Response(
-                description="CountingDetail créé avec succès",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=True),
-                        'data': openapi.Schema(
-                            type=openapi.TYPE_OBJECT,
-                            properties={
-                                'counting_detail_id': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
-                                'reference': openapi.Schema(type=openapi.TYPE_STRING, example='CD001'),
-                                'numeros_serie_created': openapi.Schema(type=openapi.TYPE_INTEGER, example=2)
-                            }
-                        )
-                    }
-                )
-            ),
-            400: openapi.Response(
-                description="Données invalides ou erreur de validation",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
-                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Données invalides'),
-                        'error_type': openapi.Schema(type=openapi.TYPE_STRING, example='validation_error')
-                    }
-                )
-            ),
-            401: openapi.Response(
-                description="Non authentifié",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'detail': openapi.Schema(type=openapi.TYPE_STRING, example='Authentication credentials were not provided.')
-                    }
-                )
-            ),
-            500: openapi.Response(
-                description="Erreur interne du serveur",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
-                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Erreur interne du serveur')
-                    }
-                )
-            )
-        },
-        security=[{'Bearer': []}],
-        tags=['Comptage Mobile']
-    )
-    def post(self, request):
+    def post(self, request, job_id=None):
         """
-        Crée un ou plusieurs CountingDetail et leurs NumeroSerie associés.
+        Crée plusieurs CountingDetail et leurs NumeroSerie associés en lot.
+        L'API traite toujours en lot, même pour un seul élément.
         
-        Pour un seul enregistrement:
-        {
-            "counting_id": 1,                    # Obligatoire
-            "location_id": 1,                    # Obligatoire
-            "quantity_inventoried": 10,          # Obligatoire
-            "assignment_id": 1,                  # Obligatoire (pour récupérer le JobDetail)
-            "product_id": 1,                     # Optionnel (selon le mode de comptage)
-            "dlc": "2024-12-31",                # Optionnel
-            "n_lot": "LOT123",                  # Optionnel
-            "numeros_serie": [                   # Optionnel (si n_serie activé)
-                {"n_serie": "NS001"},
-                {"n_serie": "NS002"}
-            ]
-        }
+        Format de requête (tableau directement, ou objet unique converti automatiquement):
+        [
+            {
+                "counting_id": 1,
+                "location_id": 1,
+                "quantity_inventoried": 10,
+                "assignment_id": 1,
+                "product_id": 1,
+                "dlc": "2024-12-31",
+                "n_lot": "LOT123",
+                "numeros_serie": [{"n_serie": "NS001"}]
+            },
+            {
+                "counting_id": 1,
+                "location_id": 2,
+                "quantity_inventoried": 5,
+                "assignment_id": 1,
+                "product_id": 2
+            }
+        ]
         
-        Pour plusieurs enregistrements (mode lot):
-        {
-            "batch": true,
-            "data": [
-                {
-                    "counting_id": 1,
-                    "location_id": 1,
-                    "quantity_inventoried": 10,
-                    "assignment_id": 1,
-                    "product_id": 1,
-                    "dlc": "2024-12-31",
-                    "n_lot": "LOT123",
-                    "numeros_serie": [{"n_serie": "NS001"}]
-                },
-                {
-                    "counting_id": 1,
-                    "location_id": 2,
-                    "quantity_inventoried": 5,
-                    "assignment_id": 1,
-                    "product_id": 2
-                }
-            ]
-        }
+        Note: Les ComptageSequence sont créées AUTOMATIQUEMENT pour chaque CountingDetail.
+        L'EcartComptage est détecté/créé automatiquement basé sur :
+        - product_id + location_id + inventory (du job)
+        Si un écart existe déjà pour cette combinaison et est résolu, une erreur sera levée.
+        La résolution automatique (écart ≤ 0) n'est PAS effectuée - elle doit être faite manuellement.
         """
         try:
-            logger.info(f"Traitement de CountingDetail avec les données: {request.data}")
+            logger.info(f"Traitement de CountingDetail avec job_id={job_id} et les données: {request.data}")
             
-            # Vérifier si c'est un traitement en lot
-            if request.data.get('batch', False):
-                # Traitement en lot
-                data_list = request.data.get('data', [])
-                if not data_list:
-                    return self._create_error_response(
-                        'La liste de données est vide pour le traitement en lot'
-                    )
-                
-                result = self.counting_detail_service.create_counting_details_batch(data_list)
-                return self._create_success_response(result, status.HTTP_201_CREATED)
-                
+            # Normaliser les données : toujours traiter comme un tableau
+            if isinstance(request.data, list):
+                data_list = request.data
+            elif isinstance(request.data, dict) and 'data' in request.data:
+                data_list = request.data['data']
+            elif isinstance(request.data, dict):
+                # Si un seul objet est envoyé, le convertir en tableau
+                data_list = [request.data]
             else:
-                # Traitement d'un seul enregistrement
-                result = self.counting_detail_service.create_counting_detail(request.data)
-                return self._create_success_response(result, status.HTTP_201_CREATED)
+                return self._create_error_response(
+                    'Les données doivent être un tableau ou un objet'
+                )
+            
+            if not data_list:
+                return self._create_error_response(
+                    'La liste de données est vide'
+                )
+            
+            # Valider que tous les assignment_id appartiennent au job_id
+            assignment_ids = [item.get('assignment_id') for item in data_list if item.get('assignment_id')]
+            if assignment_ids:
+                self.counting_detail_service.validate_assignments_belong_to_job(job_id, assignment_ids)
+            
+            # Traitement en lot optimisé (toujours en lot)
+            result = self.counting_detail_service.create_counting_details_batch(data_list, job_id=job_id)
+            return self._create_success_response(result, status.HTTP_201_CREATED)
             
         except Exception as e:
             return self._handle_exception(e)
     
-    @swagger_auto_schema(
-        operation_summary="Validation de détails de comptage mobile",
-        operation_description="Valide plusieurs CountingDetail sans les créer (validation en lot)",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            required=['data'],
-            properties={
-                'data': openapi.Schema(
-                    type=openapi.TYPE_ARRAY,
-                    items=openapi.Schema(
-                        type=openapi.TYPE_OBJECT,
-                        properties={
-                            'counting_id': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
-                            'location_id': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
-                            'quantity_inventoried': openapi.Schema(type=openapi.TYPE_INTEGER, example=10),
-                            'assignment_id': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
-                            'product_id': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
-                            'dlc': openapi.Schema(type=openapi.TYPE_STRING, example='2024-12-31'),
-                            'n_lot': openapi.Schema(type=openapi.TYPE_STRING, example='LOT123'),
-                            'numeros_serie': openapi.Schema(
-                                type=openapi.TYPE_ARRAY,
-                                items=openapi.Schema(
-                                    type=openapi.TYPE_OBJECT,
-                                    properties={
-                                        'n_serie': openapi.Schema(type=openapi.TYPE_STRING, example='NS001')
-                                    }
-                                )
-                            )
-                        }
-                    ),
-                    description='Liste des données à valider'
-                )
-            }
-        ),
-        responses={
-            200: openapi.Response(
-                description="Validation réussie",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=True),
-                        'data': openapi.Schema(
-                            type=openapi.TYPE_OBJECT,
-                            properties={
-                                'validated_count': openapi.Schema(type=openapi.TYPE_INTEGER, example=5),
-                                'errors': openapi.Schema(
-                                    type=openapi.TYPE_ARRAY,
-                                    items=openapi.Schema(type=openapi.TYPE_STRING),
-                                    description="Liste des erreurs de validation"
-                                )
-                            }
-                        )
-                    }
-                )
-            ),
-            400: openapi.Response(
-                description="Données invalides ou erreur de validation",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
-                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Données invalides'),
-                        'error_type': openapi.Schema(type=openapi.TYPE_STRING, example='validation_error')
-                    }
-                )
-            ),
-            401: openapi.Response(
-                description="Non authentifié",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'detail': openapi.Schema(type=openapi.TYPE_STRING, example='Authentication credentials were not provided.')
-                    }
-                )
-            ),
-            500: openapi.Response(
-                description="Erreur interne du serveur",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
-                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Erreur interne du serveur')
-                    }
-                )
-            )
-        },
-        security=[{'Bearer': []}],
-        tags=['Comptage Mobile']
-    )
-    def put(self, request):
+    def put(self, request, job_id=None):
         """
         Valide plusieurs CountingDetail sans les créer (validation en lot).
         
@@ -451,7 +233,7 @@ class CountingDetailView(APIView):
         }
         """
         try:
-            logger.info(f"Validation en lot de CountingDetail avec les données: {request.data}")
+            logger.info(f"Validation en lot de CountingDetail avec job_id={job_id} et les données: {request.data}")
             
             data_list = request.data.get('data', [])
             if not data_list:
@@ -459,105 +241,19 @@ class CountingDetailView(APIView):
                     'La liste de données est vide pour la validation'
                 )
             
-            # Valider les enregistrements en lot
-            result = self.counting_detail_service.validate_counting_details_batch(data_list)
+            # Valider que tous les assignment_id appartiennent au job_id
+            assignment_ids = [item.get('assignment_id') for item in data_list if item.get('assignment_id')]
+            if assignment_ids:
+                self.counting_detail_service.validate_assignments_belong_to_job(job_id, assignment_ids)
+            
+            # Valider les enregistrements en lot (avec job_id pour filtrer)
+            result = self.counting_detail_service.validate_counting_details_batch(data_list, job_id=job_id)
             return self._create_success_response(result)
             
         except Exception as e:
             return self._handle_exception(e)
     
-    @swagger_auto_schema(
-        operation_summary="Récupération des détails de comptage mobile",
-        operation_description="Récupère des informations sur les CountingDetail selon les paramètres de requête",
-        manual_parameters=[
-            openapi.Parameter(
-                'counting_id',
-                openapi.IN_QUERY,
-                description="ID du comptage",
-                type=openapi.TYPE_INTEGER,
-                required=False
-            ),
-            openapi.Parameter(
-                'location_id',
-                openapi.IN_QUERY,
-                description="ID de l'emplacement",
-                type=openapi.TYPE_INTEGER,
-                required=False
-            ),
-            openapi.Parameter(
-                'product_id',
-                openapi.IN_QUERY,
-                description="ID du produit",
-                type=openapi.TYPE_INTEGER,
-                required=False
-            )
-        ],
-        responses={
-            200: openapi.Response(
-                description="Données récupérées avec succès",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=True),
-                        'data': openapi.Schema(
-                            type=openapi.TYPE_OBJECT,
-                            properties={
-                                'summary': openapi.Schema(
-                                    type=openapi.TYPE_OBJECT,
-                                    description="Résumé du comptage (si counting_id fourni)"
-                                ),
-                                'counting_details': openapi.Schema(
-                                    type=openapi.TYPE_ARRAY,
-                                    items=openapi.Schema(type=openapi.TYPE_OBJECT),
-                                    description="Liste des détails de comptage"
-                                ),
-                                'location_id': openapi.Schema(
-                                    type=openapi.TYPE_INTEGER,
-                                    description="ID de l'emplacement (si location_id fourni)"
-                                ),
-                                'product_id': openapi.Schema(
-                                    type=openapi.TYPE_INTEGER,
-                                    description="ID du produit (si product_id fourni)"
-                                )
-                            }
-                        )
-                    }
-                )
-            ),
-            400: openapi.Response(
-                description="Paramètre invalide",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
-                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Un des paramètres suivants est requis: counting_id, location_id, ou product_id')
-                    }
-                )
-            ),
-            401: openapi.Response(
-                description="Non authentifié",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'detail': openapi.Schema(type=openapi.TYPE_STRING, example='Authentication credentials were not provided.')
-                    }
-                )
-            ),
-            500: openapi.Response(
-                description="Erreur interne du serveur",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
-                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Erreur interne du serveur')
-                    }
-                )
-            )
-        },
-        security=[{'Bearer': []}],
-        tags=['Comptage Mobile']
-    )
-    def get(self, request):
+    def get(self, request, job_id=None):
         """
         Récupère des informations sur les CountingDetail.
         
@@ -571,9 +267,14 @@ class CountingDetailView(APIView):
             location_id = request.query_params.get('location_id')
             product_id = request.query_params.get('product_id')
             
+            logger.info(f"Récupération de CountingDetail avec job_id={job_id}")
+            
             if counting_id:
-                # Récupérer les CountingDetail d'un comptage
-                counting_details = self.counting_detail_service.get_counting_details_by_counting(int(counting_id))
+                # Récupérer les CountingDetail d'un comptage (filtrés par job_id si fourni)
+                counting_details = self.counting_detail_service.get_counting_details_by_counting(
+                    int(counting_id), 
+                    job_id=job_id
+                )
                 summary = self.counting_detail_service.get_counting_summary(int(counting_id))
                 
                 return self._create_success_response({
@@ -582,8 +283,11 @@ class CountingDetailView(APIView):
                 })
                 
             elif location_id:
-                # Récupérer les CountingDetail d'un emplacement
-                counting_details = self.counting_detail_service.get_counting_details_by_location(int(location_id))
+                # Récupérer les CountingDetail d'un emplacement (filtrés par job_id si fourni)
+                counting_details = self.counting_detail_service.get_counting_details_by_location(
+                    int(location_id), 
+                    job_id=job_id
+                )
                 
                 return self._create_success_response({
                     'location_id': location_id,
@@ -591,8 +295,11 @@ class CountingDetailView(APIView):
                 })
                 
             elif product_id:
-                # Récupérer les CountingDetail d'un produit
-                counting_details = self.counting_detail_service.get_counting_details_by_product(int(product_id))
+                # Récupérer les CountingDetail d'un produit (filtrés par job_id si fourni)
+                counting_details = self.counting_detail_service.get_counting_details_by_product(
+                    int(product_id), 
+                    job_id=job_id
+                )
                 
                 return self._create_success_response({
                     'product_id': product_id,

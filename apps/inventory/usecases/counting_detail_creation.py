@@ -54,8 +54,8 @@ class CountingDetailCreationUseCase:
                 # ÉTAPE 2: Récupération des objets existants
                 counting, location, product, assignment, job_detail = self._get_related_objects(data)
                 
-                # ÉTAPE 3: Création du CountingDetail
-                counting_detail = self._create_counting_detail(data, counting, location, product)
+                # ÉTAPE 3: Création du CountingDetail (job récupéré depuis assignment)
+                counting_detail = self._create_counting_detail(data, counting, location, product, job=assignment.job)
                 
                 # ÉTAPE 4: Création des NumeroSerie si nécessaire
                 numeros_serie = self._create_numeros_serie(data, counting_detail)
@@ -316,7 +316,7 @@ class CountingDetailCreationUseCase:
         return counting, location, product, assignment, job_detail
     
     def _create_counting_detail(self, data: Dict[str, Any], counting: Counting, 
-                               location: Location, product: Optional[Product]) -> CountingDetail:
+                               location: Location, product: Optional[Product], job=None) -> CountingDetail:
         """
         Crée le CountingDetail.
         
@@ -325,10 +325,31 @@ class CountingDetailCreationUseCase:
             counting: L'objet Counting
             location: L'objet Location
             product: L'objet Product (optionnel)
+            job: L'objet Job (optionnel, récupéré depuis assignment si non fourni)
             
         Returns:
             CountingDetail: L'objet créé
         """
+        # Si job n'est pas fourni, essayer de le récupérer depuis assignment dans les data
+        if not job and 'assignment_id' in data:
+            try:
+                from ..models import Assigment
+                assignment = Assigment.objects.get(id=data['assignment_id'])
+                job = assignment.job
+            except Assigment.DoesNotExist:
+                pass
+        
+        # Si job n'est toujours pas défini mais qu'on a job_id dans les data, l'utiliser
+        if not job and 'job_id' in data:
+            try:
+                from ..models import Job
+                job = Job.objects.get(id=data['job_id'])
+            except Job.DoesNotExist:
+                raise CountingDetailValidationError(f"Job avec l'ID {data['job_id']} non trouvé")
+        
+        if not job:
+            raise CountingDetailValidationError("Le job est obligatoire pour créer un CountingDetail")
+        
         counting_detail = CountingDetail(
             quantity_inventoried=data['quantity_inventoried'],
             product=product,
@@ -336,6 +357,7 @@ class CountingDetailCreationUseCase:
             n_lot=data.get('n_lot'),
             location=location,
             counting=counting,
+            job=job,
             last_synced_at=timezone.now()
         )
         
@@ -345,7 +367,7 @@ class CountingDetailCreationUseCase:
         # Sauvegarder
         counting_detail.save()
         
-        logger.info(f"CountingDetail {counting_detail.id} créé pour le comptage {counting.id}")
+        logger.info(f"CountingDetail {counting_detail.id} créé pour le comptage {counting.id} et le job {job.id}")
         
         return counting_detail
     
@@ -424,6 +446,7 @@ class CountingDetailCreationUseCase:
                 'product_id': counting_detail.product.id if counting_detail.product else None,
                 'location_id': counting_detail.location.id,
                 'counting_id': counting_detail.counting.id,
+                'job_id': counting_detail.job.id if counting_detail.job else None,
                 'created_at': counting_detail.created_at,
                 'updated_at': counting_detail.updated_at
             },
