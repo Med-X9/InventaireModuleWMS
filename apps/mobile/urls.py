@@ -26,21 +26,40 @@ urlpatterns = [
         name="mobile_inventory_users",
     ),
     # Produits du même compte qu'un utilisateur
-    path('user/<int:user_id>/products/', views.UserProductsView.as_view(), name='mobile_user_products'),
-    
-        # Locations du même compte qu'un utilisateur
-     path('user/<int:user_id>/locations/', views.UserLocationsView.as_view(), name='mobile_user_locations'),
-     
-     # Stocks du même compte qu'un utilisateur
-     path('user/<int:user_id>/stocks/', views.UserStocksView.as_view(), name='mobile_user_stocks'),
-     
-     # Gestion des assignments et jobs
-     path('user/<int:user_id>/job/<int:job_id>/status/', views.AssignmentStatusView.as_view(), name='mobile_assignment_status'),
-     path('job/<int:job_id>/close/<int:assignment_id>/', views.CloseJobView.as_view(), name='mobile_close_job'),
-    
+    path(
+        "user/<int:user_id>/products/",
+        views.UserProductsView.as_view(),
+        name="mobile_user_products",
+    ),
+    # Locations du même compte qu'un utilisateur
+    path(
+        "user/<int:user_id>/locations/",
+        views.UserLocationsView.as_view(),
+        name="mobile_user_locations",
+    ),
+    # Stocks du même compte qu'un utilisateur
+    path(
+        "user/<int:user_id>/stocks/",
+        views.UserStocksView.as_view(),
+        name="mobile_user_stocks",
+    ),
+    # Gestion des assignments et jobs
+    path(
+        "user/<int:user_id>/job/<int:job_id>/status/",
+        views.AssignmentStatusView.as_view(),
+        name="mobile_assignment_status",
+    ),
+    path(
+        "job/<int:job_id>/close/<int:assignment_id>/",
+        views.CloseJobView.as_view(),
+        name="mobile_close_job",
+    ),
     # Gestion des CountingDetail et NumeroSerie
-    path('job/<int:job_id>/counting-detail/', views.CountingDetailView.as_view(), name='mobile_counting_detail'),
-    
+    path(
+        "job/<int:job_id>/counting-detail/",
+        views.CountingDetailView.as_view(),
+        name="mobile_counting_detail",
+    ),
     path(
         "user/<int:user_id>/products/",
         views.UserProductsView.as_view(),
