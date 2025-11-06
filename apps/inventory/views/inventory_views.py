@@ -781,24 +781,42 @@ class InventoryCompleteView(APIView):
     def post(self, request, pk, *args, **kwargs):
         """
         Finalise un inventaire en vérifiant que tous les jobs sont terminés.
+        Retourne la liste des jobs non terminés si l'inventaire ne peut pas être finalisé.
         
         Args:
             pk: L'ID de l'inventaire à finaliser
             
         Returns:
-            Response: Réponse HTTP avec le statut de l'opération
+            Response: Réponse HTTP avec le statut de l'opération et la liste des jobs non terminés
         """
         try:
             # Finaliser l'inventaire via le service
-            inventory = self.service.complete_inventory(pk)
+            result = self.service.complete_inventory(pk)
             
-            # Sérialiser l'inventaire mis à jour
-            serializer = InventoryDetailSerializer(inventory)
+            # Si l'inventaire a été finalisé avec succès
+            if result['success']:
+                # Sérialiser l'inventaire mis à jour
+                serializer = InventoryDetailSerializer(result['inventory'])
+                
+                return Response({
+                    "success": True,
+                    "message": result['message'],
+                    "data": serializer.data,
+                    "jobs_not_completed": [],
+                    "total_jobs": result['total_jobs'],
+                    "completed_jobs": result['completed_jobs']
+                }, status=status.HTTP_200_OK)
             
-            return Response({
-                "message": "L'inventaire a été marqué comme terminé avec succès",
-                "data": serializer.data
-            }, status=status.HTTP_200_OK)
+            # Si l'inventaire n'a pas pu être finalisé (jobs non terminés)
+            else:
+                return Response({
+                    "success": False,
+                    "message": result['message'],
+                    "jobs_not_completed": result['jobs_not_completed'],
+                    "total_jobs": result['total_jobs'],
+                    "completed_jobs": result['completed_jobs'],
+                    "data": None
+                }, status=status.HTTP_400_BAD_REQUEST)
             
         except InventoryNotFoundError as e:
             logger.warning(f"Inventaire non trouvé lors de la finalisation: {str(e)}")

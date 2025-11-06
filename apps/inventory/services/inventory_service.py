@@ -518,7 +518,7 @@ class InventoryService:
         validator = InventoryLaunchValidationUseCase()
         return validator.validate(inventory_id)
 
-    def complete_inventory(self, inventory_id: int) -> Inventory:
+    def complete_inventory(self, inventory_id: int) -> Dict[str, Any]:
         """
         Marque un inventaire comme terminé si tous ses jobs sont terminés.
         
@@ -526,11 +526,15 @@ class InventoryService:
             inventory_id: L'ID de l'inventaire à finaliser
             
         Returns:
-            Inventory: L'inventaire mis à jour
+            Dict[str, Any]: Dictionnaire contenant:
+                - 'success': bool - True si l'inventaire a été finalisé, False sinon
+                - 'inventory': Inventory - L'inventaire mis à jour (si success=True)
+                - 'jobs_not_completed': List[Dict] - Liste des jobs non terminés (si success=False)
+                - 'message': str - Message descriptif
             
         Raises:
             InventoryNotFoundError: Si l'inventaire n'existe pas
-            InventoryValidationError: Si tous les jobs ne sont pas terminés ou si l'inventaire ne peut pas être finalisé
+            InventoryValidationError: Si l'inventaire ne peut pas être finalisé (statut incorrect, aucun job)
         """
         from ..models import Job
         
@@ -558,24 +562,27 @@ class InventoryService:
             jobs_not_completed = jobs.exclude(status='TERMINE')
             
             if jobs_not_completed.exists():
-                # Récupérer les références des jobs non terminés pour le message d'erreur
-                non_completed_references = list(
-                    jobs_not_completed.values_list('reference', flat=True)
-                )
-                non_completed_statuses = list(
-                    jobs_not_completed.values_list('status', flat=True)
-                )
-                
-                # Créer un message détaillé
-                jobs_info = [
-                    f"{ref} ({status})" 
-                    for ref, status in zip(non_completed_references, non_completed_statuses)
+                # Préparer la liste des jobs non terminés avec leurs informations
+                jobs_not_completed_list = [
+                    {
+                        'id': job.id,
+                        'reference': job.reference,
+                        'status': job.status,
+                        'warehouse_id': job.warehouse_id,
+                        'warehouse_reference': job.warehouse.reference if job.warehouse else None,
+                        'warehouse_name': job.warehouse.warehouse_name if job.warehouse else None,
+                    }
+                    for job in jobs_not_completed.select_related('warehouse')
                 ]
                 
-                raise InventoryValidationError(
-                    f"Impossible de finaliser l'inventaire. Tous les jobs doivent être terminés. "
-                    f"Jobs non terminés ({len(jobs_not_completed)}): {', '.join(jobs_info)}"
-                )
+                return {
+                    'success': False,
+                    'message': f"Impossible de finaliser l'inventaire. {len(jobs_not_completed)} job(s) non terminé(s).",
+                    'jobs_not_completed': jobs_not_completed_list,
+                    'total_jobs': jobs.count(),
+                    'completed_jobs': jobs.filter(status='TERMINE').count(),
+                    'inventory': None
+                }
             
             # Si tous les jobs sont terminés, mettre à jour le statut de l'inventaire
             inventory = self.repository.update_status(inventory_id, 'TERMINE')
@@ -585,7 +592,14 @@ class InventoryService:
                 f"Nombre total de jobs: {jobs.count()}"
             )
             
-            return inventory
+            return {
+                'success': True,
+                'message': "L'inventaire a été marqué comme terminé avec succès",
+                'jobs_not_completed': [],
+                'total_jobs': jobs.count(),
+                'completed_jobs': jobs.count(),
+                'inventory': inventory
+            }
             
         except InventoryNotFoundError:
             raise
