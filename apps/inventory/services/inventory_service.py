@@ -518,4 +518,133 @@ class InventoryService:
         validator = InventoryLaunchValidationUseCase()
         return validator.validate(inventory_id)
 
+    def complete_inventory(self, inventory_id: int) -> Inventory:
+        """
+        Marque un inventaire comme terminé si tous ses jobs sont terminés.
+        
+        Args:
+            inventory_id: L'ID de l'inventaire à finaliser
+            
+        Returns:
+            Inventory: L'inventaire mis à jour
+            
+        Raises:
+            InventoryNotFoundError: Si l'inventaire n'existe pas
+            InventoryValidationError: Si tous les jobs ne sont pas terminés ou si l'inventaire ne peut pas être finalisé
+        """
+        from ..models import Job
+        
+        try:
+            # Récupérer l'inventaire
+            inventory = self.repository.get_by_id(inventory_id)
+            
+            # Vérifier que l'inventaire est en statut EN REALISATION
+            if inventory.status != 'EN REALISATION':
+                raise InventoryValidationError(
+                    f"Seuls les inventaires en statut 'EN REALISATION' peuvent être finalisés. "
+                    f"Statut actuel: {inventory.status}"
+                )
+            
+            # Récupérer tous les jobs de cet inventaire
+            jobs = Job.objects.filter(inventory_id=inventory_id)
+            
+            # Vérifier qu'il y a au moins un job
+            if not jobs.exists():
+                raise InventoryValidationError(
+                    "Aucun job trouvé pour cet inventaire. Impossible de finaliser."
+                )
+            
+            # Vérifier que tous les jobs sont terminés
+            jobs_not_completed = jobs.exclude(status='TERMINE')
+            
+            if jobs_not_completed.exists():
+                # Récupérer les références des jobs non terminés pour le message d'erreur
+                non_completed_references = list(
+                    jobs_not_completed.values_list('reference', flat=True)
+                )
+                non_completed_statuses = list(
+                    jobs_not_completed.values_list('status', flat=True)
+                )
+                
+                # Créer un message détaillé
+                jobs_info = [
+                    f"{ref} ({status})" 
+                    for ref, status in zip(non_completed_references, non_completed_statuses)
+                ]
+                
+                raise InventoryValidationError(
+                    f"Impossible de finaliser l'inventaire. Tous les jobs doivent être terminés. "
+                    f"Jobs non terminés ({len(jobs_not_completed)}): {', '.join(jobs_info)}"
+                )
+            
+            # Si tous les jobs sont terminés, mettre à jour le statut de l'inventaire
+            inventory = self.repository.update_status(inventory_id, 'TERMINE')
+            
+            logger.info(
+                f"Inventaire {inventory.reference} (ID: {inventory_id}) marqué comme terminé. "
+                f"Nombre total de jobs: {jobs.count()}"
+            )
+            
+            return inventory
+            
+        except InventoryNotFoundError:
+            raise
+        except InventoryValidationError:
+            raise
+        except Exception as e:
+            logger.error(
+                f"Erreur lors de la finalisation de l'inventaire {inventory_id}: {str(e)}", 
+                exc_info=True
+            )
+            raise InventoryValidationError(
+                f"Erreur lors de la finalisation de l'inventaire: {str(e)}"
+            )
+
+    def close_inventory(self, inventory_id: int) -> Inventory:
+        """
+        Marque un inventaire comme clôturé si celui-ci est déjà terminé.
+        
+        Args:
+            inventory_id: L'ID de l'inventaire à clôturer
+            
+        Returns:
+            Inventory: L'inventaire mis à jour
+            
+        Raises:
+            InventoryNotFoundError: Si l'inventaire n'existe pas
+            InventoryValidationError: Si l'inventaire n'est pas terminé ou ne peut pas être clôturé
+        """
+        try:
+            # Récupérer l'inventaire
+            inventory = self.repository.get_by_id(inventory_id)
+            
+            # Vérifier que l'inventaire est en statut TERMINE
+            if inventory.status != 'TERMINE':
+                raise InventoryValidationError(
+                    f"Seuls les inventaires en statut 'TERMINE' peuvent être clôturés. "
+                    f"Statut actuel: {inventory.status}"
+                )
+            
+            # Si l'inventaire est terminé, mettre à jour le statut à CLOTURE
+            inventory = self.repository.update_status(inventory_id, 'CLOTURE')
+            
+            logger.info(
+                f"Inventaire {inventory.reference} (ID: {inventory_id}) marqué comme clôturé."
+            )
+            
+            return inventory
+            
+        except InventoryNotFoundError:
+            raise
+        except InventoryValidationError:
+            raise
+        except Exception as e:
+            logger.error(
+                f"Erreur lors de la clôture de l'inventaire {inventory_id}: {str(e)}", 
+                exc_info=True
+            )
+            raise InventoryValidationError(
+                f"Erreur lors de la clôture de l'inventaire: {str(e)}"
+            )
+
     

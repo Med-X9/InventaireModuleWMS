@@ -769,6 +769,92 @@ class InventoryImportView(APIView):
                 'message': 'Une erreur inattendue s\'est produite lors de l\'importation'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+class InventoryCompleteView(APIView):
+    """
+    Vue pour finaliser un inventaire.
+    Marque un inventaire comme terminé uniquement si tous ses jobs sont terminés.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.service = InventoryService()
+
+    def post(self, request, pk, *args, **kwargs):
+        """
+        Finalise un inventaire en vérifiant que tous les jobs sont terminés.
+        
+        Args:
+            pk: L'ID de l'inventaire à finaliser
+            
+        Returns:
+            Response: Réponse HTTP avec le statut de l'opération
+        """
+        try:
+            # Finaliser l'inventaire via le service
+            inventory = self.service.complete_inventory(pk)
+            
+            # Sérialiser l'inventaire mis à jour
+            serializer = InventoryDetailSerializer(inventory)
+            
+            return Response({
+                "message": "L'inventaire a été marqué comme terminé avec succès",
+                "data": serializer.data
+            }, status=status.HTTP_200_OK)
+            
+        except InventoryNotFoundError as e:
+            logger.warning(f"Inventaire non trouvé lors de la finalisation: {str(e)}")
+            return Response({"error": str(e)}, status=status.HTTP_404_NOT_FOUND)
+            
+        except InventoryValidationError as e:
+            logger.warning(f"Erreur de validation lors de la finalisation: {str(e)}")
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de la finalisation de l'inventaire: {str(e)}", exc_info=True)
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class InventoryCloseView(APIView):
+    """
+    Vue pour clôturer un inventaire.
+    Marque un inventaire comme clôturé uniquement s'il est déjà terminé.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.service = InventoryService()
+
+    def post(self, request, pk, *args, **kwargs):
+        """
+        Clôture un inventaire en vérifiant qu'il est déjà terminé.
+        
+        Args:
+            pk: L'ID de l'inventaire à clôturer
+            
+        Returns:
+            Response: Réponse HTTP avec le statut de l'opération
+        """
+        try:
+            # Clôturer l'inventaire via le service
+            inventory = self.service.close_inventory(pk)
+            
+            # Sérialiser l'inventaire mis à jour
+            serializer = InventoryDetailSerializer(inventory)
+            
+            return Response({
+                "message": "L'inventaire a été marqué comme clôturé avec succès",
+                "data": serializer.data
+            }, status=status.HTTP_200_OK)
+            
+        except InventoryNotFoundError as e:
+            logger.warning(f"Inventaire non trouvé lors de la clôture: {str(e)}")
+            return Response({"error": str(e)}, status=status.HTTP_404_NOT_FOUND)
+            
+        except InventoryValidationError as e:
+            logger.warning(f"Erreur de validation lors de la clôture: {str(e)}")
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de la clôture de l'inventaire: {str(e)}", exc_info=True)
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 class StockImportView(APIView):
     """
     Vue pour importer des stocks via API.

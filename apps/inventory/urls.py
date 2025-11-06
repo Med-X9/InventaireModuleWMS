@@ -9,6 +9,8 @@ from .views.inventory_views import (
     InventoryDeleteView,
     InventoryLaunchView,
     InventoryCancelView,
+    InventoryCompleteView,
+    InventoryCloseView,
     InventoryTeamView,
     InventoryWarehouseStatsView,
     InventoryImportView,
@@ -40,6 +42,8 @@ urlpatterns = [
     path('inventory/<int:pk>/delete/', InventoryDeleteView.as_view(), name='inventory-delete'),
     path('inventory/<int:pk>/launch/', InventoryLaunchView.as_view(), name='inventory-launch'),
     path('inventory/<int:pk>/cancel/', InventoryCancelView.as_view(), name='inventory-cancel'),
+    path('inventory/<int:pk>/complete/', InventoryCompleteView.as_view(), name='inventory-complete'),
+    path('inventory/<int:pk>/close/', InventoryCloseView.as_view(), name='inventory-close'),
     path('inventory/<int:pk>/detail/', InventoryTeamView.as_view(), name='inventory-detail'),
     
     # Statistiques et données des inventaires
