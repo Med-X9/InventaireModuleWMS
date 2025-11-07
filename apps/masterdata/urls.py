@@ -42,7 +42,7 @@ urlpatterns = [
     path('sous-zones/<int:sous_zone_id>/locations/', SousZoneLocationsView.as_view(), name='sous-zone-locations'),
     
     # URLs pour les emplacements non affectés
-    path('locations/unassigned/', UnassignedLocationsView.as_view(), name='unassigned-locations'),
+    # path('locations/unassigned/', UnassignedLocationsView.as_view(), name='unassigned-locations'),
     path('warehouses/<int:account_id>/warehouse/<int:warehouse_id>/locations/unassigned/', UnassignedLocationsView.as_view(), name='account-warehouse-unassigned-locations'),
     
     # URLs pour les emplacements

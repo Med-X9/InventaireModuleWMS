@@ -28,7 +28,6 @@ class UserRepository:
             # Récupérer le compte de l'utilisateur
             account = user.compte
             if not account:
-                print(f"Aucun compte associé à l'utilisateur {user_id}")
                 raise AccountNotFoundException(f"Aucun compte associé à l'utilisateur {user_id}")
             
             # Récupérer tous les inventaires du même compte
@@ -40,17 +39,13 @@ class UserRepository:
             return inventories
             
         except UserApp.DoesNotExist:
-            print(f"Utilisateur avec l'ID {user_id} non trouvé")
             raise UserNotFoundException(f"Utilisateur avec l'ID {user_id} non trouvé")
         except Exception as e:
-            print(f"Erreur lors de la récupération des inventaires du compte utilisateur: {str(e)}")
             raise e
     
     def get_products_by_user_account(self, user_id):
         """Récupère les produits du même compte qu'un utilisateur"""
         try:
-            print(f"Début de get_products_by_user_account pour user_id: {user_id}")
-            
             # Validation de l'ID utilisateur
             if not user_id or not isinstance(user_id, int):
                 raise DataValidationException(f"ID utilisateur invalide: {user_id}")
@@ -58,62 +53,46 @@ class UserRepository:
             # Récupérer l'utilisateur
             try:
                 user = UserApp.objects.get(id=user_id)
-                print(f"Utilisateur trouvé: {user.username}")
             except UserApp.DoesNotExist:
-                print(f"Utilisateur avec l'ID {user_id} non trouvé")
                 raise UserNotFoundException(f"Utilisateur avec l'ID {user_id} non trouvé")
             
             # Récupérer le compte de l'utilisateur
             account = user.compte
-            print(f"Compte de l'utilisateur: {account}")
             
             if not account:
-                print(f"Aucun compte associé à l'utilisateur {user_id}")
                 raise AccountNotFoundException(f"Aucun compte associé à l'utilisateur {user_id}")
             
             # Vérifier si le compte est actif
             if account.account_statuts != 'ACTIVE':
-                print(f"Compte {account.account_name} n'est pas actif (statut: {account.account_statuts})")
                 raise AccountNotFoundException(f"Le compte {account.account_name} n'est pas actif")
             
             # Récupérer tous les produits du même compte via la famille
-            print(f"Recherche des produits pour le compte: {account}")
             try:
                 products = Product.objects.select_related('Product_Family').filter(
                     Product_Family__compte=account,
                     Product_Status='ACTIVE'
                 ).order_by('Short_Description')
                 
-                print(f"Nombre de produits trouvés: {products.count()}")
-                
                 # Si aucun produit trouvé, retourner une liste vide (pas d'exception)
                 if products.count() == 0:
-                    print(f"Aucun produit trouvé pour le compte {account.account_name}")
                     return []
                 
                 return products
                 
             except Product.DoesNotExist:
-                print(f"Aucun produit trouvé pour le compte {account.account_name}")
                 raise ProductNotFoundException(f"Aucun produit trouvé pour le compte {account.account_name}")
             except Exception as e:
-                print(f"Erreur lors de la requête des produits: {str(e)}")
                 raise DatabaseConnectionException(f"Erreur de base de données lors de la récupération des produits: {str(e)}")
             
         except (UserNotFoundException, AccountNotFoundException, ProductNotFoundException, DataValidationException, DatabaseConnectionException):
             # Re-raise les exceptions spécifiques
             raise
         except Exception as e:
-            print(f"Erreur inattendue lors de la récupération des produits: {str(e)}")
-            import traceback
-            print(f"Traceback complet: {traceback.format_exc()}")
             raise DatabaseConnectionException(f"Erreur inattendue lors de la récupération des produits: {str(e)}")
     
     def get_locations_by_user_account(self, user_id):
         """Récupère les locations du même compte qu'un utilisateur"""
         try:
-            print(f"Début de get_locations_by_user_account pour user_id: {user_id}")
-            
             # Validation de l'ID utilisateur
             if not user_id or not isinstance(user_id, int):
                 raise DataValidationException(f"ID utilisateur invalide: {user_id}")
@@ -121,26 +100,20 @@ class UserRepository:
             # Récupérer l'utilisateur
             try:
                 user = UserApp.objects.get(id=user_id)
-                print(f"Utilisateur trouvé: {user.username}")
             except UserApp.DoesNotExist:
-                print(f"Utilisateur avec l'ID {user_id} non trouvé")
                 raise UserNotFoundException(f"Utilisateur avec l'ID {user_id} non trouvé")
             
             # Récupérer le compte de l'utilisateur
             account = user.compte
-            print(f"Compte de l'utilisateur: {account}")
             
             if not account:
-                print(f"Aucun compte associé à l'utilisateur {user_id}")
                 raise AccountNotFoundException(f"Aucun compte associé à l'utilisateur {user_id}")
             
             # Vérifier si le compte est actif
             if account.account_statuts != 'ACTIVE':
-                print(f"Compte {account.account_name} n'est pas actif (statut: {account.account_statuts})")
                 raise AccountNotFoundException(f"Le compte {account.account_name} n'est pas actif")
             
             # Récupérer toutes les locations du même compte via la chaîne: Location -> SousZone -> Zone -> Warehouse -> Setting -> Account
-            print(f"Recherche des locations pour le compte: {account}")
             try:
                 # Récupérer d'abord les warehouses associés au compte via les settings
                 warehouses = Warehouse.objects.filter(
@@ -153,36 +126,26 @@ class UserRepository:
                     is_active=True
                 ).order_by('location_reference')
                 
-                print(f"Nombre de locations trouvées: {locations.count()}")
-                
                 # Si aucune location trouvée, retourner une liste vide (pas d'exception)
                 if locations.count() == 0:
-                    print(f"Aucune location trouvée pour le compte {account.account_name}")
                     return []
                 
                 return locations
                 
             except Location.DoesNotExist:
-                print(f"Aucune location trouvée pour le compte {account.account_name}")
                 raise LocationNotFoundException(f"Aucune location trouvée pour le compte {account.account_name}")
             except Exception as e:
-                print(f"Erreur lors de la requête des locations: {str(e)}")
                 raise DatabaseConnectionException(f"Erreur de base de données lors de la récupération des locations: {str(e)}")
             
         except (UserNotFoundException, AccountNotFoundException, LocationNotFoundException, DataValidationException, DatabaseConnectionException):
             # Re-raise les exceptions spécifiques
             raise
         except Exception as e:
-            print(f"Erreur inattendue lors de la récupération des locations: {str(e)}")
-            import traceback
-            print(f"Traceback complet: {traceback.format_exc()}")
             raise DatabaseConnectionException(f"Erreur inattendue lors de la récupération des locations: {str(e)}")
     
     def get_stocks_by_user_account(self, user_id):
         """Récupère les stocks du même compte qu'un utilisateur"""
         try:
-            print(f"Début de get_stocks_by_user_account pour user_id: {user_id}")
-            
             # Validation de l'ID utilisateur
             if not user_id or not isinstance(user_id, int):
                 raise DataValidationException(f"ID utilisateur invalide: {user_id}")
@@ -190,26 +153,20 @@ class UserRepository:
             # Récupérer l'utilisateur
             try:
                 user = UserApp.objects.get(id=user_id)
-                print(f"Utilisateur trouvé: {user.username}")
             except UserApp.DoesNotExist:
-                print(f"Utilisateur avec l'ID {user_id} non trouvé")
                 raise UserNotFoundException(f"Utilisateur avec l'ID {user_id} non trouvé")
             
             # Récupérer le compte de l'utilisateur
             account = user.compte
-            print(f"Compte de l'utilisateur: {account}")
             
             if not account:
-                print(f"Aucun compte associé à l'utilisateur {user_id}")
                 raise AccountNotFoundException(f"Aucun compte associé à l'utilisateur {user_id}")
             
             # Vérifier si le compte est actif
             if account.account_statuts != 'ACTIVE':
-                print(f"Compte {account.account_name} n'est pas actif (statut: {account.account_statuts})")
                 raise AccountNotFoundException(f"Le compte {account.account_name} n'est pas actif")
             
             # Récupérer tous les stocks du même compte via la chaîne: Stock -> Location -> SousZone -> Zone -> Warehouse -> Setting -> Account
-            print(f"Recherche des stocks pour le compte: {account}")
             try:
                 # Récupérer d'abord les warehouses associés au compte via les settings
                 warehouses = Warehouse.objects.filter(
@@ -221,29 +178,21 @@ class UserRepository:
                     location__sous_zone__zone__warehouse__in=warehouses
                 ).order_by('reference')
                 
-                print(f"Nombre de stocks trouvés: {stocks.count()}")
-                
                 # Si aucun stock trouvé, retourner une liste vide (pas d'exception)
                 if stocks.count() == 0:
-                    print(f"Aucun stock trouvé pour le compte {account.account_name}")
                     return []
                 
                 return stocks
                 
             except Stock.DoesNotExist:
-                print(f"Aucun stock trouvé pour le compte {account.account_name}")
                 raise StockNotFoundException(f"Aucun stock trouvé pour le compte {account.account_name}")
             except Exception as e:
-                print(f"Erreur lors de la requête des stocks: {str(e)}")
                 raise DatabaseConnectionException(f"Erreur de base de données lors de la récupération des stocks: {str(e)}")
             
         except (UserNotFoundException, AccountNotFoundException, StockNotFoundException, DataValidationException, DatabaseConnectionException):
             # Re-raise les exceptions spécifiques
             raise
         except Exception as e:
-            print(f"Erreur inattendue lors de la récupération des stocks: {str(e)}")
-            import traceback
-            print(f"Traceback complet: {traceback.format_exc()}")
             raise DatabaseConnectionException(f"Erreur inattendue lors de la récupération des stocks: {str(e)}")
     
     def get_warehouse_info_for_inventory(self, inventory):
@@ -266,13 +215,11 @@ class UserRepository:
                         'warehouse_name': first_setting.warehouse.warehouse_name
                     }
                 else:
-                    print(f"Aucune information d'entrepôt trouvée pour l'inventaire {inventory.id}")
                     return {
                         'warehouse_web_id': None,
                         'warehouse_name': None
                     }
         except Exception as e:
-            print(f"Erreur lors de la récupération des informations d'entrepôt pour l'inventaire {inventory.id}: {str(e)}")
             return {
                 'warehouse_web_id': None,
                 'warehouse_name': None
@@ -300,17 +247,12 @@ class UserRepository:
     def format_product_data(self, product):
         """Formate les données d'un produit"""
         try:
-            print(f"Formatage du produit {product.id}: {product.Short_Description}")
-            
             # Vérifier si Product_Family existe
             family_name = None
             family_id = None
             if product.Product_Family:
                 family_name = product.Product_Family.family_name
                 family_id = product.Product_Family.id
-                print(f"Famille trouvée: {family_name}")
-            else:
-                print(f"Aucune famille pour le produit {product.id}")
             
             # Récupérer les numéros de série si le produit les supporte
             numeros_serie = []
@@ -337,15 +279,14 @@ class UserRepository:
                             'created_at': nserie.created_at.isoformat(),
                             'updated_at': nserie.updated_at.isoformat()
                         })
-                    
-                    print(f"Nombre de numéros de série trouvés: {len(numeros_serie)}")
                 except Exception as e:
-                    print(f"Erreur lors de la récupération des numéros de série pour le produit {product.id}: {str(e)}")
                     # Continuer sans les numéros de série en cas d'erreur
+                    pass
             
             return {
                 'web_id': product.id,
                 'product_name': product.Short_Description,
+                'reference': product.reference,
                 'product_code': product.Barcode,
                 'internal_product_code': product.Internal_Product_Code,
                 'description': product.Short_Description,
@@ -364,25 +305,17 @@ class UserRepository:
                 'updated_at': product.updated_at.isoformat()
             }
         except Exception as e:
-            print(f"Erreur lors du formatage du produit {product.id}: {str(e)}")
-            import traceback
-            print(f"Traceback complet: {traceback.format_exc()}")
             raise e
     
     def format_location_data(self, location):
         """Formate les données d'une location"""
         try:
-            print(f"Formatage de la location {location.id}: {location.location_reference}")
-            
             # Vérifier si warehouse existe via la chaîne: Location -> SousZone -> Zone -> Warehouse
             warehouse_name = None
             warehouse_id = None
             if location.sous_zone and location.sous_zone.zone and location.sous_zone.zone.warehouse:
                 warehouse_name = location.sous_zone.zone.warehouse.warehouse_name
                 warehouse_id = location.sous_zone.zone.warehouse.id
-                print(f"Entrepôt trouvé: {warehouse_name}")
-            else:
-                print(f"Aucun entrepôt pour la location {location.id}")
             
             # Vérifier si sous_zone existe
             sous_zone_name = None
@@ -390,9 +323,6 @@ class UserRepository:
             if location.sous_zone:
                 sous_zone_name = location.sous_zone.sous_zone_name
                 sous_zone_id = location.sous_zone.id
-                print(f"Sous-zone trouvée: {sous_zone_name}")
-            else:
-                print(f"Aucune sous-zone pour la location {location.id}")
             
             # Vérifier si zone existe
             zone_name = None
@@ -400,9 +330,6 @@ class UserRepository:
             if location.sous_zone and location.sous_zone.zone:
                 zone_name = location.sous_zone.zone.zone_name
                 zone_id = location.sous_zone.zone.id
-                print(f"Zone trouvée: {zone_name}")
-            else:
-                print(f"Aucune zone pour la location {location.id}")
             
             return {
                 'web_id': location.id,
@@ -421,25 +348,17 @@ class UserRepository:
                 'updated_at': location.updated_at.isoformat()
             }
         except Exception as e:
-            print(f"Erreur lors du formatage de la location {location.id}: {str(e)}")
-            import traceback
-            print(f"Traceback complet: {traceback.format_exc()}")
             raise e
     
     def format_stock_data(self, stock):
         """Formate les données d'un stock"""
         try:
-            print(f"Formatage du stock {stock.id}: {stock.reference}")
-            
             # Vérifier si location existe
             location_reference = None
             location_id = None
             if stock.location:
                 location_reference = stock.location.location_reference
                 location_id = stock.location.id
-                print(f"Location trouvée: {location_reference}")
-            else:
-                print(f"Aucune location pour le stock {stock.id}")
             
             # Vérifier si product existe
             product_name = None
@@ -447,9 +366,6 @@ class UserRepository:
             if stock.product:
                 product_name = stock.product.Short_Description
                 product_id = stock.product.id
-                print(f"Produit trouvé: {product_name}")
-            else:
-                print(f"Aucun produit pour le stock {stock.id}")
             
             # Vérifier si unit_of_measure existe
             unit_name = None
@@ -457,9 +373,6 @@ class UserRepository:
             if stock.unit_of_measure:
                 unit_name = stock.unit_of_measure.name
                 unit_id = stock.unit_of_measure.id
-                print(f"Unité trouvée: {unit_name}")
-            else:
-                print(f"Aucune unité pour le stock {stock.id}")
             
             # Vérifier si inventory existe
             inventory_reference = None
@@ -467,9 +380,6 @@ class UserRepository:
             if stock.inventory:
                 inventory_reference = stock.inventory.reference
                 inventory_id = stock.inventory.id
-                print(f"Inventaire trouvé: {inventory_reference}")
-            else:
-                print(f"Aucun inventaire pour le stock {stock.id}")
             
             return {
                 'web_id': stock.id,
@@ -490,7 +400,4 @@ class UserRepository:
                 'updated_at': stock.updated_at.isoformat()
             }
         except Exception as e:
-            print(f"Erreur lors du formatage du stock {stock.id}: {str(e)}")
-            import traceback
-            print(f"Traceback complet: {traceback.format_exc()}")
             raise e 
