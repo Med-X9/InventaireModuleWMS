@@ -30,9 +30,97 @@ class SyncRepository:
             'jobdetail_set__counting'
         )
     
+    def get_jobs_by_inventories_and_user(self, inventories, user_id):
+        """
+        Récupère tous les jobs assignés à l'utilisateur, même s'ils sont dans d'autres inventaires
+
+        Args:
+            inventories: Queryset des inventaires (utilisé pour référence)
+
+        Returns:
+            Queryset des jobs assignés à l'utilisateur avec statut TRANSFERT uniquement
+        """
+        # Récupérer tous les assignments de l'utilisateur avec statut TRANSFERT uniquement
+        job_ids = Assigment.objects.filter(
+            session_id=user_id,
+            job__status='TRANSFERT'
+        ).values_list('job_id', flat=True).distinct()
+
+        # Si aucun job trouvé, retourner un queryset vide
+        if not job_ids:
+            return Job.objects.none()
+
+        # Récupérer les jobs avec leurs job_details préchargés
+        return Job.objects.filter(
+            id__in=job_ids
+        ).prefetch_related(
+            'jobdetail_set',
+            'jobdetail_set__location',
+            'jobdetail_set__location__sous_zone',
+            'jobdetail_set__location__sous_zone__zone',
+            'jobdetail_set__counting'
+        )
+    
+    def get_inventories_by_user_assignments(self, user_id):
+        """
+        Récupère les inventaires liés aux jobs assignés à l'utilisateur avec statut EN REALISATION uniquement
+        
+        Args:
+            user_id: ID de l'utilisateur
+            
+        Returns:
+            Queryset des inventaires EN REALISATION contenant des jobs TRANSFERT assignés à l'utilisateur
+        """
+        # Récupérer les IDs des inventaires des jobs assignés à l'utilisateur avec statut TRANSFERT uniquement
+        inventory_ids = Assigment.objects.filter(
+            session_id=user_id,
+            job__status='TRANSFERT'
+        ).values_list('job__inventory_id', flat=True).distinct()
+        
+        if not inventory_ids:
+            return Inventory.objects.none()
+        
+        # Récupérer les inventaires avec statut EN REALISATION uniquement
+        return Inventory.objects.filter(id__in=inventory_ids, status='EN REALISATION')
+    
+    def get_countings_by_user_assignments(self, user_id):
+        """
+        Récupère les comptages liés aux assignments de l'utilisateur pour les jobs TRANSFERT uniquement
+        
+        Args:
+            user_id: ID de l'utilisateur
+            
+        Returns:
+            Queryset des countings des assignments de l'utilisateur pour les jobs TRANSFERT
+        """
+        # Récupérer les counting_id des assignments de l'utilisateur avec statut TRANSFERT uniquement
+        counting_ids = Assigment.objects.filter(
+            session_id=user_id,
+            job__status='TRANSFERT'
+        ).values_list('counting_id', flat=True).distinct()
+        
+        if not counting_ids:
+            return Counting.objects.none()
+        
+        # Récupérer les countings
+        return Counting.objects.filter(id__in=counting_ids)
+    
     def get_assignments_by_jobs(self, jobs):
         """Récupère les assignations pour les jobs donnés"""
         return Assigment.objects.filter(job__in=jobs)
+    
+    def get_assignments_by_jobs_and_user(self, jobs, user_id):
+        """
+        Récupère les assignations pour les jobs donnés, filtrées par utilisateur
+        
+        Args:
+            jobs: Queryset des jobs
+            user_id: ID de l'utilisateur pour filtrer les assignments
+            
+        Returns:
+            Queryset des assignments de l'utilisateur pour ces jobs
+        """
+        return Assigment.objects.filter(job__in=jobs, session_id=user_id)
     
     def get_countings_by_inventories(self, inventories):
         """Récupère les comptages pour les inventaires donnés"""
@@ -129,11 +217,37 @@ class SyncRepository:
             'counting_web_id': job_detail.counting.id if job_detail.counting else None
         }
     
-    def format_job_data(self, job):
-        """Formate les données d'un job avec ses job_details"""
-        # Récupérer et formater les job_details
+    def format_job_data(self, job, user_id=None):
+        """
+        Formate les données d'un job avec ses job_details
+        
+        Args:
+            job: Instance du Job
+            user_id: ID de l'utilisateur pour filtrer les job_details par assignments (optionnel)
+        """
+        # Récupérer les job_details
+        job_detail_queryset = job.jobdetail_set.all()
+        
+        # Filtrer les job_details par assignments de l'utilisateur si user_id est fourni
+        if user_id:
+            # Récupérer les counting_id des assignments de l'utilisateur pour ce job
+            user_counting_ids = Assigment.objects.filter(
+                job=job,
+                session_id=user_id
+            ).values_list('counting_id', flat=True).distinct()
+            
+            # Filtrer les job_details par counting
+            if user_counting_ids:
+                job_detail_queryset = job_detail_queryset.filter(
+                    counting_id__in=user_counting_ids
+                )
+            else:
+                # Si aucun assignment pour cet utilisateur, retourner une liste vide
+                job_detail_queryset = job_detail_queryset.none()
+        
+        # Formater les job_details
         job_details = []
-        for job_detail in job.jobdetail_set.all():
+        for job_detail in job_detail_queryset:
             job_details.append(self.format_job_detail_data(job_detail))
         
         return {
