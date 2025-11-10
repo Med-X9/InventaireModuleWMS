@@ -48,7 +48,6 @@ class UserService:
                     continue
             
             # Logger la récupération
-            print(f"Récupération des inventaires réussie: {len(response_data['data']['inventories'])} inventaires pour l'utilisateur {user_id}")
             
             return response_data
             
@@ -90,7 +89,6 @@ class UserService:
             response_data['data']['products'] = formatted_products
             
             # Logger la récupération
-            print(f"Récupération des produits réussie: {len(response_data['data']['products'])} produits pour l'utilisateur {user_id}")
             
             return response_data
             
@@ -136,9 +134,7 @@ class UserService:
             
             response_data['data']['locations'] = formatted_locations
             
-            # Logger la récupération
-            print(f"Récupération des locations réussie: {len(response_data['data']['locations'])} locations pour l'utilisateur {user_id}")
-            
+            # Logger la récupération            
             return response_data
             
         except (LocationNotFoundException, DataValidationException, DatabaseConnectionException) as e:
@@ -182,10 +178,7 @@ class UserService:
                     continue
             
             response_data['data']['stocks'] = formatted_stocks
-            
-            # Logger la récupération
-            print(f"Récupération des stocks réussie: {len(response_data['data']['stocks'])} stocks pour l'utilisateur {user_id}")
-            
+                        
             return response_data
             
         except (StockNotFoundException, DataValidationException, DatabaseConnectionException) as e:

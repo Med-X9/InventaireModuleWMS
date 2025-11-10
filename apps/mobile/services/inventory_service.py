@@ -40,10 +40,8 @@ class InventoryService:
                     continue
             
             # Logger la récupération
-            print(f"Récupération des utilisateurs réussie: {len(response_data['data']['users'])} utilisateurs pour l'inventaire {inventory_id}")
             
             return response_data
             
         except Exception as e:
-            print(f"Erreur lors de la récupération des utilisateurs: {str(e)}")
             raise e 
