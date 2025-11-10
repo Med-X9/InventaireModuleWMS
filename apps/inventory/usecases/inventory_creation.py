@@ -267,10 +267,10 @@ class InventoryCreationUseCase:
         Valide les comptages selon les règles métier spécifiques.
         
         Règles métier :
-        1. "image stock" ne peut être que dans le 1er comptage (order=1)
-        2. Si le 1er comptage est "image stock", les 2e et 3e doivent être du même mode (soit "en vrac", soit "par article")
-        3. Si le 1er comptage n'est pas "image stock", tous les comptages peuvent être "par article" ou "en vrac"
-        4. Validation de cohérence entre les comptages
+        1. Le 1er comptage doit être défini (order=1) et pilote les modes suivants.
+        2. Si le 1er comptage est "image de stock", les 2e et 3e doivent partager le même mode.
+        3. Si le 1er comptage est "par article", tous les comptages doivent rester "par article" avec les mêmes paramètres (N° lot, DLC, N° série).
+        4. Si le 1er comptage est "en vrac", les 2e et 3e doivent rester "en vrac".
         """
         errors = []
         
@@ -290,51 +290,78 @@ class InventoryCreationUseCase:
         
         # Récupérer les modes de comptage par ordre
         count_modes = [c.get('count_mode') for c in comptages_sorted]
+        normalized_modes = [self._normalize_count_mode(mode) for mode in count_modes]
         
         # Vérifier que tous les modes sont valides
-        valid_modes = ['en vrac', 'par article', 'image stock']
-        for i, mode in enumerate(count_modes):
+        valid_modes = ['en vrac', 'par article', 'image de stock']
+        for i, mode in enumerate(normalized_modes):
             if mode not in valid_modes:
-                errors.append(f"Comptage {i+1}: Mode de comptage invalide '{mode}'")
+                errors.append(f"Comptage {i+1}: Mode de comptage invalide '{count_modes[i]}'")
         
         # Validation des combinaisons autorisées
-        first_mode = count_modes[0]
-        second_mode = count_modes[1]
-        third_mode = count_modes[2]
+        first_mode = normalized_modes[0]
+        second_mode = normalized_modes[1]
+        third_mode = normalized_modes[2]
+        article_param_fields = ['n_lot', 'dlc', 'n_serie']
         
-        # Scénario 1: Premier comptage = "image stock"
-        if first_mode == "image stock":
-            # Les 2e et 3e comptages doivent être du même mode (soit "en vrac", soit "par article")
+        # Scénario 1: Premier comptage = "image de stock"
+        if first_mode == "image de stock":
             if second_mode != third_mode:
-                errors.append("Si le premier comptage est 'image stock', les 2e et 3e comptages doivent avoir le même mode")
+                errors.append("Si le premier comptage est 'image de stock', les 2e et 3e comptages doivent avoir le même mode")
             
             if second_mode not in ["en vrac", "par article"]:
-                errors.append("Si le premier comptage est 'image stock', les 2e et 3e comptages doivent être 'en vrac' ou 'par article'")
+                errors.append("Si le premier comptage est 'image de stock', les 2e et 3e comptages doivent être 'en vrac' ou 'par article'")
+            
+            if second_mode == "par article":
+                first_params = self._extract_article_params(comptages_sorted[0], article_param_fields)
+                second_params = self._extract_article_params(comptages_sorted[1], article_param_fields)
+                third_params = self._extract_article_params(comptages_sorted[2], article_param_fields)
+                if second_params != third_params:
+                    errors.append(
+                        "Les comptages 2 et 3 en mode 'par article' doivent partager les mêmes paramètres (N° lot, DLC, N° série)"
+                    )
+                if second_params != first_params or third_params != first_params:
+                    errors.append(
+                        "Si le premier comptage est 'image de stock', les paramètres 'par article' sélectionnés (N° lot, DLC, N° série) doivent être identiques sur les 2e et 3e comptages"
+                    )
         
-        # Scénario 2: Premier comptage = "en vrac" ou "par article"
-        elif first_mode in ["en vrac", "par article"]:
-            # Tous les comptages doivent être "en vrac" ou "par article"
-            for i, mode in enumerate(count_modes):
-                if mode not in ["en vrac", "par article"]:
-                    errors.append(f"Si le premier comptage n'est pas 'image stock', tous les comptages doivent être 'en vrac' ou 'par article' (comptage {i+1}: '{mode}')")
+        # Scénario 2: Premier comptage = "par article"
+        elif first_mode == "par article":
+            if second_mode != "par article" or third_mode != "par article":
+                errors.append("Si le premier comptage est 'par article', les 2e et 3e comptages doivent également être 'par article'")
+            else:
+                first_params = self._extract_article_params(comptages_sorted[0], article_param_fields)
+                for index, counting in enumerate(comptages_sorted[1:], start=2):
+                    counting_params = self._extract_article_params(counting, article_param_fields)
+                    if counting_params != first_params:
+                        order_value = counting.get('order', index)
+                        differing_fields = [
+                            field for field in article_param_fields if counting_params[field] != first_params[field]
+                        ]
+                        formatted_fields = ", ".join(differing_fields)
+                        errors.append(
+                            f"Comptage {order_value}: Les paramètres ({formatted_fields}) doivent être identiques au premier comptage 'par article'"
+                        )
+        
+        # Scénario 3: Premier comptage = "en vrac"
+        elif first_mode == "en vrac":
+            if second_mode != "en vrac" or third_mode != "en vrac":
+                errors.append("Si le premier comptage est 'en vrac', les 2e et 3e comptages doivent également être 'en vrac'")
         
         # Validation de cohérence entre les comptages
         self._validate_counting_consistency(comptages_sorted, errors)
         
         # Validation des champs obligatoires et spécifiques via CountingDispatcher
         for i, comptage in enumerate(comptages_sorted, 1):
-            # Validation des champs obligatoires
             if not comptage.get('order'):
                 errors.append(f"Comptage {i}: L'ordre est obligatoire")
             
             if not comptage.get('count_mode'):
                 errors.append(f"Comptage {i}: Le mode de comptage est obligatoire")
             
-            # Validation spécifique via CountingDispatcher
             count_mode = comptage.get('count_mode')
             if count_mode:
                 try:
-                    # Valider via le dispatcher
                     self.counting_dispatcher.validate_counting_data(comptage)
                 except Exception as e:
                     errors.append(f"Comptage {i}: {str(e)}")
@@ -347,37 +374,36 @@ class InventoryCreationUseCase:
         Valide la cohérence entre les comptages.
         
         Règles de cohérence :
-        1. Si 1er comptage = "image stock", les 2e et 3e doivent avoir la même configuration
-        2. Si 1er comptage n'est pas "image stock", le 3e comptage doit avoir soit la config du 1er OU la config du 2e
+        1. Si 1er comptage = "image de stock", les 2e et 3e doivent partager la même configuration.
+        2. Si 1er comptage = "par article", les trois comptages doivent partager la même configuration.
+        3. Si 1er comptage = "en vrac", les trois comptages restent en "en vrac".
         """
         first_comptage = comptages_sorted[0]
         second_comptage = comptages_sorted[1]
         third_comptage = comptages_sorted[2]
         
-        first_mode = first_comptage.get('count_mode')
+        first_mode = self._normalize_count_mode(first_comptage.get('count_mode'))
+        second_mode = self._normalize_count_mode(second_comptage.get('count_mode'))
+        third_mode = self._normalize_count_mode(third_comptage.get('count_mode'))
         
-        # Règle 1: Si 1er comptage = "image stock", le 3e doit avoir la même configuration que le 2e
-        if first_mode == "image stock":
-            # Vérifier que le 3e comptage a la même configuration que le 2e
+        if first_mode == "image de stock":
             second_config = self._get_counting_config(second_comptage)
             third_config = self._get_counting_config(third_comptage)
-            
             if third_config != second_config:
-                errors.append("Si le premier comptage est 'image stock', le 3e comptage doit avoir la même configuration que le 2e comptage")
+                errors.append("Si le premier comptage est 'image de stock', le 3e comptage doit avoir la même configuration que le 2e comptage")
         
-        # Règle 2: Si 1er comptage n'est pas "image stock", le 3e comptage doit avoir soit la config du 1er OU la config du 2e
-        else:
-            # Le 3e comptage doit avoir soit la config du 1er OU la config du 2e
+        elif first_mode == "par article":
             first_config = self._get_counting_config(first_comptage)
             second_config = self._get_counting_config(second_comptage)
             third_config = self._get_counting_config(third_comptage)
-            
-            # Vérifier si le 3e a la même config que le 1er OU le 2e
-            matches_first = third_config == first_config
-            matches_second = third_config == second_config
-            
-            if not (matches_first or matches_second):
-                errors.append("Si le premier comptage n'est pas 'image stock', le 3e comptage doit avoir soit la même configuration que le 1er OU la même configuration que le 2e")
+            if second_config != first_config:
+                errors.append("Si le premier comptage est 'par article', le 2e comptage doit avoir la même configuration que le 1er comptage")
+            if third_config != first_config:
+                errors.append("Si le premier comptage est 'par article', le 3e comptage doit avoir la même configuration que le 1er comptage")
+        
+        elif first_mode == "en vrac":
+            if second_mode != "en vrac" or third_mode != "en vrac":
+                errors.append("Si le premier comptage est 'en vrac', tous les comptages doivent rester en 'en vrac'")
     
     def _get_counting_config(self, comptage: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -390,7 +416,7 @@ class InventoryCreationUseCase:
             Dict[str, Any]: Configuration du comptage
         """
         return {
-            'count_mode': comptage.get('count_mode'),
+            'count_mode': self._normalize_count_mode(comptage.get('count_mode')),
             'unit_scanned': comptage.get('unit_scanned', False),
             'entry_quantity': comptage.get('entry_quantity', False),
             'is_variant': comptage.get('is_variant', False),
@@ -401,6 +427,23 @@ class InventoryCreationUseCase:
             'stock_situation': comptage.get('stock_situation', False),
             'quantity_show': comptage.get('quantity_show', False)
         }
+
+    def _extract_article_params(self, comptage: Dict[str, Any], fields: List[str]) -> Dict[str, bool]:
+        """
+        Extrait et normalise les paramètres spécifiques au mode 'par article'.
+        """
+        return {field: bool(comptage.get(field, False)) for field in fields}
+
+    def _normalize_count_mode(self, mode: Any) -> str:
+        """
+        Normalise le mode de comptage pour simplifier les comparaisons.
+        """
+        if not isinstance(mode, str):
+            return ""
+        normalized = mode.strip().lower()
+        if normalized in ["image stock", "image de stock"]:
+            return "image de stock"
+        return normalized
     
     def _format_response(self, inventory: Inventory, countings: List[Counting]) -> Dict[str, Any]:
         """

@@ -10,7 +10,8 @@ from django_filters.rest_framework import DjangoFilterBackend
 from ..models import Inventory
 from ..services.inventory_service import InventoryService
 from ..serializers.inventory_serializer import (
-    InventoryCreateSerializer, 
+    InventoryCreateSerializer,
+    InventoryDuplicateSerializer,
     InventoryDetailSerializer,
     InventoryGetByIdSerializer,
     InventoryTeamSerializer,
@@ -289,6 +290,57 @@ class InventoryCreateView(APIView):
                 {"error": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class InventoryDuplicateView(APIView):
+    """
+    Vue pour dupliquer un inventaire existant en utilisant la configuration de comptages source.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from ..services.inventory_duplication_service import InventoryDuplicationService
+        self.service = InventoryDuplicationService()
+        self.serializer_class = InventoryDuplicateSerializer
+
+    def post(self, request, pk, *args, **kwargs):
+        """
+        Duplique un inventaire en conservant la configuration des comptages.
+        """
+        serializer = self.serializer_class(data=request.data)
+        if not serializer.is_valid():
+            logger.warning(
+                "Données invalides lors de la duplication d'un inventaire: %s",
+                serializer.errors
+            )
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            result = self.service.duplicate_inventory(pk, serializer.validated_data)
+            return Response(result, status=status.HTTP_201_CREATED)
+        except InventoryNotFoundError as e:
+            logger.warning(
+                "Inventaire source introuvable pour la duplication (id=%s): %s",
+                pk,
+                str(e)
+            )
+            return Response({"error": str(e)}, status=status.HTTP_404_NOT_FOUND)
+        except InventoryValidationError as e:
+            logger.warning(
+                "Erreur métier lors de la duplication d'inventaire (id=%s): %s",
+                pk,
+                str(e)
+            )
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(
+                "Erreur inattendue lors de la duplication d'inventaire (id=%s): %s",
+                pk,
+                str(e),
+                exc_info=True
+            )
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 class InventoryDetailView(APIView):
     """

@@ -3,6 +3,7 @@ from django.urls import path
 from .views.inventory_views import (
     InventoryListView,
     InventoryCreateView,
+    InventoryDuplicateView,
     InventoryDetailView,
     InventoryDetailByReferenceView,
     InventoryUpdateView,
@@ -35,6 +36,7 @@ urlpatterns = [
     path('inventory/', InventoryListView.as_view(), name='inventory-list'),
     path('inventory/test-ordering/', InventoryOrderingTestView.as_view(), name='inventory-test-ordering'),
     path('inventory/create/', InventoryCreateView.as_view(), name='inventory-create'),
+    path('inventory/<int:pk>/duplicate/', InventoryDuplicateView.as_view(), name='inventory-duplicate'),
     path('inventory/import/', InventoryImportView.as_view(), name='inventory-import'),
     path('inventory/<int:pk>/edit/', InventoryDetailView.as_view(), name='inventory-edit'),
     path('inventory/by-reference/<str:reference>/', InventoryDetailByReferenceView.as_view(), name='inventory-by-reference'),
