@@ -105,23 +105,28 @@ class InventoryResultService:
         )
 
         max_order_global = 0
-        entries: Dict[Tuple[int, Optional[int]], Dict[str, Any]] = {}
+        entries: Dict[Tuple[int, Optional[int], Optional[int]], Dict[str, Any]] = {}
 
         if not aggregated_rows:
             return []
 
         for row in aggregated_rows:
-            entry_key: Tuple[int, Optional[int]] = (
+            entry_key: Tuple[int, Optional[int], Optional[int]] = (
                 row["location_id"],
                 row.get("product_id"),
+                row.get("job_id"),
             )
 
             entry_data = entries.setdefault(
                 entry_key,
                 {
                     "location": {
+                        "id": row["location_id"],
                         "reference": row["location_reference_alias"],
                         "code": row["location_code_alias"],
+                    },
+                    "job": {
+                        "id": row.get("job_id"),
                     },
                     "product": None,
                     "quantities": {},
@@ -145,6 +150,7 @@ class InventoryResultService:
             key=lambda item: (
                 item["location"]["reference"] or "",
                 item["product"]["reference"] if item["product"] else "",
+                item["job"]["id"] or 0,
             ),
         ):
             quantities = entry["quantities"]
@@ -153,10 +159,18 @@ class InventoryResultService:
 
             result_row: Dict[str, Any] = {
                 "location": entry["location"]["reference"] or "",
+                "location_id": entry["location"]["id"],
             }
 
             if mode == "par article" and entry["product"]:
                 result_row["product"] = entry["product"]["reference"]
+
+            job_info = entry.get("job")
+            if job_info and job_info.get("id") is not None:
+                result_row["job_id"] = job_info["id"]
+                job_reference = job_info.get("reference")
+                if job_reference:
+                    result_row["job_reference"] = job_reference
 
             previous_order: Optional[int] = None
             previous_quantity: Optional[int] = None
