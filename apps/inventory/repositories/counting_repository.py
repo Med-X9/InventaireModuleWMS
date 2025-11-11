@@ -1,8 +1,8 @@
-from django.db.models import Q, Max
+from django.db.models import Q, Max, Sum, F
 from ..models import Counting, CountingDetail, Inventory
 from apps.inventory.exceptions.counting_exceptions import CountingNotFoundError
 from ..interfaces.counting_interface import ICountingRepository
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from django.utils import timezone
 from django.db import transaction
 
@@ -305,3 +305,59 @@ class CountingRepository(ICountingRepository):
                 except CountingNotFoundError:
                     continue
             return count 
+
+    def get_inventory_results_by_warehouse(
+        self,
+        inventory_id: int,
+        warehouse_id: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Récupère les quantités inventoriées agrégées par entrepôt, emplacement,
+        produit (le cas échéant) et ordre de comptage.
+
+        Args:
+            inventory_id: Identifiant de l'inventaire ciblé.
+            warehouse_id: Identifiant de l'entrepôt à filtrer (optionnel).
+
+        Returns:
+            Liste de dictionnaires contenant les quantités agrégées.
+        """
+        queryset = CountingDetail.objects.filter(
+            counting__inventory_id=inventory_id
+        )
+
+        if warehouse_id is not None:
+            queryset = queryset.filter(job__warehouse_id=warehouse_id)
+
+        annotated_queryset = queryset.annotate(
+            warehouse_id_alias=F('job__warehouse_id'),
+            warehouse_reference_alias=F('job__warehouse__reference'),
+            warehouse_name_alias=F('job__warehouse__warehouse_name'),
+            location_reference_alias=F('location__location_reference'),
+            location_code_alias=F('location__reference'),
+            counting_order_alias=F('counting__order'),
+            product_reference_alias=F('product__reference'),
+            product_description_alias=F('product__Short_Description'),
+        )
+
+        aggregated_queryset = annotated_queryset.values(
+            'warehouse_id_alias',
+            'warehouse_reference_alias',
+            'warehouse_name_alias',
+            'location_id',
+            'location_reference_alias',
+            'location_code_alias',
+            'counting_order_alias',
+            'product_id',
+            'product_reference_alias',
+            'product_description_alias',
+        ).annotate(
+            total_quantity=Sum('quantity_inventoried')
+        ).order_by(
+            'warehouse_id_alias',
+            'location_reference_alias',
+            'product_reference_alias',
+            'counting_order_alias',
+        )
+
+        return list(aggregated_queryset)
