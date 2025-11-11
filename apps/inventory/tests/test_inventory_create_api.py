@@ -57,24 +57,41 @@ class InventoryCreateAPITestCase(TestCase):
                 {
                     "order": 1,
                     "count_mode": "image de stock",
+                    "unit_scanned": False,
+                    "entry_quantity": False,
                     "n_lot": False,
                     "dlc": False,
                     "n_serie": False,
+                    "is_variant": False,
+                    "show_product": False,
                     "stock_situation": True,
+                    "quantity_show": False,
                 },
                 {
                     "order": 2,
                     "count_mode": "par article",
+                    "unit_scanned": False,
+                    "entry_quantity": False,
                     "n_lot": False,
                     "dlc": False,
                     "n_serie": False,
+                    "is_variant": True,
+                    "show_product": False,
+                    "stock_situation": False,
+                    "quantity_show": True,
                 },
                 {
                     "order": 3,
                     "count_mode": "par article",
+                    "unit_scanned": False,
+                    "entry_quantity": False,
                     "n_lot": False,
                     "dlc": False,
                     "n_serie": False,
+                    "is_variant": True,
+                    "show_product": False,
+                    "stock_situation": False,
+                    "quantity_show": True,
                 },
             ],
         }
@@ -98,12 +115,12 @@ class InventoryCreateAPITestCase(TestCase):
         ne sont pas identiques entre les comptages lorsque le 1er comptage est 'image de stock'.
         """
         payload = self._base_payload()
-        payload["comptages"][2]["n_lot"] = True  # Paramètre différent du 1er comptage 'par article'
+        payload["comptages"][2]["is_variant"] = False  # Paramètre différent du 1er comptage 'par article'
 
         response = self.client.post(self.url, data=payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("paramètres 'par article'", str(response.data))
+        self.assertIn("Variante", str(response.data))
         self.assertFalse(Inventory.objects.filter(label=payload["label"]).exists())
 
     def test_create_inventory_error_on_par_article_inconsistent_modes(self) -> None:
@@ -114,16 +131,44 @@ class InventoryCreateAPITestCase(TestCase):
         payload = self._base_payload()
         payload["comptages"][0]["count_mode"] = "par article"
         payload["comptages"][0]["stock_situation"] = False
+        payload["comptages"][0]["is_variant"] = True
+        payload["comptages"][0]["quantity_show"] = True
         payload["comptages"][1]["count_mode"] = "par article"
         payload["comptages"][2]["count_mode"] = "en vrac"
         payload["comptages"][2]["unit_scanned"] = True
         payload["comptages"][2]["n_lot"] = False
         payload["comptages"][2]["dlc"] = False
         payload["comptages"][2]["n_serie"] = False
+        payload["comptages"][2]["is_variant"] = False
 
         response = self.client.post(self.url, data=payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Si le premier comptage est 'par article'", str(response.data))
+        self.assertFalse(Inventory.objects.filter(label=payload["label"]).exists())
+
+    def test_create_inventory_error_on_par_article_variant_mismatch(self) -> None:
+        """
+        Vérifie qu'une erreur est renvoyée lorsque le 1er comptage est 'par article'
+        avec une configuration variante qui n'est pas reprise par les comptages suivants.
+        """
+        payload = self._base_payload()
+        payload["comptages"][0].update(
+            {
+                "count_mode": "par article",
+                "stock_situation": False,
+                "is_variant": True,
+                "quantity_show": True,
+            }
+        )
+        payload["comptages"][1]["count_mode"] = "par article"
+        payload["comptages"][1]["is_variant"] = True
+        payload["comptages"][2]["count_mode"] = "par article"
+        payload["comptages"][2]["is_variant"] = False  # divergence
+
+        response = self.client.post(self.url, data=payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Variante", str(response.data))
         self.assertFalse(Inventory.objects.filter(label=payload["label"]).exists())
 

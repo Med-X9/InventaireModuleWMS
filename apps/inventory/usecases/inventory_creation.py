@@ -302,7 +302,14 @@ class InventoryCreationUseCase:
         first_mode = normalized_modes[0]
         second_mode = normalized_modes[1]
         third_mode = normalized_modes[2]
-        article_param_fields = ['n_lot', 'dlc', 'n_serie']
+        article_param_fields = ['n_lot', 'dlc', 'n_serie', 'is_variant']
+        article_field_labels = {
+            'n_lot': "N° lot",
+            'dlc': "DLC",
+            'n_serie': "N° série",
+            'is_variant': "Variante",
+        }
+        article_fields_label_joined = ", ".join(article_field_labels[field] for field in article_param_fields)
         
         # Scénario 1: Premier comptage = "image de stock"
         if first_mode == "image de stock":
@@ -313,16 +320,11 @@ class InventoryCreationUseCase:
                 errors.append("Si le premier comptage est 'image de stock', les 2e et 3e comptages doivent être 'en vrac' ou 'par article'")
             
             if second_mode == "par article":
-                first_params = self._extract_article_params(comptages_sorted[0], article_param_fields)
                 second_params = self._extract_article_params(comptages_sorted[1], article_param_fields)
                 third_params = self._extract_article_params(comptages_sorted[2], article_param_fields)
                 if second_params != third_params:
                     errors.append(
-                        "Les comptages 2 et 3 en mode 'par article' doivent partager les mêmes paramètres (N° lot, DLC, N° série)"
-                    )
-                if second_params != first_params or third_params != first_params:
-                    errors.append(
-                        "Si le premier comptage est 'image de stock', les paramètres 'par article' sélectionnés (N° lot, DLC, N° série) doivent être identiques sur les 2e et 3e comptages"
+                        f"Les comptages 2 et 3 en mode 'par article' doivent partager les mêmes paramètres ({article_fields_label_joined})"
                     )
         
         # Scénario 2: Premier comptage = "par article"
@@ -336,7 +338,7 @@ class InventoryCreationUseCase:
                     if counting_params != first_params:
                         order_value = counting.get('order', index)
                         differing_fields = [
-                            field for field in article_param_fields if counting_params[field] != first_params[field]
+                            article_field_labels[field] for field in article_param_fields if counting_params[field] != first_params[field]
                         ]
                         formatted_fields = ", ".join(differing_fields)
                         errors.append(
