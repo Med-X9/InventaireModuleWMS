@@ -19,7 +19,7 @@ class SyncService:
     def __init__(self):
         self.repository = SyncRepository()
     
-    def sync_data(self, user_id, inventory_id=None):
+    def sync_data(self, user_id):
         """Synchronise toutes les données nécessaires"""
         try:
             # Générer un ID de synchronisation
@@ -27,19 +27,11 @@ class SyncService:
             
             # Si user_id est fourni, récupérer les inventaires liés aux jobs assignés à l'utilisateur
             if user_id:
-                if inventory_id:
-                    # Si un inventaire spécifique est demandé, l'utiliser
-                    inventories = self.repository.get_inventories_in_realisation(inventory_id)
-                else:
                     # Récupérer les inventaires liés aux assignments de l'utilisateur
                     inventories = self.repository.get_inventories_by_user_assignments(user_id)
-            else:
-                # Si pas de user_id, utiliser la logique par défaut
-                if inventory_id:
-                    inventories = self.repository.get_inventories_in_realisation(inventory_id)
-                else:
-                    # Récupérer les inventaires du même compte (sans user_id, utiliser une valeur par défaut)
-                    inventories = self.repository.get_inventories_in_realisation()
+            # else:
+            #     # Si pas de user_id, utiliser la logique par défaut
+            #     inventories = self.repository.get_inventories_in_realisation()
             
             # Préparer la réponse
             response_data = {
@@ -140,7 +132,7 @@ class SyncService:
         try:
             response_data = {
                 'success': True,
-                'sync_id': sync_id,
+                # 'sync_id': sync_id,
                 'uploaded_count': 0,
                 'errors': [],
                 'conflicts': []

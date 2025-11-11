@@ -148,31 +148,36 @@ class UnassignedLocationsView(ServerSideDataTableView):
 
     def get_datatable_queryset(self):
         """
-        Récupère les emplacements non affectés pour le warehouse et l'account spécifiés avec relations préchargées.
+        Récupère les emplacements non affectés pour le warehouse, l'account et l'inventaire
+        spécifiés avec relations préchargées.
         """
+        from rest_framework.exceptions import ValidationError
+        from apps.inventory.models import JobDetail
+
         warehouse_id = self.kwargs.get('warehouse_id')
         account_id = self.kwargs.get('account_id')
+        inventory_id = self.kwargs.get('inventory_id')
+
         if not account_id:
-            from rest_framework.exceptions import ValidationError
-            raise ValidationError({'account_id': 'Ce paramètre est obligatoire dans l\'URL.'})
+            raise ValidationError({'account_id': "Ce paramètre est obligatoire dans l'URL."})
         if not warehouse_id:
-            from rest_framework.exceptions import ValidationError
-            raise ValidationError({'warehouse_id': 'Ce paramètre est obligatoire dans l\'URL.'})
+            raise ValidationError({'warehouse_id': "Ce paramètre est obligatoire dans l'URL."})
+        if not inventory_id:
+            raise ValidationError({'inventory_id': "Ce paramètre est obligatoire dans l'URL."})
 
-        queryset = Location.objects.filter(is_active=True)
-        # Filtrer par warehouse si spécifié
-        if warehouse_id:
-            queryset = queryset.filter(sous_zone__zone__warehouse_id=warehouse_id)
+        queryset = Location.objects.filter(
+            is_active=True,
+            sous_zone__zone__warehouse_id=warehouse_id,
+            regroupement__account_id=account_id,
+        )
 
-        # Filtrer par regroupement.account lié à l'account_id
-        queryset = queryset.filter(regroupement__account_id=account_id)
+        assigned_location_ids = JobDetail.objects.filter(
+            job__inventory_id=inventory_id,
+            location_id__isnull=False,
+        ).values_list('location_id', flat=True)
 
-        # Exclure les emplacements qui sont déjà affectés à des jobs
-        from apps.inventory.models import JobDetail
-        assigned_location_ids = JobDetail.objects.values_list('location_id', flat=True)
         queryset = queryset.exclude(id__in=assigned_location_ids)
 
-        # Précharger les relations pour optimiser les performances
         queryset = queryset.select_related(
             'sous_zone',
             'sous_zone__zone',

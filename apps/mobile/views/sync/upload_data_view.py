@@ -131,17 +131,17 @@ class UploadDataView(APIView):
         try:
             sync_service = SyncService()
             
-            sync_id = request.data.get('sync_id')
-            if not sync_id:
-                return Response({
-                    'success': False,
-                    'error': 'sync_id requis'
-                }, status=status.HTTP_400_BAD_REQUEST)
+            # sync_id = request.data.get('sync_id')
+            # if not sync_id:
+            #     return Response({
+            #         'success': False,
+            #         'error': 'sync_id requis'
+            #     }, status=status.HTTP_400_BAD_REQUEST)
             
             countings = request.data.get('countings', [])
             assignments = request.data.get('assignments', [])
             
-            response_data = sync_service.upload_data(sync_id, countings, assignments)
+            response_data = sync_service.upload_data( countings, assignments)
             
             return Response(response_data, status=status.HTTP_200_OK)
             
