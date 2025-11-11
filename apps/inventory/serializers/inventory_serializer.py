@@ -89,6 +89,38 @@ class InventoryCreateSerializer(serializers.Serializer):
         
         return data
 
+
+class InventoryDuplicateSerializer(serializers.Serializer):
+    """
+    Serializer pour la duplication d'un inventaire.
+    """
+    label = serializers.CharField()
+    date = serializers.DateField()
+    inventory_type = serializers.ChoiceField(
+        choices=[('TOURNANT', 'TOURNANT'), ('GENERAL', 'GENERAL')],
+        default='GENERAL'
+    )
+    account_id = serializers.IntegerField()
+    warehouse = serializers.ListField(
+        child=serializers.DictField(),
+        allow_empty=False
+    )
+
+    def validate_warehouse(self, warehouses):
+        """
+        Valide la liste des entrepôts fournie.
+        """
+        if not warehouses:
+            raise serializers.ValidationError("Au moins un entrepôt est obligatoire")
+
+        for index, warehouse_info in enumerate(warehouses, start=1):
+            if not isinstance(warehouse_info, dict):
+                raise serializers.ValidationError(f"L'entrepôt {index} doit être un objet avec un identifiant")
+            if not warehouse_info.get('id'):
+                raise serializers.ValidationError(f"L'entrepôt {index} doit avoir un identifiant 'id'")
+
+        return warehouses
+
 class InventoryGetByIdSerializer(serializers.ModelSerializer):
     """Serializer pour récupérer un inventaire par son ID avec le format spécifique."""
     account_id = serializers.SerializerMethodField()

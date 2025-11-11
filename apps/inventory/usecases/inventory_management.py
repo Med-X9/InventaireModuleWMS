@@ -393,6 +393,7 @@ class InventoryManagementUseCase:
         first_mode = count_modes[0]
         second_mode = count_modes[1]
         third_mode = count_modes[2]
+        article_param_fields = ['n_lot', 'dlc', 'n_serie']
         
         # Scénario 1: Premier comptage = "image de stock"
         if first_mode == "image de stock":
@@ -402,6 +403,21 @@ class InventoryManagementUseCase:
             
             if second_mode not in ["en vrac", "par article"]:
                 errors.append("Si le premier comptage est 'image de stock', les 2e et 3e comptages doivent être 'en vrac' ou 'par article'")
+
+            # Vérifier l'alignement des paramètres si les comptages 2 et 3 sont "par article"
+            if second_mode == "par article":
+                first_params = {field: bool(comptages_sorted[0].get(field, False)) for field in article_param_fields}
+                second_params = {field: bool(comptages_sorted[1].get(field, False)) for field in article_param_fields}
+                third_params = {field: bool(comptages_sorted[2].get(field, False)) for field in article_param_fields}
+
+                if second_params != third_params:
+                    errors.append(
+                        "Les comptages 2 et 3 en mode 'par article' doivent partager les mêmes paramètres (N° lot, DLC, N° série)"
+                    )
+                if second_params != first_params or third_params != first_params:
+                    errors.append(
+                        "Si le premier comptage est 'image de stock', les paramètres 'par article' sélectionnés (N° lot, DLC, N° série) doivent rester identiques sur les 2e et 3e comptages"
+                    )
         
         # Scénario 2: Premier comptage = "en vrac" ou "par article"
         elif first_mode in ["en vrac", "par article"]:
@@ -409,6 +425,30 @@ class InventoryManagementUseCase:
             for i, mode in enumerate(count_modes):
                 if mode not in ["en vrac", "par article"]:
                     errors.append(f"Si le premier comptage n'est pas 'image de stock', tous les comptages doivent être 'en vrac' ou 'par article' (comptage {i+1}: '{mode}')")
+
+            if first_mode == "en vrac":
+                # Imposer le même mode "en vrac" pour les 2e et 3e comptages
+                if second_mode != "en vrac" or third_mode != "en vrac":
+                    errors.append("Si le premier comptage est 'en vrac', les 2e et 3e comptages doivent également être 'en vrac'")
+
+            if first_mode == "par article":
+                # Imposer le mode "par article" et l'alignement des paramètres pour les 2e et 3e comptages
+                if second_mode != "par article" or third_mode != "par article":
+                    errors.append("Si le premier comptage est 'par article', les 2e et 3e comptages doivent également être 'par article'")
+                else:
+                    first_params = {field: bool(comptages_sorted[0].get(field, False)) for field in article_param_fields}
+
+                    for index, counting in enumerate(comptages_sorted[1:], start=2):
+                        counting_params = {field: bool(counting.get(field, False)) for field in article_param_fields}
+                        if counting_params != first_params:
+                            order_value = counting.get('order', index)
+                            differing_fields = [
+                                label for label in article_param_fields if counting_params[label] != first_params[label]
+                            ]
+                            formatted_fields = ", ".join(differing_fields)
+                            errors.append(
+                                f"Comptage {order_value}: Les paramètres ({formatted_fields}) doivent être identiques au premier comptage 'par article'"
+                            )
         
         # Validation des champs obligatoires et spécifiques via CountingDispatcher
         for i, comptage in enumerate(comptages_sorted, 1):
