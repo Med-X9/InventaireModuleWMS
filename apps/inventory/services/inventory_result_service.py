@@ -179,6 +179,16 @@ class InventoryResultService:
                 previous_order = order
                 previous_quantity = quantity
 
+            # Calcul du résultat final : dernière quantité non nulle disponible.
+            final_quantity: Optional[int] = None
+            for order in range(max_order_global, 0, -1):
+                current_quantity = quantities.get(order)
+                if current_quantity is not None:
+                    final_quantity = current_quantity
+                    break
+
+            result_row["final_result"] = final_quantity
+
             formatted_results.append(result_row)
 
         return formatted_results
