@@ -5,6 +5,7 @@ from .sync_service import SyncService
 from .inventory_service import InventoryService
 from .user_service import UserService
 from .counting_detail_service import CountingDetailService
+from .person_service import PersonService
 
 __all__ = [
     'AuthService',
@@ -12,4 +13,5 @@ __all__ = [
     'InventoryService',
     'UserService',
     'CountingDetailService',
+    'PersonService',
 ] 

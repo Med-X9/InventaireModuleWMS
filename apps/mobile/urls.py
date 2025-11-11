@@ -43,6 +43,12 @@ urlpatterns = [
         views.UserStocksView.as_view(),
         name="mobile_user_stocks",
     ),
+    # Gestion des personnes
+    path(
+        "persons/",
+        views.PersonListView.as_view(),
+        name="mobile_person_list",
+    ),
     # Gestion des assignments et jobs
     path(
         "user/<int:user_id>/assignment/<int:assignment_id>/status/",

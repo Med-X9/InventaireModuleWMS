@@ -37,6 +37,11 @@ from .counting import (
     CountingDetailView
 )
 
+# Vues de personnes
+from .person import (
+    PersonListView,
+)
+
 __all__ = [
     # Auth views
     'LoginView',
@@ -61,5 +66,8 @@ __all__ = [
     'CloseJobView',
 
     # Counting views
-    'CountingDetailView'
+    'CountingDetailView',
+
+    # Person views
+    'PersonListView',
 ]
