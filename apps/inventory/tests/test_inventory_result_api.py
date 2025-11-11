@@ -181,6 +181,8 @@ class InventoryResultAPIViewTestCase(TestCase):
             item for item in response.data["data"] if item["location"] == "A-01-01"
         )
         self.assertNotIn("product", entry_a)
+        self.assertEqual(entry_a["location_id"], self.location_a.id)
+        self.assertEqual(entry_a["job_id"], self.job_a.id)
         self.assertEqual(entry_a["1er comptage"], 120)
         self.assertEqual(entry_a["2er comptage"], 118)
         self.assertEqual(entry_a["ecart_1_2"], -2)
@@ -195,6 +197,8 @@ class InventoryResultAPIViewTestCase(TestCase):
         entry_b = next(
             item for item in response.data["data"] if item["location"] == "B-02-03"
         )
+        self.assertEqual(entry_b["location_id"], self.location_b.id)
+        self.assertEqual(entry_b["job_id"], self.job_b.id)
         self.assertEqual(entry_b["1er comptage"], 80)
         self.assertEqual(entry_b["ecart_1_2"], -1)
         self.assertEqual(entry_b["4er comptage"], 81)

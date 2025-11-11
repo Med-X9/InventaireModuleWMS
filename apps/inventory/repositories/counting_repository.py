@@ -338,6 +338,7 @@ class CountingRepository(ICountingRepository):
             counting_order_alias=F('counting__order'),
             product_reference_alias=F('product__reference'),
             product_description_alias=F('product__Short_Description'),
+            job_reference_alias=F('job__reference'),
         )
 
         aggregated_queryset = annotated_queryset.values(
@@ -351,10 +352,12 @@ class CountingRepository(ICountingRepository):
             'product_id',
             'product_reference_alias',
             'product_description_alias',
+            'job_id',
         ).annotate(
             total_quantity=Sum('quantity_inventoried')
         ).order_by(
             'warehouse_id_alias',
+            'job_id',
             'location_reference_alias',
             'product_reference_alias',
             'counting_order_alias',
