@@ -14,6 +14,7 @@ from .views.inventory_views import (
     InventoryCloseView,
     InventoryTeamView,
     InventoryWarehouseStatsView,
+    InventoryResultByWarehouseView,
     InventoryImportView,
     StockImportView,
     InventoryOrderingTestView,
@@ -50,6 +51,7 @@ urlpatterns = [
     
     # Statistiques et données des inventaires
     path('inventory/<int:inventory_id>/warehouse-stats/', InventoryWarehouseStatsView.as_view(), name='inventory-warehouse-stats'),
+    path('inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/results/', InventoryResultByWarehouseView.as_view(), name='inventory-warehouse-results'),
     path('inventory/<int:inventory_id>/stocks/import/', StockImportView.as_view(), name='stock-import'),
     path('inventory/planning/<int:inventory_id>/warehouses/', InventoryWarehousesView.as_view(), name='inventory-warehouses'),
     

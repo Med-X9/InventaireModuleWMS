@@ -505,7 +505,8 @@ class CountingDetailService:
         # Calculer l'écart avec le précédent
         ecart_value = None
         if last_sequence:
-            ecart_value = counting_detail.quantity_inventoried - last_sequence.quantity
+            # Toujours stocker l'écart en valeur absolue pour éviter les valeurs négatives
+            ecart_value = abs(counting_detail.quantity_inventoried - last_sequence.quantity)
         
         # Créer la nouvelle séquence (sera sauvegardée après)
         nouvelle_sequence = ComptageSequence(
@@ -1302,7 +1303,8 @@ class CountingDetailService:
         # 4. Calculer l'écart avec le précédent
         ecart_value = None
         if derniere_sequence:
-            ecart_value = counting_detail.quantity_inventoried - derniere_sequence.quantity
+            # Toujours stocker l'écart en valeur absolue pour éviter les valeurs négatives
+            ecart_value = abs(counting_detail.quantity_inventoried - derniere_sequence.quantity)
         
         # 5. Créer la nouvelle séquence
         nouvelle_sequence = ComptageSequence.objects.create(

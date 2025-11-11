@@ -1,0 +1,195 @@
+"""
+Service pour le calcul des résultats d'inventaire par entrepôt et par comptage.
+"""
+from __future__ import annotations
+
+import logging
+from typing import Any, Dict, List, Optional, Tuple
+
+from ..exceptions import InventoryNotFoundError, InventoryValidationError
+from ..repositories import (
+    CountingRepository,
+    InventoryRepository,
+    WarehouseRepository,
+)
+
+
+class InventoryResultService:
+    """
+    Service responsable de l'agrégation des résultats de comptage par entrepôt.
+    """
+
+    def __init__(
+        self,
+        counting_repository: Optional[CountingRepository] = None,
+        inventory_repository: Optional[InventoryRepository] = None,
+        warehouse_repository: Optional[WarehouseRepository] = None,
+    ) -> None:
+        self.counting_repository = counting_repository or CountingRepository()
+        self.inventory_repository = inventory_repository or InventoryRepository()
+        self.warehouse_repository = warehouse_repository or WarehouseRepository()
+        self.logger = logging.getLogger(__name__)
+
+    def get_inventory_results_for_warehouse(
+        self,
+        inventory_id: int,
+        warehouse_id: int,
+    ) -> List[Dict[str, Any]]:
+        """
+        Calcule les résultats d'un inventaire pour un entrepôt spécifique.
+
+        Args:
+            inventory_id: Identifiant de l'inventaire cible.
+            warehouse_id: Identifiant de l'entrepôt cible.
+
+        Returns:
+            Liste de dictionnaires formatés selon la spécification métier.
+        """
+        # Vérification de l'existence de l'inventaire et de l'entrepôt.
+        try:
+            self.inventory_repository.get_by_id(inventory_id)
+        except InventoryNotFoundError as exc:
+            self.logger.warning(
+                "Inventaire introuvable lors du calcul des résultats (id=%s).",
+                inventory_id,
+            )
+            raise exc
+
+        warehouse = self.warehouse_repository.get_by_id(warehouse_id)
+        if warehouse is None:
+            self.logger.warning(
+                "Entrepôt introuvable lors du calcul des résultats "
+                "(inventory_id=%s, warehouse_id=%s).",
+                inventory_id,
+                warehouse_id,
+            )
+            raise InventoryValidationError("Entrepôt introuvable.")
+
+        countings = self.counting_repository.get_by_inventory_id(inventory_id)
+        if not countings:
+            raise InventoryValidationError(
+                "Aucun comptage n'est configuré pour cet inventaire."
+            )
+
+        # Déterminer le mode de comptage appliqué à l'inventaire.
+        modes = {
+            (counting.count_mode or "").strip().lower()
+            for counting in countings
+            if counting.count_mode
+        }
+
+        if not modes:
+            raise InventoryValidationError(
+                "Impossible de déterminer le mode de comptage pour cet inventaire."
+            )
+
+        supported_modes = {"par article", "en vrac"}
+        unsupported_modes = modes - supported_modes
+        if unsupported_modes:
+            raise InventoryValidationError(
+                "Modes de comptage non supportés pour l'agrégation: "
+                f"{', '.join(sorted(unsupported_modes))}."
+            )
+
+        if len(modes) > 1:
+            raise InventoryValidationError(
+                "L'agrégation des résultats nécessite un mode de comptage unique "
+                "pour tout l'inventaire."
+            )
+
+        mode = modes.pop()
+
+        aggregated_rows = self.counting_repository.get_inventory_results_by_warehouse(
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id,
+        )
+
+        max_order_global = 0
+        entries: Dict[Tuple[int, Optional[int]], Dict[str, Any]] = {}
+
+        if not aggregated_rows:
+            return []
+
+        for row in aggregated_rows:
+            entry_key: Tuple[int, Optional[int]] = (
+                row["location_id"],
+                row.get("product_id"),
+            )
+
+            entry_data = entries.setdefault(
+                entry_key,
+                {
+                    "location": {
+                        "reference": row["location_reference_alias"],
+                        "code": row["location_code_alias"],
+                    },
+                    "product": None,
+                    "quantities": {},
+                },
+            )
+
+            if row.get("product_id"):
+                entry_data["product"] = {
+                    "reference": row["product_reference_alias"],
+                }
+
+            order = row["counting_order_alias"]
+            quantity = row["total_quantity"] or 0
+            entry_data["quantities"][order] = quantity
+            max_order_global = max(max_order_global, order)
+
+        formatted_results: List[Dict[str, Any]] = []
+
+        for entry in sorted(
+            entries.values(),
+            key=lambda item: (
+                item["location"]["reference"] or "",
+                item["product"]["reference"] if item["product"] else "",
+            ),
+        ):
+            quantities = entry["quantities"]
+            if not quantities:
+                continue
+
+            result_row: Dict[str, Any] = {
+                "location": entry["location"]["reference"] or "",
+            }
+
+            if mode == "par article" and entry["product"]:
+                result_row["product"] = entry["product"]["reference"]
+
+            previous_order: Optional[int] = None
+            previous_quantity: Optional[int] = None
+
+            for order in range(1, max_order_global + 1):
+                quantity = quantities.get(order)
+                quantity_key = f"{order}er comptage"
+                result_row[quantity_key] = quantity if quantity is not None else None
+
+                if previous_order is not None and previous_quantity is not None:
+                    ecart_key = f"ecart_{previous_order}_{order}"
+                    if quantity is None:
+                        result_row[ecart_key] = None
+                    else:
+                        result_row[ecart_key] = quantity - previous_quantity
+                elif previous_order is not None:
+                    ecart_key = f"ecart_{previous_order}_{order}"
+                    result_row[ecart_key] = None
+
+                previous_order = order
+                previous_quantity = quantity
+
+            # Calcul du résultat final : dernière quantité non nulle disponible.
+            final_quantity: Optional[int] = None
+            for order in range(max_order_global, 0, -1):
+                current_quantity = quantities.get(order)
+                if current_quantity is not None:
+                    final_quantity = current_quantity
+                    break
+
+            result_row["final_result"] = final_quantity
+
+            formatted_results.append(result_row)
+
+        return formatted_results
+

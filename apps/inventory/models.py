@@ -356,6 +356,7 @@ class EcartComptage(TimeStampedModel, ReferenceMixin):
 
 class ComptageSequence(TimeStampedModel, ReferenceMixin):
     REFERENCE_PREFIX = 'CS'
+    reference = models.CharField(unique=True, max_length=20, null=False)
     
     ecart_comptage = models.ForeignKey(
         EcartComptage, 

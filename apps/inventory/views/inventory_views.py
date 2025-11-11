@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 from ..models import Inventory
+from ..services.inventory_result_service import InventoryResultService
 from ..services.inventory_service import InventoryService
 from ..serializers.inventory_serializer import (
     InventoryCreateSerializer,
@@ -18,8 +19,9 @@ from ..serializers.inventory_serializer import (
     InventoryWarehouseStatsSerializer,
     InventoryUpdateSerializer,
     InventoryDetailModeFieldsSerializer,
-    InventoryDetailWithWarehouseSerializer
+    InventoryDetailWithWarehouseSerializer,
 )
+from ..serializers import InventoryWarehouseResultSerializer
 from ..exceptions import InventoryValidationError, InventoryNotFoundError, StockValidationError
 from ..filters import InventoryFilter
 from ..repositories import InventoryRepository
@@ -652,6 +654,72 @@ class InventoryWarehouseStatsView(APIView):
                 'message': 'Erreur lors de la récupération des statistiques des warehouses',
                 'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class InventoryResultByWarehouseView(APIView):
+    """
+    Vue permettant de récupérer les résultats d'un inventaire agrégés par entrepôt.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.service = InventoryResultService()
+        self.serializer_class = InventoryWarehouseResultSerializer
+
+    def get(self, request, inventory_id: int, warehouse_id: int, *args, **kwargs):
+        """
+        Agrège les quantités comptées pour un entrepôt donné, en respectant le format métier.
+        """
+        try:
+            results = self.service.get_inventory_results_for_warehouse(
+                inventory_id=inventory_id,
+                warehouse_id=warehouse_id,
+            )
+            payload = {
+                "success": True,
+                "data": results,
+            }
+            serializer = self.serializer_class(payload)
+            return Response(
+                serializer.data,
+                status=status.HTTP_200_OK,
+            )
+        except InventoryNotFoundError as error:
+            logger.warning(
+                "Inventaire introuvable lors de la récupération des résultats "
+                "(inventory_id=%s, warehouse_id=%s).",
+                inventory_id,
+                warehouse_id,
+            )
+            return Response(
+                {"success": False, "message": str(error)},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except InventoryValidationError as error:
+            logger.warning(
+                "Erreur de validation lors de l'agrégation des résultats "
+                "(inventory_id=%s, warehouse_id=%s): %s",
+                inventory_id,
+                warehouse_id,
+                error,
+            )
+            return Response(
+                {"success": False, "message": str(error)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as error:
+            logger.error(
+                "Erreur inattendue lors de la récupération des résultats de l'inventaire "
+                "(inventory_id=%s, warehouse_id=%s): %s",
+                inventory_id,
+                warehouse_id,
+                error,
+                exc_info=True,
+            )
+            return Response(
+                {"success": False, "message": "Une erreur inattendue est survenue."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 class InventoryImportView(APIView):
     """
