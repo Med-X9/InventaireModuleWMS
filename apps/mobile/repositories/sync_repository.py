@@ -10,11 +10,9 @@ from apps.mobile.exceptions.inventory_exceptions import (
 class SyncRepository:
     """Repository pour la synchronisation"""
     
-    def get_inventories_in_realisation(self, inventory_id=None):
+    def get_inventories_in_realisation(self,):
         """Récupère les inventaires en réalisation"""
         queryset = Inventory.objects.filter(status='EN REALISATION')
-        if inventory_id:
-            queryset = queryset.filter(id=inventory_id)
         return queryset
     
     def get_jobs_by_inventories(self, inventories):

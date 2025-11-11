@@ -65,18 +65,6 @@ urlpatterns = [
         views.UserProductsView.as_view(),
         name="mobile_user_products",
     ),
-    # Locations du même compte qu'un utilisateur
-    path(
-        "user/<int:user_id>/locations/",
-        views.UserLocationsView.as_view(),
-        name="mobile_user_locations",
-    ),
-    # Stocks du même compte qu'un utilisateur
-    path(
-        "user/<int:user_id>/stocks/",
-        views.UserStocksView.as_view(),
-        name="mobile_user_stocks",
-    ),
     # Gestion des assignments et jobs
     path(
         "user/<int:user_id>/assignment/<int:assignment_id>/status/",

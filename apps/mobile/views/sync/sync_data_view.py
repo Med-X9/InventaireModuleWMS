@@ -143,7 +143,7 @@ class SyncDataView(APIView):
         security=[{'Bearer': []}],
         tags=['Synchronisation Mobile']
     )
-    def get(self, request, user_id=None):
+    def get(self, request, user_id):
         """
         Récupère toutes les données de synchronisation pour un utilisateur.
         
@@ -160,19 +160,17 @@ class SyncDataView(APIView):
                 - stocks disponibles
         """
         try:
+            print(f"user_id: {user_id}")
             sync_service = SyncService()
             
             # Récupérer les paramètres de synchronisation
-            inventory_id = request.GET.get('inventory_id')
+            # inventory_id = request.GET.get('inventory_id')
             
             # Si user_id est fourni dans l'URL, utiliser cet utilisateur
             # Sinon, utiliser l'utilisateur connecté
             if user_id:
                 target_user_id = user_id
-            else:
-                target_user_id = request.user.id
-            
-            response_data = sync_service.sync_data(target_user_id, inventory_id)
+            response_data = sync_service.sync_data(target_user_id)
             
             return Response(response_data, status=status.HTTP_200_OK)
             
