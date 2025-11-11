@@ -89,12 +89,26 @@ class JobListWithLocationsSerializer(serializers.ModelSerializer):
 
     def get_locations(self, obj):
         """
-        Récupère les emplacements du job
-        ⚠️ Règle: Le serializer ne doit PAS utiliser .all(), .filter() ou toute méthode ORM
-        Les données doivent être préchargées via prefetch_related dans la vue
+        Récupère les emplacements uniques du job.
+        Les données doivent idéalement être préchargées via prefetch_related dans la vue.
         """
-        # Accéder directement aux job_details (déjà chargés via prefetch_related dans la vue)
-        return JobLocationDetailSerializer(obj.jobdetail_set, many=True).data 
+        # Utiliser les données préchargées si disponibles pour éviter des requêtes supplémentaires
+        prefetched_cache = getattr(obj, "_prefetched_objects_cache", {})
+        job_details = prefetched_cache.get("jobdetail_set")
+
+        if job_details is None:
+            # Fallback sécurisé : récupérer les données depuis le manager (une seule requête)
+            job_details = list(obj.jobdetail_set.all())
+
+        unique_details = {}
+        for detail in job_details:
+            location_id = getattr(detail, "location_id", None)
+            if location_id is None:
+                continue
+            if location_id not in unique_details:
+                unique_details[location_id] = detail
+
+        return JobLocationDetailSerializer(list(unique_details.values()), many=True).data 
 
 class JobDeleteRequestSerializer(serializers.Serializer):
     job_ids = serializers.ListField(
