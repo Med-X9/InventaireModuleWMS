@@ -1351,11 +1351,10 @@ class CountingDetailService:
             quantity=counting_detail.quantity_inventoried,
             ecart_with_previous=ecart_value
         )
-        # Générer et attribuer explicitement la référence (bulk_create ne déclenche pas save)
+        # Générer la référence avant sauvegarde pour éviter les doublons
         nouvelle_sequence.reference = nouvelle_sequence.generate_reference(ComptageSequence.REFERENCE_PREFIX)
-        nouvelle_sequence.save()
         
-        # 6. Mettre à jour l'écart
+        # Mettre à jour l'écart
         ecart.total_sequences = nouveau_numero
         ecart.stopped_sequence = nouveau_numero
         ecart.save()
