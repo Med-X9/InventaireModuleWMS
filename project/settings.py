@@ -447,7 +447,7 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
-}
+}  
 
 # SimpleJWT settings
 SIMPLE_JWT = {
