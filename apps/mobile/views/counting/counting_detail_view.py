@@ -173,6 +173,7 @@ class CountingDetailView(APIView):
         La résolution automatique (écart ≤ 0) n'est PAS effectuée - elle doit être faite manuellement.
         """
         try:
+            print(f"Traitement de CountingDetail avec job_id={job_id} et les données: {request.data}")
             logger.info(f"Traitement de CountingDetail avec job_id={job_id} et les données: {request.data}")
             
             # Normaliser les données : toujours traiter comme un tableau
