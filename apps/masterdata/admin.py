@@ -130,6 +130,77 @@ class OptionalBooleanWidget(widgets.BooleanWidget):
             return False
         return super().clean(value, row, *args, **kwargs)
 
+class AutoCreateRegroupementWidget(widgets.ForeignKeyWidget):
+    """Widget personnalisé qui crée automatiquement les regroupements manquants"""
+    
+    def clean(self, value, row=None, *args, **kwargs):
+        if not value:
+            return None
+        
+        try:
+            # Essayer d'abord de trouver le regroupement existant
+            return RegroupementEmplacement.objects.get(nom=value)
+        except RegroupementEmplacement.DoesNotExist:
+            # Créer automatiquement le regroupement s'il n'existe pas
+            try:
+                # Essayer de trouver l'account à partir de la ligne ou utiliser un account par défaut
+                account = None
+                
+                # Option 1: Chercher un account dans la ligne d'import
+                if row:
+                    # Chercher un champ account dans la ligne
+                    account_name = row.get('account', row.get('nom de compte', ''))
+                    if account_name:
+                        try:
+                            account = Account.objects.get(account_name=account_name)
+                        except Account.DoesNotExist:
+                            pass
+                
+                # Option 2: Si pas d'account dans la ligne, chercher via la sous_zone
+                if not account and row:
+                    sous_zone_name = row.get('sous zone', '')
+                    if sous_zone_name:
+                        try:
+                            from .models import SousZone
+                            sous_zone = SousZone.objects.get(sous_zone_name=sous_zone_name)
+                            # Essayer de trouver l'account via la zone -> warehouse
+                            if hasattr(sous_zone, 'zone') and sous_zone.zone:
+                                zone = sous_zone.zone
+                                if hasattr(zone, 'warehouse') and zone.warehouse:
+                                    warehouse = zone.warehouse
+                                    # Si le warehouse a un account, l'utiliser
+                                    if hasattr(warehouse, 'account'):
+                                        account = warehouse.account
+                        except Exception:
+                            pass
+                
+                # Option 3: Utiliser le premier account disponible comme fallback
+                if not account:
+                    account = Account.objects.first()
+                    if not account:
+                        raise ValueError("Aucun compte disponible pour créer le regroupement. Veuillez créer un compte d'abord.")
+                
+                # Vérifier si l'account a déjà un regroupement (OneToOneField)
+                if hasattr(account, 'regroupement_emplacement'):
+                    # Si l'account a déjà un regroupement, le retourner
+                    # (même si le nom est différent, car c'est une contrainte OneToOneField)
+                    return account.regroupement_emplacement
+                
+                # Vérifier si un regroupement avec ce nom existe déjà pour un autre account
+                existing_regroupement = RegroupementEmplacement.objects.filter(nom=value).first()
+                if existing_regroupement:
+                    # Si un regroupement avec ce nom existe déjà, le retourner
+                    return existing_regroupement
+                
+                # Créer le nouveau regroupement pour l'account
+                regroupement = RegroupementEmplacement.objects.create(
+                    account=account,
+                    nom=value
+                )
+                return regroupement
+            except Exception as e:
+                raise ValueError(f"Impossible de créer le regroupement '{value}': {str(e)}")
+
 class FamilyResource(resources.ModelResource):
     compte = fields.Field(
         column_name='nom de compte',
@@ -272,7 +343,7 @@ class LocationResource(resources.ModelResource):
     regroupement = fields.Field(
         column_name='regroupement',
         attribute='regroupement',
-        widget=ForeignKeyWidget(RegroupementEmplacement, 'nom')
+        widget=AutoCreateRegroupementWidget(RegroupementEmplacement, 'nom')
     )
 
     location_reference = fields.Field(
