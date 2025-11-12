@@ -554,10 +554,12 @@ class CountingDetailService:
         cache_entry['last_sequence_number'] = nouveau_numero
         cache_entry['sequences'].append(nouvelle_sequence)
         
-        # Mettre à jour le résultat final éventuel
-        final_result = self._calculate_consensus_result(cache_entry['sequences'], ecart.final_result)
-        if final_result is not None:
-            ecart.final_result = final_result
+        # Mettre à jour le résultat final éventuel (seulement si 2 comptages ou plus)
+        final_result = None
+        if len(cache_entry['sequences']) >= 2:
+            final_result = self._calculate_consensus_result(cache_entry['sequences'], ecart.final_result)
+            if final_result is not None:
+                ecart.final_result = final_result
         
         return {
             "ecart": ecart,
@@ -1376,12 +1378,13 @@ class CountingDetailService:
     ) -> Optional[int]:
         """
         Détermine le résultat final d'un écart selon les règles métier :
+        - Nécessite au moins 2 comptages pour calculer un résultat.
         - Deux comptages identiques suffisent à confirmer une valeur.
         - Si plusieurs valeurs sont confirmées, on privilégie la plus récente.
         - Si aucun consensus, on conserve le résultat courant.
         """
         if len(sequences) < 2:
-            return current_result
+            return None  # Pas de résultat si moins de 2 comptages
         
         counts: Dict[int, int] = {}
         latest_index: Dict[int, int] = {}
