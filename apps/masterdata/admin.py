@@ -118,11 +118,23 @@ class StockUnitWidget(widgets.CharWidget):
         # Tronquer à 3 caractères maximum
         return str(value)[:3].upper()
 
+class OptionalBooleanWidget(widgets.BooleanWidget):
+    """Widget booléen personnalisé qui gère les valeurs vides/optionnelles"""
+    
+    def clean(self, value, row=None, *args, **kwargs):
+        """
+        Nettoie la valeur booléenne.
+        Les valeurs vides, None, ou chaînes vides retournent False (valeur par défaut).
+        """
+        if value is None or value == '' or str(value).strip() == '':
+            return False
+        return super().clean(value, row, *args, **kwargs)
+
 class FamilyResource(resources.ModelResource):
     compte = fields.Field(
         column_name='nom de compte',
         attribute='compte',
-        widget=ForeignKeyWidget(Account, 'account_name')
+        widget=AutoCreateAccountWidget(Account, 'account_name')
     )
     name = fields.Field(
         column_name='nom de famille',
@@ -137,6 +149,63 @@ class FamilyResource(resources.ModelResource):
         model = Family
         fields = ('name', 'compte', 'statut')
         import_id_fields = ('name',)
+    
+    def _check_import_id_fields(self, headers):
+        """
+        Surcharge pour mapper les noms de champs aux column_name.
+        Permet d'utiliser 'nom de famille' dans le fichier d'import
+        alors que le champ s'appelle 'name' dans la ressource.
+        Gère aussi les variations de casse et d'espaces.
+        """
+        # Mapping des noms de champs vers les column_name
+        field_to_column = {
+            'name': 'nom de famille',
+        }
+        
+        # Vérifier que les column_name correspondants sont présents dans les en-têtes
+        missing_fields = []
+        for field_name in self.get_import_id_fields():
+            column_name = field_to_column.get(field_name, field_name)
+            # Vérifier aussi avec différentes variations (casse, espaces)
+            found = False
+            for header in headers:
+                if header.lower().strip() == column_name.lower().strip():
+                    found = True
+                    break
+            if not found:
+                missing_fields.append(column_name)
+        
+        if missing_fields:
+            from import_export import exceptions
+            raise exceptions.FieldError(
+                f"The following fields are declared in 'import_id_fields' but are not present in the file headers: {', '.join(missing_fields)}"
+            )
+    
+    def before_import_row(self, row, **kwargs):
+        """
+        Valide et prépare les données avant l'import.
+        S'assure que le champ 'nom de compte' est présent et non vide.
+        """
+        # Vérifier que le compte est fourni
+        compte_value = row.get('nom de compte', '').strip()
+        if not compte_value:
+            raise ValueError(
+                "Le champ 'nom de compte' est obligatoire pour créer une famille. "
+                "Veuillez fournir un nom de compte valide."
+            )
+    
+    def get_or_init_instance(self, instance_loader, row):
+        """
+        Surcharge pour utiliser le column_name 'nom de famille' 
+        au lieu du nom de champ 'name' lors de la recherche.
+        Gère aussi les variations de casse et d'espaces.
+        """
+        # Mapper le column_name vers le nom de champ (gérer les variations)
+        for key in row.keys():
+            if key.lower().strip() == 'nom de famille':
+                row['name'] = row[key]
+                break
+        return super().get_or_init_instance(instance_loader, row)
 
 class WarehouseResource(resources.ModelResource):
     name = fields.Field(column_name='nom de warehouse', attribute='warehouse_name')
@@ -224,11 +293,81 @@ class ProductResource(resources.ModelResource):
     product_status = fields.Field(column_name='product status', attribute='Product_Status')
     internal_product_code = fields.Field(column_name='internal product code', attribute='Internal_Product_Code')
     product_family = fields.Field(column_name='product family', attribute='Product_Family', widget=ForeignKeyWidget(Family, 'family_name'))
+    n_lot = fields.Field(column_name='n lot', attribute='n_lot', widget=OptionalBooleanWidget())
+    n_serie = fields.Field(column_name='n serie', attribute='n_serie', widget=OptionalBooleanWidget())
+    dlc = fields.Field(column_name='dlc', attribute='dlc', widget=OptionalBooleanWidget())
 
     class Meta:
         model = Product
-        fields = ('short_description', 'barcode', 'product_group', 'stock_unit', 'product_status', 'internal_product_code', 'product_family')
+        fields = ('short_description', 'barcode', 'product_group', 'stock_unit', 'product_status', 'internal_product_code', 'product_family', 'n_lot', 'n_serie', 'dlc')
         import_id_fields = ('barcode',)
+    
+    def _check_import_id_fields(self, headers):
+        """
+        Surcharge pour mapper les noms de champs aux column_name.
+        Permet d'utiliser le column_name dans le fichier d'import
+        alors que le champ s'appelle différemment dans la ressource.
+        Gère les variations de casse, espaces et caractères spéciaux.
+        """
+        # Mapping des noms de champs vers les column_name possibles
+        # Inclut le column_name défini et des variations possibles
+        field_to_columns = {
+            'barcode': ['barcode', 'Barcode', 'BARCODE', 'code-barres', 'code barres', 'Code-Barres'],
+        }
+        
+        # Normaliser les en-têtes pour la comparaison
+        normalized_headers = {h.lower().strip(): h for h in headers}
+        
+        # Préparer la liste des en-têtes disponibles pour le message d'erreur
+        available_headers = ', '.join(headers[:10])  # Limiter à 10 pour éviter un message trop long
+        if len(headers) > 10:
+            available_headers += f', ... ({len(headers)} en-têtes au total)'
+        
+        # Vérifier que les column_name correspondants sont présents dans les en-têtes
+        missing_fields = []
+        for field_name in self.get_import_id_fields():
+            possible_columns = field_to_columns.get(field_name, [field_name])
+            found = False
+            matched_header = None
+            
+            for possible_column in possible_columns:
+                normalized_column = possible_column.lower().strip()
+                if normalized_column in normalized_headers:
+                    found = True
+                    matched_header = normalized_headers[normalized_column]
+                    break
+            
+            if not found:
+                missing_fields.append(field_name)
+        
+        if missing_fields:
+            from import_export import exceptions
+            error_msg = (
+                f"The following fields are declared in 'import_id_fields' but are not present in the file headers: {', '.join(missing_fields)}. "
+                f"En-têtes disponibles dans le fichier: {available_headers}"
+            )
+            raise exceptions.FieldError(error_msg)
+    
+    def get_or_init_instance(self, instance_loader, row):
+        """
+        Surcharge pour utiliser le column_name 'barcode' 
+        au lieu du nom de champ 'barcode' lors de la recherche.
+        Gère aussi les variations de casse, espaces et caractères spéciaux.
+        """
+        # Mapping des variations possibles du nom de champ
+        field_variations = {
+            'barcode': ['barcode', 'Barcode', 'BARCODE', 'code-barres', 'code barres', 'Code-Barres'],
+        }
+        
+        # Mapper les variations vers le nom de champ standard
+        for field_name, variations in field_variations.items():
+            for key in row.keys():
+                if key.lower().strip() in [v.lower().strip() for v in variations]:
+                    # Copier la valeur vers le nom de champ standard pour la recherche
+                    row[field_name] = row[key]
+                    break
+        
+        return super().get_or_init_instance(instance_loader, row)
 
 class UnitOfMeasureResource(resources.ModelResource):
     name = fields.Field(column_name='nom', attribute='name')
