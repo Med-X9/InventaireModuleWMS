@@ -357,6 +357,18 @@ class LocationResource(resources.ModelResource):
         fields = ('location_reference', 'location_type', 'sous_zone', 'regroupement')
         import_id_fields = ('location_reference',)
 
+
+
+from import_export import resources, fields
+from import_export.widgets import ForeignKeyWidget
+from .models import Product, Family  # adapte selon tes modèles
+from django.db import transaction
+
+
+from import_export import resources, fields, exceptions
+from import_export.widgets import ForeignKeyWidget, BooleanWidget
+from .models import Product, Family
+
 class ProductResource(resources.ModelResource):
     short_description = fields.Field(column_name='short description', attribute='Short_Description')
     barcode = fields.Field(column_name='barcode', attribute='Barcode')
@@ -364,10 +376,14 @@ class ProductResource(resources.ModelResource):
     stock_unit = fields.Field(column_name='stock unit', attribute='Stock_Unit')
     product_status = fields.Field(column_name='product status', attribute='Product_Status')
     internal_product_code = fields.Field(column_name='internal product code', attribute='Internal_Product_Code')
-    product_family = fields.Field(column_name='product family', attribute='Product_Family', widget=ForeignKeyWidget(Family, 'family_name'))
-    n_lot = fields.Field(column_name='n lot', attribute='n_lot', widget=OptionalBooleanWidget())
-    n_serie = fields.Field(column_name='n serie', attribute='n_serie', widget=OptionalBooleanWidget())
-    dlc = fields.Field(column_name='dlc', attribute='dlc', widget=OptionalBooleanWidget())
+    product_family = fields.Field(
+        column_name='product family',
+        attribute='Product_Family',
+        widget=ForeignKeyWidget(Family, 'family_name')
+    )
+    n_lot = fields.Field(column_name='n lot', attribute='n_lot', widget=BooleanWidget())
+    n_serie = fields.Field(column_name='n serie', attribute='n_serie', widget=BooleanWidget())
+    dlc = fields.Field(column_name='dlc', attribute='dlc', widget=BooleanWidget())
 
     class Meta:
         model = Product
@@ -377,9 +393,38 @@ class ProductResource(resources.ModelResource):
             'n_lot', 'n_serie', 'dlc'
         )
         import_id_fields = ('barcode',)
-        batch_size = 1000  # pour découper les gros imports
+        skip_unchanged = True
+        report_skipped = True
+        use_transactions = True
+        batch_size = 500  # Import par lots pour éviter timeout
 
-    # ✅ optimisation : vérifie les colonnes d’import (ton code inchangé)
+    # Vérifie que toutes les lignes ont un product_family existant
+
+    def before_import_row(self, row, **kwargs):
+        family_name = row.get('product family')
+        if not family_name or not family_name.strip():
+            raise exceptions.ImportError(
+                "La colonne 'product family' est obligatoire pour chaque produit."
+            )
+        if not Family.objects.filter(family_name=family_name.strip()).exists():
+            raise exceptions.ImportError(
+                f"La famille '{family_name}' n'existe pas dans la base de données."
+            )
+
+
+    # Surcharge pour gérer les variations de noms de colonne pour barcode
+    def get_or_init_instance(self, instance_loader, row):
+        field_variations = {
+            'barcode': ['barcode', 'Barcode', 'BARCODE', 'code-barres', 'code barres', 'Code-Barres'],
+        }
+        for field_name, variations in field_variations.items():
+            for key in row.keys():
+                if key.lower().strip() in [v.lower().strip() for v in variations]:
+                    row[field_name] = row[key]
+                    break
+        return super().get_or_init_instance(instance_loader, row)
+
+    # Vérifie les import_id_fields
     def _check_import_id_fields(self, headers):
         field_to_columns = {
             'barcode': ['barcode', 'Barcode', 'BARCODE', 'code-barres', 'code barres', 'Code-Barres'],
@@ -399,40 +444,13 @@ class ProductResource(resources.ModelResource):
             if not found:
                 missing_fields.append(field_name)
         if missing_fields:
-            from import_export import exceptions
             raise exceptions.FieldError(
-                f"Les champs {', '.join(missing_fields)} manquent. "
-                f"En-têtes disponibles: {available_headers}"
+                f"The following fields are declared in 'import_id_fields' but are not present in the file headers: {', '.join(missing_fields)}. "
+                f"En-têtes disponibles dans le fichier: {available_headers}"
             )
 
-    # ✅ optimisation : utilise transaction.atomic pour accélérer l’import
-    @transaction.atomic
-    def import_data(self, dataset, dry_run=False, **kwargs):
-        """
-        Import les données en batch pour éviter les timeouts,
-        tout en gardant les hooks before_import_row / after_import_instance.
-        """
-        total = len(dataset)
-        batch_size = getattr(self._meta, 'batch_size', 1000)
 
-        for start in range(0, total, batch_size):
-            subset = dataset.slice(start, start + batch_size)
-            super().import_data(subset, dry_run=dry_run, **kwargs)
 
-        # tu peux loguer ou notifier ici si besoin
-        return None
-
-    # ✅ ton mapping de recherche inchangé
-    def get_or_init_instance(self, instance_loader, row):
-        field_variations = {
-            'barcode': ['barcode', 'Barcode', 'BARCODE', 'code-barres', 'code barres', 'Code-Barres'],
-        }
-        for field_name, variations in field_variations.items():
-            for key in row.keys():
-                if key.lower().strip() in [v.lower().strip() for v in variations]:
-                    row[field_name] = row[key]
-                    break
-        return super().get_or_init_instance(instance_loader, row)
 class UnitOfMeasureResource(resources.ModelResource):
     name = fields.Field(column_name='nom', attribute='name')
     description = fields.Field(column_name='description', attribute='description')
