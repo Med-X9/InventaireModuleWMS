@@ -65,6 +65,12 @@ from .counting_detail_exceptions import (
     CountingModeValidationError
 )
 
+# Import des exceptions d'entrepôt
+from .warehouse_exceptions import (
+    WarehouseAccountValidationError,
+    WarehouseAccountNotFoundError,
+)
+
 # Liste des exceptions disponibles
 __all__ = [
     # Assignment exceptions
@@ -114,5 +120,9 @@ __all__ = [
     'CountingAssignmentValidationError',
     'JobDetailValidationError',
     'NumeroSerieValidationError',
-    'CountingModeValidationError'
+    'CountingModeValidationError',
+
+    # Warehouse exceptions
+    'WarehouseAccountValidationError',
+    'WarehouseAccountNotFoundError',
 ]

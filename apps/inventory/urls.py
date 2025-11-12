@@ -19,7 +19,7 @@ from .views.inventory_views import (
     StockImportView,
     InventoryOrderingTestView,
 )
-from apps.inventory.views import InventoryWarehousesView
+from apps.inventory.views import InventoryWarehousesView, AccountWarehousesView
 
 
 from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView, JobBatchAssignmentView, JobTransferView, JobProgressByCountingView, InventoryProgressByCountingView
@@ -54,6 +54,7 @@ urlpatterns = [
     path('inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/results/', InventoryResultByWarehouseView.as_view(), name='inventory-warehouse-results'),
     path('inventory/<int:inventory_id>/stocks/import/', StockImportView.as_view(), name='stock-import'),
     path('inventory/planning/<int:inventory_id>/warehouses/', InventoryWarehousesView.as_view(), name='inventory-warehouses'),
+    path('inventory/account/<int:account_id>/warehouses/', AccountWarehousesView.as_view(), name='account-warehouses'),
     
     # ========================================
     # URLs POUR LES JOBS
