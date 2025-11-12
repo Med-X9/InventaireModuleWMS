@@ -201,6 +201,17 @@ class CountingDetailView(APIView):
             
             # Traitement en lot optimisé (toujours en lot)
             result = self.counting_detail_service.create_counting_details_batch(data_list, job_id=job_id)
+            
+            # Vérifier si le traitement a réussi
+            if not result.get('success', False):
+                # Si des erreurs sont présentes, retourner 500
+                logger.error(f"Échec de la création en lot: {result.get('message', 'Erreur inconnue')}")
+                return Response({
+                    'success': False,
+                    'error': result.get('message', 'Erreur lors de la création en lot'),
+                    'errors': result.get('errors', [])
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
             return self._create_success_response(result, status.HTTP_201_CREATED)
             
         except Exception as e:

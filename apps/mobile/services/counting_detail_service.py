@@ -226,8 +226,13 @@ class CountingDetailService:
                             ecart_cache
                         )
                         
-                        # Sauvegarder la séquence (ReferenceMixin nécessite save() pour générer référence)
-                        sequence_result['sequence'].save()
+                        # Générer la référence avant sauvegarde pour éviter les doublons
+                        nouvelle_sequence = sequence_result['sequence']
+                        if not nouvelle_sequence.reference:
+                            nouvelle_sequence.reference = nouvelle_sequence.generate_reference(ComptageSequence.REFERENCE_PREFIX)
+                        
+                        # Sauvegarder la séquence
+                        nouvelle_sequence.save()
                         ecarts_to_update.add(sequence_result['ecart'])
                         
                         result = item['result']
