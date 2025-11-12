@@ -176,13 +176,21 @@
 #### **Préchargement**
 - ✅ `_prefetch_existing_counting_details()` - 1 requête
 - ✅ `_prefetch_all_related_objects()` - 5 requêtes
-- ✅ `_prefetch_ecarts_and_sequences()` - 1-2 requêtes
+- ✅ `_prefetch_ecarts_and_sequences()` - 1-2 requêtes (avec historique complet)
 
 #### **Bulk Operations**
 - ✅ `_bulk_create_counting_details()` - 2-3 requêtes
 - ✅ `_bulk_create_all_numeros_serie()` - 1-2 requêtes
 - ✅ `bulk_update()` JobDetail - 1 requête
-- ✅ `bulk_update()` EcartComptage - 1 requête
+- ✅ `bulk_update()` EcartComptage - 1 requête (total_sequences, stopped_sequence, final_result)
+
+#### **Calcul Automatique du Résultat**
+- ✅ `_calculate_consensus_result()` applique les règles métier :
+  - Si 1er et 2ème comptages identiques → résultat = valeur confirmée
+  - Sinon, si un comptage ultérieur confirme une valeur précédente → résultat = valeur confirmée
+  - Si 3ème différent → nécessite un 4ème ; si 4ème = 3ème → résultat = valeur confirmée
+  - Toujours préférer la valeur la plus récemment confirmée (>=2 occurrences)
+- ✅ `final_result` renvoyé dans la réponse API (`ecart_comptage.final_result`)
 
 #### **Indexes DB**
 - ✅ 13 nouveaux indexes créés
