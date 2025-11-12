@@ -499,7 +499,7 @@ class CountingDetailService:
             last_sequence_number = cache_entry.get('last_sequence_number', 0)
         else:
             # Créer un nouvel écart
-            ecart = EcartComptage.objects.create(
+            ecart = EcartComptage(
                 inventory=inventory,
                 total_sequences=0,
                 resolved=False,
@@ -507,6 +507,8 @@ class CountingDetailService:
                 final_result=None,
                 justification=None
             )
+            ecart.reference = ecart.generate_reference(EcartComptage.REFERENCE_PREFIX)
+            ecart.save()
             last_sequence = None
             last_sequence_number = 0
             # Mettre à jour le cache
@@ -1291,7 +1293,7 @@ class CountingDetailService:
         
         # Si aucun écart existant ou si résolu → créer un nouvel écart
         if not ecart_existant:
-            ecart_existant = EcartComptage.objects.create(
+            ecart_existant = EcartComptage(
                 inventory=inventory,
                 total_sequences=0,
                 resolved=False,
@@ -1299,6 +1301,8 @@ class CountingDetailService:
                 final_result=None,
                 justification=None
             )
+            ecart_existant.reference = ecart_existant.generate_reference(EcartComptage.REFERENCE_PREFIX)
+            ecart_existant.save()
         
         return ecart_existant
     
@@ -1340,13 +1344,16 @@ class CountingDetailService:
             ecart_value = abs(counting_detail.quantity_inventoried - derniere_sequence.quantity)
         
         # 5. Créer la nouvelle séquence
-        nouvelle_sequence = ComptageSequence.objects.create(
+        nouvelle_sequence = ComptageSequence(
             ecart_comptage=ecart,
             sequence_number=nouveau_numero,
             counting_detail=counting_detail,
             quantity=counting_detail.quantity_inventoried,
             ecart_with_previous=ecart_value
         )
+        # Générer et attribuer explicitement la référence (bulk_create ne déclenche pas save)
+        nouvelle_sequence.reference = nouvelle_sequence.generate_reference(ComptageSequence.REFERENCE_PREFIX)
+        nouvelle_sequence.save()
         
         # 6. Mettre à jour l'écart
         ecart.total_sequences = nouveau_numero
