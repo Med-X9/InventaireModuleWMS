@@ -27,6 +27,7 @@ from .inventory_result_serializer import (
     InventoryWarehouseResultEntrySerializer,
     InventoryWarehouseResultSerializer,
 )
+from .warehouse_serializer import WarehouseListSerializer
 
 __all__ = [
     # Inventory serializers
@@ -67,4 +68,7 @@ __all__ = [
     # Inventory result serializers
     'InventoryWarehouseResultEntrySerializer',
     'InventoryWarehouseResultSerializer',
+
+    # Warehouse serializers
+    'WarehouseListSerializer',
 ] 
