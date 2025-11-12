@@ -11,7 +11,6 @@ from apps.mobile.exceptions import (
     UserNotAssignedException,
     InvalidStatusTransitionException,
     JobNotFoundException,
-    AssignmentValidationException
 )
 
 
