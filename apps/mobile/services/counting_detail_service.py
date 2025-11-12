@@ -243,8 +243,11 @@ class CountingDetailService:
                         result['ecart_comptage'] = {
                             'id': sequence_result['ecart'].id,
                             'reference': sequence_result['ecart'].reference,
-                            'resolved': sequence_result['ecart'].resolved
+                            'resolved': sequence_result['ecart'].resolved,
+                            'final_result': sequence_result['ecart'].final_result
                         }
+                        if sequence_result.get('final_result') is not None:
+                            result['ecart_comptage']['final_result'] = sequence_result['final_result']
                         
                         results.append({
                             'index': i,
@@ -275,7 +278,7 @@ class CountingDetailService:
                 if ecarts_to_update:
                     EcartComptage.objects.bulk_update(
                         ecarts_to_update,
-                        fields=['total_sequences', 'stopped_sequence']
+                        fields=['total_sequences', 'stopped_sequence', 'final_result']
                     )
             
             # Si on arrive ici, tout a réussi
@@ -390,16 +393,11 @@ class CountingDetailService:
         if not combinations:
             return {}
         
-        # Récupérer les dernières séquences pour chaque combinaison en une seule requête optimisée
-        from django.db.models import Max, OuterRef, Subquery
-        
-        # Pour chaque combinaison, obtenir la séquence avec le max sequence_number
-        cache = {}
         product_ids = [c[0] for c in combinations]
         location_ids = [c[1] for c in combinations]
         inventory_ids = [c[2] for c in combinations]
         
-        # Requête optimisée : récupérer toutes les séquences correspondantes
+        # Récupérer les séquences correspondantes en une seule requête optimisée
         sequences_query = ComptageSequence.objects.filter(
             counting_detail__product_id__in=product_ids,
             counting_detail__location_id__in=location_ids,
@@ -409,11 +407,15 @@ class CountingDetailService:
             'counting_detail__product', 
             'counting_detail__location',
             'counting_detail__counting__inventory'
-        ).order_by('counting_detail__product_id', 'counting_detail__location_id', 
-                   'counting_detail__counting__inventory_id', '-sequence_number')
+        ).order_by(
+            'counting_detail__product_id',
+            'counting_detail__location_id', 
+            'counting_detail__counting__inventory_id',
+            'sequence_number'
+        )
         
-        # Grouper par combinaison et garder la première (la plus récente grâce au order_by)
-        processed_keys = set()
+        # Grouper par combinaison et conserver toutes les séquences (en ordre croissant)
+        cache = {}
         for seq in sequences_query:
             key = (
                 seq.counting_detail.product_id, 
@@ -421,16 +423,20 @@ class CountingDetailService:
                 seq.counting_detail.counting.inventory_id
             )
             
-            if key not in processed_keys:
+            if key not in cache:
                 cache[key] = {
                     'ecart': seq.ecart_comptage,
                     'last_sequence': seq,
-                    'last_sequence_number': seq.sequence_number
+                    'last_sequence_number': seq.sequence_number,
+                    'sequences': [seq]
                 }
-                processed_keys.add(key)
+            else:
+                cache[key]['sequences'].append(seq)
+                cache[key]['last_sequence'] = seq
+                cache[key]['last_sequence_number'] = seq.sequence_number
         
         # Charger les écarts résolus pour vérification en une seule requête
-        ecart_ids = list(set([item['ecart'].id for item in cache.values() if item.get('ecart')]))
+        ecart_ids = list({item['ecart'].id for item in cache.values() if item.get('ecart')})
         if ecart_ids:
             resolved_ecarts = set(
                 EcartComptage.objects.filter(id__in=ecart_ids, resolved=True)
@@ -439,6 +445,16 @@ class CountingDetailService:
             for key, item in cache.items():
                 if item['ecart'].id in resolved_ecarts:
                     item['ecart'].resolved = True
+        
+        # Initialiser les entrées sans séquences pour les combinaisons sans historique
+        for combination in combinations:
+            if combination not in cache:
+                cache[combination] = {
+                    'ecart': None,
+                    'last_sequence': None,
+                    'last_sequence_number': 0,
+                    'sequences': []
+                }
         
         return cache
     
@@ -471,8 +487,9 @@ class CountingDetailService:
         
         key = (product.id, location.id, inventory.id)
         cache_entry = ecart_cache.get(key)
+        entry_has_ecart = cache_entry and cache_entry.get('ecart')
         
-        if cache_entry:
+        if entry_has_ecart:
             ecart = cache_entry['ecart']
             # Vérifier si résolu
             if ecart.resolved:
@@ -495,11 +512,21 @@ class CountingDetailService:
             last_sequence = None
             last_sequence_number = 0
             # Mettre à jour le cache
-            ecart_cache[key] = {
-                'ecart': ecart,
-                'last_sequence': None,
-                'last_sequence_number': 0
-            }
+            if not cache_entry:
+                ecart_cache[key] = {
+                    'ecart': ecart,
+                    'last_sequence': None,
+                    'last_sequence_number': 0,
+                    'sequences': []
+                }
+            else:
+                cache_entry['ecart'] = ecart
+                cache_entry['last_sequence'] = None
+                cache_entry['last_sequence_number'] = 0
+                cache_entry.setdefault('sequences', [])
+        
+        cache_entry = ecart_cache.get(key)
+        cache_entry.setdefault('sequences', [])
         
         # Calculer le nouveau numéro de séquence
         nouveau_numero = last_sequence_number + 1
@@ -507,8 +534,7 @@ class CountingDetailService:
         # Calculer l'écart avec le précédent
         ecart_value = None
         if last_sequence:
-            # Toujours stocker l'écart en valeur absolue pour éviter les valeurs négatives
-            ecart_value = abs(counting_detail.quantity_inventoried - last_sequence.quantity)
+            ecart_value = counting_detail.quantity_inventoried - last_sequence.quantity
         
         # Créer la nouvelle séquence (sera sauvegardée après)
         nouvelle_sequence = ComptageSequence(
@@ -524,14 +550,23 @@ class CountingDetailService:
         ecart.stopped_sequence = nouveau_numero
         
         # Mettre à jour le cache
-        ecart_cache[key]['last_sequence'] = nouvelle_sequence
-        ecart_cache[key]['last_sequence_number'] = nouveau_numero
+        cache_entry['last_sequence'] = nouvelle_sequence
+        cache_entry['last_sequence_number'] = nouveau_numero
+        cache_entry['sequences'].append(nouvelle_sequence)
+        
+        # Mettre à jour le résultat final éventuel (seulement si 2 comptages ou plus)
+        final_result = None
+        if len(cache_entry['sequences']) >= 2:
+            final_result = self._calculate_consensus_result(cache_entry['sequences'], ecart.final_result)
+            if final_result is not None:
+                ecart.final_result = final_result
         
         return {
             "ecart": ecart,
             "sequence": nouvelle_sequence,
             "ecart_value": ecart_value,
-            "needs_resolution": ecart_value == 0  # Info seulement, pas de résolution auto
+            "needs_resolution": ecart_value == 0,
+            "final_result": final_result
         }
     
     def _prefetch_all_related_objects(self, data_list: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -1318,11 +1353,10 @@ class CountingDetailService:
             quantity=counting_detail.quantity_inventoried,
             ecart_with_previous=ecart_value
         )
-        # Générer et attribuer explicitement la référence (bulk_create ne déclenche pas save)
+        # Générer la référence avant sauvegarde pour éviter les doublons
         nouvelle_sequence.reference = nouvelle_sequence.generate_reference(ComptageSequence.REFERENCE_PREFIX)
-        nouvelle_sequence.save()
         
-        # 6. Mettre à jour l'écart
+        # Mettre à jour l'écart
         ecart.total_sequences = nouveau_numero
         ecart.stopped_sequence = nouveau_numero
         ecart.save()
@@ -1336,3 +1370,43 @@ class CountingDetailService:
             "ecart_value": ecart_value,
             "needs_resolution": ecart_value == 0  # Info seulement, pas de résolution auto
         }
+
+    def _calculate_consensus_result(
+        self,
+        sequences: List[ComptageSequence],
+        current_result: Optional[int]
+    ) -> Optional[int]:
+        """
+        Détermine le résultat final d'un écart selon les règles métier :
+        - Nécessite au moins 2 comptages pour calculer un résultat.
+        - Deux comptages identiques suffisent à confirmer une valeur.
+        - Si plusieurs valeurs sont confirmées, on privilégie la plus récente.
+        - Si aucun consensus, on conserve le résultat courant.
+        """
+        if len(sequences) < 2:
+            return None  # Pas de résultat si moins de 2 comptages
+        
+        counts: Dict[int, int] = {}
+        latest_index: Dict[int, int] = {}
+        for index, sequence in enumerate(sequences):
+            quantity = sequence.quantity
+            counts[quantity] = counts.get(quantity, 0) + 1
+            latest_index[quantity] = index
+        
+        # Filtrer les valeurs présentes au moins deux fois
+        consensus_candidates = [
+            (counts[value], latest_index[value], value)
+            for value in counts
+            if counts[value] >= 2
+        ]
+        
+        if not consensus_candidates:
+            return current_result
+        
+        # Si le résultat courant est encore valide, on le conserve
+        if current_result is not None and counts.get(current_result, 0) >= 2:
+            return current_result
+        
+        # Choisir la valeur avec le plus grand nombre d'occurrences, puis la plus récente
+        consensus_candidates.sort(key=lambda item: (item[0], item[1]))
+        return consensus_candidates[-1][2]
