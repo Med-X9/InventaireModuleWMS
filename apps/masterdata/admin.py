@@ -740,12 +740,12 @@ class PersonneAdmin(ImportExportModelAdmin):
     resource_class = PersonneResource
     list_display = ('reference', 'nom', 'prenom')
     search_fields = ('reference', 'nom', 'prenom')
-    exclude = ('created_at', 'updated_at', 'deleted_at', 'is_deleted', 'reference')
+    exclude = ('created_at', 'updated_at', 'deleted_at', 'is_deleted')
     readonly_fields = ('reference',)
     
     def get_form(self, request, obj=None, **kwargs):
         form = super().get_form(request, obj, **kwargs)
-        if not obj:  # Si c'est une nouvelle personne
+        if not obj and 'reference' in form.base_fields:  # Si c'est une nouvelle personne
             # Permettre au champ reference d'être vide lors de la création
             form.base_fields['reference'].required = False
             form.base_fields['reference'].widget = forms.HiddenInput()

@@ -130,18 +130,24 @@ class InventoryResultService:
                     },
                     "product": None,
                     "quantities": {},
+                    "final_result": None,  # Stocker le final_result depuis EcartComptage
                 },
             )
 
             if row.get("product_id"):
                 entry_data["product"] = {
                     "reference": row["product_reference_alias"],
+                    "barcode": row.get("product_barcode_alias"),
                 }
 
             order = row["counting_order_alias"]
             quantity = row["total_quantity"] or 0
             entry_data["quantities"][order] = quantity
             max_order_global = max(max_order_global, order)
+            
+            # Mettre à jour le final_result si disponible (sera le même pour tous les ordres)
+            if row.get("final_result_agg") is not None:
+                entry_data["final_result"] = row["final_result_agg"]
 
         formatted_results: List[Dict[str, Any]] = []
 
@@ -163,7 +169,8 @@ class InventoryResultService:
             }
 
             if mode == "par article" and entry["product"]:
-                result_row["product"] = entry["product"]["reference"]
+                # Utiliser le code-barres du produit, ou la référence en fallback
+                result_row["product"] = entry["product"].get("barcode") or entry["product"].get("reference") or ""
 
             job_info = entry.get("job")
             if job_info and job_info.get("id") is not None:
@@ -193,15 +200,9 @@ class InventoryResultService:
                 previous_order = order
                 previous_quantity = quantity
 
-            # Calcul du résultat final : dernière quantité non nulle disponible.
-            final_quantity: Optional[int] = None
-            for order in range(max_order_global, 0, -1):
-                current_quantity = quantities.get(order)
-                if current_quantity is not None:
-                    final_quantity = current_quantity
-                    break
-
-            result_row["final_result"] = final_quantity
+            # Utiliser le final_result depuis EcartComptage
+            # Si null, rester null (pas de fallback)
+            result_row["final_result"] = entry.get("final_result")
 
             formatted_results.append(result_row)
 

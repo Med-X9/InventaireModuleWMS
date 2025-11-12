@@ -33,6 +33,7 @@ class CloseJobView(APIView):
             assignment_id: ID de l'assignment (depuis l'URL)
         """
         try:
+            print(f"Clôture du job avec job_id={job_id} et assignment_id={assignment_id}, les données: {request.data}")
             # Clôturer le job
             result = self.assignment_service.close_job(
                 job_id=job_id,

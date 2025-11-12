@@ -339,7 +339,7 @@ class AssignmentService:
             )
         
         # Récupérer tous les JobDetails du job
-        job_details = JobDetail.objects.filter(job=job)
+        job_details = JobDetail.objects.filter(job=job,counting=assignment.counting)
         
         # Vérifier que tous les emplacements sont terminés
         for job_detail in job_details:
@@ -357,10 +357,6 @@ class AssignmentService:
         assignment.status = 'TERMINE'
         assignment.save()
         
-        # Mettre à jour le job
-        job.status = 'TERMINE'
-        job.termine_date = now
-        job.save()
         
         return {
             'success': True,
