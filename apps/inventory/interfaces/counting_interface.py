@@ -68,3 +68,10 @@ class ICountingRepository(ABC):
         Récupère un comptage avec ses données associées
         """
         pass 
+    
+    @abstractmethod
+    def get_by_inventory_and_order(self, inventory_id: int, order: int) -> Optional[Any]:
+        """
+        Récupère un comptage par inventaire et ordre
+        """
+        pass

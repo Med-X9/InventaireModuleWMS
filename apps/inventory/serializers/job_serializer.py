@@ -4,6 +4,19 @@ from apps.masterdata.serializers.location_serializer import LocationSerializer
 from apps.masterdata.serializers.sous_zone_serializer import SousZoneSerializer
 from apps.masterdata.serializers.zone_serializer import ZoneSerializer
 
+
+class IntegerListField(serializers.ListField):
+    """
+    Champ utilitaire qui accepte une valeur entière unique ou une liste d'entiers.
+    Permet de rester rétrocompatible avec les appels front envoyant un seul entier.
+    """
+
+    def to_internal_value(self, data):
+        if isinstance(data, int):
+            data = [data]
+        return super().to_internal_value(data)
+
+
 class JobCreateRequestSerializer(serializers.Serializer):
     emplacements = serializers.ListField(
         child=serializers.IntegerField(),
@@ -228,7 +241,7 @@ class JobTransferRequestSerializer(serializers.Serializer):
         allow_empty=False,
         help_text="Liste des IDs des jobs à transférer"
     )
-    counting_order = serializers.ListField(
+    counting_order = IntegerListField(
         child=serializers.IntegerField(min_value=1),
         allow_empty=False,
         help_text="Liste des ordres de comptage pour lesquels transférer les jobs (ex: [1, 2, 3])"

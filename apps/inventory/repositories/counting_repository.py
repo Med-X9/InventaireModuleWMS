@@ -162,6 +162,12 @@ class CountingRepository(ICountingRepository):
             ).get(id=counting_id)
         except Counting.DoesNotExist:
             raise CountingNotFoundError(f"Le comptage avec l'ID {counting_id} n'existe pas.")
+    
+    def get_by_inventory_and_order(self, inventory_id: int, order: int) -> Optional[Counting]:
+        """
+        Récupère un comptage par inventaire et ordre.
+        """
+        return Counting.objects.filter(inventory_id=inventory_id, order=order).first()
 
     # Méthodes spécialisées supplémentaires
 

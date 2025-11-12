@@ -125,6 +125,15 @@ class AssignmentRepository(IAssignmentRepository):
         except Assigment.DoesNotExist:
             return None
     
+    def get_assignment_by_job_and_order(self, job_id: int, counting_order: int) -> Optional[Any]:
+        """
+        Récupère l'affectation pour un job et un ordre de comptage.
+        """
+        return Assigment.objects.filter(
+            job_id=job_id,
+            counting__order=counting_order
+        ).order_by('-created_at').first()
+    
     def get_assignments_by_session(self, session_id: int) -> List[Any]:
         """
         Récupère toutes les affectations d'une session

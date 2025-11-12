@@ -100,6 +100,14 @@ class JobRepository(JobRepositoryInterface):
         """Récupère les job details d'un job pour des emplacements spécifiques"""
         return list(JobDetail.objects.filter(job=job, location_id__in=location_ids))
     
+    def get_job_detail_by_job_and_location(self, job: Job, location: Location) -> Optional[JobDetail]:
+        """Récupère un job detail pour un job et un emplacement spécifiques"""
+        return JobDetail.objects.filter(job=job, location=location).first()
+    
+    def get_job_detail_by_job_location_and_counting(self, job: Job, location: Location, counting: Counting) -> Optional[JobDetail]:
+        """Récupère un job detail pour un job, un emplacement et un comptage spécifiques"""
+        return JobDetail.objects.filter(job=job, location=location, counting=counting).first()
+    
     def get_existing_job_detail_by_location_and_inventory(self, location: Location, inventory: Inventory) -> Optional[JobDetail]:
         """Récupère un job detail existant pour un emplacement et un inventaire"""
         return JobDetail.objects.filter(
@@ -117,10 +125,6 @@ class JobRepository(JobRepositoryInterface):
             location=location,
             job__inventory=inventory
         ).exclude(job=job).first()
-    
-    def get_job_detail_by_job_and_location(self, job: Job, location: Location) -> Optional[JobDetail]:
-        """Récupère un job detail pour un job et un emplacement spécifiques"""
-        return JobDetail.objects.filter(job=job, location=location).first()
     
     def get_jobs_by_ids(self, job_ids: List[int]) -> List[Job]:
         """Récupère des jobs par leurs IDs"""

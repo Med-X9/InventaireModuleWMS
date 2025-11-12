@@ -57,3 +57,9 @@ class CountingModeFieldsSerializer(serializers.ModelSerializer):
             if getattr(obj, field, False):
                 actifs.append(label)
         return actifs 
+
+class LaunchCountingRequestSerializer(serializers.Serializer):
+    """Serializer pour lancer un nouveau comptage sur un job donné."""
+    job_id = serializers.IntegerField(min_value=1)
+    location_id = serializers.IntegerField(min_value=1)
+    session_id = serializers.IntegerField(min_value=1)

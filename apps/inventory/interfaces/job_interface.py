@@ -73,6 +73,16 @@ class JobRepositoryInterface(ABC):
         pass
     
     @abstractmethod
+    def get_job_detail_by_job_and_location(self, job: Any, location: Any) -> Optional[Any]:
+        """Récupère un job detail pour un job et un emplacement spécifiques"""
+        pass
+    
+    @abstractmethod
+    def get_job_detail_by_job_location_and_counting(self, job: Any, location: Any, counting: Any) -> Optional[Any]:
+        """Récupère un job detail pour un job, un emplacement et un comptage spécifiques"""
+        pass
+    
+    @abstractmethod
     def get_existing_job_detail_by_location_and_inventory(self, location: Any, inventory: Any) -> Optional[Any]:
         """Récupère un job detail existant pour un emplacement et un inventaire"""
         pass

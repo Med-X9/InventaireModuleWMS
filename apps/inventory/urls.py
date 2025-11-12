@@ -26,6 +26,7 @@ from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRem
 from .views.assignment_views import AssignJobsToCountingView, AssignResourcesToInventoryView, InventoryResourcesView
 from .views.resource_assignment_views import AssignResourcesToJobsView, JobResourcesView, RemoveResourcesFromJobView
 from .views.counting_tracking_views import InventoryCountingTrackingView
+from .views.counting_views import CountingLaunchView
 from .views.pdf_views import InventoryJobsPdfView
 
 urlpatterns = [
@@ -70,6 +71,7 @@ urlpatterns = [
     path('jobs/delete/', JobDeleteView.as_view(), name='job-delete'),
     path('jobs/ready/', JobReadyView.as_view(), name='jobs-ready'),
     path('jobs/reset-assignments/', JobResetAssignmentsView.as_view(), name='job-reset-assignments'),
+    path('jobs/launch-counting/', CountingLaunchView.as_view(), name='job-launch-counting'),
     
     # Gestion des emplacements des jobs
     path('jobs/<int:job_id>/remove-emplacements/', JobRemoveEmplacementsView.as_view(), name='job-remove-emplacements'),
