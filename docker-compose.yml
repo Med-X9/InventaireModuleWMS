@@ -23,6 +23,7 @@ services:
                 --preload \
                 --log-level info
             "
+
     # Removed: .:/app volume (don't override production image code)
     volumes:
       - static_volume:/app/staticfiles
