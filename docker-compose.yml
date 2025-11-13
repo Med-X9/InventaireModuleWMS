@@ -43,11 +43,8 @@ services:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
       CORS_ALLOW_ALL_ORIGINS: ${CORS_ALLOW_ALL_ORIGINS}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
-    deploy:
-    resources:
-      limits:
-        cpus: '2'
-        memory: 6G
+    cpus: 2
+    mem_limit: 6g
 
   nginx:
     networks:
