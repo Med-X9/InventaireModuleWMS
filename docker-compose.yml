@@ -12,17 +12,18 @@ services:
     networks:
       - inventaire-net
     command: >
-            sh -c "
-              python manage.py migrate --noinput &&
-              python manage.py collectstatic --noinput --clear --verbosity=0 &&
-              gunicorn project.wsgi:application \
-                -b 0.0.0.0:8000 \
-                --workers 2 \
-                --threads 4 \
-                --timeout 300 \
-                --preload \
-                --log-level info
-            "
+      sh -c "
+        python manage.py migrate --noinput &&
+        python manage.py collectstatic --noinput --clear --verbosity=0 &&
+        exec gunicorn project.wsgi:application \
+          -b 0.0.0.0:8000 \
+          --workers 2 \
+          --threads 4 \
+          --timeout 300 \
+          --preload \
+          --log-level info
+      "
+
 
     # Removed: .:/app volume (don't override production image code)
     volumes:

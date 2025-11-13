@@ -55,4 +55,10 @@ USER app_user
 EXPOSE 8000
 
 # Commande par défaut pour la production
-CMD ["gunicorn", "project.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "2","--threads", "4", "--timeout", "300"] 
+CMD gunicorn project.wsgi:application \
+    --bind 0.0.0.0:8000 \
+    --workers 2 \
+    --threads 4 \
+    --timeout 300 \
+    --preload \
+    --log-level info
