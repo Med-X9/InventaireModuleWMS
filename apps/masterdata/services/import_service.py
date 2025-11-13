@@ -51,12 +51,16 @@ class ProductImportService:
             validation_errors = []
             row_number = 2  # Ligne 1 = header
             
-            # Valider toutes les lignes
-            for chunk_df in pd.read_excel(file_path, chunksize=self.CHUNK_SIZE):
+            # Valider toutes les lignes (lire le fichier Excel et traiter par chunks)
+            df_full = pd.read_excel(file_path, engine='openpyxl')
+            
+            # Traiter par chunks
+            for i in range(0, len(df_full), self.CHUNK_SIZE):
+                chunk_df = df_full.iloc[i:i + self.CHUNK_SIZE]
                 chunk_errors = self._validate_chunk(chunk_df, import_task, row_number)
                 validation_errors.extend(chunk_errors)
                 
-                import_task.validated_rows = min(row_number + len(chunk_df) - 2, total_rows)
+                import_task.validated_rows = min(row_number + len(chunk_df) - 1, total_rows)
                 import_task.save()
                 
                 row_number += len(chunk_df)
@@ -93,7 +97,12 @@ class ProductImportService:
                     total_updated = 0
                     
                     row_number = 2
-                    for chunk_df in pd.read_excel(file_path, chunksize=self.CHUNK_SIZE):
+                    # Lire le fichier Excel et traiter par chunks
+                    df_full = pd.read_excel(file_path, engine='openpyxl')
+                    
+                    # Traiter par chunks
+                    for i in range(0, len(df_full), self.CHUNK_SIZE):
+                        chunk_df = df_full.iloc[i:i + self.CHUNK_SIZE]
                         chunk_data = self._dataframe_to_dataset(chunk_df)
                         
                         result = self._import_chunk(chunk_data, import_task, row_number)
@@ -101,7 +110,7 @@ class ProductImportService:
                         total_imported += result.get('imported', 0)
                         total_updated += result.get('updated', 0)
                         
-                        import_task.processed_rows = min(row_number + len(chunk_df) - 2, total_rows)
+                        import_task.processed_rows = min(row_number + len(chunk_df) - 1, total_rows)
                         import_task.imported_count = total_imported
                         import_task.updated_count = total_updated
                         import_task.save()
@@ -269,13 +278,25 @@ class ProductImportService:
     def _count_file_rows(self, file_path: str) -> int:
         """Compte le nombre de lignes dans le fichier"""
         try:
-            count = 0
-            for _ in pd.read_excel(file_path, chunksize=1000):
-                count += len(_)
-            return count
+            # Lire uniquement pour compter les lignes (sans charger toutes les données)
+            df = pd.read_excel(file_path, engine='openpyxl', nrows=0)  # Lire seulement les headers
+            # Utiliser openpyxl directement pour compter les lignes sans charger tout en mémoire
+            from openpyxl import load_workbook
+            wb = load_workbook(file_path, read_only=True, data_only=True)
+            ws = wb.active
+            # Compter les lignes non vides (sans la ligne d'en-tête)
+            row_count = sum(1 for row in ws.iter_rows(min_row=2) if any(cell.value for cell in row))
+            wb.close()
+            return row_count
         except Exception as e:
-            logger.warning(f"Impossible de compter les lignes: {str(e)}")
-            return 0
+            logger.warning(f"Impossible de compter les lignes avec openpyxl, tentative avec pandas: {str(e)}")
+            try:
+                # Fallback: lire le fichier complet (peut être lent pour gros fichiers)
+                df = pd.read_excel(file_path, engine='openpyxl')
+                return len(df)
+            except Exception as e2:
+                logger.error(f"Impossible de compter les lignes: {str(e2)}")
+                return 0
     
     def _dataframe_to_dataset(self, df):
         """Convertit un DataFrame pandas en Dataset import_export"""
