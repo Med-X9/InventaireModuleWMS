@@ -443,3 +443,61 @@ class RegroupementEmplacement(models.Model):
     def __str__(self):
         return self.nom
 
+
+class ImportTask(TimeStampedModel):
+    """Suivi des imports en cours - Mode 'tout ou rien' uniquement"""
+    STATUS_CHOICES = (
+        ('PENDING', 'En attente'),
+        ('VALIDATING', 'Validation en cours'),
+        ('PROCESSING', 'Import en cours'),
+        ('COMPLETED', 'Terminé avec succès'),
+        ('CANCELLED', 'Annulé (erreurs détectées)'),
+        ('FAILED', 'Échoué'),
+    )
+    
+    user = models.ForeignKey('users.UserApp', on_delete=models.CASCADE)
+    file_path = models.CharField(max_length=500)
+    file_name = models.CharField(max_length=255)
+    total_rows = models.IntegerField(default=0)
+    validated_rows = models.IntegerField(default=0)
+    processed_rows = models.IntegerField(default=0)
+    imported_count = models.IntegerField(default=0)
+    updated_count = models.IntegerField(default=0)
+    error_count = models.IntegerField(default=0)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    error_message = models.TextField(blank=True, null=True)
+    errors_file_path = models.CharField(max_length=500, blank=True, null=True)
+    
+    class Meta:
+        verbose_name = 'Tâche d\'import'
+        verbose_name_plural = 'Tâches d\'import'
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"Import {self.file_name} - {self.status}"
+
+
+class ImportError(TimeStampedModel):
+    """Détail des erreurs d'import ligne par ligne"""
+    import_task = models.ForeignKey(
+        ImportTask, 
+        on_delete=models.CASCADE, 
+        related_name='errors'
+    )
+    row_number = models.IntegerField(verbose_name="Numéro de ligne")
+    error_type = models.CharField(max_length=100, verbose_name="Type d'erreur")
+    error_message = models.TextField(verbose_name="Message d'erreur")
+    field_name = models.CharField(max_length=100, blank=True, null=True, verbose_name="Champ concerné")
+    field_value = models.TextField(blank=True, null=True, verbose_name="Valeur du champ")
+    row_data = models.JSONField(default=dict, verbose_name="Données de la ligne")
+    
+    class Meta:
+        verbose_name = 'Erreur d\'import'
+        verbose_name_plural = 'Erreurs d\'import'
+        ordering = ['row_number']
+        indexes = [
+            models.Index(fields=['import_task', 'row_number']),
+        ]
+    
+    def __str__(self):
+        return f"Ligne {self.row_number}: {self.error_message}"

@@ -1,0 +1,95 @@
+{% extends "admin/change_list.html" %}
+{% load i18n admin_urls static %}
+
+{% block extrahead %}
+    {{ block.super }}
+    <style>
+        .import-async-btn {
+            background-color: #417690 !important;
+            color: white !important;
+            padding: 10px 15px !important;
+            text-decoration: none !important;
+            border-radius: 4px !important;
+            margin-left: 10px !important;
+            display: inline-block !important;
+            font-weight: bold !important;
+        }
+        .import-async-btn:hover {
+            background-color: #205067 !important;
+            color: white !important;
+        }
+    </style>
+{% endblock %}
+
+{% block object-tools %}
+    {{ block.super }}
+    {% if import_async_url %}
+    <li>
+        <a href="{{ import_async_url }}" class="addlink" style="background-color: #417690 !important; color: white !important; padding: 8px 15px !important; border-radius: 4px !important;">
+            📤 Import asynchrone (fichiers volumineux)
+        </a>
+    </li>
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+    {# TEST: Vérifier si le template est chargé #}
+    <div style="margin: 20px 0; padding: 15px; background-color: #d4edda; border: 1px solid #c3e6cb; border-radius: 4px;">
+        <strong>✅ Template personnalisé chargé !</strong>
+        {% if import_async_url %}
+            <p>URL d'import: {{ import_async_url }}</p>
+            <a href="{{ import_async_url }}" class="import-async-btn addlink" style="display: inline-block; margin-top: 10px;">
+                📤 Import asynchrone (fichiers volumineux)
+            </a>
+        {% else %}
+            <p style="color: red;">❌ import_async_url n'est pas défini dans le contexte</p>
+        {% endif %}
+    </div>
+    {{ block.super }}
+    <script>
+        // Force l'ajout du bouton dans object-tools (à côté des boutons Import/Export)
+        (function() {
+            function addImportButton() {
+                const importUrl = "{% url 'admin:masterdata_product_import_async' %}";
+                
+                // Chercher object-tools (où sont les boutons Import/Export/Ajouter)
+                const objectTools = document.querySelector('ul.object-tools');
+                
+                if (objectTools) {
+                    // Vérifier si le bouton existe déjà
+                    const existingBtn = objectTools.querySelector('a[href="' + importUrl + '"]');
+                    if (existingBtn) {
+                        return; // Bouton déjà présent
+                    }
+                    
+                    // Créer le bouton dans un <li> (format standard Django admin)
+                    const li = document.createElement('li');
+                    const importBtn = document.createElement('a');
+                    importBtn.href = importUrl;
+                    importBtn.className = 'addlink';
+                    importBtn.style.cssText = 'background-color: #417690 !important; color: white !important; padding: 8px 15px !important; border-radius: 4px !important;';
+                    importBtn.innerHTML = '📤 Import asynchrone (fichiers volumineux)';
+                    
+                    li.appendChild(importBtn);
+                    objectTools.appendChild(li);
+                    
+                    console.log('✅ Bouton import asynchrone ajouté dans object-tools');
+                    return;
+                }
+                
+                console.warn('❌ Zone object-tools non trouvée');
+            }
+            
+            // Essayer plusieurs fois
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', addImportButton);
+            } else {
+                addImportButton();
+            }
+            
+            // Essayer aussi après un délai (pour Jazzmin qui charge après)
+            setTimeout(addImportButton, 500);
+            setTimeout(addImportButton, 1500);
+        })();
+    </script>
+{% endblock %}
