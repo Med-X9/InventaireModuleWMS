@@ -40,6 +40,9 @@ class ProductImportService:
         5. Si erreur pendant import → Rollback automatique
         """
         try:
+            logger.info(f"=== DÉBUT IMPORT TÂCHE {import_task.id} ===")
+            logger.info(f"Fichier: {file_path}")
+            logger.info(f"Statut initial: {import_task.status}")
             # PHASE 1: VALIDATION COMPLÈTE
             import_task.status = 'VALIDATING'
             import_task.save()
@@ -82,6 +85,8 @@ class ProductImportService:
                 
                 row_number += len(chunk_df)
             
+            logger.info(f"Validation terminée: {len(validation_errors)} erreur(s) détectée(s)")
+            
             # VÉRIFICATION: Si erreurs → ANNULER TOUT
             if validation_errors:
                 import_task.status = 'CANCELLED'
@@ -106,23 +111,33 @@ class ProductImportService:
             logger.info("Validation OK, début import dans transaction")
             import_task.status = 'PROCESSING'
             import_task.save()
+            logger.info(f"Statut mis à jour à PROCESSING pour l'import {import_task.id}")
             
             # ⭐ IMPORT DANS UNE TRANSACTION (tout ou rien)
             try:
+                logger.info(f"Début de la transaction d'import pour {total_rows} lignes")
                 with transaction.atomic():  # Transaction globale
                     total_imported = 0
                     total_updated = 0
                     
                     row_number = 2
                     # Lire le fichier Excel et traiter par chunks
+                    logger.info(f"Lecture du fichier Excel: {file_path}")
                     df_full = pd.read_excel(file_path, engine='openpyxl')
+                    logger.info(f"Fichier Excel lu: {len(df_full)} lignes")
                     
                     # Traiter par chunks
-                    for i in range(0, len(df_full), self.CHUNK_SIZE):
+                    total_chunks = (len(df_full) + self.CHUNK_SIZE - 1) // self.CHUNK_SIZE
+                    logger.info(f"Début traitement de {total_chunks} chunks")
+                    
+                    for chunk_idx, i in enumerate(range(0, len(df_full), self.CHUNK_SIZE), 1):
+                        logger.info(f"Traitement chunk {chunk_idx}/{total_chunks} (lignes {i} à {min(i + self.CHUNK_SIZE, len(df_full))})")
                         chunk_df = df_full.iloc[i:i + self.CHUNK_SIZE]
                         chunk_data = self._dataframe_to_dataset(chunk_df)
+                        logger.info(f"Chunk converti en dataset: {len(chunk_data)} lignes")
                         
                         result = self._import_chunk(chunk_data, import_task, row_number)
+                        logger.info(f"Chunk importé: {result.get('imported', 0)} importés, {result.get('updated', 0)} mis à jour")
                         
                         total_imported += result.get('imported', 0)
                         total_updated += result.get('updated', 0)
@@ -131,10 +146,12 @@ class ProductImportService:
                         import_task.imported_count = total_imported
                         import_task.updated_count = total_updated
                         import_task.save()
+                        logger.info(f"Progression sauvegardée: {import_task.processed_rows}/{total_rows}")
                         
                         row_number += len(chunk_df)
                     
                     # Succès complet
+                    logger.info(f"Tous les chunks traités. Finalisation...")
                     import_task.status = 'COMPLETED'
                     import_task.processed_rows = total_rows
                     import_task.save()
@@ -146,22 +163,36 @@ class ProductImportService:
                     
             except Exception as e:
                 # ⭐ Erreur pendant import → rollback automatique
+                logger.error(f"Exception lors de l'import: {str(e)}", exc_info=True)
                 import_task.status = 'FAILED'
                 import_task.error_message = (
                     f"Erreur lors de l'import: {str(e)}. "
                     f"Aucun produit n'a été importé (rollback automatique)."
                 )
                 import_task.save()
-                logger.error(f"Erreur import (rollback): {str(e)}", exc_info=True)
+                logger.error(f"Statut mis à jour à FAILED pour l'import {import_task.id}")
                 raise  # Transaction annulée automatiquement
             
         except Exception as e:
+            logger.error(f"=== ERREUR CRITIQUE IMPORT TÂCHE {import_task.id} ===", exc_info=True)
             if import_task.status not in ['CANCELLED', 'FAILED']:
                 import_task.status = 'FAILED'
-                import_task.error_message = str(e)
+                import_task.error_message = f"{str(e)} (Type: {type(e).__name__})"
                 import_task.save()
-            logger.error(f"Erreur import: {str(e)}", exc_info=True)
+                logger.error(f"Statut mis à jour à FAILED pour l'import {import_task.id}")
+            logger.error(f"=== FIN IMPORT TÂCHE {import_task.id} (ÉCHEC) ===")
             raise
+        finally:
+            # S'assurer que le statut est toujours mis à jour même en cas d'erreur silencieuse
+            try:
+                import_task.refresh_from_db()
+                if import_task.status == 'VALIDATING':
+                    logger.warning(f"⚠️ Statut toujours VALIDATING après traitement, mise à jour à FAILED")
+                    import_task.status = 'FAILED'
+                    import_task.error_message = "Erreur silencieuse: le traitement s'est arrêté après la validation."
+                    import_task.save()
+            except Exception as e:
+                logger.error(f"Erreur lors de la mise à jour finale du statut: {str(e)}")
     
     def _detect_duplicates_in_file(self, df: pd.DataFrame) -> list:
         """Détecte les doublons dans le fichier Excel lui-même"""
@@ -346,10 +377,23 @@ class ProductImportService:
         imported = 0
         updated = 0
         
+        logger.info(f"Début import chunk: {len(dataset)} lignes à partir de la ligne {start_row}")
+        
         for index, row_data in enumerate(dataset.dict):
             try:
-                single_row_dataset = type(dataset)()
-                single_row_dataset.dict = [row_data]
+                # Créer un dataset avec une seule ligne
+                from tablib import Dataset
+                single_row_dataset = Dataset()
+                
+                # S'assurer que les headers sont définis
+                if not single_row_dataset.headers and dataset.headers:
+                    single_row_dataset.headers = dataset.headers
+                
+                # Ajouter la ligne
+                row_values = [row_data.get(header, '') for header in dataset.headers]
+                single_row_dataset.append(row_values)
+                
+                logger.debug(f"Import ligne {start_row + index}: {row_data.get('internal product code', 'N/A')}")
                 
                 result = resource.import_data(
                     single_row_dataset,
@@ -365,11 +409,12 @@ class ProductImportService:
                 
             except Exception as e:
                 # ⭐ Toute erreur annule la transaction
-                logger.error(f"Erreur ligne {start_row + index}: {str(e)}")
+                logger.error(f"Erreur ligne {start_row + index}: {str(e)}", exc_info=True)
                 raise exceptions.ImportError(
                     f"Erreur ligne {start_row + index}: {str(e)}"
                 )
         
+        logger.info(f"Chunk importé: {imported} importés, {updated} mis à jour")
         return {
             'imported': imported,
             'updated': updated,
