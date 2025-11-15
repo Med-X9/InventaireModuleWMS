@@ -34,6 +34,20 @@ class InventoryCountingTrackingView(APIView):
             Response avec les données de l'inventaire regroupées par comptages
         """
         try:
+            # Validation de sécurité: vérifier que inventory_id est un entier positif
+            try:
+                inventory_id = int(inventory_id)
+                if inventory_id <= 0:
+                    return Response(
+                        {'error': 'L\'ID de l\'inventaire doit être un nombre entier positif'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            except (ValueError, TypeError):
+                return Response(
+                    {'error': 'L\'ID de l\'inventaire doit être un nombre entier valide'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
             # Extraire le paramètre de filtre par ordre de comptage (obligatoire)
             counting_order = request.query_params.get('counting_order')
             if counting_order is None:

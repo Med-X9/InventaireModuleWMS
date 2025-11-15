@@ -1,49 +1,91 @@
-# Configuration de la base de données
-DEBUG=False
-ALLOWED_HOSTS=44.212.20.168,174.129.143.211
-
-
+# ============================================
 # Configuration Django
+# ============================================
+# Environnement (True pour production, False pour développement/test)
+IS_PRODUCTION=False
+
+# Clé secrète Django (GÉNÉRER UNE CLÉ UNIQUE ET ALÉATOIRE)
+# Utiliser: python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
 DJANGO_SECRET_KEY=django-insecure-z&2_@s_9cho139af^9e0sus&c7b6n@i60tup_x^4$qq8#fp!!8
+
+# Mode debug (False en production)
 DJANGO_DEBUG=False
-DJANGO_ALLOWED_HOSTS=44.212.20.168,174.129.143.211,*
+
+# Hosts autorisés (séparés par des virgules, utiliser le nom du domaine ou l'IP du serveur)
+# Exemple: localhost,127.0.0.1,votre-domaine.com,www.votre-domaine.com
+DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
+
 DJANGO_SETTINGS_MODULE=project.settings
 
-# Database Settings
+# ============================================
+# Sécurité SSL/TLS
+# ============================================
+# Redirection HTTPS (True en production)
+SECURE_SSL_REDIRECT=False
+
+# Cookies sécurisés (True en production)
+SESSION_COOKIE_SECURE=False
+CSRF_COOKIE_SECURE=False
+
+# HSTS (HTTP Strict Transport Security)
+# Durée en secondes (31536000 = 1 an pour production, 0 pour dev/test)
+SECURE_HSTS_SECONDS=0
+SECURE_HSTS_INCLUDE_SUBDOMAINS=False
+SECURE_HSTS_PRELOAD=False
+
+# Origines CSRF autorisées (séparées par des virgules)
+# Utiliser le même domaine/IP que ALLOWED_HOSTS
+# Exemple: http://localhost,http://votre-domaine.com,https://votre-domaine.com
+CSRF_TRUSTED_ORIGINS=http://localhost
+
+# Si derrière un reverse proxy (nginx), décommenter:
+# SECURE_PROXY_SSL_HEADER=('HTTP_X_FORWARDED_PROTO', 'https')
+
+# ============================================
+# CORS (Cross-Origin Resource Sharing)
+# ============================================
+# Autoriser toutes les origines (False en production)
+CORS_ALLOW_ALL_ORIGINS=True
+
+# Origines autorisées (séparées par des virgules)
+# Pour le frontend sur le même serveur mais autre container, utiliser:
+# - Le nom du service Docker (ex: http://frontend:3000)
+# - L'adresse IP du serveur (ex: http://SERVER_IP:3000)
+# - Le domaine si configuré (ex: https://votre-domaine.com)
+# Exemple: http://frontend:3000,http://localhost:3000
+CORS_ALLOWED_ORIGINS=
+
+# Autoriser les credentials (cookies, headers d'authentification)
+CORS_ALLOW_CREDENTIALS=True
+
+# ============================================
+# Base de données PostgreSQL
+# ============================================
+# Utiliser le nom du service Docker pour la connexion entre containers
+# Exemple: si le service s'appelle 'postgres' dans docker-compose.yml, utiliser 'postgres'
 POSTGRES_DB=inventairedb
 POSTGRES_USER=postgres
-POSTGRES_PASSWORD=smatch2025
-POSTGRES_HOST=172.17.0.1
+POSTGRES_PASSWORD=GENERATE-A-STRONG-PASSWORD-HERE
+# Pour connexion entre containers Docker, utiliser le nom du service
+# Pour connexion depuis l'hôte, utiliser 'localhost' ou '127.0.0.1'
+POSTGRES_HOST=postgres
 POSTGRES_PORT=5432
-DATABASE_URL=postgres://postgres:smatch2025@172.17.0.1:5432/inventairedb
 
-# Static and Media Files
+# URL de connexion (optionnel, généré automatiquement si non fourni)
+# DATABASE_URL=postgres://postgres:PASSWORD@postgres:5432/inventairedb
+
+# ============================================
+# Fichiers Statiques et Media
+# ============================================
 DJANGO_STATIC_ROOT=/app/staticfiles
 DJANGO_MEDIA_ROOT=/app/media
 DJANGO_STATIC_URL=/static/
 DJANGO_MEDIA_URL=/media/
 DJANGO_STATICFILES_DIRS=/app/static
 
-
-
-# Security Settings
-CSRF_TRUSTED_ORIGINS=http://44.212.20.168,http://174.129.143.211
-DJANGO_CSRF_TRUSTED_ORIGINS=http://44.212.20.168,http://174.129.143.211
-DJANGO_SECURE_SSL_REDIRECT=False
-DJANGO_SESSION_COOKIE_SECURE=False
-DJANGO_CSRF_COOKIE_SECURE=False
-SECURE_HSTS_SECONDS=31536000
-SECURE_HSTS_INCLUDE_SUBDOMAINS=True
-SECURE_HSTS_PRELOAD=True
-
-# CORS Settings
-CORS_ALLOW_ALL_ORIGINS=True
-CORS_ALLOWED_ORIGINS=http://44.212.20.168,http://174.129.143.211
-CORS_ALLOW_CREDENTIALS=True
-CORS_ALLOW_METHODS=GET,POST,PUT,PATCH,DELETE,OPTIONS
-CORS_ALLOW_HEADERS=*
-
-# Email Settings
+# ============================================
+# Configuration Email
+# ============================================
 EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
 EMAIL_HOST=smtp.gmail.com
 EMAIL_PORT=587
@@ -51,8 +93,13 @@ EMAIL_USE_TLS=True
 EMAIL_HOST_USER=your-email@gmail.com
 EMAIL_HOST_PASSWORD=your-app-password
 
+# ============================================
 # Logging
+# ============================================
 DJANGO_LOG_LEVEL=INFO
 
-# Docker Image Tag
-imageTag=dev-latest
+# ============================================
+# Docker
+# ============================================
+# Tag de l'image Docker (dev-latest pour test, prod-latest pour production)
+IMAGE_TAG=dev-latest

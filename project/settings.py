@@ -62,17 +62,29 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'django.middleware.locale.LocaleMiddleware', 
+    'django.middleware.locale.LocaleMiddleware',
+    'project.middleware.security_headers.SecurityHeadersMiddleware',  # Headers de sécurité
     'project.middleware.ActionLoggingMiddleware',
 ]
 
 
+# CORS Configuration
 CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=False, cast=bool)
-
 CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='', cast=Csv())
-CORS_ALLOW_HEADERS = list(default_headers) + [
-    'authorization',
-]
+CORS_ALLOW_CREDENTIALS = config('CORS_ALLOW_CREDENTIALS', default=True, cast=bool)
+
+# CORS Methods - lire depuis .env ou utiliser les valeurs par défaut
+CORS_ALLOW_METHODS_STR = config('CORS_ALLOW_METHODS', default='GET,POST,PUT,PATCH,DELETE,OPTIONS')
+CORS_ALLOW_METHODS = [method.strip() for method in CORS_ALLOW_METHODS_STR.split(',') if method.strip()]
+
+# CORS Headers - lire depuis .env ou utiliser les valeurs par défaut
+CORS_ALLOW_HEADERS_STR = config('CORS_ALLOW_HEADERS', default='')
+if CORS_ALLOW_HEADERS_STR:
+    # Si défini dans .env, utiliser la liste fournie
+    CORS_ALLOW_HEADERS = [header.strip() for header in CORS_ALLOW_HEADERS_STR.split(',') if header.strip()]
+else:
+    # Sinon, utiliser les headers par défaut + authorization
+    CORS_ALLOW_HEADERS = list(default_headers) + ['authorization']
 
 
 
@@ -387,21 +399,42 @@ JAZZMIN_UI_TWEAKS = {
 }
 
 # Security settings
-SECURE_SSL_REDIRECT = False
-SESSION_COOKIE_SECURE = False
-CSRF_COOKIE_SECURE = False
-# SECURE_HSTS_SECONDS = 0
-# SECURE_HSTS_INCLUDE_SUBDOMAINS = False
-# SECURE_HSTS_PRELOAD = False
-# CSRF_TRUSTED_ORIGINS = []
+# Configuration basée sur l'environnement (production vs développement)
+IS_PRODUCTION = config('IS_PRODUCTION', default=False, cast=bool)
+
+# SSL/TLS Security
+SECURE_SSL_REDIRECT = config('SECURE_SSL_REDIRECT', default=IS_PRODUCTION, cast=bool)
+SESSION_COOKIE_SECURE = config('SESSION_COOKIE_SECURE', default=IS_PRODUCTION, cast=bool)
+CSRF_COOKIE_SECURE = config('CSRF_COOKIE_SECURE', default=IS_PRODUCTION, cast=bool)
+
+# HSTS (HTTP Strict Transport Security)
+SECURE_HSTS_SECONDS = config('SECURE_HSTS_SECONDS', default=31536000 if IS_PRODUCTION else 0, cast=int)  # 1 an en production
+SECURE_HSTS_INCLUDE_SUBDOMAINS = config('SECURE_HSTS_INCLUDE_SUBDOMAINS', default=IS_PRODUCTION, cast=bool)
+SECURE_HSTS_PRELOAD = config('SECURE_HSTS_PRELOAD', default=IS_PRODUCTION, cast=bool)
+
+# CSRF Protection
+CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', default='', cast=Csv())
+
+# Additional Security Headers
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_BROWSER_XSS_FILTER = True
+X_FRAME_OPTIONS = 'DENY'  # Protection contre clickjacking
+
+# Configuration du proxy SSL (pour Nginx reverse proxy)
+# Si SECURE_PROXY_SSL_HEADER est défini dans .env, l'utiliser
+# Format attendu dans .env: SECURE_PROXY_SSL_HEADER=('HTTP_X_FORWARDED_PROTO', 'https')
+SECURE_PROXY_SSL_HEADER_STR = config('SECURE_PROXY_SSL_HEADER', default=None)
+if SECURE_PROXY_SSL_HEADER_STR:
+    try:
+        # Évaluer la chaîne comme un tuple Python
+        SECURE_PROXY_SSL_HEADER = eval(SECURE_PROXY_SSL_HEADER_STR)
+    except (SyntaxError, ValueError):
+        # Si l'évaluation échoue, utiliser la valeur par défaut
+        SECURE_PROXY_SSL_HEADER = None
+else:
+    SECURE_PROXY_SSL_HEADER = None
 
 # Email configuration
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = config('EMAIL_HOST')
-EMAIL_PORT = config('EMAIL_PORT', cast=int)
-EMAIL_HOST_USER = config('EMAIL_HOST_USER')
-EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD')
-EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
 
 # Logging configuration
 LOGGING = {
@@ -447,6 +480,18 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+    'DEFAULT_EXCEPTION_HANDLER': 'project.utils.exception_handler.custom_exception_handler',
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle'
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '100/hour',  # 100 requêtes par heure pour les utilisateurs anonymes
+        'user': '1000/hour',  # 1000 requêtes par heure pour les utilisateurs authentifiés
+        'login': '5/minute',  # 5 tentatives de login par minute (protection force brute)
+        'refresh': '10/minute',  # 10 rafraîchissements par minute
+        'verify': '20/minute',  # 20 vérifications par minute
+    }
 }  
 
 # SimpleJWT settings
