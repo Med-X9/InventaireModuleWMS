@@ -120,8 +120,22 @@ class JobValidateView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class JobReadyView(APIView):
+    """
+    Vue pour marquer plusieurs jobs et un comptage spécifique comme PRET
+    
+    Permet de mettre en statut PRET plusieurs jobs et un comptage spécifique identifié par son ordre (1, 2 ou 3).
+    """
+    
     def post(self, request):
-        print(request.data)
+        """
+        Marque plusieurs jobs et un comptage spécifique (par ordre) comme PRET
+        
+        Body attendu:
+        {
+            "job_ids": [1, 2, 3],
+            "counting_order": 1  # ou 2, ou 3
+        }
+        """
         serializer = JobReadyRequestSerializer(data=request.data)
         if not serializer.is_valid():
             # Formater les erreurs de manière sécurisée
@@ -139,15 +153,24 @@ class JobReadyView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
         
         job_ids = serializer.validated_data['job_ids']
+        counting_order = serializer.validated_data['counting_order']
+        
         try:
             # Utiliser le use case pour la logique métier
             from ..usecases.job_ready import JobReadyUseCase
             use_case = JobReadyUseCase()
-            result = use_case.execute(job_ids)
+            result = use_case.execute(job_ids, counting_order)
             
             return Response({
                 'success': True,
                 'message': result['message'],
+                'data': {
+                    'counting_order': result['counting_order'],
+                    'jobs_processed': result['jobs_processed'],
+                    'assignments_processed': result['assignments_processed'],
+                    'jobs': result['jobs'],
+                    'assignments': result['assignments']
+                }
             }, status=status.HTTP_200_OK)
         except JobCreationError as e:
             return Response({
