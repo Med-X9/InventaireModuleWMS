@@ -3,11 +3,13 @@ from .counting_repository import CountingRepository
 from .stock_repository import StockRepository
 from .warehouse_repository import WarehouseRepository
 from .ressource_repository import RessourceRepository
+from .ecart_comptage_repository import EcartComptageRepository
 
 __all__ = [
-    'InventoryRepository', 
+    'InventoryRepository',
     'CountingRepository',
     'StockRepository',
     'WarehouseRepository',
-    'RessourceRepository'
+    'RessourceRepository',
+    'EcartComptageRepository',
 ] 

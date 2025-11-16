@@ -335,20 +335,21 @@ class CountingRepository(ICountingRepository):
         if warehouse_id is not None:
             queryset = queryset.filter(job__warehouse_id=warehouse_id)
 
-        # Sous-requête pour récupérer le final_result depuis EcartComptage
+        # Sous-requêtes pour récupérer les infos d'EcartComptage (final_result, id)
         # Un EcartComptage est identifié par (product_id, location_id, inventory_id)
         # via ComptageSequence qui lie CountingDetail à EcartComptage
         from django.db.models import OuterRef, Subquery
         from ..models import ComptageSequence
         
-        # Récupérer directement le final_result de l'EcartComptage via ComptageSequence
-        # On cherche la dernière ComptageSequence pour la combinaison
-        # (product_id, location_id, inventory_id) et on récupère le final_result de son EcartComptage
-        final_result_subquery = ComptageSequence.objects.filter(
+        # Récupérer directement le final_result de l'EcartComptage via ComptageSequence.
+        base_ecart_qs = ComptageSequence.objects.filter(
             counting_detail__product_id=OuterRef('product_id'),
             counting_detail__location_id=OuterRef('location_id'),
             counting_detail__counting__inventory_id=OuterRef('counting__inventory_id')
-        ).order_by('-sequence_number').select_related('ecart_comptage').values('ecart_comptage__final_result')[:1]
+        ).order_by('-sequence_number').select_related('ecart_comptage')
+
+        final_result_subquery = base_ecart_qs.values('ecart_comptage__final_result')[:1]
+        ecart_id_subquery = base_ecart_qs.values('ecart_comptage_id')[:1]
         
         annotated_queryset = queryset.annotate(
             warehouse_id_alias=F('job__warehouse_id'),
@@ -362,6 +363,7 @@ class CountingRepository(ICountingRepository):
             product_description_alias=F('product__Short_Description'),
             job_reference_alias=F('job__reference'),
             final_result_alias=Subquery(final_result_subquery),
+            ecart_id_alias=Subquery(ecart_id_subquery),
         )
 
         aggregated_queryset = annotated_queryset.values(
@@ -377,6 +379,7 @@ class CountingRepository(ICountingRepository):
             'product_barcode_alias',
             'product_description_alias',
             'job_id',
+            'ecart_id_alias',
         ).annotate(
             total_quantity=Sum('quantity_inventoried'),
             # Prendre le final_result (sera le même pour tous les CountingDetail d'une même combinaison)

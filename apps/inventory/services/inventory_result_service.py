@@ -131,6 +131,7 @@ class InventoryResultService:
                     "product": None,
                     "quantities": {},
                     "final_result": None,  # Stocker le final_result depuis EcartComptage
+                    "ecart_id": row.get("ecart_id_alias"),
                 },
             )
 
@@ -203,6 +204,10 @@ class InventoryResultService:
             # Utiliser le final_result depuis EcartComptage
             # Si null, rester null (pas de fallback)
             result_row["final_result"] = entry.get("final_result")
+
+            # Ajouter l'identifiant d'EcartComptage si disponible
+            if entry.get("ecart_id") is not None:
+                result_row["ecart_comptage_id"] = entry["ecart_id"]
 
             formatted_results.append(result_row)
 
