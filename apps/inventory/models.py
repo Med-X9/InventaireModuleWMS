@@ -361,7 +361,7 @@ class ComptageSequence(TimeStampedModel, ReferenceMixin):
     ecart_comptage = models.ForeignKey(
         EcartComptage, 
         on_delete=models.CASCADE, 
-        related_name='counting_sequences',
+        related_name='counting_sequences', 
         verbose_name="Écart de comptage"
     )
     sequence_number = models.IntegerField(verbose_name="Numéro de séquence")
