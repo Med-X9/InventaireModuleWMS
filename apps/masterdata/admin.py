@@ -5,6 +5,7 @@ import random
 import hashlib
 import uuid
 from datetime import datetime
+import os
 
 # Register your models here.
 from django.contrib import admin
@@ -17,7 +18,8 @@ from django.db import transaction
 from .models import (
     Account, Family, Warehouse, ZoneType, Zone,
     LocationType, Location, Product, UnitOfMeasure,Stock,SousZone,
-    Ressource, TypeRessource, RegroupementEmplacement, NSerie
+    Ressource, TypeRessource, RegroupementEmplacement, NSerie,
+    ImportTask, ImportError
 )
 from apps.inventory.models import Personne
 from django.contrib.auth.admin import UserAdmin
@@ -808,6 +810,16 @@ class ProductAdmin(ImportExportModelAdmin):
     search_fields = ('reference', 'Short_Description', 'Barcode', 'Internal_Product_Code','n_lot','n_serie','dlc')
     exclude = ('created_at', 'updated_at', 'deleted_at', 'is_deleted')
     readonly_fields = ('reference',)
+    
+    class Media:
+        js = ('admin/js/import_async_button.js',)
+    
+    def changelist_view(self, request, extra_context=None):
+        from django.urls import reverse
+        extra_context = extra_context or {}
+        extra_context['show_async_import'] = True
+        extra_context['import_async_url'] = reverse('admin:masterdata_product_import_async')
+        return super().changelist_view(request, extra_context)
 
     def get_family_name(self, obj):
         return obj.Product_Family.family_name if obj.Product_Family else '-'
@@ -819,6 +831,190 @@ class ProductAdmin(ImportExportModelAdmin):
         if not obj:  # Si c'est un nouveau produit
             form.base_fields['reference'] = forms.CharField(required=False, widget=forms.HiddenInput())
         return form
+    
+    def get_urls(self):
+        urls = super().get_urls()
+        from django.urls import path
+        custom_urls = [
+            path(
+                'import-async/',
+                self.admin_site.admin_view(self.import_async_view),
+                name='masterdata_product_import_async',
+            ),
+            path(
+                'import-status/<int:task_id>/',
+                self.admin_site.admin_view(self.import_status_view),
+                name='masterdata_product_import_status',
+            ),
+            path(
+                'import-errors/<int:task_id>/',
+                self.admin_site.admin_view(self.import_errors_view),
+                name='masterdata_product_import_errors',
+            ),
+            path(
+                'import-errors-file/<int:task_id>/',
+                self.admin_site.admin_view(self.download_errors_file),
+                name='masterdata_product_download_errors',
+            ),
+        ]
+        return custom_urls + urls
+    
+    def import_async_view(self, request):
+        """Vue pour démarrer un import asynchrone (mode tout ou rien)"""
+        from django.contrib import messages
+        from django.shortcuts import redirect
+        from django.template.response import TemplateResponse
+        from django.utils.html import format_html
+        from django.urls import reverse
+        import tempfile
+        import time
+        import threading
+        import os
+        from .models import ImportTask
+        from .services.import_service import ProductImportService
+        
+        if request.method == 'POST':
+            if 'import_file' not in request.FILES:
+                messages.error(request, "Aucun fichier fourni")
+                return redirect('admin:masterdata_product_changelist')
+            
+            uploaded_file = request.FILES['import_file']
+            
+            # Sauvegarder le fichier temporairement
+            temp_dir = tempfile.gettempdir()
+            file_path = os.path.join(
+                temp_dir, 
+                f'import_product_{request.user.id}_{int(time.time())}.xlsx'
+            )
+            
+            with open(file_path, 'wb+') as destination:
+                for chunk in uploaded_file.chunks():
+                    destination.write(chunk)
+            
+            # Créer la tâche d'import
+            import_task = ImportTask.objects.create(
+                user=request.user,
+                file_path=file_path,
+                file_name=uploaded_file.name,
+                status='PENDING',
+            )
+            
+            # Démarrer le traitement en arrière-plan
+            service = ProductImportService(ProductResource)
+            thread = threading.Thread(
+                target=service.process_file_chunked,
+                args=(file_path, import_task),
+                daemon=True
+            )
+            thread.start()
+            
+            messages.success(
+                request,
+                format_html(
+                    'Import démarré en mode "tout ou rien" en arrière-plan. '
+                    '<a href="{}">Suivre la progression</a>',
+                    reverse('admin:masterdata_product_import_status', args=[import_task.id])
+                )
+            )
+            
+            return redirect('admin:masterdata_product_changelist')
+        
+        # GET: Afficher le formulaire
+        context = {
+            **self.admin_site.each_context(request),
+            'title': 'Import asynchrone de produits (tout ou rien)',
+            'opts': self.model._meta,
+        }
+        return TemplateResponse(
+            request,
+            'admin/masterdata/product/import_async.html',
+            context
+        )
+    
+    def import_status_view(self, request, task_id):
+        """Vue pour suivre le statut d'un import"""
+        from django.http import JsonResponse
+        from django.template.response import TemplateResponse
+        from django.shortcuts import get_object_or_404
+        from .models import ImportTask
+        
+        import_task = get_object_or_404(ImportTask, id=task_id, user=request.user)
+        
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            # Requête AJAX pour mise à jour
+            progress = 0
+            if import_task.total_rows > 0:
+                if import_task.status == 'VALIDATING':
+                    progress = int((import_task.validated_rows / import_task.total_rows) * 50)  # 50% max pour validation
+                elif import_task.status == 'PROCESSING':
+                    progress = 50 + int((import_task.processed_rows / import_task.total_rows) * 50)  # 50-100% pour import
+                elif import_task.status in ['COMPLETED', 'CANCELLED', 'FAILED']:
+                    progress = 100
+            
+            return JsonResponse({
+                'status': import_task.status,
+                'progress': progress,
+                'validated_rows': import_task.validated_rows,
+                'processed_rows': import_task.processed_rows,
+                'total_rows': import_task.total_rows,
+                'imported_count': import_task.imported_count,
+                'updated_count': import_task.updated_count,
+                'error_count': import_task.error_count,
+                'error_message': import_task.error_message,
+                'has_errors_file': bool(import_task.errors_file_path),
+            })
+        
+        # Vue HTML
+        context = {
+            **self.admin_site.each_context(request),
+            'import_task': import_task,
+            'opts': self.model._meta,
+        }
+        return TemplateResponse(
+            request,
+            'admin/masterdata/product/import_status.html',
+            context
+        )
+    
+    def import_errors_view(self, request, task_id):
+        """Vue pour afficher les erreurs détaillées"""
+        from django.template.response import TemplateResponse
+        from django.shortcuts import get_object_or_404
+        from .models import ImportTask, ImportError
+        
+        import_task = get_object_or_404(ImportTask, id=task_id, user=request.user)
+        errors = ImportError.objects.filter(import_task=import_task).order_by('row_number')
+        
+        context = {
+            **self.admin_site.each_context(request),
+            'import_task': import_task,
+            'errors': errors,
+            'opts': self.model._meta,
+        }
+        return TemplateResponse(
+            request,
+            'admin/masterdata/product/import_errors.html',
+            context
+        )
+    
+    def download_errors_file(self, request, task_id):
+        """Télécharger le fichier Excel des erreurs"""
+        from django.contrib import messages
+        from django.shortcuts import redirect, get_object_or_404
+        from django.http import FileResponse
+        from .models import ImportTask
+        
+        import_task = get_object_or_404(ImportTask, id=task_id, user=request.user)
+        
+        if not import_task.errors_file_path or not os.path.exists(import_task.errors_file_path):
+            messages.error(request, "Le fichier d'erreurs n'existe pas.")
+            return redirect('admin:masterdata_product_import_status', task_id=task_id)
+        
+        return FileResponse(
+            open(import_task.errors_file_path, 'rb'),
+            as_attachment=True,
+            filename=f'erreurs_import_{import_task.id}.xlsx'
+        )
 
 
 @admin.register(UnitOfMeasure)
@@ -977,6 +1173,74 @@ class PersonneAdmin(ImportExportModelAdmin):
         if not obj.reference:
             obj.reference = obj.generate_reference(obj.REFERENCE_PREFIX)
         super().save_model(request, obj, form, change)
+
+
+@admin.register(ImportTask)
+class ImportTaskAdmin(admin.ModelAdmin):
+    """Admin pour les tâches d'import"""
+    list_display = ('id', 'file_name', 'user', 'status', 'total_rows', 'imported_count', 'error_count', 'created_at')
+    list_filter = ('status', 'created_at')
+    search_fields = ('file_name', 'user__username', 'user__email')
+    readonly_fields = ('file_path', 'file_name', 'user', 'total_rows', 'validated_rows', 'processed_rows', 
+                      'imported_count', 'updated_count', 'error_count', 'status', 'error_message', 
+                      'errors_file_path', 'created_at', 'updated_at')
+    date_hierarchy = 'created_at'
+    
+    fieldsets = (
+        ('Informations générales', {
+            'fields': ('file_name', 'user', 'status', 'created_at', 'updated_at')
+        }),
+        ('Progression', {
+            'fields': ('total_rows', 'validated_rows', 'processed_rows')
+        }),
+        ('Résultats', {
+            'fields': ('imported_count', 'updated_count', 'error_count')
+        }),
+        ('Erreurs', {
+            'fields': ('error_message', 'errors_file_path'),
+            'classes': ('collapse',)
+        }),
+        ('Fichier', {
+            'fields': ('file_path',),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    def has_add_permission(self, request):
+        return False  # Les tâches sont créées automatiquement
+    
+    def has_change_permission(self, request, obj=None):
+        return False  # Les tâches ne peuvent pas être modifiées manuellement
+
+
+@admin.register(ImportError)
+class ImportErrorAdmin(admin.ModelAdmin):
+    """Admin pour les erreurs d'import"""
+    list_display = ('row_number', 'import_task', 'error_type', 'field_name', 'error_message', 'created_at')
+    list_filter = ('error_type', 'import_task', 'created_at')
+    search_fields = ('error_message', 'field_name', 'import_task__file_name')
+    readonly_fields = ('import_task', 'row_number', 'error_type', 'error_message', 'field_name', 
+                      'field_value', 'row_data', 'created_at', 'updated_at')
+    date_hierarchy = 'created_at'
+    
+    fieldsets = (
+        ('Informations', {
+            'fields': ('import_task', 'row_number', 'error_type', 'created_at', 'updated_at')
+        }),
+        ('Détails de l\'erreur', {
+            'fields': ('error_message', 'field_name', 'field_value')
+        }),
+        ('Données de la ligne', {
+            'fields': ('row_data',),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    def has_add_permission(self, request):
+        return False  # Les erreurs sont créées automatiquement
+    
+    def has_change_permission(self, request, obj=None):
+        return False  # Les erreurs ne peuvent pas être modifiées manuellement
 
 
 

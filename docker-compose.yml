@@ -11,12 +11,13 @@ services:
     container_name: inventaire-web
     networks:
       - inventaire-net
+    # Commande mise sur une seule ligne pour éviter les problèmes de shell ("--workers not found")
     command: >
-      sh -c "
-        python manage.py migrate --noinput &&
-        python manage.py collectstatic --noinput --clear --verbosity=0 &&
-        gunicorn project.wsgi:application -b 0.0.0.0:8000
-      "
+        sh -c "python manage.py migrate --noinput &&
+              python manage.py collectstatic --noinput --clear --verbosity=0 &&
+              exec gunicorn project.wsgi:application -b 0.0.0.0:8000 --workers 2 --threads 4 --timeout 300 --preload --log-level info"
+
+
     # Removed: .:/app volume (don't override production image code)
     volumes:
       - static_volume:/app/staticfiles
@@ -37,6 +38,8 @@ services:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
       CORS_ALLOW_ALL_ORIGINS: ${CORS_ALLOW_ALL_ORIGINS}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+    cpus: 2
+    mem_limit: 6g
 
   nginx:
     networks:
@@ -46,8 +49,12 @@ services:
     volumes:
       - static_volume:/app/staticfiles
       - media_volume:/app/media
+      # Montre les certificats SSL du host dans le container (à créer sur le serveur)
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+      - /etc/ssl/private:/etc/ssl/private:ro
     ports:
       - "80:80"
+      - "443:443"
     depends_on:
       - web
     restart: unless-stopped

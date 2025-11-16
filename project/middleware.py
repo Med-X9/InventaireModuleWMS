@@ -26,11 +26,30 @@ class ActionLoggingMiddleware:
                 }
 
                 # Ajouter les données de la requête si c'est une méthode POST/PUT
-                if request.method in ['POST', 'PUT']:
+                # ⚠️ Ne pas logger les données sensibles (mots de passe, tokens, etc.)
+                if request.method in ['POST', 'PUT', 'PATCH']:
                     try:
-                        action_info['data'] = json.loads(request.body.decode('utf-8'))
+                        data = json.loads(request.body.decode('utf-8'))
+                        # Filtrer les champs sensibles
+                        sensitive_fields = ['password', 'token', 'secret', 'key', 'api_key', 'refresh']
+                        cleaned_data = {}
+                        for key, value in data.items():
+                            if any(sensitive in key.lower() for sensitive in sensitive_fields):
+                                cleaned_data[key] = '***REDACTED***'
+                            else:
+                                cleaned_data[key] = value
+                        action_info['data'] = cleaned_data
                     except:
-                        action_info['data'] = dict(request.POST)
+                        # Pour les données de formulaire, filtrer aussi
+                        form_data = dict(request.POST)
+                        sensitive_fields = ['password', 'token', 'secret', 'key', 'api_key', 'refresh']
+                        cleaned_data = {}
+                        for key, value in form_data.items():
+                            if any(sensitive in key.lower() for sensitive in sensitive_fields):
+                                cleaned_data[key] = '***REDACTED***'
+                            else:
+                                cleaned_data[key] = value
+                        action_info['data'] = cleaned_data
 
                 # Logger l'action
                 logger.info(

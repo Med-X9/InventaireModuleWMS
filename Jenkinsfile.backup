@@ -213,6 +213,12 @@ pipeline {
                     
                     withCredentials([usernamePassword(credentialsId: env.DEPLOY_CREDS, usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                         sh '''
+                            # DEBUG: vérifier le contenu de /tmp/backend avant l'upload
+                            echo 'DEBUG: contenu de /tmp/backend'
+                            ls -la /tmp/backend || echo 'DEBUG: /tmp/backend introuvable'
+                            echo 'DEBUG: docker-compose.yml'
+                            ls -la /tmp/backend/docker-compose.yml || echo 'DEBUG: docker-compose.yml introuvable'
+
                             # Create deployment directory on remote server
                             sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$DEPLOY_HOST" "rm -rf /tmp/deployment/backend && mkdir -p /tmp/deployment/backend/nginx"
                             
