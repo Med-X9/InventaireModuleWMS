@@ -300,18 +300,32 @@ pipeline {
                         
                         // Handle environment file
                         if (deployConfig.env_file) {
+                            // Utiliser des guillemets pour gérer les espaces dans le nom de fichier
+                            def envSource = deployConfig.env_file.source
+                            def envTarget = deployConfig.env_file.target
                             sh """
-                                sshpass -p "\$PASS" scp -o StrictHostKeyChecking=no "/tmp/backend/${deployConfig.env_file.source}" "\$USER@\$DEPLOY_HOST:${deployConfig.remote_path}/${deployConfig.env_file.target}"
+                                if [ ! -f "/tmp/backend/${envSource}" ]; then
+                                    echo "ERROR: Environment file /tmp/backend/${envSource} not found!"
+                                    exit 1
+                                fi
+                                sshpass -p "\$PASS" scp -o StrictHostKeyChecking=no "/tmp/backend/${envSource}" "\$USER@\$DEPLOY_HOST:${deployConfig.remote_path}/${envTarget}"
                             """
                         }
                         
-                        // Add IMAGE_TAG to .env file
+                        // Add IMAGE_TAG to .env file (remplacer si existe, sinon ajouter)
                         sh """
-                            sshpass -p "\$PASS" ssh -o StrictHostKeyChecking=no "\$USER@\$DEPLOY_HOST" "
+                            sshpass -p "\$PASS" ssh -o StrictHostKeyChecking=no "\$USER@\$DEPLOY_HOST" bash -c '
                                 cd ${deployConfig.remote_path} &&
-                                echo 'IMAGE_TAG=${imageTag}' >> .env &&
-                                echo 'Added IMAGE_TAG=${imageTag} to .env file'
-                            "
+                                if grep -q "^IMAGE_TAG=" .env 2>/dev/null; then
+                                    sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${imageTag}|" .env
+                                    echo "Updated IMAGE_TAG=${imageTag} in .env file"
+                                else
+                                    echo "IMAGE_TAG=${imageTag}" >> .env
+                                    echo "Added IMAGE_TAG=${imageTag} to .env file"
+                                fi &&
+                                echo "Verifying IMAGE_TAG in .env:" &&
+                                grep "^IMAGE_TAG=" .env || echo "WARNING: IMAGE_TAG not found in .env"
+                            '
                         """
                     }
                 }
@@ -338,9 +352,23 @@ pipeline {
                     }
                     
                     withCredentials([usernamePassword(credentialsId: env.DEPLOY_CREDS, usernameVariable: 'USER', passwordVariable: 'PASS')]) {
+                        // Vérifier que IMAGE_TAG est défini avant de déployer
                         def deployCommands = deployConfig.deploy_commands.join(' && ')
                         sh """
-                            sshpass -p "\$PASS" ssh "\$USER@\$DEPLOY_HOST" "bash -c 'cd ${deployConfig.remote_path} && ${deployCommands}'"
+                            sshpass -p "\$PASS" ssh -o StrictHostKeyChecking=no "\$USER@\$DEPLOY_HOST" bash -c "
+                                cd ${deployConfig.remote_path} &&
+                                if [ ! -f .env ]; then
+                                    echo 'ERROR: .env file not found!'
+                                    exit 1
+                                fi
+                                if ! grep -q '^IMAGE_TAG=' .env; then
+                                    echo 'ERROR: IMAGE_TAG not found in .env file!'
+                                    exit 1
+                                fi
+                                echo 'Verifying IMAGE_TAG in .env:'
+                                grep IMAGE_TAG .env || echo 'WARNING: IMAGE_TAG not found'
+                                ${deployCommands}
+                            "
                         """
                     }
                 }

@@ -7,7 +7,9 @@ networks:
 services:
   web:
     # Use pre-built image with environment variable for tag (IMAGE_TAG must be défini dans .env)
-    image: smatchdigital/backend-app:${IMAGE_TAG}
+    # Utilisation d'une valeur par défaut pour éviter les erreurs "invalid reference format"
+    # si IMAGE_TAG n'est pas défini correctement dans l'environnement ou le fichier .env.
+    image: smatchdigital/backend-app:${IMAGE_TAG:-latest}
     container_name: inventaire-web
     networks:
       - inventaire-net
