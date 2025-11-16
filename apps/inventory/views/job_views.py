@@ -397,15 +397,19 @@ class JobListWithLocationsView(ServerSideDataTableView):
     min_page_size = 1
     max_page_size = 100
     
-    # Mapping pour les filtres
+    # Mapping frontend -> backend pour les filtres (vue générique Jobs / JobManagement)
     filter_aliases = {
+        # champs simples
+        'id': 'id',
         'reference': 'reference',
         'status': 'status',
-        'warehouse': 'warehouse__warehouse_name',
-        'inventory': 'inventory__reference',
-        'location': 'jobdetail__location__location_reference',
-        'sous_zone': 'jobdetail__location__sous_zone__sous_zone_name',
-        'zone': 'jobdetail__location__sous_zone__zone__zone_name',
+        'warehouse_name': 'warehouse__warehouse_name',
+        'inventory_reference': 'inventory__reference',
+
+        # filtres sur les emplacements liés
+        'location_reference': 'jobdetail__location__location_reference',
+        'sous_zone_name': 'jobdetail__location__sous_zone__sous_zone_name',
+        'zone_name': 'jobdetail__location__sous_zone__zone__zone_name',
     }
     
     def __init__(self, *args, **kwargs):
@@ -448,6 +452,17 @@ class WarehouseJobsView(ServerSideDataTableView):
     page_size = 20
     min_page_size = 1
     max_page_size = 100
+
+    # Mapping frontend -> backend pour le DataTable « Jobs créés »
+    filter_aliases = {
+        'id': 'id',
+        'reference': 'reference',
+        'status': 'status',
+        'created_at': 'created_at',
+        'location_reference': 'jobdetail__location__location_reference',
+        'zone_name': 'jobdetail__location__sous_zone__zone__zone_name',
+        'sous_zone_name': 'jobdetail__location__sous_zone__sous_zone_name',
+    }
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -515,13 +530,29 @@ class JobFullDetailListView(ServerSideDataTableView):
         'counting_order'
     ]
     
-    # Mapping pour les filtres
+    # Mapping frontend -> backend pour les filtres (JobTracking / Affecter)
     filter_aliases = {
+        # identifiant / référence de job
+        'id': 'id',
+        'job': 'reference',
         'reference': 'reference',
+
+        # statut du job
         'status': 'status',
+        'statut': 'status',
+
+        # emplacement et zones
         'emplacement': 'jobdetail__location__location_reference',
+        'location_reference': 'jobdetail__location__location_reference',
+        'zone_name': 'jobdetail__location__sous_zone__zone__zone_name',
+        'sous_zone_name': 'jobdetail__location__sous_zone__sous_zone_name',
+
+        # affectations / équipes / ressources
         'session': 'assigment__session__username',
+        'team1': 'assigment__session__username',
+        'team2': 'assigment__session__username',
         'ressource': 'jobdetailressource__ressource__reference',
+        'resources': 'jobdetailressource__ressource__reference',
         'assignment_status': 'assigment__status',
         'counting_order': 'assigment__counting__order',
     }
