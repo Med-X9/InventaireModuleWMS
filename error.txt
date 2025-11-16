@@ -1,0 +1,589 @@
+Branch indexing
+ > git rev-parse --resolve-git-dir /var/jenkins_home/caches/git-9a34e588d40d382664698b8646517189/.git # timeout=10
+Setting origin to https://github.com/Med-X9/InventaireModuleWMS.git
+ > git config remote.origin.url https://github.com/Med-X9/InventaireModuleWMS.git # timeout=10
+Fetching origin...
+Fetching upstream changes from origin
+ > git --version # timeout=10
+ > git --version # 'git version 2.39.5'
+ > git config --get remote.origin.url # timeout=10
+using GIT_ASKPASS to set credentials github-creds
+ > git fetch --tags --force --progress -- origin +refs/heads/*:refs/remotes/origin/* # timeout=10
+Seen branch in repository origin/dev
+Seen branch in repository origin/dev-2
+Seen branch in repository origin/devops
+Seen branch in repository origin/main
+Seen 4 remote branches
+Obtained Jenkinsfile from c97430cdf881f0ab3fb73e86d43b6cabdf2cc1fb
+[Pipeline] Start of Pipeline
+[Pipeline] node
+Running on Jenkins in /var/jenkins_home/workspace/WMS_dev
+[Pipeline] {
+[Pipeline] stage
+[Pipeline] { (Declarative: Checkout SCM)
+[Pipeline] checkout
+The recommended git tool is: git
+using credential github-creds
+ > git rev-parse --resolve-git-dir /var/jenkins_home/workspace/WMS_dev/.git # timeout=10
+Fetching changes from the remote Git repository
+ > git config remote.origin.url https://github.com/Med-X9/InventaireModuleWMS.git # timeout=10
+Fetching without tags
+Fetching upstream changes from https://github.com/Med-X9/InventaireModuleWMS.git
+ > git --version # timeout=10
+ > git --version # 'git version 2.39.5'
+using GIT_ASKPASS to set credentials github-creds
+ > git fetch --no-tags --force --progress -- https://github.com/Med-X9/InventaireModuleWMS.git +refs/heads/*:refs/remotes/origin/* # timeout=10
+Checking out Revision c97430cdf881f0ab3fb73e86d43b6cabdf2cc1fb (dev)
+ > git config core.sparsecheckout # timeout=10
+ > git checkout -f c97430cdf881f0ab3fb73e86d43b6cabdf2cc1fb # timeout=10
+Commit message: "update"
+ > git rev-list --no-walk 036d104dab073639176e24b792b3650b2486bd0b # timeout=10
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] withEnv
+[Pipeline] {
+[Pipeline] withEnv
+[Pipeline] {
+[Pipeline] stage
+[Pipeline] { (Load Configuration)
+[Pipeline] script
+[Pipeline] {
+[Pipeline] fileExists
+[Pipeline] readFile
+[Pipeline] readYaml
+[Pipeline] writeJSON
+[Pipeline] echo
+Configuration loaded successfully for branch: dev
+[Pipeline] echo
+Deploy target: 147.93.55.221
+[Pipeline] echo
+Environment: development
+[Pipeline] }
+[Pipeline] // script
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] stage
+[Pipeline] { (Check Branch)
+[Pipeline] script
+[Pipeline] {
+[Pipeline] readJSON
+[Pipeline] echo
+Proceeding with deployment on dev branch to development environment
+[Pipeline] echo
+Deploy target: 147.93.55.221
+[Pipeline] }
+[Pipeline] // script
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] stage
+[Pipeline] { (Clone Repositories)
+[Pipeline] readJSON
+[Pipeline] script
+[Pipeline] {
+[Pipeline] readJSON
+[Pipeline] withCredentials
+Masking supported pattern matches of $GIT_PASS
+[Pipeline] {
+[Pipeline] sh
++ rm -rf /tmp/backend
++ git clone --single-branch --branch dev https://smatch-digital:****@github.com/Med-X9/InventaireModuleWMS.git /tmp/backend
+Cloning into '/tmp/backend'...
+[Pipeline] }
+[Pipeline] // withCredentials
+[Pipeline] }
+[Pipeline] // script
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] stage
+[Pipeline] { (SonarQube Analysis)
+[Pipeline] readJSON
+[Pipeline] tool
+[Pipeline] withEnv
+[Pipeline] {
+[Pipeline] dir
+Running in /tmp/backend
+[Pipeline] {
+[Pipeline] script
+[Pipeline] {
+[Pipeline] readJSON
+[Pipeline] sh
++ echo Setting up Python environment...
+Setting up Python environment...
+[Pipeline] sh
++ python3 -m pip install --user -r requirements.txt
+/usr/bin/python3: No module named pip
++ echo Warning: Command failed, continuing with analysis...
+Warning: Command failed, continuing with analysis...
+[Pipeline] withSonarQubeEnv
+Injecting SonarQube environment variables using the configuration: SonarQube-Server
+[Pipeline] {
+[Pipeline] sh
++ echo Starting SonarQube analysis for branch: dev
+Starting SonarQube analysis for branch: dev
++ /var/jenkins_home/tools/hudson.plugins.sonar.SonarRunnerInstallation/sonar-scanner/bin/sonar-scanner -Dsonar.projectKey=inventaire-module-wms-dev -Dsonar.projectName=InventaireModuleWMS-dev -Dsonar.projectVersion=1.0 -Dsonar.sources=apps,project,config -Dsonar.sourceEncoding=UTF-8 -Dsonar.language=py -Dsonar.python.version=3.12 -Dsonar.tests=apps -Dsonar.test.inclusions=**/tests/**/*.py,**/test_*.py -Dsonar.exclusions=**/migrations/**,**/staticfiles/**,**/static/**,**/media/**,**/__pycache__/**,**/venv/**,**/env/**,**/node_modules/**,**/*.pyc,**/manage.py,**/wsgi.py,**/asgi.py,**/settings/**,**/*.min.js,**/*.min.css -Dsonar.coverage.exclusions=**/migrations/**,**/tests/**,**/test_*.py,**/conftest.py,**/manage.py,**/wsgi.py,**/asgi.py,**/settings/**,**/__init__.py -Dsonar.cpd.exclusions=**/migrations/**,**/tests/** -Dsonar.qualitygate.wait=false
+17:04:49.449 INFO  Scanner configuration file: /var/jenkins_home/tools/hudson.plugins.sonar.SonarRunnerInstallation/sonar-scanner/conf/sonar-scanner.properties
+17:04:49.457 INFO  Project root configuration file: NONE
+17:04:49.486 INFO  SonarScanner CLI 7.2.0.5079
+17:04:49.491 INFO  Linux 5.15.0-1078-kvm amd64
+17:04:53.414 INFO  Communicating with SonarQube Community Build 25.9.0.112764
+17:04:53.415 INFO  JRE provisioning: os[linux], arch[x86_64]
+17:04:54.065 INFO  Starting SonarScanner Engine...
+17:04:54.067 INFO  Java 17.0.13 Eclipse Adoptium (64-bit)
+17:04:57.416 INFO  Load global settings
+17:04:57.801 INFO  Load global settings (done) | time=383ms
+17:04:57.810 INFO  Server id: 147B411E-AZldsW5RO9TLwhDo2RNj
+17:04:57.827 INFO  Loading required plugins
+17:04:57.827 INFO  Load plugins index
+17:04:57.976 INFO  Load plugins index (done) | time=148ms
+17:04:57.976 INFO  Load/download plugins
+17:04:58.039 INFO  Load/download plugins (done) | time=62ms
+17:04:58.400 INFO  Process project properties
+17:04:58.414 INFO  Process project properties (done) | time=15ms
+17:04:58.424 INFO  Project key: inventaire-module-wms-dev
+17:04:58.425 INFO  Base dir: /tmp/backend
+17:04:58.425 INFO  Working dir: /tmp/backend/.scannerwork
+17:04:58.435 INFO  Load project settings for component key: 'inventaire-module-wms-dev'
+17:04:58.584 INFO  Load project settings for component key: 'inventaire-module-wms-dev' (done) | time=149ms
+17:04:58.638 INFO  Load quality profiles
+17:04:58.836 INFO  Load quality profiles (done) | time=198ms
+17:04:58.862 INFO  Auto-configuring with CI 'Jenkins'
+17:04:58.891 INFO  Load active rules
+17:04:59.749 INFO  Load active rules (done) | time=858ms
+17:04:59.753 INFO  Load analysis cache
+17:05:00.338 INFO  Load analysis cache | time=584ms
+17:05:00.702 INFO  Preprocessing files...
+17:05:01.265 INFO  1 language detected in 272 preprocessed files (done) | time=560ms
+17:05:01.265 INFO  306 files ignored because of inclusion/exclusion patterns
+17:05:01.266 INFO  0 files ignored because of scm ignore settings
+17:05:01.269 INFO  Loading plugins for detected languages
+17:05:01.269 INFO  Load/download plugins
+17:05:01.278 INFO  Load/download plugins (done) | time=7ms
+17:05:01.410 INFO  Load project repositories
+17:05:01.713 INFO  Load project repositories (done) | time=302ms
+17:05:01.730 INFO  Indexing files...
+17:05:01.733 INFO  Project configuration:
+17:05:01.738 INFO    Excluded sources: **/migrations/**, **/staticfiles/**, **/static/**, **/media/**, **/__pycache__/**, **/venv/**, **/env/**, **/node_modules/**, **/*.pyc, **/manage.py, **/wsgi.py, **/asgi.py, **/settings/**, **/*.min.js, **/*.min.css, **/tests/**/*.py, **/test_*.py
+17:05:01.738 INFO    Included tests: **/tests/**/*.py, **/test_*.py
+17:05:01.738 INFO    Excluded sources for coverage: **/migrations/**, **/tests/**, **/test_*.py, **/conftest.py, **/manage.py, **/wsgi.py, **/asgi.py, **/settings/**, **/__init__.py
+17:05:01.739 INFO    Excluded sources for duplication: **/migrations/**, **/tests/**
+17:05:01.837 INFO  272 files indexed (done) | time=104ms
+17:05:01.841 INFO  Quality profile for py: Sonar way
+17:05:01.841 INFO  ------------- Run sensors on module InventaireModuleWMS-dev
+17:05:01.919 INFO  Load metrics repository
+17:05:02.107 INFO  Load metrics repository (done) | time=185ms
+17:05:02.992 INFO  Sensor JaCoCo XML Report Importer [jacoco]
+17:05:03.000 INFO  'sonar.coverage.jacoco.xmlReportPaths' is not defined. Using default locations: target/site/jacoco/jacoco.xml,target/site/jacoco-it/jacoco.xml,build/reports/jacoco/test/jacocoTestReport.xml
+17:05:03.005 INFO  No report imported, no coverage information will be imported by JaCoCo XML Report Importer
+17:05:03.008 INFO  Sensor JaCoCo XML Report Importer [jacoco] (done) | time=16ms
+17:05:03.008 INFO  Sensor IaC Docker Sensor [iac]
+17:05:03.153 INFO  0 source files to be analyzed
+17:05:03.165 INFO  0/0 source files have been analyzed
+17:05:03.170 INFO  Sensor IaC Docker Sensor [iac] (done) | time=158ms
+17:05:03.170 INFO  Sensor Java Config Sensor [iac]
+17:05:03.190 INFO  0 source files to be analyzed
+17:05:03.191 INFO  0/0 source files have been analyzed
+17:05:03.191 INFO  Sensor Java Config Sensor [iac] (done) | time=24ms
+17:05:03.191 INFO  Sensor Python Sensor [python]
+17:05:03.484 INFO  Starting global symbols computation
+17:05:03.489 INFO  261 source files to be analyzed
+17:05:08.610 INFO  261/261 source files have been analyzed
+17:05:08.614 INFO  Finished step global symbols computation in 5126ms
+17:05:08.778 INFO  Starting rules execution
+17:05:08.790 INFO  261 source files to be analyzed
+17:05:18.790 INFO  169/261 files analyzed, current file: counting_service.py
+17:05:22.057 INFO  261/261 source files have been analyzed
+17:05:22.058 INFO  Finished step rules execution in 13269ms
+17:05:22.060 INFO  The Python analyzer was able to leverage cached data from previous analyses for 0 out of 261 files. These files were not parsed.
+17:05:22.061 INFO  Sensor Python Sensor [python] (done) | time=18871ms
+17:05:22.062 INFO  Sensor Cobertura Sensor for Python coverage [python]
+17:05:22.092 INFO  Sensor Cobertura Sensor for Python coverage [python] (done) | time=30ms
+17:05:22.094 INFO  Sensor PythonXUnitSensor [python]
+17:05:22.119 INFO  Sensor PythonXUnitSensor [python] (done) | time=24ms
+17:05:22.120 INFO  Sensor Python Dependency Sensor [python]
+17:05:22.125 INFO  Sensor Python Dependency Sensor [python] (done) | time=6ms
+17:05:22.126 INFO  Sensor TextAndSecretsSensor [text]
+17:05:22.135 INFO  Available processors: 2
+17:05:22.135 INFO  Using 2 threads for analysis.
+17:05:22.598 INFO  Start fetching files for the text and secrets analysis
+17:05:22.617 INFO  Using Git CLI to retrieve untracked files
+17:05:22.846 INFO  Retrieving language associated files and files included via "sonar.text.inclusions" that are tracked by git
+17:05:22.849 INFO  Starting the text and secrets analysis
+17:05:22.862 INFO  261 source files to be analyzed for the text and secrets analysis
+17:05:23.263 INFO  261/261 source files have been analyzed for the text and secrets analysis
+17:05:23.266 INFO  Sensor TextAndSecretsSensor [text] (done) | time=1140ms
+17:05:23.269 INFO  ------------- Run sensors on project
+17:05:23.378 INFO  Sensor Zero Coverage Sensor
+17:05:23.444 INFO  Sensor Zero Coverage Sensor (done) | time=66ms
+17:05:23.444 INFO  ------------- Gather SCA dependencies on project
+17:05:23.452 INFO  Dependency analysis skipped
+17:05:23.517 INFO  CPD Executor 48 files had no CPD blocks
+17:05:23.517 INFO  CPD Executor Calculating CPD for 198 files
+17:05:23.640 INFO  CPD Executor CPD calculation finished (done) | time=122ms
+17:05:23.645 INFO  SCM revision ID 'c97430cdf881f0ab3fb73e86d43b6cabdf2cc1fb'
+17:05:23.983 INFO  Analysis report generated in 299ms, dir size=4.0 MB
+17:05:24.989 INFO  Analysis report compressed in 1005ms, zip size=2.1 MB
+17:05:26.305 INFO  Analysis report uploaded in 1311ms
+17:05:26.306 INFO  ANALYSIS SUCCESSFUL, you can find the results at: http://147.93.55.221:9000/dashboard?id=inventaire-module-wms-dev
+17:05:26.306 INFO  Note that you will be able to access the updated dashboard once the server has processed the submitted analysis report
+17:05:26.306 INFO  More about the report processing at http://147.93.55.221:9000/api/ce/task?id=175b26f3-08e3-4549-89d6-8672d67ce5e9
+17:05:26.421 INFO  Analysis total time: 28.313 s
+17:05:26.422 INFO  SonarScanner Engine completed successfully
+17:05:26.495 INFO  EXECUTION SUCCESS
+17:05:26.497 INFO  Total time: 37.093s
++ echo SonarQube analysis completed for branch: dev
+SonarQube analysis completed for branch: dev
+[Pipeline] }
+[Pipeline] // withSonarQubeEnv
+[Pipeline] }
+[Pipeline] // script
+[Pipeline] }
+[Pipeline] // dir
+[Pipeline] }
+[Pipeline] // withEnv
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] stage
+[Pipeline] { (SonarQube Status Check)
+[Pipeline] readJSON
+[Pipeline] script
+[Pipeline] {
+[Pipeline] readJSON
+[Pipeline] sleep
+Sleeping for 10 sec
+[Pipeline] withCredentials
+Masking supported pattern matches of $SONAR_PASS
+[Pipeline] {
+[Pipeline] sh
++ curl -s -u admin:**** http://147.93.55.221:9000/api/qualitygates/project_status?projectKey=inventaire-module-wms-dev
+[Pipeline] }
+[Pipeline] // withCredentials
+[Pipeline] echo
+⚠️  SonarQube analysis found issues: ERROR
+[Pipeline] }
+[Pipeline] // script
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] stage
+[Pipeline] { (Build Backend Docker Image)
+[Pipeline] readJSON
+[Pipeline] dir
+Running in /tmp/backend
+[Pipeline] {
+[Pipeline] script
+[Pipeline] {
+[Pipeline] sh
++ docker build -t smatchdigital/backend-app:dev-latest .
+#1 [internal] load build definition from Dockerfile
+#1 sha256:006879b80af8b3526efa58a9ef7da01e20489392d00f379c0d319386108237b8
+#1 transferring dockerfile: 1.64kB done
+#1 DONE 0.0s
+
+#3 [auth] library/python:pull token for registry-1.docker.io
+#3 sha256:4b7e427c2946910cf756e8cb8a65260ac9e43a194724153fed6056cb55d8bbd1
+#3 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/python:3.12.1-slim
+#2 sha256:a07069dc958021cc816bea7823fc3e4954b38af80da9bf1f3712dfeed56385e8
+#2 DONE 0.4s
+
+#4 [internal] load .dockerignore
+#4 sha256:ff132b67d4523904aa9bd275413aa4b45397733b08aa5cfca1b1452c4ef75908
+#4 transferring context: 676B done
+#4 DONE 0.0s
+
+#15 [builder 1/6] FROM docker.io/library/python:3.12.1-slim@sha256:a64ac5be6928c6a94f00b16e09cdf3ba3edd44452d10ffa4516a58004873573e
+#15 sha256:e273cb5ac7a1cd05346c91f29188df86b54dfbe0e1ebda7e0d9226be2c00a93a
+#15 DONE 0.0s
+
+#10 [internal] load build context
+#10 sha256:1639f09da538a68c2fafd6be946c54fb563e942efed885c69830c553485fb500
+#10 transferring context: 30.67MB 0.3s done
+#10 DONE 0.3s
+
+#11 [builder 4/6] RUN python -m venv /opt/venv
+#11 sha256:87d9ea77699748e335a90c9a0a1b642b3b3b9c19b1e3bc6f20b1da36b153a187
+#11 CACHED
+
+#8 [builder 6/6] RUN pip install --no-cache-dir -r requirements.txt gunicorn
+#8 sha256:f5eb9a4f68647d77cc57d3a4e490aac45d200ac69a44c91083342f1d84c6e59c
+#8 CACHED
+
+#13 [stage-1 3/6] RUN apt-get update && apt-get install -y --no-install-recommends     libpq5     && rm -rf /var/lib/apt/lists/*
+#13 sha256:bb0994fa5efab918fda64aaeca4ba2184bf7a67b8155a2ab03061d0689f46a27
+#13 CACHED
+
+#9 [builder 5/6] COPY requirements.txt .
+#9 sha256:2fb5f0a22d790fa727b922266d35a29c6d7bdb016ac350c8c19fb48e04af9460
+#9 CACHED
+
+#14 [builder 2/6] WORKDIR /app
+#14 sha256:3cfad0fb69c30b17bc7c6cf818a99fde99eaf4f1a1ff164269b8600d574dbb56
+#14 CACHED
+
+#12 [builder 3/6] RUN apt-get update && apt-get install -y --no-install-recommends     build-essential     libpq-dev     && rm -rf /var/lib/apt/lists/*
+#12 sha256:0b137bf840eb80a2ae7b9508d71339d3701a3b0ad03c0fd9e39f41970a7a5b83
+#12 CACHED
+
+#7 [stage-1 4/6] COPY --from=builder /opt/venv /opt/venv
+#7 sha256:d18cee9b78d1f51a210eb132dd35fde650e68ca7e05bf2040144e3aecab7c621
+#7 CACHED
+
+#6 [stage-1 5/6] COPY . .
+#6 sha256:efa799534dafe273edf455629894aaf41f5ad27173a23ffa238c74f48e87668d
+#6 DONE 0.3s
+
+#5 [stage-1 6/6] RUN mkdir -p /app/static /app/media /app/logs     && chmod -R 755 /app/static /app/media     && chmod -R 777 /app/logs     && useradd -U app_user     && chown -R app_user:app_user /app
+#5 sha256:8f8dbe7e08ba771096aa9af6e1ede8e1a3bd6d55e48c1f30dc64e1a4e0600bb6
+#5 DONE 1.2s
+
+#16 exporting to image
+#16 sha256:c6a0711cc6f2571b90bf4c38e45b63ad6a9445c576dd9278c18350276994813d
+#16 exporting layers
+#16 exporting layers 0.2s done
+#16 writing image sha256:d599ab8a7c835ee0dedb15b695cac3f3b46379d6f02c625b66c041641b414a63 done
+#16 naming to docker.io/smatchdigital/backend-app:dev-latest done
+#16 DONE 0.2s
+[Pipeline] sh
++ docker tag smatchdigital/backend-app:dev-latest smatchdigital/backend-app:latest
+[Pipeline] }
+[Pipeline] // script
+[Pipeline] }
+[Pipeline] // dir
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] stage
+[Pipeline] { (Push Docker Images)
+[Pipeline] readJSON
+[Pipeline] script
+[Pipeline] {
+[Pipeline] readJSON
+[Pipeline] withCredentials
+Masking supported pattern matches of $PASS
+[Pipeline] {
+[Pipeline] sh
++ echo ****
++ docker login -u smatchdigital --password-stdin
+WARNING! Your password will be stored unencrypted in /var/jenkins_home/.docker/config.json.
+Configure a credential helper to remove this warning. See
+https://docs.docker.com/engine/reference/commandline/login/#credentials-store
+
+Login Succeeded
+[Pipeline] }
+[Pipeline] // withCredentials
+[Pipeline] sh
++ docker push smatchdigital/backend-app:dev-latest
+The push refers to repository [docker.io/smatchdigital/backend-app]
+610e27407c1c: Preparing
+e7c543ecb11e: Preparing
+805052629f50: Preparing
+42c156d3ff0d: Preparing
+acac357f5b53: Preparing
+6fdc32920d25: Preparing
+41aaeb647441: Preparing
+95ac61d1a52e: Preparing
+da5d55102092: Preparing
+fb1bd2fc5282: Preparing
+6fdc32920d25: Waiting
+41aaeb647441: Waiting
+95ac61d1a52e: Waiting
+da5d55102092: Waiting
+fb1bd2fc5282: Waiting
+42c156d3ff0d: Layer already exists
+805052629f50: Layer already exists
+acac357f5b53: Layer already exists
+95ac61d1a52e: Layer already exists
+6fdc32920d25: Layer already exists
+41aaeb647441: Layer already exists
+da5d55102092: Layer already exists
+fb1bd2fc5282: Layer already exists
+610e27407c1c: Pushed
+e7c543ecb11e: Pushed
+dev-latest: digest: sha256:6c972f949e230e0825ab9400e3a9953da12ca1bfe9076d9b09468640fac91247 size: 2420
+[Pipeline] sh
++ docker push smatchdigital/backend-app:latest
+The push refers to repository [docker.io/smatchdigital/backend-app]
+610e27407c1c: Preparing
+e7c543ecb11e: Preparing
+805052629f50: Preparing
+42c156d3ff0d: Preparing
+acac357f5b53: Preparing
+6fdc32920d25: Preparing
+41aaeb647441: Preparing
+95ac61d1a52e: Preparing
+da5d55102092: Preparing
+fb1bd2fc5282: Preparing
+41aaeb647441: Waiting
+95ac61d1a52e: Waiting
+da5d55102092: Waiting
+fb1bd2fc5282: Waiting
+6fdc32920d25: Waiting
+e7c543ecb11e: Layer already exists
+42c156d3ff0d: Layer already exists
+610e27407c1c: Layer already exists
+acac357f5b53: Layer already exists
+805052629f50: Layer already exists
+6fdc32920d25: Layer already exists
+41aaeb647441: Layer already exists
+95ac61d1a52e: Layer already exists
+da5d55102092: Layer already exists
+fb1bd2fc5282: Layer already exists
+latest: digest: sha256:6c972f949e230e0825ab9400e3a9953da12ca1bfe9076d9b09468640fac91247 size: 2420
+[Pipeline] }
+[Pipeline] // script
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] stage
+[Pipeline] { (Upload Essential Files)
+[Pipeline] readJSON
+[Pipeline] script
+[Pipeline] {
+[Pipeline] readJSON
+[Pipeline] echo
+Preparing deployment files for development environment with image: smatchdigital/backend-app:dev-latest
+[Pipeline] withCredentials
+Masking supported pattern matches of $PASS
+[Pipeline] {
+[Pipeline] sh
++ sshpass -p **** ssh -o StrictHostKeyChecking=no root@147.93.55.221 rm -rf /tmp/deployment/backend && mkdir -p /tmp/deployment/backend/nginx
+[Pipeline] sh
++ echo DEBUG: contenu de /tmp/backend
+DEBUG: contenu de /tmp/backend
++ ls -la /tmp/backend
+total 264
+drwxr-xr-x 11 jenkins jenkins  4096 Nov 16 17:04 .
+drwxrwxrwt  1 root    root     4096 Nov 16 17:04 ..
+-rw-r--r--  1 jenkins jenkins  5483 Nov 16 17:04 .cursorrules
+-rw-r--r--  1 jenkins jenkins   634 Nov 16 17:04 .dockerignore
+-rw-r--r--  1 jenkins jenkins  3942 Nov 16 17:04 .env copy
+drwxr-xr-x  8 jenkins jenkins  4096 Nov 16 17:05 .git
+-rw-r--r--  1 jenkins jenkins    66 Nov 16 17:04 .gitattributes
+-rw-r--r--  1 jenkins jenkins   719 Nov 16 17:04 .gitignore
+drwxr-xr-x  2 jenkins jenkins  4096 Nov 16 17:05 .scannerwork
+-rw-r--r--  1 jenkins jenkins 14829 Nov 16 17:04 CI-CD_IMPLEMENTATION.md
+-rw-r--r--  1 jenkins jenkins  4241 Nov 16 17:04 CORRECTION_ENV_SSL.md
+-rw-r--r--  1 jenkins jenkins  7517 Nov 16 17:04 DEPLOYMENT_QUICK_START.md
+-rw-r--r--  1 jenkins jenkins  7589 Nov 16 17:04 DEV_LOCAL_FRONTEND_SETUP.md
+-rw-r--r--  1 jenkins jenkins  1598 Nov 16 17:04 Dockerfile
+-rw-r--r--  1 jenkins jenkins 11319 Nov 16 17:04 EXEMPLE_ENDPOINT_COMPLET.md
+-rw-r--r--  1 jenkins jenkins 10836 Nov 16 17:04 EXEMPLE_ENDPOINT_LIGNE_46_47.md
+-rw-r--r--  1 jenkins jenkins 10491 Nov 16 17:04 FRONTEND_BACKEND_SETUP.md
+-rw-r--r--  1 jenkins jenkins 22326 Nov 16 17:04 Jenkinsfile
+-rw-r--r--  1 jenkins jenkins 16657 Nov 16 17:04 Jenkinsfile.backup
+-rw-r--r--  1 jenkins jenkins  3401 Nov 16 17:04 README_CI_CD.md
+-rw-r--r--  1 jenkins jenkins  5963 Nov 16 17:04 SECURITY.md
+-rw-r--r--  1 jenkins jenkins  6783 Nov 16 17:04 SECURITY_CHANGELOG.md
+-rw-r--r--  1 jenkins jenkins  5395 Nov 16 17:04 SETTINGS_CORRECTIONS.md
+-rw-r--r--  1 jenkins jenkins  9966 Nov 16 17:04 SSL_SECURITY_SETUP.md
+-rw-r--r--  1 jenkins jenkins 11489 Nov 16 17:04 VPS_SSL_SETUP_GUIDE.md
+drwxr-xr-x  7 jenkins jenkins  4096 Nov 16 17:04 apps
+drwxr-xr-x  3 jenkins jenkins  4096 Nov 16 17:04 config
+-rw-r--r--  1 jenkins jenkins  2026 Nov 16 17:04 docker-compose.yml
+-rw-r--r--  1 jenkins jenkins  3207 Nov 16 17:04 jenkins-config.yml
+-rw-r--r--  1 jenkins jenkins   663 Nov 16 17:04 manage.py
+drwxr-xr-x  2 jenkins jenkins  4096 Nov 16 17:04 nginx
+-rw-r--r--  1 jenkins jenkins   268 Nov 16 17:04 package.json
+drwxr-xr-x  5 jenkins jenkins  4096 Nov 16 17:04 project
+-rw-r--r--  1 jenkins jenkins  1468 Nov 16 17:04 requirements.txt
+drwxr-xr-x  3 jenkins jenkins  4096 Nov 16 17:04 static
+drwxr-xr-x  8 jenkins jenkins  4096 Nov 16 17:04 staticfiles
+drwxr-xr-x  3 jenkins jenkins  4096 Nov 16 17:04 templates
++ echo DEBUG: docker-compose.yml
+DEBUG: docker-compose.yml
++ ls -la /tmp/backend/docker-compose.yml
+-rw-r--r-- 1 jenkins jenkins 2026 Nov 16 17:04 /tmp/backend/docker-compose.yml
+[Pipeline] sh
++ [ -d /tmp/backend/docker-compose.yml ]
++ echo Uploading file: docker-compose.yml
+Uploading file: docker-compose.yml
++ sshpass -p **** scp -o StrictHostKeyChecking=no /tmp/backend/docker-compose.yml root@147.93.55.221:/tmp/deployment/backend/
+[Pipeline] sh
++ [ -d /tmp/backend/Dockerfile ]
++ echo Uploading file: Dockerfile
+Uploading file: Dockerfile
++ sshpass -p **** scp -o StrictHostKeyChecking=no /tmp/backend/Dockerfile root@147.93.55.221:/tmp/deployment/backend/
+[Pipeline] sh
++ [ -d /tmp/backend/nginx ]
++ echo Uploading directory: nginx
+Uploading directory: nginx
++ sshpass -p **** scp -r -o StrictHostKeyChecking=no /tmp/backend/nginx root@147.93.55.221:/tmp/deployment/backend/
+[Pipeline] sh
++ sshpass -p **** scp -o StrictHostKeyChecking=no /tmp/backend/.env copy root@147.93.55.221:/tmp/deployment/backend/.env
+[Pipeline] sh
++ sshpass -p **** ssh -o StrictHostKeyChecking=no root@147.93.55.221 
+                                cd /tmp/deployment/backend &&
+                                echo 'IMAGE_TAG=dev-latest' >> .env &&
+                                echo 'Added IMAGE_TAG=dev-latest to .env file'
+                            
+Added IMAGE_TAG=dev-latest to .env file
+[Pipeline] }
+[Pipeline] // withCredentials
+[Pipeline] }
+[Pipeline] // script
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] stage
+[Pipeline] { (Deploy Backend on Remote Server)
+[Pipeline] readJSON
+[Pipeline] script
+[Pipeline] {
+[Pipeline] readJSON
+[Pipeline] withCredentials
+Masking supported pattern matches of $PASS
+[Pipeline] {
+[Pipeline] sh
++ sshpass -p **** ssh root@147.93.55.221 bash -c 'cd /tmp/deployment/backend && docker-compose down -v && docker-compose pull && docker-compose up -d'
+ Volume backend_static_dir  Removing
+ Volume backend_media_volume  Removing
+ Volume backend_static_volume  Removing
+ Volume backend_logs_volume  Removing
+ Volume backend_static_dir  Removed
+ Volume backend_media_volume  Removed
+ Volume backend_static_volume  Removed
+ Volume backend_logs_volume  Removed
+Error response from daemon: invalid reference format
+[Pipeline] }
+[Pipeline] // withCredentials
+[Pipeline] }
+[Pipeline] // script
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] stage
+[Pipeline] { (Declarative: Post Actions)
+[Pipeline] script
+[Pipeline] {
+[Pipeline] readJSON
+[Pipeline] sh
++ rm -rf /tmp/backend
+[Pipeline] sh
++ docker system prune -f
+Deleted Images:
+untagged: smatchdigital/backend-app@sha256:8738b7d3d8155475e6bb65ebabdb5cc540f08a5e7bd6716dfc46193795d041c6
+deleted: sha256:a4a7ec35fd1e62b916e1453f2c8aca1c695cf0f1427fff7730eae0a368698abd
+
+Deleted build cache objects:
+z3fjbgwkk3bhn1gjpn5c3bpmy
+jkk5go1e6ymcvcnftcsiy99gs
+rdhfs7xk9fkbco7n0i236ai7x
+0nv4a6xfp42jq06ffr5lz1cmf
+rh349lxlln52znpt5efob1ynm
+
+Total reclaimed space: 91.85MB
+[Pipeline] }
+[Pipeline] // script
+[Pipeline] script
+[Pipeline] {
+[Pipeline] echo
+❌ Pipeline failed for development deployment!
+[Pipeline] }
+[Pipeline] // script
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] }
+[Pipeline] // withEnv
+[Pipeline] }
+[Pipeline] // withEnv
+[Pipeline] }
+[Pipeline] // node
+[Pipeline] End of Pipeline
+ERROR: script returned exit code 1
+Finished: FAILURE
