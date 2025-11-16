@@ -13,6 +13,11 @@ services:
     container_name: inventaire-web
     networks:
       - inventaire-net
+    # Mapping host.docker.internal vers l'IP de l'hôte pour accéder à PostgreSQL installé sur le VPS
+    # Note: host-gateway nécessite Docker Compose v2.1.0+
+    # Alternative si version plus ancienne: utiliser l'IP directe (ex: "172.17.0.1:172.17.0.1")
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     # Commande mise sur une seule ligne pour éviter les problèmes de shell ("--workers not found")
     command: >
         sh -c "python manage.py migrate --noinput &&
