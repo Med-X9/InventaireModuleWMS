@@ -275,6 +275,14 @@ pipeline {
                         sh """
                             sshpass -p "\$PASS" ssh -o StrictHostKeyChecking=no "\$USER@\$DEPLOY_HOST" "rm -rf ${deployConfig.remote_path} && mkdir -p ${deployConfig.remote_path}/nginx"
                         """
+
+                        // DEBUG: vérifier le contenu de /tmp/backend avant l'upload
+                        sh """
+                            echo 'DEBUG: contenu de /tmp/backend'
+                            ls -la /tmp/backend || echo 'DEBUG: /tmp/backend introuvable'
+                            echo 'DEBUG: docker-compose.yml'
+                            ls -la /tmp/backend/docker-compose.yml || echo 'DEBUG: docker-compose.yml introuvable'
+                        """
                         
                         // Upload files specified in config
                         deployConfig.files_to_upload.each { file ->

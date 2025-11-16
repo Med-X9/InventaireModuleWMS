@@ -1,8 +1,8 @@
-from django.db.models import Q
+from django.db.models import Q, Prefetch
 from ..models import Inventory, Setting, Counting
 from apps.inventory.exceptions.inventory_exceptions import InventoryNotFoundError
 from ..interfaces.inventory_interface import IInventoryRepository
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from django.utils import timezone
 from django.db import transaction
 
@@ -441,4 +441,37 @@ class InventoryRepository(IInventoryRepository):
         """
         return Inventory.objects.filter(
             is_deleted=False
-        ).order_by('-created_at')[:limit] 
+        ).order_by('-created_at')[:limit]
+
+    def get_with_counting_tracking_data(self, inventory_id: int, counting_order: int) -> Any:
+        """
+        Récupère un inventaire avec toutes les données nécessaires pour le suivi de comptage.
+        Précharge les relations : countings, jobs, jobdetails, locations, zones, sous-zones.
+        
+        Args:
+            inventory_id: ID de l'inventaire à récupérer
+            counting_order: Ordre du comptage à filtrer (requis). Ne retourne que le comptage avec cet ordre.
+            
+        Returns:
+            Inventory: Inventaire avec toutes les relations préchargées
+            
+        Raises:
+            InventoryNotFoundError: Si l'inventaire n'existe pas ou est supprimé
+        """
+        try:
+            # Construire le Prefetch pour les comptages avec filtre par ordre
+            counting_prefetch = Prefetch(
+                'countings',
+                queryset=Counting.objects.filter(order=counting_order).order_by('order')
+            )
+            
+            return Inventory.objects.filter(
+                is_deleted=False
+            ).prefetch_related(
+                counting_prefetch,
+                'job_set__warehouse',
+                'job_set__jobdetail_set__location__sous_zone__zone',
+                'job_set__jobdetail_set__location__sous_zone'
+            ).get(id=inventory_id)
+        except Inventory.DoesNotExist:
+            raise InventoryNotFoundError(f"L'inventaire avec l'ID {inventory_id} n'existe pas.") 
