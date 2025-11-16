@@ -66,10 +66,11 @@ deployment:
   remote_path: "/tmp/deployment/backend"
   
   # Files to upload to remote server
+  # IMPORTANT: we upload the whole nginx directory so that /tmp/deployment/backend/nginx/Dockerfile exists
   files_to_upload: # Change based on project
     - "docker-compose.yml"
     - "Dockerfile"
-    - "nginx/*"
+    - "nginx"
   
   # Environment file configuration
   env_file: # Change based on project
