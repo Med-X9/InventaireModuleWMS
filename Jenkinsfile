@@ -286,17 +286,16 @@ pipeline {
                         
                         // Upload files specified in config
                         deployConfig.files_to_upload.each { file ->
-                            if (file.contains('/')) {
-                                // Directory upload
-                                sh """
-                                    sshpass -p "\$PASS" scp -r -o StrictHostKeyChecking=no /tmp/backend/${file} "\$USER@\$DEPLOY_HOST:${deployConfig.remote_path}/"
-                                """
-                            } else {
-                                // Single file upload
-                                sh """
-                                    sshpass -p "\$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/${file} "\$USER@\$DEPLOY_HOST:${deployConfig.remote_path}/"
-                                """
-                            }
+                            // On détecte dynamiquement si c'est un dossier côté Jenkins
+                            sh """
+                                if [ -d "/tmp/backend/${file}" ]; then
+                                    echo "Uploading directory: ${file}"
+                                    sshpass -p "\$PASS" scp -r -o StrictHostKeyChecking=no "/tmp/backend/${file}" "\$USER@\$DEPLOY_HOST:${deployConfig.remote_path}/"
+                                else
+                                    echo "Uploading file: ${file}"
+                                    sshpass -p "\$PASS" scp -o StrictHostKeyChecking=no "/tmp/backend/${file}" "\$USER@\$DEPLOY_HOST:${deployConfig.remote_path}/"
+                                fi
+                            """
                         }
                         
                         // Handle environment file
