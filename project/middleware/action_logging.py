@@ -3,9 +3,18 @@ import json
 from django.utils import timezone
 from django.core.serializers.json import DjangoJSONEncoder
 
+
 logger = logging.getLogger('actions')
 
+
 class ActionLoggingMiddleware:
+    """
+    Middleware qui journalise les actions des utilisateurs authentifiés.
+
+    - Logge l'utilisateur, le path, la méthode HTTP, le code de statut
+    - Filtre les champs sensibles (password, token, etc.) dans le body
+    """
+
     def __init__(self, get_response):
         self.get_response = get_response
 
@@ -25,11 +34,11 @@ class ActionLoggingMiddleware:
                     'timestamp': timezone.now().isoformat(),
                 }
 
-                # Ajouter les données de la requête si c'est une méthode POST/PUT
+                # Ajouter les données de la requête si c'est une méthode POST/PUT/PATCH
                 # ⚠️ Ne pas logger les données sensibles (mots de passe, tokens, etc.)
                 if request.method in ['POST', 'PUT', 'PATCH']:
                     try:
-                        data = json.loads(request.body.decode('utf-8'))
+                        data = json.loads(request.body.decode('utf-8') or '{}')
                         # Filtrer les champs sensibles
                         sensitive_fields = ['password', 'token', 'secret', 'key', 'api_key', 'refresh']
                         cleaned_data = {}
@@ -39,7 +48,7 @@ class ActionLoggingMiddleware:
                             else:
                                 cleaned_data[key] = value
                         action_info['data'] = cleaned_data
-                    except:
+                    except Exception:
                         # Pour les données de formulaire, filtrer aussi
                         form_data = dict(request.POST)
                         sensitive_fields = ['password', 'token', 'secret', 'key', 'api_key', 'refresh']
@@ -63,4 +72,6 @@ class ActionLoggingMiddleware:
             except Exception as e:
                 logger.error(f'Erreur lors du logging: {str(e)}')
 
-        return response 
+        return response
+
+
