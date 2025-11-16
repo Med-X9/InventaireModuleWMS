@@ -6,8 +6,8 @@ networks:
 
 services:
   web:
-    # Use pre-built image with environment variable for tag 
-    image: smatchdigital/backend-app:${IMAGE_TAG:-dev-latest}
+    # Use pre-built image with environment variable for tag (IMAGE_TAG must be défini dans .env)
+    image: smatchdigital/backend-app:${IMAGE_TAG}
     container_name: inventaire-web
     networks:
       - inventaire-net
