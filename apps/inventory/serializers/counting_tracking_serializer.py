@@ -62,14 +62,21 @@ class CountingSerializer(serializers.ModelSerializer):
     
     def get_jobs(self, obj):
         """
-        Récupère les jobs associés à ce comptage via JobDetail
+        Récupère les jobs associés à ce comptage via Assignment
         ⚠️ Règle: Les serializers ne doivent PAS accéder directement à la base de données
         La vue doit précharger les relations via prefetch_related
         """
-        # Accéder aux job_details déjà chargés (évite les requêtes N+1)
-        # Note: La vue doit utiliser prefetch_related('jobdetail_set__job') pour optimiser
-        job_details = obj.jobdetail_set
-        jobs = {jd.job for jd in job_details if hasattr(jd, 'job')}  # Éliminer les doublons
+        # Accéder aux jobs via les assignments déjà chargés (évite les requêtes N+1)
+        # Le repository filtre déjà les jobs par assignment et les précharge dans inventory.job_set
+        # Tous les jobs dans inventory.job_set ont déjà un assignment pour le counting spécifié
+        jobs = []
+        # Utiliser les jobs déjà préchargés dans l'inventaire (filtrés par assignment dans le repository)
+        for job in obj.inventory.job_set.all():
+            # Vérifier que ce job a un assignment pour ce counting (assignments déjà préchargés)
+            # Le repository a déjà filtré les jobs, mais on vérifie pour être sûr
+            assignments_for_counting = [a for a in job.assigment_set.all() if a.counting_id == obj.id]
+            if assignments_for_counting:
+                jobs.append(job)
         
         # Passer le contexte du comptage pour filtrer les job_details
         context = {'counting': obj}
