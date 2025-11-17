@@ -237,12 +237,12 @@ class JobRepository(JobRepositoryInterface):
     
     def get_validated_jobs_datatable(self, warehouse_id: Optional[int] = None, inventory_id: Optional[int] = None):
         """
-        Récupère les jobs validés, affectés, transférés ou prêts avec relations préchargées.
+        Récupère les jobs validés, affectés, transférés, prêts ou entamés avec relations préchargées.
         Utilisé par les vues DataTable.
         
-        Statuts inclus : VALIDE, AFFECTE, TRANSFERT, PRET
+        Statuts inclus : VALIDE, AFFECTE, TRANSFERT, PRET, ENTAME
         """
-        queryset = Job.objects.filter(status__in=['VALIDE', 'AFFECTE', 'TRANSFERT', 'PRET'])
+        queryset = Job.objects.filter(status__in=['VALIDE', 'AFFECTE', 'TRANSFERT', 'PRET', 'ENTAME'])
         
         if warehouse_id is not None:
             queryset = queryset.filter(warehouse_id=warehouse_id)

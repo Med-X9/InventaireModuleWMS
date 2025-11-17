@@ -489,7 +489,7 @@ class WarehouseJobsView(ServerSideDataTableView):
 
 class JobFullDetailListView(ServerSideDataTableView):
     """
-    Vue pour lister les jobs valides avec détails complets - Support DataTable.
+    Vue pour lister les jobs valides et entamés avec détails complets - Support DataTable.
     
     FONCTIONNALITÉS AUTOMATIQUES:
     - Tri sur tous les champs configurés
@@ -505,6 +505,8 @@ class JobFullDetailListView(ServerSideDataTableView):
     - Recherche: search=terme
     - Pagination: page=1&page_size=25
     - Filtres: status=valide, reference=JOB-xxx, emplacement_reference=LOC-xxx
+    
+    STATUTS INCLUS: VALIDE, AFFECTE, TRANSFERT, PRET, ENTAME
     """
     
     # Configuration de base
@@ -571,7 +573,7 @@ class JobFullDetailListView(ServerSideDataTableView):
 
     def get_datatable_queryset(self):
         """
-        Récupère les jobs validés via le repository avec relations préchargées.
+        Récupère les jobs validés et entamés via le repository avec relations préchargées.
         ⚠️ Règle: La vue ne doit PAS utiliser Job.objects directement.
         """
         warehouse_id = self.kwargs.get('warehouse_id')
