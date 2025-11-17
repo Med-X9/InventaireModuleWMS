@@ -2,6 +2,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework_simplejwt.exceptions import AuthenticationFailed
 from django.contrib.auth import authenticate
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
@@ -132,7 +133,8 @@ class JWTLoginView(TokenObtainPairView):
             # Utiliser le serializer parent pour la validation et la génération des tokens
             serializer = self.get_serializer(data=request.data)
             
-            if serializer.is_valid():
+            # Utiliser raise_exception=False pour éviter que les exceptions ne soient levées automatiquement
+            if serializer.is_valid(raise_exception=False):
                 # Le serializer retourne déjà la réponse formatée
                 return Response(serializer.validated_data, status=status.HTTP_200_OK)
             else:
@@ -143,8 +145,18 @@ class JWTLoginView(TokenObtainPairView):
                     'details': serializer.errors
                 }, status=status.HTTP_400_BAD_REQUEST)
                 
+        except AuthenticationFailed as e:
+            # Gestion spécifique des erreurs d'authentification
+            return Response({
+                'success': False,
+                'error': 'Identifiants invalides',
+                'details': str(e)
+            }, status=status.HTTP_401_UNAUTHORIZED)
         except Exception as e:
             # Gestion des erreurs inattendues
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Erreur inattendue lors de la connexion JWT: {str(e)}", exc_info=True)
             return Response({
                 'success': False,
                 'error': 'Erreur interne du serveur',

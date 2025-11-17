@@ -124,6 +124,7 @@ class JobReadyView(APIView):
     Vue pour marquer plusieurs jobs et un comptage spécifique comme PRET
     
     Permet de mettre en statut PRET plusieurs jobs et un comptage spécifique identifié par son ordre (1, 2 ou 3).
+    Si counting_order n'est pas fourni, tous les comptages des jobs seront marqués comme PRET.
     """
     
     def post(self, request):
@@ -133,7 +134,7 @@ class JobReadyView(APIView):
         Body attendu:
         {
             "job_ids": [1, 2, 3],
-            "counting_order": 1  # ou 2, ou 3
+            "counting_order": 1  # ou 2, ou 3 (optionnel - si non fourni, tous les comptages seront marqués comme PRET)
         }
         """
         serializer = JobReadyRequestSerializer(data=request.data)
@@ -153,7 +154,7 @@ class JobReadyView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
         
         job_ids = serializer.validated_data['job_ids']
-        counting_order = serializer.validated_data['counting_order']
+        counting_order = serializer.validated_data.get('counting_order')
         
         try:
             # Utiliser le use case pour la logique métier
@@ -182,6 +183,8 @@ class JobReadyView(APIView):
                 'success': False,
                 'message': f'Erreur interne : {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 
 class JobDeleteView(APIView):
     def delete(self, request):

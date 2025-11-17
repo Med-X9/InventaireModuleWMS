@@ -138,10 +138,11 @@ class JobReadyRequestSerializer(serializers.Serializer):
         help_text="Liste des IDs des jobs à marquer comme PRET"
     )
     counting_order = serializers.IntegerField(
-        required=True,
+        required=False,
+        allow_null=True,
         min_value=1,
         max_value=3,
-        help_text="Ordre du comptage (1, 2 ou 3) à marquer comme PRET"
+        help_text="Ordre du comptage (1, 2 ou 3) à marquer comme PRET. Si non fourni, tous les comptages seront marqués comme PRET"
     )
 
 class JobAssignmentDetailSerializer(serializers.ModelSerializer):
