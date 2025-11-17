@@ -179,8 +179,34 @@ class JobFullDetailSerializer(serializers.ModelSerializer):
         model = Job
         fields = ['id', 'reference', 'status', 'emplacements', 'assignments', 'ressources']
     def get_emplacements(self, obj):
-        job_details = obj.jobdetail_set.select_related('location__sous_zone__zone').all()
-        return JobEmplacementDetailSerializer(job_details, many=True).data
+        """
+        Récupère les emplacements (job_details) d'un job.
+        Filtre par counting pour éviter les doublons (un JobDetail a un champ counting).
+        Utilise le counting du premier assignment actif, ou retourne les emplacements uniques par location.
+        """
+        # Récupérer le premier assignment actif pour déterminer le counting à utiliser
+        first_assignment = obj.assigment_set.select_related('counting').first()
+        
+        if first_assignment and first_assignment.counting:
+            # Filtrer par le counting du premier assignment actif
+            job_details = obj.jobdetail_set.filter(
+                counting=first_assignment.counting
+            ).select_related('location__sous_zone__zone').order_by('location_id', '-id')
+        else:
+            # Si pas d'assignment, retourner les emplacements uniques par location (évite les doublons)
+            job_details = obj.jobdetail_set.select_related(
+                'location__sous_zone__zone'
+            ).order_by('location_id', '-id')
+        
+        # Éliminer les doublons par location_id (garder le plus récent)
+        seen_locations = set()
+        unique_job_details = []
+        for job_detail in job_details:
+            if job_detail.location_id not in seen_locations:
+                seen_locations.add(job_detail.location_id)
+                unique_job_details.append(job_detail)
+        
+        return JobEmplacementDetailSerializer(unique_job_details, many=True).data
     def get_assignments(self, obj):
         assignments = obj.assigment_set.select_related('counting', 'session').all()
         return JobAssignmentDetailSerializer(assignments, many=True).data
@@ -198,8 +224,34 @@ class JobPendingSerializer(serializers.ModelSerializer):
         fields = ['id', 'reference', 'status', 'emplacements', 'assignments', 'ressources']
     
     def get_emplacements(self, obj):
-        job_details = obj.jobdetail_set.select_related('location__sous_zone__zone').all()
-        return JobEmplacementDetailSerializer(job_details, many=True).data
+        """
+        Récupère les emplacements (job_details) d'un job.
+        Filtre par counting pour éviter les doublons (un JobDetail a un champ counting).
+        Utilise le counting du premier assignment actif, ou retourne les emplacements uniques par location.
+        """
+        # Récupérer le premier assignment actif pour déterminer le counting à utiliser
+        first_assignment = obj.assigment_set.select_related('counting').first()
+        
+        if first_assignment and first_assignment.counting:
+            # Filtrer par le counting du premier assignment actif
+            job_details = obj.jobdetail_set.filter(
+                counting=first_assignment.counting
+            ).select_related('location__sous_zone__zone').order_by('location_id', '-id')
+        else:
+            # Si pas d'assignment, retourner les emplacements uniques par location (évite les doublons)
+            job_details = obj.jobdetail_set.select_related(
+                'location__sous_zone__zone'
+            ).order_by('location_id', '-id')
+        
+        # Éliminer les doublons par location_id (garder le plus récent)
+        seen_locations = set()
+        unique_job_details = []
+        for job_detail in job_details:
+            if job_detail.location_id not in seen_locations:
+                seen_locations.add(job_detail.location_id)
+                unique_job_details.append(job_detail)
+        
+        return JobEmplacementDetailSerializer(unique_job_details, many=True).data
     
     def get_assignments(self, obj):
         assignments = obj.assigment_set.select_related('counting', 'session').all()
