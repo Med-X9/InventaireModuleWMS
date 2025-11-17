@@ -1,5 +1,5 @@
 from django.db.models import Q, Prefetch
-from ..models import Inventory, Setting, Counting
+from ..models import Inventory, Setting, Counting, Assigment, Job
 from apps.inventory.exceptions.inventory_exceptions import InventoryNotFoundError
 from ..interfaces.inventory_interface import IInventoryRepository
 from typing import List, Dict, Any, Optional
@@ -446,7 +446,7 @@ class InventoryRepository(IInventoryRepository):
     def get_with_counting_tracking_data(self, inventory_id: int, counting_order: int) -> Any:
         """
         Récupère un inventaire avec toutes les données nécessaires pour le suivi de comptage.
-        Précharge les relations : countings, jobs, jobdetails, locations, zones, sous-zones.
+        Précharge les relations : countings, jobs (filtrés par assignment), jobdetails, locations, zones, sous-zones.
         
         Args:
             inventory_id: ID de l'inventaire à récupérer
@@ -459,19 +459,59 @@ class InventoryRepository(IInventoryRepository):
             InventoryNotFoundError: Si l'inventaire n'existe pas ou est supprimé
         """
         try:
+            # Récupérer le counting avec l'ordre spécifié pour cet inventaire
+            try:
+                counting = Counting.objects.get(inventory_id=inventory_id, order=counting_order)
+            except Counting.DoesNotExist:
+                # Si le counting n'existe pas, retourner l'inventaire avec un queryset vide pour les jobs
+                counting = None
+            
+            # Récupérer les IDs des jobs qui ont un assignment pour ce counting
+            if counting:
+                job_ids_with_assignment = Assigment.objects.filter(
+                    counting=counting,
+                    job__inventory_id=inventory_id
+                ).values_list('job_id', flat=True).distinct()
+            else:
+                job_ids_with_assignment = []
+            
             # Construire le Prefetch pour les comptages avec filtre par ordre
+            # Précharger l'inventaire pour éviter les requêtes N+1 dans le serializer
             counting_prefetch = Prefetch(
                 'countings',
-                queryset=Counting.objects.filter(order=counting_order).order_by('order')
+                queryset=Counting.objects.filter(order=counting_order).select_related('inventory').order_by('order')
             )
+            
+            # Construire le Prefetch pour les jobs filtrés par assignment
+            if counting and job_ids_with_assignment:
+                job_prefetch = Prefetch(
+                    'job_set',
+                    queryset=Job.objects.filter(
+                        id__in=job_ids_with_assignment
+                    ).prefetch_related(
+                        'warehouse',
+                        'jobdetail_set__location__sous_zone__zone',
+                        'jobdetail_set__location__sous_zone',
+                        Prefetch(
+                            'assigment_set',
+                            queryset=Assigment.objects.filter(counting=counting).select_related(
+                                'counting', 'session', 'personne', 'personne_two'
+                            )
+                        )
+                    )
+                )
+            else:
+                # Si aucun assignment, retourner un queryset vide
+                job_prefetch = Prefetch(
+                    'job_set',
+                    queryset=Job.objects.none()
+                )
             
             return Inventory.objects.filter(
                 is_deleted=False
             ).prefetch_related(
                 counting_prefetch,
-                'job_set__warehouse',
-                'job_set__jobdetail_set__location__sous_zone__zone',
-                'job_set__jobdetail_set__location__sous_zone'
+                job_prefetch
             ).get(id=inventory_id)
         except Inventory.DoesNotExist:
             raise InventoryNotFoundError(f"L'inventaire avec l'ID {inventory_id} n'existe pas.") 
