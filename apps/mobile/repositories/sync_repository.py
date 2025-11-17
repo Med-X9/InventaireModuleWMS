@@ -104,21 +104,26 @@ class SyncRepository:
         return Counting.objects.filter(id__in=counting_ids)
     
     def get_assignments_by_jobs(self, jobs):
-        """Récupère les assignations pour les jobs donnés"""
-        return Assigment.objects.filter(job__in=jobs)
+        """
+        Récupère les assignations pour les jobs donnés avec statut TRANSFERT uniquement
+        
+        Returns:
+            Queryset des assignments avec statut TRANSFERT pour ces jobs
+        """
+        return Assigment.objects.filter(job__in=jobs, status='TRANSFERT')
     
     def get_assignments_by_jobs_and_user(self, jobs, user_id):
         """
-        Récupère les assignations pour les jobs donnés, filtrées par utilisateur
+        Récupère les assignations pour les jobs donnés, filtrées par utilisateur et statut TRANSFERT uniquement
         
         Args:
             jobs: Queryset des jobs
             user_id: ID de l'utilisateur pour filtrer les assignments
             
         Returns:
-            Queryset des assignments de l'utilisateur pour ces jobs
+            Queryset des assignments de l'utilisateur avec statut TRANSFERT pour ces jobs
         """
-        return Assigment.objects.filter(job__in=jobs, session_id=user_id)
+        return Assigment.objects.filter(job__in=jobs, session_id=user_id, status='TRANSFERT')
     
     def get_countings_by_inventories(self, inventories):
         """Récupère les comptages pour les inventaires donnés"""

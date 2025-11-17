@@ -23,6 +23,7 @@ from apps.inventory.views import InventoryWarehousesView, AccountWarehousesView
 
 
 from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView, JobBatchAssignmentView, JobTransferView, JobProgressByCountingView, InventoryProgressByCountingView
+from .views.ecart_comptage_views import EcartComptageUpdateFinalResultView, EcartComptageResolveView
 from .views.assignment_views import AssignJobsToCountingView, AssignResourcesToInventoryView, InventoryResourcesView
 from .views.resource_assignment_views import AssignResourcesToJobsView, JobResourcesView, RemoveResourcesFromJobView
 from .views.counting_tracking_views import InventoryCountingTrackingView
@@ -124,8 +125,20 @@ urlpatterns = [
     path('inventory/<int:inventory_id>/assign-resources-inventory/', AssignResourcesToInventoryView.as_view(), name='assign-resources-to-inventory'),
     path('inventory/<int:inventory_id>/resources/', InventoryResourcesView.as_view(), name='get-inventory-resources'),
     
+    # ========================================
+    # URLs POUR LES ECARTS DE COMPTAGE
+    # ========================================
 
-    # Nouvelle URL pour les jobs validés d'un entrepôt et d'un inventaire spécifique
-    
-    # URL pour lister les jobs en attente
+    # API pour modifier le résultat final d'un EcartComptage (nécessite au moins 2 séquences)
+    path(
+        'ecarts-comptage/<int:ecart_id>/final-result/',
+        EcartComptageUpdateFinalResultView.as_view(),
+        name='ecart-comptage-update-final-result',
+    ),
+    # API pour marquer un EcartComptage comme résolu (nécessite au moins 2 séquences et un résultat final)
+    path(
+        'ecarts-comptage/<int:ecart_id>/resolve/',
+        EcartComptageResolveView.as_view(),
+        name='ecart-comptage-resolve',
+    ),
 ]

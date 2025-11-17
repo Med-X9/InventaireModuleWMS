@@ -193,6 +193,8 @@ class InventoryResultAPIViewTestCase(TestCase):
         self.assertIsNone(entry_a["5er comptage"])
         self.assertIsNone(entry_a["ecart_4_5"])
         self.assertEqual(entry_a["final_result"], 121)
+        # EcartComptage est optionnel dans ce scénario de test (peut être absent)
+        # donc on ne vérifie pas ecart_comptage_id ici.
 
         entry_b = next(
             item for item in response.data["data"] if item["location"] == "B-02-03"

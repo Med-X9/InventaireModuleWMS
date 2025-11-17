@@ -590,6 +590,8 @@ class JobService(JobServiceInterface):
         """
         Transfère les jobs qui sont au statut PRET vers le statut TRANSFERT pour plusieurs ordres de comptage.
         
+        Condition : Tous les assignments d'un job doivent être au statut PRET pour que le job puisse être transféré.
+        
         Args:
             job_ids: Liste des IDs des jobs à transférer
             counting_orders: Liste des ordres de comptage pour lesquels transférer les jobs
@@ -614,20 +616,37 @@ class JobService(JobServiceInterface):
             raise JobCreationError(f"Aucun comptage trouvé avec les ordres : {sorted(missing_orders)}")
         
         for job_id in job_ids:
+            # Récupérer tous les assignments de ce job
+            all_job_assignments = Assigment.objects.select_related('job', 'counting').filter(
+                job_id=job_id
+            )
+            
+            if not all_job_assignments.exists():
+                errors.append(f"Aucune assignation trouvée pour le job {job_id}")
+                continue
+            
+            # Vérifier que TOUS les assignments du job sont au statut PRET
+            assignments_not_pret = all_job_assignments.exclude(status='PRET')
+            if assignments_not_pret.exists():
+                not_pret_details = [
+                    f"comptage ordre {a.counting.order} (statut: {a.status})"
+                    for a in assignments_not_pret.select_related('counting')
+                ]
+                errors.append(
+                    f"Le job {job_id} ne peut pas être transféré car certains comptages ne sont pas PRET : {', '.join(not_pret_details)}"
+                )
+                continue
+            
+            # Vérifier que les assignments pour les ordres de comptage demandés existent
+            job_transferred = False
             for counting_order in counting_orders:
                 # Récupérer l'assignement pour ce job et cet ordre de comptage
-                assignment = Assigment.objects.select_related('job', 'counting').filter(
-                    job_id=job_id,
+                assignment = all_job_assignments.filter(
                     counting__order=counting_order
                 ).first()
                 
                 if not assignment:
                     errors.append(f"Aucune assignation trouvée pour le job {job_id} et le comptage d'ordre {counting_order}")
-                    continue
-                    
-                # Vérifier que l'assignement est au statut PRET
-                if assignment.status != 'PRET':
-                    errors.append(f"Le job {job_id} pour le comptage d'ordre {counting_order} n'est pas au statut PRET (statut actuel : {assignment.status})")
                     continue
                 
                 # Transférer l'assignement
@@ -636,7 +655,7 @@ class JobService(JobServiceInterface):
                 assignment.save()
                 
                 # Transférer le job lui-même (une seule fois par job)
-                if job_id not in [j['job_id'] for j in transferred_jobs]:
+                if not job_transferred:
                     job = assignment.job
                     job.status = 'TRANSFERT'
                     job.transfert_date = current_time
@@ -646,6 +665,7 @@ class JobService(JobServiceInterface):
                         'job_id': job_id,
                         'job_reference': job.reference
                     })
+                    job_transferred = True
                 
                 transferred_assignments.append({
                     'job_id': job_id,
