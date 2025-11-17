@@ -263,11 +263,11 @@ class Product(CodeGeneratorMixin, TimeStampedModel):
     
     reference = models.CharField(_('Référence'), unique=True, max_length=20)
     Internal_Product_Code = models.CharField(_('Code produit'), max_length=100,unique=True)
-    Short_Description = models.CharField(_('Désignation'), max_length=100)
-    Barcode = models.CharField(_('Code-barres'), max_length=30, null=True, blank=True)
+    Short_Description = models.CharField(_('Désignation'), max_length=100,null=True, blank=True)
+    Barcode = models.CharField(_('Code-barres'), max_length=30)
     Product_Group = models.CharField(_('Groupe de produit'), max_length=10,null=True, blank=True)
     Stock_Unit = models.CharField(_('Unité de stock'), max_length=30)
-    Product_Status = models.CharField(_('Statut'), choices=STATUS_CHOICES)  
+    Product_Status = models.CharField(_('Statut'), choices=STATUS_CHOICES,default='ACTIVE')  
     Product_Family = models.ForeignKey(Family, on_delete=models.CASCADE, verbose_name=_('Famille de produit'))
     Is_Variant = models.BooleanField(_('variante'),default=False)
     n_lot=models.BooleanField(_('N° lot'),default=False)
@@ -282,7 +282,7 @@ class Product(CodeGeneratorMixin, TimeStampedModel):
         verbose_name_plural = _('Produits')
     
     def __str__(self):
-        return self.Short_Description
+        return self.reference
 
 class NSerie(CodeGeneratorMixin, TimeStampedModel):
     """
