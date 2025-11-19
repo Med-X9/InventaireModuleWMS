@@ -123,7 +123,7 @@ class SyncRepository:
         Returns:
             Queryset des assignments de l'utilisateur avec statut TRANSFERT pour ces jobs
         """
-        return Assigment.objects.filter(job__in=jobs, session_id=user_id, status_in=['TRANSFERT', 'ENTAME'])
+        return Assigment.objects.filter(job__in=jobs, session_id=user_id, status__in=['TRANSFERT', 'ENTAME'])
     
     def get_countings_by_inventories(self, inventories):
         """Récupère les comptages pour les inventaires donnés"""
