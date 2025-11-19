@@ -590,8 +590,6 @@ class JobService(JobServiceInterface):
         """
         Transfère les jobs qui sont au statut PRET vers le statut TRANSFERT pour plusieurs ordres de comptage.
         
-        Condition : Tous les assignments d'un job doivent être au statut PRET pour que le job puisse être transféré.
-        
         Args:
             job_ids: Liste des IDs des jobs à transférer
             counting_orders: Liste des ordres de comptage pour lesquels transférer les jobs
@@ -625,8 +623,11 @@ class JobService(JobServiceInterface):
                 errors.append(f"Aucune assignation trouvée pour le job {job_id}")
                 continue
             
-            # Vérifier que TOUS les assignments du job sont au statut PRET
-            assignments_not_pret = all_job_assignments.exclude(status='PRET')
+            # Vérifier que TOUS les assignments du job (qui ne sont pas déjà TRANSFERT) sont au statut PRET
+            # Cela permet de transférer progressivement les assignments
+            assignments_to_check = all_job_assignments.exclude(status='TRANSFERT')
+            assignments_not_pret = assignments_to_check.exclude(status='PRET')
+            
             if assignments_not_pret.exists():
                 not_pret_details = [
                     f"comptage ordre {a.counting.order} (statut: {a.status})"
@@ -637,10 +638,8 @@ class JobService(JobServiceInterface):
                 )
                 continue
             
-            # Vérifier que les assignments pour les ordres de comptage demandés existent
-            job_transferred = False
+            # Vérifier que les assignments demandés sont bien PRET (et non déjà TRANSFERT)
             for counting_order in counting_orders:
-                # Récupérer l'assignement pour ce job et cet ordre de comptage
                 assignment = all_job_assignments.filter(
                     counting__order=counting_order
                 ).first()
@@ -649,14 +648,31 @@ class JobService(JobServiceInterface):
                     errors.append(f"Aucune assignation trouvée pour le job {job_id} et le comptage d'ordre {counting_order}")
                     continue
                 
+                if assignment.status != 'PRET':
+                    errors.append(
+                        f"Le job {job_id} pour le comptage d'ordre {counting_order} n'est pas au statut PRET (statut actuel : {assignment.status})"
+                    )
+                    continue
+            
+            # Si toutes les vérifications passent, procéder au transfert
+            # Récupérer le job une seule fois
+            job = all_job_assignments.first().job
+            job_transferred = False
+            
+            # Transférer les assignments pour les ordres de comptage demandés
+            for counting_order in counting_orders:
+                # Récupérer l'assignement pour ce job et cet ordre de comptage
+                assignment = all_job_assignments.filter(
+                    counting__order=counting_order
+                ).first()
+                
                 # Transférer l'assignement
                 assignment.status = 'TRANSFERT'
                 assignment.transfert_date = current_time
                 assignment.save()
                 
-                # Transférer le job lui-même (une seule fois par job)
+                # Transférer le job lui-même (une seule fois par job, même s'il est déjà TRANSFERT)
                 if not job_transferred:
-                    job = assignment.job
                     job.status = 'TRANSFERT'
                     job.transfert_date = current_time
                     job.save()
@@ -669,7 +685,7 @@ class JobService(JobServiceInterface):
                 
                 transferred_assignments.append({
                     'job_id': job_id,
-                    'job_reference': assignment.job.reference,
+                    'job_reference': job.reference,
                     'counting_order': counting_order,
                     'counting_reference': assignment.counting.reference,
                     'assignment_id': assignment.id

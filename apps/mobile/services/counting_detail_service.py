@@ -117,8 +117,8 @@ class CountingDetailService:
             
             # Utiliser une transaction pour s'assurer que tout réussit ou rien
             with transaction.atomic():
-                # OPTIMISATION 1: Précharger tous les CountingDetail existants en une seule requête
-                existing_details_map = self._prefetch_existing_counting_details(data_list)
+                # OPTIMISATION 1: Précharger tous les CountingDetail existants en une seule requête (pour UPSERT)
+                existing_details_map = self._prefetch_existing_counting_details(data_list, job_id=job_id)
                 
                 # OPTIMISATION 2 NOUVELLE: Précharger tous les objets liés en une seule fois
                 related_objects_cache = self._prefetch_all_related_objects(data_list)
@@ -139,20 +139,29 @@ class CountingDetailService:
                 counting_details_to_process = []
                 created_details = []
                 
-                # Séparer les éléments à créer et ceux à mettre à jour
+                # Séparer les éléments à créer et ceux à mettre à jour (UPSERT en lot)
                 items_to_create = []
                 items_to_update = []
                 
                 for i, data in enumerate(data_list):
+                    # Vérifier si le comptage a une quantité (condition pour upsert)
+                    quantity = data.get('quantity_inventoried')
+                    if quantity is None or quantity <= 0:
+                        # Ignorer les éléments sans quantité valide
+                        logger.warning(f"Élément {i} ignoré : pas de quantité valide")
+                        continue
+                    
                     existing_detail = existing_details_map.get(self._get_detail_key(data))
                     
                     if existing_detail:
+                        # Mettre à jour l'existant
                         items_to_update.append({
                             'index': i,
                             'detail': existing_detail,
                             'data': data
                         })
                     else:
+                        # Créer un nouveau
                         items_to_create.append({
                             'index': i,
                             'data': data,
@@ -326,9 +335,13 @@ class CountingDetailService:
             data.get('product_id')
         )
     
-    def _prefetch_existing_counting_details(self, data_list: List[Dict[str, Any]]) -> Dict[tuple, CountingDetail]:
+    def _prefetch_existing_counting_details(self, data_list: List[Dict[str, Any]], job_id: Optional[int] = None) -> Dict[tuple, CountingDetail]:
         """
-        Précharge tous les CountingDetail existants en une seule requête.
+        Précharge tous les CountingDetail existants en une seule requête (pour UPSERT).
+        
+        Args:
+            data_list: Liste des données à traiter
+            job_id: ID du job (optionnel, pour filtrer par job)
         
         Returns:
             Dict avec clé (counting_id, location_id, product_id) et valeur CountingDetail
@@ -343,12 +356,23 @@ class CountingDetailService:
             location_id = data.get('location_id')
             product_id = data.get('product_id')
             
-            if counting_id and location_id and product_id:
-                filters.append({
+            if counting_id and location_id:
+                filter_dict = {
                     'counting_id': counting_id,
-                    'location_id': location_id,
-                    'product_id': product_id
-                })
+                    'location_id': location_id
+                }
+                
+                # Ajouter product_id si fourni (peut être None pour certains modes)
+                if product_id:
+                    filter_dict['product_id'] = product_id
+                else:
+                    filter_dict['product__isnull'] = True
+                
+                # Ajouter job_id si fourni
+                if job_id:
+                    filter_dict['job_id'] = job_id
+                
+                filters.append(filter_dict)
         
         if not filters:
             return {}
@@ -361,7 +385,7 @@ class CountingDetailService:
         
         # Récupérer tous les détails en une seule requête
         existing_details = CountingDetail.objects.filter(q_objects).select_related(
-            'product', 'location', 'counting__inventory'
+            'product', 'location', 'counting__inventory', 'job'
         )
         
         # Créer un dictionnaire de mapping
@@ -1069,7 +1093,7 @@ class CountingDetailService:
     
     def _update_counting_detail(self, counting_detail: CountingDetail, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Met à jour un CountingDetail existant.
+        Met à jour un CountingDetail existant (UPSERT).
         
         Args:
             counting_detail: Le CountingDetail à mettre à jour
@@ -1079,12 +1103,17 @@ class CountingDetailService:
             Dict[str, Any]: Résultat de la mise à jour
         """
         try:
-            # Mettre à jour les champs principaux
-            counting_detail.quantity_inventoried = data['quantity_inventoried']
+            # Mettre à jour les champs principaux (seulement si quantité fournie)
+            if 'quantity_inventoried' in data and data['quantity_inventoried'] is not None:
+                counting_detail.quantity_inventoried = data['quantity_inventoried']
+            
             if 'dlc' in data:
                 counting_detail.dlc = data['dlc']
             if 'n_lot' in data:
                 counting_detail.n_lot = data['n_lot']
+            
+            # Mettre à jour la date de synchronisation
+            counting_detail.last_synced_at = timezone.now()
             
             counting_detail.save()
             
