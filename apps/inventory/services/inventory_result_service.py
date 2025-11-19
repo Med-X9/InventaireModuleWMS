@@ -140,6 +140,8 @@ class InventoryResultService:
                 entry_data["product"] = {
                     "reference": row["product_reference_alias"],
                     "barcode": row.get("product_barcode_alias"),
+                    "description": row.get("product_description_alias"),
+                    "internal_code": row.get("product_internal_code_alias"),
                 }
 
             order = row["counting_order_alias"]
@@ -177,6 +179,12 @@ class InventoryResultService:
             if mode == "par article" and entry["product"]:
                 # Utiliser le code-barres du produit, ou la référence en fallback
                 result_row["product"] = entry["product"].get("barcode") or entry["product"].get("reference") or ""
+                # Ajouter la désignation du produit si disponible
+                if entry["product"].get("description"):
+                    result_row["product_description"] = entry["product"]["description"]
+                # Ajouter le code interne du produit si disponible
+                if entry["product"].get("internal_code"):
+                    result_row["product_internal_code"] = entry["product"]["internal_code"]
 
             job_info = entry.get("job")
             if job_info and job_info.get("id") is not None:
