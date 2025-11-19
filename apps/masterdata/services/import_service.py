@@ -43,49 +43,75 @@ class ProductImportService:
             logger.info(f"=== DÉBUT IMPORT TÂCHE {import_task.id} ===")
             logger.info(f"Fichier: {file_path}")
             logger.info(f"Statut initial: {import_task.status}")
+            
             # PHASE 1: VALIDATION COMPLÈTE
-            import_task.status = 'VALIDATING'
-            import_task.save()
-            
-            total_rows = self._count_file_rows(file_path)
-            import_task.total_rows = total_rows
-            import_task.save()
-            
-            logger.info(f"Début validation complète ({total_rows} lignes)")
-            
-            # Lire le fichier Excel complet
-            df_full = pd.read_excel(file_path, engine='openpyxl')
-            
-            # PHASE 1.1: Détecter les doublons DANS le fichier
-            duplicate_errors = self._detect_duplicates_in_file(df_full)
-            validation_errors = []
-            
-            # Convertir les erreurs de doublons en ImportError
-            for dup_error in duplicate_errors:
-                error_obj = ImportError(
-                    import_task=import_task,
-                    row_number=dup_error['row_number'],
-                    error_type=dup_error['error_type'],
-                    error_message=dup_error['error_message'],
-                    field_name=dup_error.get('field_name'),
-                    field_value=dup_error.get('field_value'),
-                    row_data=dup_error.get('row_data', {}),
-                )
-                validation_errors.append(error_obj)
-            
-            # PHASE 1.2: Valider toutes les lignes (traiter par chunks)
-            row_number = 2  # Ligne 1 = header
-            for i in range(0, len(df_full), self.CHUNK_SIZE):
-                chunk_df = df_full.iloc[i:i + self.CHUNK_SIZE]
-                chunk_errors = self._validate_chunk(chunk_df, import_task, row_number)
-                validation_errors.extend(chunk_errors)
-                
-                import_task.validated_rows = min(row_number + len(chunk_df) - 1, total_rows)
+            try:
+                import_task.status = 'VALIDATING'
                 import_task.save()
+                logger.info(f"Statut mis à VALIDATING pour l'import {import_task.id}")
                 
-                row_number += len(chunk_df)
-            
-            logger.info(f"Validation terminée: {len(validation_errors)} erreur(s) détectée(s)")
+                total_rows = self._count_file_rows(file_path)
+                import_task.total_rows = total_rows
+                import_task.save()
+                logger.info(f"Nombre total de lignes détecté: {total_rows}")
+                
+                logger.info(f"Début validation complète ({total_rows} lignes)")
+                
+                # Lire le fichier Excel complet
+                logger.info(f"Lecture du fichier Excel: {file_path}")
+                df_full = pd.read_excel(file_path, engine='openpyxl')
+                logger.info(f"Fichier Excel lu: {len(df_full)} lignes")
+                
+                # PHASE 1.1: Détecter les doublons DANS le fichier
+                logger.info("Début détection des doublons dans le fichier")
+                duplicate_errors = self._detect_duplicates_in_file(df_full)
+                logger.info(f"Détection des doublons terminée: {len(duplicate_errors)} doublon(s) trouvé(s)")
+                validation_errors = []
+                
+                # Convertir les erreurs de doublons en ImportError
+                for dup_error in duplicate_errors:
+                    error_obj = ImportError(
+                        import_task=import_task,
+                        row_number=dup_error['row_number'],
+                        error_type=dup_error['error_type'],
+                        error_message=dup_error['error_message'],
+                        field_name=dup_error.get('field_name'),
+                        field_value=dup_error.get('field_value'),
+                        row_data=dup_error.get('row_data', {}),
+                    )
+                    validation_errors.append(error_obj)
+                
+                # PHASE 1.2: Valider toutes les lignes (traiter par chunks)
+                logger.info("Début validation des lignes par chunks")
+                row_number = 2  # Ligne 1 = header
+                total_chunks = (len(df_full) + self.CHUNK_SIZE - 1) // self.CHUNK_SIZE
+                logger.info(f"Validation de {total_chunks} chunk(s)")
+                
+                for chunk_idx, i in enumerate(range(0, len(df_full), self.CHUNK_SIZE), 1):
+                    logger.info(f"Validation chunk {chunk_idx}/{total_chunks} (lignes {i} à {min(i + self.CHUNK_SIZE, len(df_full))})")
+                    chunk_df = df_full.iloc[i:i + self.CHUNK_SIZE]
+                    chunk_errors = self._validate_chunk(chunk_df, import_task, row_number)
+                    validation_errors.extend(chunk_errors)
+                    
+                    import_task.validated_rows = min(row_number + len(chunk_df) - 1, total_rows)
+                    import_task.save()
+                    logger.debug(f"Progression validation: {import_task.validated_rows}/{total_rows}")
+                    
+                    row_number += len(chunk_df)
+                
+                logger.info(f"Validation terminée: {len(validation_errors)} erreur(s) détectée(s)")
+                
+            except Exception as validation_exception:
+                # Erreur spécifique pendant la validation
+                logger.error(f"Erreur pendant la phase de validation: {str(validation_exception)}", exc_info=True)
+                import_task.status = 'FAILED'
+                import_task.error_message = (
+                    f"Erreur lors de la validation: {str(validation_exception)} "
+                    f"(Type: {type(validation_exception).__name__})"
+                )
+                import_task.save()
+                logger.error(f"Statut mis à FAILED pour l'import {import_task.id} (erreur validation)")
+                raise
             
             # VÉRIFICATION: Si erreurs → ANNULER TOUT
             if validation_errors:
@@ -198,65 +224,85 @@ class ProductImportService:
         """Détecte les doublons dans le fichier Excel lui-même"""
         errors = []
         
-        # Normaliser les colonnes (gérer les variations de casse et espaces)
-        df.columns = df.columns.str.strip().str.lower()
-        
-        # Vérifier les doublons de Internal_Product_Code dans le fichier
-        if 'internal product code' in df.columns:
-            internal_code_col = 'internal product code'
-            df[internal_code_col] = df[internal_code_col].astype(str).str.strip()
+        try:
+            if df.empty:
+                logger.warning("Le DataFrame est vide, aucun doublon à détecter")
+                return errors
             
-            # Trouver tous les codes dupliqués
-            value_counts = df[internal_code_col].value_counts()
-            duplicates = value_counts[value_counts > 1].index.tolist()
+            # Normaliser les colonnes (gérer les variations de casse et espaces)
+            df.columns = df.columns.str.strip().str.lower()
             
-            for internal_code in duplicates:
-                if internal_code and internal_code != 'nan' and internal_code.lower() != 'nan':
-                    # Trouver toutes les lignes avec ce code
-                    duplicate_indices = df[df[internal_code_col] == internal_code].index.tolist()
-                    row_numbers = [r + 2 for r in duplicate_indices]  # +2 car ligne 1 = header, index 0-based
+            # Vérifier les doublons de Internal_Product_Code dans le fichier
+            if 'internal product code' in df.columns:
+                try:
+                    internal_code_col = 'internal product code'
+                    df[internal_code_col] = df[internal_code_col].astype(str).str.strip()
                     
-                    # Créer une erreur pour chaque ligne dupliquée
-                    for idx in duplicate_indices:
-                        row = df.iloc[idx]
-                        errors.append({
-                            'row_number': idx + 2,
-                            'error_type': 'DUPLICATE_ERROR',
-                            'error_message': f"Le code produit interne '{internal_code}' apparaît plusieurs fois dans le fichier (lignes: {', '.join(map(str, row_numbers))}).",
-                            'field_name': 'internal product code',
-                            'field_value': internal_code,
-                            'row_data': row.to_dict(),
-                        })
-        
-        # Vérifier les doublons de Barcode dans le fichier (si présent et non vide)
-        if 'barcode' in df.columns:
-            barcode_col = 'barcode'
-            df[barcode_col] = df[barcode_col].astype(str).str.strip()
-            # Filtrer les valeurs vides et 'nan'
-            df_barcode = df[(df[barcode_col] != '') & (df[barcode_col] != 'nan') & (df[barcode_col].notna())]
+                    # Trouver tous les codes dupliqués
+                    value_counts = df[internal_code_col].value_counts()
+                    duplicates = value_counts[value_counts > 1].index.tolist()
+                    
+                    for internal_code in duplicates:
+                        if internal_code and internal_code != 'nan' and internal_code.lower() != 'nan':
+                            # Trouver toutes les lignes avec ce code
+                            duplicate_indices = df[df[internal_code_col] == internal_code].index.tolist()
+                            row_numbers = [r + 2 for r in duplicate_indices]  # +2 car ligne 1 = header, index 0-based
+                            
+                            # Créer une erreur pour chaque ligne dupliquée
+                            for idx in duplicate_indices:
+                                try:
+                                    row = df.iloc[idx]
+                                    errors.append({
+                                        'row_number': idx + 2,
+                                        'error_type': 'DUPLICATE_ERROR',
+                                        'error_message': f"Le code produit interne '{internal_code}' apparaît plusieurs fois dans le fichier (lignes: {', '.join(map(str, row_numbers))}).",
+                                        'field_name': 'internal product code',
+                                        'field_value': internal_code,
+                                        'row_data': row.to_dict(),
+                                    })
+                                except Exception as e:
+                                    logger.error(f"Erreur lors de la détection de doublon pour la ligne {idx + 2}: {str(e)}")
+                except Exception as e:
+                    logger.error(f"Erreur lors de la détection des doublons de code produit interne: {str(e)}", exc_info=True)
             
-            # Trouver tous les barcodes dupliqués
-            if not df_barcode.empty:
-                value_counts = df_barcode[barcode_col].value_counts()
-                duplicates = value_counts[value_counts > 1].index.tolist()
-                
-                for barcode in duplicates:
-                    if barcode and barcode != 'nan' and barcode.lower() != 'nan':
-                        # Trouver toutes les lignes avec ce barcode
-                        duplicate_indices = df_barcode[df_barcode[barcode_col] == barcode].index.tolist()
-                        row_numbers = [r + 2 for r in duplicate_indices]
+            # Vérifier les doublons de Barcode dans le fichier (si présent et non vide)
+            if 'barcode' in df.columns:
+                try:
+                    barcode_col = 'barcode'
+                    df[barcode_col] = df[barcode_col].astype(str).str.strip()
+                    # Filtrer les valeurs vides et 'nan'
+                    df_barcode = df[(df[barcode_col] != '') & (df[barcode_col] != 'nan') & (df[barcode_col].notna())]
+                    
+                    # Trouver tous les barcodes dupliqués
+                    if not df_barcode.empty:
+                        value_counts = df_barcode[barcode_col].value_counts()
+                        duplicates = value_counts[value_counts > 1].index.tolist()
                         
-                        # Créer une erreur pour chaque ligne dupliquée
-                        for idx in duplicate_indices:
-                            row = df_barcode.iloc[idx]
-                            errors.append({
-                                'row_number': idx + 2,
-                                'error_type': 'DUPLICATE_ERROR',
-                                'error_message': f"Le code-barres '{barcode}' apparaît plusieurs fois dans le fichier (lignes: {', '.join(map(str, row_numbers))}).",
-                                'field_name': 'barcode',
-                                'field_value': barcode,
-                                'row_data': row.to_dict(),
-                            })
+                        for barcode in duplicates:
+                            if barcode and barcode != 'nan' and barcode.lower() != 'nan':
+                                # Trouver toutes les lignes avec ce barcode
+                                duplicate_indices = df_barcode[df_barcode[barcode_col] == barcode].index.tolist()
+                                row_numbers = [r + 2 for r in duplicate_indices]
+                                
+                                # Créer une erreur pour chaque ligne dupliquée
+                                for idx in duplicate_indices:
+                                    try:
+                                        row = df_barcode.iloc[idx]
+                                        errors.append({
+                                            'row_number': idx + 2,
+                                            'error_type': 'DUPLICATE_ERROR',
+                                            'error_message': f"Le code-barres '{barcode}' apparaît plusieurs fois dans le fichier (lignes: {', '.join(map(str, row_numbers))}).",
+                                            'field_name': 'barcode',
+                                            'field_value': barcode,
+                                            'row_data': row.to_dict(),
+                                        })
+                                    except Exception as e:
+                                        logger.error(f"Erreur lors de la détection de doublon pour la ligne {idx + 2}: {str(e)}")
+                except Exception as e:
+                    logger.error(f"Erreur lors de la détection des doublons de barcode: {str(e)}", exc_info=True)
+        
+        except Exception as e:
+            logger.error(f"Erreur critique lors de la détection des doublons: {str(e)}", exc_info=True)
         
         return errors
     
@@ -264,112 +310,169 @@ class ProductImportService:
         """Valide un chunk et retourne la liste des erreurs"""
         errors = []
         
+        # Utiliser un compteur séquentiel au lieu de l'index du DataFrame
+        # pour garantir que row_number est correct même si le DataFrame a un index non séquentiel
+        row_offset = 0
         for index, row_data in df.iterrows():
-            row_number = start_row + index
+            row_number = start_row + row_offset
             row_dict = row_data.to_dict()
             
-            validation_error = self._validate_row(row_dict, row_number)
-            if validation_error:
-                # Si c'est un dict d'erreur (format standard)
-                if isinstance(validation_error, dict):
-                    error_obj = ImportError(
-                        import_task=import_task,
-                        row_number=row_number,
-                        error_type=validation_error['error_type'],
-                        error_message=validation_error['error_message'],
-                        field_name=validation_error.get('field_name'),
-                        field_value=validation_error.get('field_value'),
-                        row_data=row_dict,
-                    )
-                    errors.append(error_obj)
-                # Si c'est déjà un ImportError (depuis _detect_duplicates_in_file)
-                elif hasattr(validation_error, 'row_number'):
-                    validation_error.import_task = import_task
-                    errors.append(validation_error)
+            try:
+                validation_error = self._validate_row(row_dict, row_number)
+                if validation_error:
+                    # Si c'est un dict d'erreur (format standard)
+                    if isinstance(validation_error, dict):
+                        error_obj = ImportError(
+                            import_task=import_task,
+                            row_number=row_number,
+                            error_type=validation_error['error_type'],
+                            error_message=validation_error['error_message'],
+                            field_name=validation_error.get('field_name'),
+                            field_value=validation_error.get('field_value'),
+                            row_data=row_dict,
+                        )
+                        errors.append(error_obj)
+                    # Si c'est déjà un ImportError (depuis _detect_duplicates_in_file)
+                    elif hasattr(validation_error, 'row_number'):
+                        validation_error.import_task = import_task
+                        errors.append(validation_error)
+            except Exception as e:
+                # Gérer les erreurs lors de la validation d'une ligne
+                logger.error(f"Erreur lors de la validation de la ligne {row_number}: {str(e)}", exc_info=True)
+                error_obj = ImportError(
+                    import_task=import_task,
+                    row_number=row_number,
+                    error_type='VALIDATION_ERROR',
+                    error_message=f"Erreur lors de la validation: {str(e)}",
+                    field_name=None,
+                    field_value=None,
+                    row_data=row_dict,
+                )
+                errors.append(error_obj)
+            
+            row_offset += 1
         
         return errors
     
     def _validate_row(self, row_data: dict, row_number: int) -> dict:
         """Valide une ligne et retourne un dict d'erreur si invalide"""
-        # Validation famille
-        family_name = str(row_data.get('product family', '')).strip()
-        if not family_name:
-            return {
-                'error_type': 'VALIDATION_ERROR',
-                'error_message': "La colonne 'product family' est obligatoire.",
-                'field_name': 'product family',
-                'field_value': family_name,
-            }
-        
-        if family_name not in self.family_cache:
-            return {
-                'error_type': 'VALIDATION_ERROR',
-                'error_message': f"La famille '{family_name}' n'existe pas dans la base de données.",
-                'field_name': 'product family',
-                'field_value': family_name,
-            }
-        
-        # Validation barcode
-        barcode = str(row_data.get('barcode', '')).strip()
-        if not barcode:
-            return {
-                'error_type': 'VALIDATION_ERROR',
-                'error_message': "La colonne 'barcode' est obligatoire.",
-                'field_name': 'barcode',
-                'field_value': barcode,
-            }
-        
-        # Validation code produit interne
-        internal_code = str(row_data.get('internal product code', '')).strip()
-        if not internal_code:
-            return {
-                'error_type': 'VALIDATION_ERROR',
-                'error_message': "La colonne 'internal product code' est obligatoire.",
-                'field_name': 'internal product code',
-                'field_value': internal_code,
-            }
-        
-        # Vérifier unicité code produit interne dans la base de données
-        if Product.objects.filter(Internal_Product_Code=internal_code).exists():
-            return {
-                'error_type': 'VALIDATION_ERROR',
-                'error_message': f"Le code produit interne '{internal_code}' existe déjà dans la base de données.",
-                'field_name': 'internal product code',
-                'field_value': internal_code,
-            }
-        
-        # Vérifier unicité barcode dans la base de données (si présent)
-        if barcode:
-            existing_product = Product.objects.filter(Barcode=barcode).first()
-            if existing_product:
+        try:
+            # Helper pour convertir en string de manière sécurisée
+            def safe_str(value, default=''):
+                if value is None:
+                    return default
+                try:
+                    return str(value).strip()
+                except Exception:
+                    return default
+            
+            # Validation famille
+            family_name = safe_str(row_data.get('product family', ''))
+            if not family_name:
                 return {
                     'error_type': 'VALIDATION_ERROR',
-                    'error_message': f"Le code-barres '{barcode}' existe déjà dans la base de données (produit: {existing_product.Short_Description}).",
+                    'error_message': "La colonne 'product family' est obligatoire.",
+                    'field_name': 'product family',
+                    'field_value': family_name,
+                }
+            
+            if family_name not in self.family_cache:
+                return {
+                    'error_type': 'VALIDATION_ERROR',
+                    'error_message': f"La famille '{family_name}' n'existe pas dans la base de données.",
+                    'field_name': 'product family',
+                    'field_value': family_name,
+                }
+            
+            # Validation barcode
+            barcode = safe_str(row_data.get('barcode', ''))
+            if not barcode:
+                return {
+                    'error_type': 'VALIDATION_ERROR',
+                    'error_message': "La colonne 'barcode' est obligatoire.",
                     'field_name': 'barcode',
                     'field_value': barcode,
                 }
-        
-        # Validation description
-        short_desc = str(row_data.get('short description', '')).strip()
-        if not short_desc:
+            
+            # Validation code produit interne
+            internal_code = safe_str(row_data.get('internal product code', ''))
+            if not internal_code:
+                return {
+                    'error_type': 'VALIDATION_ERROR',
+                    'error_message': "La colonne 'internal product code' est obligatoire.",
+                    'field_name': 'internal product code',
+                    'field_value': internal_code,
+                }
+            
+            # Vérifier unicité code produit interne dans la base de données
+            try:
+                if Product.objects.filter(Internal_Product_Code=internal_code).exists():
+                    return {
+                        'error_type': 'VALIDATION_ERROR',
+                        'error_message': f"Le code produit interne '{internal_code}' existe déjà dans la base de données.",
+                        'field_name': 'internal product code',
+                        'field_value': internal_code,
+                    }
+            except Exception as e:
+                logger.error(f"Erreur lors de la vérification de l'unicité du code produit interne '{internal_code}': {str(e)}")
+                return {
+                    'error_type': 'VALIDATION_ERROR',
+                    'error_message': f"Erreur lors de la vérification de l'unicité du code produit interne: {str(e)}",
+                    'field_name': 'internal product code',
+                    'field_value': internal_code,
+                }
+            
+            # Vérifier unicité barcode dans la base de données (si présent)
+            if barcode:
+                try:
+                    existing_product = Product.objects.filter(Barcode=barcode).first()
+                    if existing_product:
+                        return {
+                            'error_type': 'VALIDATION_ERROR',
+                            'error_message': f"Le code-barres '{barcode}' existe déjà dans la base de données (produit: {existing_product.Short_Description}).",
+                            'field_name': 'barcode',
+                            'field_value': barcode,
+                        }
+                except Exception as e:
+                    logger.error(f"Erreur lors de la vérification de l'unicité du barcode '{barcode}': {str(e)}")
+                    return {
+                        'error_type': 'VALIDATION_ERROR',
+                        'error_message': f"Erreur lors de la vérification de l'unicité du code-barres: {str(e)}",
+                        'field_name': 'barcode',
+                        'field_value': barcode,
+                    }
+            
+            # Validation description
+            short_desc = safe_str(row_data.get('short description', ''))
+            if not short_desc:
+                return {
+                    'error_type': 'VALIDATION_ERROR',
+                    'error_message': "La colonne 'short description' est obligatoire.",
+                    'field_name': 'short description',
+                    'field_value': short_desc,
+                }
+            
+            # Validation unité de stock
+            stock_unit = safe_str(row_data.get('stock unit', ''))
+            if not stock_unit:
+                return {
+                    'error_type': 'VALIDATION_ERROR',
+                    'error_message': "La colonne 'stock unit' est obligatoire.",
+                    'field_name': 'stock unit',
+                    'field_value': stock_unit,
+                }
+            
+            return None  # Pas d'erreur
+            
+        except Exception as e:
+            # Erreur inattendue lors de la validation
+            logger.error(f"Erreur inattendue lors de la validation de la ligne {row_number}: {str(e)}", exc_info=True)
             return {
                 'error_type': 'VALIDATION_ERROR',
-                'error_message': "La colonne 'short description' est obligatoire.",
-                'field_name': 'short description',
-                'field_value': short_desc,
+                'error_message': f"Erreur inattendue lors de la validation: {str(e)}",
+                'field_name': None,
+                'field_value': None,
             }
-        
-        # Validation unité de stock
-        stock_unit = str(row_data.get('stock unit', '')).strip()
-        if not stock_unit:
-            return {
-                'error_type': 'VALIDATION_ERROR',
-                'error_message': "La colonne 'stock unit' est obligatoire.",
-                'field_name': 'stock unit',
-                'field_value': stock_unit,
-            }
-        
-        return None  # Pas d'erreur
     
     def _import_chunk(self, dataset, import_task: ImportTask, start_row: int):
         """Importe un chunk dans la transaction"""
