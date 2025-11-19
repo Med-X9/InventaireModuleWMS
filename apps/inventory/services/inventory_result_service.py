@@ -193,7 +193,8 @@ class InventoryResultService:
                     if quantity is None:
                         result_row[ecart_key] = None
                     else:
-                        result_row[ecart_key] = quantity - previous_quantity
+                        # Utiliser la valeur absolue pour éviter les écarts négatifs
+                        result_row[ecart_key] = abs(quantity - previous_quantity)
                 elif previous_order is not None:
                     ecart_key = f"ecart_{previous_order}_{order}"
                     result_row[ecart_key] = None

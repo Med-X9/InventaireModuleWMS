@@ -1,13 +1,15 @@
+from typing import Optional, List
 from django.utils import timezone
 from django.db import transaction
-from apps.inventory.models import Assigment, Job, JobDetail
+from apps.inventory.models import Assigment, Job, JobDetail, Personne
 from apps.users.models import UserApp
 from apps.mobile.exceptions import (
     AssignmentNotFoundException,
     UserNotAssignedException,
     InvalidStatusTransitionException,
     JobNotFoundException,
-    AssignmentAlreadyStartedException
+    AssignmentAlreadyStartedException,
+    PersonValidationException
     
 )
 
@@ -304,13 +306,15 @@ class AssignmentService:
         }
     
     @transaction.atomic
-    def close_job(self, job_id: int, assignment_id: int) -> dict:
+    def close_job(self, job_id: int, assignment_id: int, personnes_ids: Optional[List[int]] = None) -> dict:
         """
         Clôture un job en vérifiant que tous les emplacements sont terminés
+        et en assignant les personnes à l'assignment.
         
         Args:
             job_id: ID du job
             assignment_id: ID de l'assignment
+            personnes_ids: Liste des IDs des personnes (min 1, max 2)
             
         Returns:
             Dictionnaire avec les informations du job clôturé
@@ -319,7 +323,28 @@ class AssignmentService:
             JobNotFoundException: Si le job n'existe pas
             AssignmentNotFoundException: Si l'assignment n'existe pas
             InvalidStatusTransitionException: Si tous les emplacements ne sont pas terminés
+            PersonValidationException: Si la validation des personnes échoue
         """
+        # Valider les personnes
+        if not personnes_ids:
+            raise PersonValidationException(
+                "Au moins une personne est requise pour fermer le job."
+            )
+        
+        if len(personnes_ids) > 2:
+            raise PersonValidationException(
+                "Un maximum de deux personnes est autorisé pour fermer le job."
+            )
+        
+        # Vérifier que les personnes existent
+        personnes = Personne.objects.filter(id__in=personnes_ids)
+        if personnes.count() != len(personnes_ids):
+            found_ids = set(personnes.values_list('id', flat=True))
+            missing_ids = set(personnes_ids) - found_ids
+            raise PersonValidationException(
+                f"Les personnes suivantes n'existent pas: {', '.join(map(str, missing_ids))}"
+            )
+        
         # Vérifier que le job existe
         try:
             job = Job.objects.get(id=job_id)
@@ -350,6 +375,11 @@ class AssignmentService:
                 )
         
         # Si on arrive ici, tous les emplacements sont terminés
+        # Assigner les personnes à l'assignment
+        personne_list = list(personnes)
+        assignment.personne = personne_list[0] if len(personne_list) > 0 else None
+        assignment.personne_two = personne_list[1] if len(personne_list) > 1 else None
+        
         # Clôturer le job et l'assignment
         now = timezone.now()
         
@@ -372,5 +402,13 @@ class AssignmentService:
                 'id': assignment.id,
                 'reference': assignment.reference,
                 'status': assignment.status
-            }
+            },
+            'personnes': [
+                {
+                    'id': p.id,
+                    'nom': p.nom,
+                    'prenom': p.prenom,
+                    'reference': p.reference
+                } for p in personne_list
+            ]
         }

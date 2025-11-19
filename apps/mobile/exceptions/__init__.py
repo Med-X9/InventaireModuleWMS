@@ -39,6 +39,7 @@ from .assignment_exceptions import (
     JobNotFoundException,
     AssignmentValidationException,
     AssignmentAlreadyStartedException,
+    PersonValidationException,
 )
 
 from .counting_detail_exceptions import (
@@ -90,6 +91,7 @@ __all__ = [
     'JobNotFoundException',
     'AssignmentValidationException',
     'AssignmentAlreadyStartedException',
+    'PersonValidationException',
     
     # Counting detail exceptions
     'CountingDetailValidationError',

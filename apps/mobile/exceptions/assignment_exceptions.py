@@ -26,3 +26,8 @@ class AssignmentValidationException(Exception):
 class AssignmentAlreadyStartedException(Exception):
     """Exception levée quand on tente de modifier un assignment déjà entamé"""
     pass
+
+
+class PersonValidationException(Exception):
+    """Exception levée lors de la validation des personnes pour un assignment"""
+    pass
