@@ -350,6 +350,7 @@ class CountingRepository(ICountingRepository):
 
         final_result_subquery = base_ecart_qs.values('ecart_comptage__final_result')[:1]
         ecart_id_subquery = base_ecart_qs.values('ecart_comptage_id')[:1]
+        resolved_subquery = base_ecart_qs.values('ecart_comptage__resolved')[:1]
         
         annotated_queryset = queryset.annotate(
             warehouse_id_alias=F('job__warehouse_id'),
@@ -364,6 +365,7 @@ class CountingRepository(ICountingRepository):
             job_reference_alias=F('job__reference'),
             final_result_alias=Subquery(final_result_subquery),
             ecart_id_alias=Subquery(ecart_id_subquery),
+            resolved_alias=Subquery(resolved_subquery),
         )
 
         aggregated_queryset = annotated_queryset.values(
@@ -380,10 +382,13 @@ class CountingRepository(ICountingRepository):
             'product_description_alias',
             'job_id',
             'ecart_id_alias',
+            'resolved_alias',
         ).annotate(
             total_quantity=Sum('quantity_inventoried'),
             # Prendre le final_result (sera le même pour tous les CountingDetail d'une même combinaison)
-            final_result_agg=Max('final_result_alias')
+            final_result_agg=Max('final_result_alias'),
+            # Prendre le resolved (sera le même pour tous les CountingDetail d'une même combinaison)
+            resolved_agg=Max('resolved_alias')
         ).order_by(
             'warehouse_id_alias',
             'job_id',

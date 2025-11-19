@@ -3,7 +3,7 @@ Repository pour les opérations de données pour la génération PDF
 """
 from typing import List, Optional
 from ..interfaces.pdf_interface import PDFRepositoryInterface
-from ..models import Inventory, Counting, Job, JobDetail, Assigment
+from ..models import Inventory, Counting, Job, JobDetail, Assigment, CountingDetail
 from apps.masterdata.models import Stock
 
 
@@ -100,4 +100,51 @@ class PDFRepository(PDFRepositoryInterface):
                 'personne',
                 'personne_two'
             ).all()
+        )
+    
+    def get_assignment_by_id(self, assignment_id: int) -> Optional[Assigment]:
+        """Récupère un assignment par ID"""
+        try:
+            return Assigment.objects.select_related(
+                'counting',
+                'session',
+                'personne',
+                'personne_two',
+                'job',
+                'job__inventory'
+            ).get(id=assignment_id)
+        except Assigment.DoesNotExist:
+            return None
+    
+    def get_job_by_id(self, job_id: int) -> Optional[Job]:
+        """Récupère un job par ID"""
+        try:
+            return Job.objects.select_related(
+                'inventory',
+                'warehouse'
+            ).prefetch_related(
+                'assigment_set__counting',
+                'assigment_set__session',
+                'assigment_set__personne',
+                'assigment_set__personne_two'
+            ).get(id=job_id)
+        except Job.DoesNotExist:
+            return None
+    
+    def get_counting_details_by_job_and_counting(
+        self, 
+        job: Job, 
+        counting: Counting
+    ) -> List[CountingDetail]:
+        """Récupère les counting details d'un job pour un comptage spécifique"""
+        return list(
+            CountingDetail.objects.filter(
+                job=job,
+                counting=counting
+            ).select_related(
+                'location',
+                'product',
+                'counting',
+                'job'
+            ).order_by('location__location_reference', 'product__Barcode')
         )

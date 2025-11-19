@@ -13,6 +13,7 @@ from ..exceptions.assignment_exceptions import (
 )
 from ..models import Job, Counting, Assigment
 from apps.users.models import UserApp
+from ..exceptions.assignment_exceptions import AssignmentNotFoundError
 
 class AssignmentService(IAssignmentService):
     """Service pour l'affectation des jobs de comptage."""
@@ -288,4 +289,28 @@ class AssignmentService(IAssignmentService):
             if assignment.status not in preserved_statuses:
                 assignment.status = 'AFFECTE'
                 assignment.affecte_date = current_time
-                assignment.save() 
+                assignment.save()
+    
+    def get_assignments_by_session(self, session_id: int) -> List[Any]:
+        """
+        Récupère toutes les affectations d'une session avec leurs jobs associés
+        
+        Args:
+            session_id: ID de la session (équipe)
+            
+        Returns:
+            List[Any]: Liste des affectations avec leurs jobs
+            
+        Raises:
+            AssignmentValidationError: Si la session n'existe pas
+        """
+        # Vérifier que la session existe
+        try:
+            session = UserApp.objects.get(id=session_id, type='Mobile')
+        except UserApp.DoesNotExist:
+            raise AssignmentValidationError(f"Session avec l'ID {session_id} non trouvée ou n'est pas un mobile")
+        
+        # Récupérer les affectations avec leurs jobs
+        assignments = self.repository.get_assignments_by_session_with_jobs(session_id)
+        
+        return list(assignments) 

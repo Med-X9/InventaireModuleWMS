@@ -228,6 +228,90 @@ class PDFService(PDFServiceInterface):
             canvas_obj.drawString(x, y, text)
             canvas_obj.restoreState()
     
+    def _add_page_header_and_footer_with_signatures(self, canvas_obj, doc):
+        """Ajoute le logo en haut à gauche, la pagination en bas à droite et les signatures en bas"""
+        # Ajouter le logo en haut à gauche
+        logo_path = self._get_logo_path()
+        if logo_path:
+            try:
+                canvas_obj.saveState()
+                logo_width = 4*cm
+                logo_height = 2*cm
+                x = 0.02*cm
+                y = doc.pagesize[1] - 0.2*cm - logo_height
+                canvas_obj.drawImage(logo_path, x, y, width=logo_width, height=logo_height, preserveAspectRatio=True)
+                canvas_obj.restoreState()
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Impossible de charger le logo: {str(e)}")
+        
+        # Ajouter la pagination en bas à droite
+        page_num = canvas_obj.getPageNumber()
+        page_info = getattr(doc, 'page_info_map', {}).get(page_num, {})
+        
+        if page_info:
+            current = page_info.get('current', 1)
+            total = page_info.get('total', 1)
+            
+            canvas_obj.saveState()
+            canvas_obj.setFont("Helvetica", 9)
+            canvas_obj.setFillColor(colors.HexColor('#666666'))
+            
+            text = f"Page {current}/{total}"
+            text_width = canvas_obj.stringWidth(text, "Helvetica", 9)
+            x = doc.pagesize[0] - doc.rightMargin - text_width
+            y = 0.5*cm
+            canvas_obj.drawString(x, y, text)
+            canvas_obj.restoreState()
+        
+        # Ajouter les signatures en bas de page
+        personne_info = getattr(doc, 'personne_info', {})
+        personne = personne_info.get('personne')
+        personne_two = personne_info.get('personne_two')
+        
+        if personne or personne_two:
+            canvas_obj.saveState()
+            canvas_obj.setFont("Helvetica", 9)
+            canvas_obj.setFillColor(colors.black)
+            canvas_obj.setStrokeColor(colors.black)
+            canvas_obj.setLineWidth(0.5)
+            
+            # Hauteur pour les lignes de signature (1.5cm du bas)
+            line_y = 1.5*cm
+            # Hauteur pour le texte des noms (0.3cm du bas)
+            text_y = 0.3*cm
+            
+            # Si deux personnes, les placer côte à côte
+            if personne and personne_two:
+                # Personne 1 à gauche
+                x1 = doc.leftMargin
+                line_width = 6*cm
+                canvas_obj.line(x1, line_y, x1 + line_width, line_y)
+                canvas_obj.setFont("Helvetica", 8)
+                canvas_obj.drawString(x1, text_y, f"Signature: {personne}")
+                
+                # Personne 2 à droite
+                x2 = doc.pagesize[0] - doc.rightMargin - line_width
+                canvas_obj.line(x2, line_y, x2 + line_width, line_y)
+                canvas_obj.drawString(x2, text_y, f"Signature: {personne_two}")
+            elif personne:
+                # Une seule personne, à gauche
+                x = doc.leftMargin
+                line_width = 6*cm
+                canvas_obj.line(x, line_y, x + line_width, line_y)
+                canvas_obj.setFont("Helvetica", 8)
+                canvas_obj.drawString(x, text_y, f"Signature: {personne}")
+            elif personne_two:
+                # Une seule personne, à gauche
+                x = doc.leftMargin
+                line_width = 6*cm
+                canvas_obj.line(x, line_y, x + line_width, line_y)
+                canvas_obj.setFont("Helvetica", 8)
+                canvas_obj.drawString(x, text_y, f"Signature: {personne_two}")
+            
+            canvas_obj.restoreState()
+    
     def _build_job_pages(self, job, counting, user, inventory, warehouse_info, account_info):
         """Construit les pages pour un job avec pagination de 20 lignes par page"""
         elements = []
@@ -1159,4 +1243,220 @@ class PDFService(PDFServiceInterface):
         """Verifie si l'inventaire a des stocks"""
         from apps.masterdata.models import Stock
         return Stock.objects.filter(inventory=inventory).exists()
+    
+    def generate_job_assignment_pdf(
+        self,
+        job_id: int,
+        assignment_id: int,
+        equipe_id: Optional[int] = None
+    ) -> BytesIO:
+        """
+        Genere un PDF pour un job/assignment/equipe specifique
+        Utilise les donnees de CountingDetail au lieu de Stock
+        
+        Args:
+            job_id: ID du job
+            assignment_id: ID de l'assignment
+            equipe_id: ID de l'equipe (personne ou personne_two) - optionnel
+            
+        Returns:
+            BytesIO: Le contenu du PDF en memoire
+        """
+        # Recuperer l'assignment
+        assignment = self.repository.get_assignment_by_id(assignment_id)
+        if not assignment:
+            raise ValueError(f"Assignment avec l'ID {assignment_id} non trouve")
+        
+        # Verifier que l'assignment correspond au job
+        if assignment.job_id != job_id:
+            raise ValueError(f"L'assignment {assignment_id} n'appartient pas au job {job_id}")
+        
+        # Recuperer le job
+        job = assignment.job
+        if not job:
+            raise ValueError(f"Job avec l'ID {job_id} non trouve")
+        
+        # Recuperer l'inventaire
+        inventory = job.inventory
+        if not inventory:
+            raise ValueError(f"Inventaire non trouve pour le job {job_id}")
+        
+        # Recuperer le counting depuis l'assignment
+        counting = assignment.counting
+        if not counting:
+            raise ValueError(f"Comptage non trouve pour l'assignment {assignment_id}")
+        
+        # Recuperer les infos du warehouse et account
+        warehouse_info = self._get_warehouse_info(inventory)
+        account_info = self._get_account_info(inventory)
+        
+        # Recuperer les personnes de l'equipe
+        personne = assignment.personne
+        personne_two = assignment.personne_two
+        
+        # Si equipe_id est fourni, filtrer par cette personne
+        if equipe_id:
+            if personne and personne.id == equipe_id:
+                equipe_nom = f"{personne.nom} {personne.prenom}"
+            elif personne_two and personne_two.id == equipe_id:
+                equipe_nom = f"{personne_two.nom} {personne_two.prenom}"
+            else:
+                raise ValueError(f"L'equipe {equipe_id} n'est pas associee a l'assignment {assignment_id}")
+        else:
+            # Construire le nom de l'equipe a partir des deux personnes
+            equipe_parts = []
+            if personne:
+                equipe_parts.append(f"{personne.nom} {personne.prenom}")
+            if personne_two:
+                equipe_parts.append(f"{personne_two.nom} {personne_two.prenom}")
+            equipe_nom = " / ".join(equipe_parts) if equipe_parts else "Non affecte"
+        
+        # Recuperer les counting details pour ce job et ce counting
+        counting_details = self.repository.get_counting_details_by_job_and_counting(job, counting)
+        
+        if not counting_details:
+            raise ValueError(f"Aucun detail de comptage trouve pour le job {job_id} et le comptage {counting.id}")
+        
+        # Creer le buffer PDF
+        buffer = BytesIO()
+        
+        # Construire le contenu
+        story = []
+        
+        # Construire les pages pour ce job avec les counting details
+        story.extend(self._build_job_pages_from_counting_details(
+            job, counting, equipe_nom, inventory, warehouse_info, account_info, counting_details
+        ))
+        
+        # Creer le document PDF avec marges ajustees
+        # Marge du bas augmentee pour laisser de la place aux signatures (4cm)
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            rightMargin=1.5*cm,
+            leftMargin=1.5*cm,
+            topMargin=1*cm,
+            bottomMargin=4*cm  # Espace pour les signatures
+        )
+        
+        # Calculer la pagination
+        page_info_map = {}
+        lines_per_page = 20
+        total_rows = len(counting_details)
+        total_pages = (total_rows + lines_per_page - 1) // lines_per_page if total_rows > 0 else 1
+        
+        for page_num in range(total_pages):
+            page_info_map[page_num + 1] = {
+                'current': page_num + 1,
+                'total': total_pages,
+                'job_ref': job.reference
+            }
+        
+        # Stocker les infos de pagination dans le document
+        doc.page_info_map = page_info_map
+        
+        # Stocker les informations des personnes pour la signature
+        doc.personne_info = {
+            'personne': f"{personne.nom} {personne.prenom}" if personne else None,
+            'personne_two': f"{personne_two.nom} {personne_two.prenom}" if personne_two else None
+        }
+        
+        # Construire le PDF avec header (logo) et footer (pagination + signatures) personnalises
+        doc.build(story, 
+                 onFirstPage=self._add_page_header_and_footer_with_signatures, 
+                 onLaterPages=self._add_page_header_and_footer_with_signatures)
+        
+        # Reinitialiser le buffer
+        buffer.seek(0)
+        return buffer
+    
+    def _build_job_pages_from_counting_details(
+        self, 
+        job, 
+        counting, 
+        equipe_nom, 
+        inventory, 
+        warehouse_info, 
+        account_info, 
+        counting_details
+    ):
+        """Construit les pages pour un job avec les counting details (pagination de 20 lignes par page)"""
+        elements = []
+        
+        if not counting_details:
+            return elements
+        
+        # Construire toutes les lignes du tableau d'abord
+        all_table_rows = self._prepare_table_rows_from_counting_details(counting_details, counting)
+        
+        if not all_table_rows:
+            return elements
+        
+        # Paginer par groupes de 20 lignes
+        lines_per_page = 20
+        total_pages = (len(all_table_rows) + lines_per_page - 1) // lines_per_page
+        
+        for page_num in range(total_pages):
+            start_idx = page_num * lines_per_page
+            end_idx = min(start_idx + lines_per_page, len(all_table_rows))
+            page_rows = all_table_rows[start_idx:end_idx]
+            
+            # En-tete de page avec infos inventaire + job + equipe
+            elements.extend(self._build_page_header(
+                inventory, job, equipe_nom, counting, warehouse_info, account_info, page_num + 1, total_pages
+            ))
+            
+            # Tableau des details du job (max 20 lignes) avec pagination en bas
+            elements.extend(self._build_table_from_rows(page_rows, counting, page_num + 1, total_pages))
+            
+            # Saut de page si ce n'est pas la derniere page
+            if page_num < total_pages - 1:
+                elements.append(PageBreak())
+        
+        return elements
+    
+    def _prepare_table_rows_from_counting_details(self, counting_details, counting):
+        """Prepare toutes les lignes du tableau a partir des CountingDetail"""
+        rows = []
+        
+        if 'vrac' not in counting.count_mode.lower():
+            # Mode par article - une ligne par CountingDetail
+            for counting_detail in counting_details:
+                location = counting_detail.location
+                product = counting_detail.product
+                quantity = counting_detail.quantity_inventoried
+                
+                row = {
+                    'location': location.location_reference,
+                    'barcode': product.Barcode if product and product.Barcode else '-',
+                    'designation': product.Short_Description if product else '-',
+                    'quantite_physique': quantity,
+                    'quantite_theorique': '-',  # Pas de quantite theorique dans CountingDetail
+                    'dlc': counting_detail.dlc.strftime('%d/%m/%Y') if counting_detail.dlc else '-',
+                    'n_lot': counting_detail.n_lot if counting_detail.n_lot else '-',
+                    'is_variant': product and product.Is_Variant if product else False,
+                }
+                rows.append(row)
+        else:
+            # Mode vrac - grouper par location et sommer les quantites
+            location_quantities = {}
+            for counting_detail in counting_details:
+                location_ref = counting_detail.location.location_reference
+                quantity = counting_detail.quantity_inventoried
+                
+                if location_ref in location_quantities:
+                    location_quantities[location_ref] += quantity
+                else:
+                    location_quantities[location_ref] = quantity
+            
+            # Creer une ligne par location
+            for location_ref, total_quantity in location_quantities.items():
+                row = {
+                    'location': location_ref,
+                    'quantite_physique': total_quantity,
+                    'quantite_theorique': '-',  # Pas de quantite theorique dans CountingDetail
+                }
+                rows.append(row)
+        
+        return rows
 

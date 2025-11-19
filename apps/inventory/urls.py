@@ -24,11 +24,11 @@ from apps.inventory.views import InventoryWarehousesView, AccountWarehousesView
 
 from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView, JobBatchAssignmentView, JobTransferView, JobProgressByCountingView, InventoryProgressByCountingView
 from .views.ecart_comptage_views import EcartComptageUpdateFinalResultView, EcartComptageResolveView
-from .views.assignment_views import AssignJobsToCountingView, AssignResourcesToInventoryView, InventoryResourcesView
+from .views.assignment_views import AssignJobsToCountingView, AssignResourcesToInventoryView, InventoryResourcesView, SessionAssignmentsView
 from .views.resource_assignment_views import AssignResourcesToJobsView, JobResourcesView, RemoveResourcesFromJobView
 from .views.counting_tracking_views import InventoryCountingTrackingView
 from .views.counting_views import CountingLaunchView
-from .views.pdf_views import InventoryJobsPdfView
+from .views.pdf_views import InventoryJobsPdfView, JobAssignmentPdfView
 
 urlpatterns = [
     # ========================================
@@ -88,6 +88,7 @@ urlpatterns = [
     # ========================================
     
     path('inventory/<int:inventory_id>/assign-jobs/', AssignJobsToCountingView.as_view(), name='assign-jobs-to-counting'),
+    path('inventory/session/<int:session_id>/assignments/', SessionAssignmentsView.as_view(), name='session-assignments'),
     path('inventory/assign-jobs-manual/', JobBatchAssignmentView.as_view(), name='assign-jobs-manual'),
     # URL pour transférer les jobs par comptage
     path('jobs/transfer/', JobTransferView.as_view(), name='job-transfer'),
@@ -109,6 +110,8 @@ urlpatterns = [
     
     # API pour generer le PDF des jobs d'inventaire (tous les comptages)
     path('inventory/<int:inventory_id>/jobs/pdf/', InventoryJobsPdfView.as_view(), name='inventory-jobs-pdf'),
+    # API pour generer le PDF d'un job/assignment/equipe specifique
+    path('jobs/<int:job_id>/assignments/<int:assignment_id>/pdf/', JobAssignmentPdfView.as_view(), name='job-assignment-pdf'),
     
     # ========================================
     # URLs POUR L'AFFECTATION DES RESSOURCES AUX JOBS

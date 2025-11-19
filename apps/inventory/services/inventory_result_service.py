@@ -132,6 +132,7 @@ class InventoryResultService:
                     "quantities": {},
                     "final_result": None,  # Stocker le final_result depuis EcartComptage
                     "ecart_id": row.get("ecart_id_alias"),
+                    "resolved": None,  # Stocker le resolved depuis EcartComptage
                 },
             )
 
@@ -149,6 +150,10 @@ class InventoryResultService:
             # Mettre à jour le final_result si disponible (sera le même pour tous les ordres)
             if row.get("final_result_agg") is not None:
                 entry_data["final_result"] = row["final_result_agg"]
+            
+            # Mettre à jour le resolved si disponible (sera le même pour tous les ordres)
+            if row.get("resolved_agg") is not None:
+                entry_data["resolved"] = row["resolved_agg"]
 
         formatted_results: List[Dict[str, Any]] = []
 
@@ -209,6 +214,8 @@ class InventoryResultService:
             # Ajouter l'identifiant d'EcartComptage si disponible
             if entry.get("ecart_id") is not None:
                 result_row["ecart_comptage_id"] = entry["ecart_id"]
+                # Ajouter le statut resolved depuis EcartComptage (booléen, peut être False ou None)
+                result_row["resolved"] = entry.get("resolved")
 
             formatted_results.append(result_row)
 

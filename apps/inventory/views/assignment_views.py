@@ -8,7 +8,10 @@ from django.shortcuts import get_object_or_404
 from ..serializers.assignment_serializer import (
     JobAssignmentSerializer,
     JobAssignmentResponseSerializer,
-    AssignmentRulesSerializer
+    AssignmentRulesSerializer,
+    SessionAssignmentsResponseSerializer,
+    AssignmentSerializer,
+    JobBasicSerializer
 )
 from ..serializers.inventory_resource_serializer import (
     AssignResourcesToInventorySerializer,
@@ -19,6 +22,7 @@ from ..serializers.inventory_resource_serializer import (
 )
 from ..usecases.job_assignment import JobAssignmentUseCase
 from ..services.inventory_resource_service import InventoryResourceService
+from ..services.assignment_service import AssignmentService
 from ..exceptions.assignment_exceptions import (
     AssignmentValidationError,
     AssignmentBusinessRuleError,
@@ -222,4 +226,83 @@ class InventoryResourcesView(APIView):
                 {'error': f'Erreur interne du serveur: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class SessionAssignmentsView(APIView):
+    """
+    Récupère toutes les affectations d'une session (équipe) avec leurs jobs associés
+    
+    GET /api/inventory/session/<int:session_id>/assignments/
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, session_id):
+        """
+        Récupère toutes les affectations d'une session avec leurs jobs
+        
+        Args:
+            request: Requête HTTP
+            session_id: ID de la session (équipe)
+            
+        Returns:
+            Response: Liste des affectations avec leurs jobs
+        """
+        try:
+            # Appeler le service
+            service = AssignmentService()
+            assignments = service.get_assignments_by_session(session_id)
+            
+            # Si aucune affectation trouvée, retourner une liste vide
+            if not assignments:
+                return Response({
+                    'session_id': session_id,
+                    'session_username': None,
+                    'jobs': [],
+                    'assignments': [],
+                    'total_assignments': 0,
+                    'total_jobs': 0
+                }, status=status.HTTP_200_OK)
+            
+            # Récupérer les informations de la session depuis la première affectation
+            session = assignments[0].session if assignments else None
+            session_username = session.username if session else None
+            
+            # Extraire les jobs uniques des assignments
+            jobs_dict = {}
+            for assignment in assignments:
+                if assignment.job and assignment.job.id not in jobs_dict:
+                    jobs_dict[assignment.job.id] = assignment.job
+            
+            # Sérialiser les jobs et les assignments séparément
+            jobs_list = list(jobs_dict.values())
+            jobs_data = JobBasicSerializer(jobs_list, many=True).data
+            assignments_data = AssignmentSerializer(assignments, many=True).data
+            
+            # Préparer la réponse
+            response_data = {
+                'session_id': session_id,
+                'session_username': session_username,
+                'jobs': jobs_data,
+                'assignments': assignments_data,
+                'total_assignments': len(assignments),
+                'total_jobs': len(jobs_list)
+            }
+            
+            # Valider et retourner la réponse
+            response_serializer = SessionAssignmentsResponseSerializer(response_data)
+            return Response(response_serializer.data, status=status.HTTP_200_OK)
+            
+        except AssignmentValidationError as e:
+            return Response({
+                'success': False,
+                'message': 'Erreur de validation',
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': 'Erreur interne du serveur',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 

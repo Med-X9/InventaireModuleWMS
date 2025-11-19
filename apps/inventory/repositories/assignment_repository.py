@@ -159,4 +159,24 @@ class AssignmentRepository(IAssignmentRepository):
         try:
             return Job.objects.select_related('inventory').get(id=job_id)
         except Job.DoesNotExist:
-            return None 
+            return None
+    
+    def get_assignments_by_session_with_jobs(self, session_id: int) -> List[Any]:
+        """
+        Récupère toutes les affectations d'une session avec leurs jobs associés
+        
+        Args:
+            session_id: ID de la session (équipe)
+            
+        Returns:
+            List[Any]: Liste des affectations avec leurs jobs (optimisée avec select_related)
+        """
+        return Assigment.objects.filter(
+            session_id=session_id
+        ).select_related(
+            'job',
+            'job__inventory',
+            'job__warehouse',
+            'counting',
+            'session'
+        ).order_by('-created_at') 

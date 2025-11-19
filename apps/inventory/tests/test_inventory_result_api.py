@@ -194,7 +194,10 @@ class InventoryResultAPIViewTestCase(TestCase):
         self.assertIsNone(entry_a["ecart_4_5"])
         self.assertEqual(entry_a["final_result"], 121)
         # EcartComptage est optionnel dans ce scénario de test (peut être absent)
-        # donc on ne vérifie pas ecart_comptage_id ici.
+        # donc on ne vérifie pas ecart_comptage_id et resolved ici.
+        # Si resolved est présent, il doit être un booléen.
+        if "resolved" in entry_a:
+            self.assertIsInstance(entry_a["resolved"], bool)
 
         entry_b = next(
             item for item in response.data["data"] if item["location"] == "B-02-03"
@@ -208,4 +211,7 @@ class InventoryResultAPIViewTestCase(TestCase):
         self.assertEqual(entry_b["5er comptage"], 81)
         self.assertEqual(entry_b["ecart_4_5"], 0)
         self.assertEqual(entry_b["final_result"], 81)
+        # Si resolved est présent, il doit être un booléen.
+        if "resolved" in entry_b:
+            self.assertIsInstance(entry_b["resolved"], bool)
 
