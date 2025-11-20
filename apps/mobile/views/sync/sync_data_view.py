@@ -160,17 +160,18 @@ class SyncDataView(APIView):
                 - stocks disponibles
         """
         try:
-            print(f"user_id: {user_id}")
+            # Validation du user_id
+            if not user_id:
+                return Response({
+                    'success': False,
+                    'error': 'user_id est requis dans l\'URL',
+                    'error_type': 'INVALID_PARAMETER'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
             sync_service = SyncService()
             
-            # Récupérer les paramètres de synchronisation
-            # inventory_id = request.GET.get('inventory_id')
-            
-            # Si user_id est fourni dans l'URL, utiliser cet utilisateur
-            # Sinon, utiliser l'utilisateur connecté
-            if user_id:
-                target_user_id = user_id
-            response_data = sync_service.sync_data(target_user_id)
+            # Synchroniser les données pour cet utilisateur
+            response_data = sync_service.sync_data(user_id)
             
             return Response(response_data, status=status.HTTP_200_OK)
             
@@ -199,3 +200,5 @@ class SyncDataView(APIView):
                 'error': 'Erreur interne du serveur',
                 'error_type': 'INTERNAL_ERROR'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+

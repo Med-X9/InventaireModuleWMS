@@ -98,11 +98,12 @@ class CountingLaunchService:
             # Étape 3 : déterminer le comptage cible (3e ou duplication pour 4e, 5e, ...)
             new_counting_created = False
             if existing_assignment is None:
-                self._ensure_previous_countings_completed(job.id, target_order=3)
+                self._ensure_previous_countings_completed(job.id, location.id, target_order=3)
                 target_counting = counting_order_three
             else:
                 next_order = self.counting_repository.get_next_order(job.inventory_id)
                 self._ensure_previous_countings_completed(job.id, target_order=next_order)
+                self._ensure_previous_countings_completed(job.id, location.id, target_order=next_order)
                 target_counting = self.counting_repository.duplicate_counting(counting_order_three.id)
                 new_counting_created = True
 
@@ -180,32 +181,71 @@ class CountingLaunchService:
         except Exception as exc:
             raise CountingCreationError(f"Erreur lors du lancement du comptage: {exc}") from exc
 
-    def _ensure_previous_countings_completed(self, job_id: int, target_order: int) -> None:
+    def _ensure_previous_countings_completed(self, job_id: int, location_id: int, target_order: int) -> None:
         """
-        Vérifie que les comptages nécessaires sont terminés avant de lancer le suivant.
+        Vérifie que les comptages nécessaires sont terminés pour cet emplacement avant de lancer le suivant.
+        
+        Args:
+            job_id: ID du job
+            location_id: ID de l'emplacement pour lequel on vérifie
+            target_order: Ordre du comptage à lancer (3, 4, 5, etc.)
+        
+        Raises:
+            CountingValidationError: Si les comptages précédents ne sont pas terminés pour cet emplacement
         """
+        # Déterminer les ordres de comptages à vérifier
         if target_order == 3:
             required_orders = [1, 2]
         else:
             required_orders = [target_order - 1]
 
-        for order in required_orders:
-            assignment = self.assignment_repository.get_assignment_by_job_and_order(job_id, order)
-            if assignment is None:
-                if target_order == 3:
-                    raise CountingValidationError(
-                        "Impossible de lancer le 3ème comptage : les affectations des comptages 1 et 2 sont manquantes."
-                    )
-                raise CountingValidationError(
-                    f"Impossible de lancer le comptage d'ordre {target_order} : aucune affectation trouvée pour le comptage d'ordre {order}."
-                )
+        # Récupérer le job et l'emplacement
+        job = self.job_repository.get_job_by_id(job_id)
+        if not job:
+            raise CountingNotFoundError(f"Job introuvable pour l'identifiant {job_id}.")
+        
+        location = self.job_repository.get_location_by_id(location_id)
+        if not location:
+            raise CountingValidationError(f"Emplacement introuvable pour l'identifiant {location_id}.")
 
-            if assignment.status != 'TERMINE':
+        # Pour chaque comptage précédent requis, vérifier qu'il est terminé pour cet emplacement
+        for order in required_orders:
+            # Récupérer le comptage correspondant à cet ordre
+            counting = self.counting_repository.get_by_inventory_and_order(job.inventory_id, order)
+            if not counting:
                 if target_order == 3:
                     raise CountingValidationError(
-                        "Impossible de lancer le 3ème comptage tant que les comptages 1 et 2 ne sont pas terminés."
+                        f"Impossible de lancer le 3ème comptage : le comptage d'ordre {order} n'existe pas pour l'inventaire."
                     )
                 raise CountingValidationError(
-                    f"Impossible de lancer le comptage d'ordre {target_order} tant que le comptage d'ordre {order} n'est pas terminé."
+                    f"Impossible de lancer le comptage d'ordre {target_order} : le comptage d'ordre {order} n'existe pas."
+                )
+            
+            # Vérifier qu'il existe un JobDetail pour ce job, cet emplacement et ce comptage
+            job_detail = self.job_repository.get_job_detail_by_job_location_and_counting(
+                job, location, counting
+            )
+            
+            if job_detail is None:
+                if target_order == 3:
+                    raise CountingValidationError(
+                        f"Impossible de lancer le 3ème comptage pour cet emplacement : "
+                        f"l'emplacement n'a pas de JobDetail pour le comptage d'ordre {order}."
+                    )
+                raise CountingValidationError(
+                    f"Impossible de lancer le comptage d'ordre {target_order} pour cet emplacement : "
+                    f"l'emplacement n'a pas de JobDetail pour le comptage d'ordre {order}."
+                )
+            
+            # Vérifier que le JobDetail a le statut TERMINE
+            if job_detail.status != 'TERMINE':
+                if target_order == 3:
+                    raise CountingValidationError(
+                        f"Impossible de lancer le 3ème comptage pour cet emplacement : "
+                        f"le comptage d'ordre {order} n'est pas terminé pour cet emplacement (statut actuel: {job_detail.status})."
+                    )
+                raise CountingValidationError(
+                    f"Impossible de lancer le comptage d'ordre {target_order} pour cet emplacement : "
+                    f"le comptage d'ordre {order} n'est pas terminé pour cet emplacement (statut actuel: {job_detail.status})."
                 )
 

@@ -126,13 +126,7 @@ class AssignmentService:
         if not job:
             raise JobNotFoundException(f"Job non trouvé pour l'assignment {assignment_id}")
         
-        # Vérifier la transition de statut pour le job
 
-        current_job_status = job.status
-        if new_status not in self.allowed_status_transitions.get(current_job_status, []):
-            raise InvalidStatusTransitionException(
-                f"Transition de statut du job non autorisée: {current_job_status} -> {new_status}"
-            )
         
         # Mettre à jour le statut de l'assignment et la date correspondante
         assignment.status = new_status
