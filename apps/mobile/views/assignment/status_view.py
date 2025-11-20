@@ -6,6 +6,7 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
 from apps.mobile.services.assignment_service import AssignmentService
+from apps.mobile.utils import success_response, error_response
 from apps.mobile.exceptions import (
     AssignmentNotFoundException,
     UserNotAssignedException,
@@ -161,37 +162,37 @@ class AssignmentStatusView(APIView):
                 assignment_id, user_id, new_status
             )
             
-            return Response({
-                'success': True,
-                'data': result
-            }, status=status.HTTP_200_OK)
+            return success_response(
+                data=result,
+                message="Statut mis à jour avec succès"
+            )
             
         except AssignmentNotFoundException as e:
-            return Response({
-                'success': False,
-                'error': str(e)
-            }, status=status.HTTP_404_NOT_FOUND)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
             
         except UserNotAssignedException as e:
-            return Response({
-                'success': False,
-                'error': str(e)
-            }, status=status.HTTP_403_FORBIDDEN)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_403_FORBIDDEN
+            )
             
         except JobNotFoundException as e:
-            return Response({
-                'success': False,
-                'error': str(e)
-            }, status=status.HTTP_404_NOT_FOUND)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
             
         except InvalidStatusTransitionException as e:
-            return Response({
-                'success': False,
-                'error': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
             
         except Exception as e:
-            return Response({
-                'success': False,
-                'error': f'Erreur interne: {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response(
+                message="Une erreur inattendue s'est produite",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

@@ -5,6 +5,7 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
 from apps.mobile.services.auth_service import AuthService
+from apps.mobile.utils import success_response
 
 
 class LogoutView(APIView):
@@ -76,4 +77,7 @@ class LogoutView(APIView):
         """
         auth_service = AuthService()
         response_data = auth_service.logout()
-        return Response(response_data, status=200)
+        return success_response(
+            data=response_data,
+            message="Déconnexion réussie"
+        )

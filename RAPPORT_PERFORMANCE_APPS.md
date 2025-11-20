@@ -280,3 +280,4 @@ Ce rapport présente une analyse détaillée des performances et de la structure
 *Rapport généré le: $(date)*
 *Projet: InventaireModuleWMS*
 
+

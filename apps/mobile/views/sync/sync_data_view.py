@@ -6,6 +6,7 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
 from apps.mobile.services.sync_service import SyncService
+from apps.mobile.utils import success_response, error_response
 from apps.mobile.exceptions import (
     UserNotFoundException,
     AccountNotFoundException,
@@ -160,45 +161,45 @@ class SyncDataView(APIView):
                 - stocks disponibles
         """
         try:
-            # Validation du user_id
-            if not user_id:
-                return Response({
-                    'success': False,
-                    'error': 'user_id est requis dans l\'URL',
-                    'error_type': 'INVALID_PARAMETER'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
+            print(f"user_id: {user_id}")
             sync_service = SyncService()
             
-            # Synchroniser les données pour cet utilisateur
-            response_data = sync_service.sync_data(user_id)
+            # Récupérer les paramètres de synchronisation
+            # inventory_id = request.GET.get('inventory_id')
             
-            return Response(response_data, status=status.HTTP_200_OK)
+            # Si user_id est fourni dans l'URL, utiliser cet utilisateur
+            # Sinon, utiliser l'utilisateur connecté
+            if user_id:
+                target_user_id = user_id
+            response_data = sync_service.sync_data(target_user_id)
+            
+            return success_response(
+                data=response_data,
+                message="Données synchronisées avec succès"
+            )
             
         except (UserNotFoundException, AccountNotFoundException) as e:
-            return Response({
-                'success': False,
-                'error': str(e),
-                'error_type': 'NOT_FOUND'
-            }, status=status.HTTP_404_NOT_FOUND)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND,
+                error_type='NOT_FOUND'
+            )
         except ValueError as e:
-            return Response({
-                'success': False,
-                'error': f'Paramètre invalide: {str(e)}',
-                'error_type': 'INVALID_PARAMETER'
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=f'Paramètre invalide: {str(e)}',
+                status_code=status.HTTP_400_BAD_REQUEST,
+                error_type='INVALID_PARAMETER'
+            )
         except SyncDataException as e:
-            return Response({
-                'success': False,
-                'error': str(e),
-                'error_type': 'SYNC_ERROR'
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST,
+                error_type='SYNC_ERROR'
+            )
         except Exception as e:
             print(f"Erreur inattendue dans SyncDataView: {str(e)}")
-            return Response({
-                'success': False,
-                'error': 'Erreur interne du serveur',
-                'error_type': 'INTERNAL_ERROR'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
+            return error_response(
+                message='Erreur interne du serveur',
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                error_type='INTERNAL_ERROR'
+            )

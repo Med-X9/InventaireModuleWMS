@@ -74,8 +74,8 @@ class JobCreationUseCase:
                     locations.append(location)
                 
                 # Créer un seul job pour tous les emplacements
+                # La référence sera générée automatiquement par la méthode save() du modèle
                 job = Job.objects.create(
-                    reference=Job().generate_reference(Job.REFERENCE_PREFIX),
                     status='EN ATTENTE',
                     en_attente_date=timezone.now(),
                     warehouse=warehouse,

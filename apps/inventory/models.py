@@ -140,7 +140,7 @@ class Counting(TimeStampedModel, ReferenceMixin):
         return self.reference
 
 
-class Job(TimeStampedModel, ReferenceMixin):
+class Job(TimeStampedModel):
     REFERENCE_PREFIX = 'JOB'
     
     STATUS_CHOICES = (
@@ -155,7 +155,7 @@ class Job(TimeStampedModel, ReferenceMixin):
     )
 
     
-    reference = models.CharField(max_length=20, unique=True, null=False)
+    reference = models.CharField(max_length=20,null=False)
     status = models.CharField(max_length=30, choices=STATUS_CHOICES)
     en_attente_date = models.DateTimeField(null=True, blank=True)
     affecte_date = models.DateTimeField(null=True, blank=True)
@@ -168,6 +168,43 @@ class Job(TimeStampedModel, ReferenceMixin):
     warehouse = models.ForeignKey('masterdata.Warehouse', on_delete=models.CASCADE)
     inventory = models.ForeignKey(Inventory, on_delete=models.CASCADE)
     history = HistoricalRecords()
+
+    def generate_sequential_reference(self):
+        """
+        Génère une référence séquentielle au format job-1, job-2, etc.
+        La séquence est basée sur l'inventaire : chaque inventaire redémarre à job-1.
+        """
+        if not self.inventory_id:
+            raise ValueError("L'inventaire doit être défini avant de générer la référence")
+        
+        # Compter le nombre de Job existants pour cet inventaire
+        count = Job.objects.filter(inventory=self.inventory).count()
+        # Le prochain numéro sera count + 1
+        next_number = count + 1
+        return f"job-{next_number}"
+
+    def save(self, *args, **kwargs):
+        """
+        Surcharge de la méthode save pour générer une référence séquentielle
+        au format job-1, job-2, etc. par inventaire.
+        """
+        if not self.reference:
+            # Générer une référence séquentielle basée sur l'inventaire
+            self.reference = self.generate_sequential_reference()
+            # Vérifier l'unicité et ajuster si nécessaire
+            while Job.objects.filter(
+                reference=self.reference, 
+                inventory=self.inventory
+            ).exclude(pk=self.pk if self.pk else None).exists():
+                # Extraire le numéro actuel et l'incrémenter
+                try:
+                    current_num = int(self.reference.split('-')[1])
+                    self.reference = f"job-{current_num + 1}"
+                except (IndexError, ValueError):
+                    # En cas d'erreur, utiliser le compteur pour cet inventaire
+                    count = Job.objects.filter(inventory=self.inventory).count()
+                    self.reference = f"job-{count + 1}"
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.reference

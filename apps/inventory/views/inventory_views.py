@@ -26,6 +26,7 @@ from ..exceptions import InventoryValidationError, InventoryNotFoundError, Stock
 from ..filters import InventoryFilter
 from ..repositories import InventoryRepository
 from ..interfaces import IInventoryRepository
+from ..utils.response_utils import success_response, error_response, validation_error_response
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from apps.inventory.usecases.inventory_launch_validation import InventoryLaunchValidationUseCase
@@ -267,9 +268,9 @@ class InventoryCreateView(APIView):
             serializer = self.serializer_class(data=request.data)
             if not serializer.is_valid():
                 logger.warning(f"Données invalides lors de la création d'un inventaire: {serializer.errors}")
-                return Response(
+                return validation_error_response(
                     serializer.errors,
-                    status=status.HTTP_400_BAD_REQUEST
+                    message="Erreur de validation lors de la création de l'inventaire"
                 )
             
             # ÉTAPE 2: Validation métier avec le service
@@ -277,28 +278,32 @@ class InventoryCreateView(APIView):
                 self.service.validate_create_data(serializer.validated_data)
             except InventoryValidationError as e:
                 logger.warning(f"Erreur de validation métier lors de la création: {str(e)}")
-                return Response(
-                    {"error": str(e)},
-                    status=status.HTTP_400_BAD_REQUEST
+                return error_response(
+                    message=str(e),
+                    status_code=status.HTTP_400_BAD_REQUEST
                 )
             
             # ÉTAPE 3: Création avec le service (qui utilise le use case)
             result = self.service.create_inventory(serializer.validated_data)
             
-            # ÉTAPE 4: Retour de la réponse
-            return Response(result, status=status.HTTP_201_CREATED)
+            # ÉTAPE 4: Retour de la réponse standardisée
+            return success_response(
+                data=result,
+                message="Inventaire créé avec succès",
+                status_code=status.HTTP_201_CREATED
+            )
             
         except InventoryValidationError as e:
             logger.warning(f"Erreur de validation lors de la création: {str(e)}")
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_400_BAD_REQUEST
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
             )
         except Exception as e:
             logger.error(f"Erreur lors de la création d'un inventaire: {str(e)}", exc_info=True)
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la création de l'inventaire",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
 
@@ -323,25 +328,38 @@ class InventoryDuplicateView(APIView):
                 "Données invalides lors de la duplication d'un inventaire: %s",
                 serializer.errors
             )
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return validation_error_response(
+                serializer.errors,
+                message="Erreur de validation lors de la duplication de l'inventaire"
+            )
 
         try:
             result = self.service.duplicate_inventory(pk, serializer.validated_data)
-            return Response(result, status=status.HTTP_201_CREATED)
+            return success_response(
+                data=result,
+                message="Inventaire dupliqué avec succès",
+                status_code=status.HTTP_201_CREATED
+            )
         except InventoryNotFoundError as e:
             logger.warning(
                 "Inventaire source introuvable pour la duplication (id=%s): %s",
                 pk,
                 str(e)
             )
-            return Response({"error": str(e)}, status=status.HTTP_404_NOT_FOUND)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
         except InventoryValidationError as e:
             logger.warning(
                 "Erreur métier lors de la duplication d'inventaire (id=%s): %s",
                 pk,
                 str(e)
             )
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
         except Exception as e:
             logger.error(
                 "Erreur inattendue lors de la duplication d'inventaire (id=%s): %s",
@@ -349,7 +367,10 @@ class InventoryDuplicateView(APIView):
                 str(e),
                 exc_info=True
             )
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la duplication de l'inventaire",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class InventoryDetailView(APIView):
@@ -367,21 +388,21 @@ class InventoryDetailView(APIView):
         try:
             inventory = self.repository.get_with_related_data(pk)
             serializer = InventoryDetailWithWarehouseSerializer(inventory)
-            return Response({
-                "message": "Détails de l'inventaire récupérés avec succès",
-                "data": serializer.data
-            })
+            return success_response(
+                data=serializer.data,
+                message="Détails de l'inventaire récupérés avec succès"
+            )
         except InventoryNotFoundError as e:
             logger.warning(f"Inventaire non trouvé: {str(e)}")
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_404_NOT_FOUND
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
             )
         except Exception as e:
             logger.error(f"Erreur lors de la récupération des détails d'un inventaire: {str(e)}", exc_info=True)
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la récupération des détails de l'inventaire",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
 class InventoryDetailByReferenceView(APIView):
@@ -399,21 +420,21 @@ class InventoryDetailByReferenceView(APIView):
         try:
             inventory = self.service.get_inventory_with_related_data_by_reference(reference)
             serializer = InventoryDetailWithWarehouseSerializer(inventory)
-            return Response({
-                "message": "Détails de l'inventaire récupérés avec succès",
-                "data": serializer.data
-            })
+            return success_response(
+                data=serializer.data,
+                message="Détails de l'inventaire récupérés avec succès"
+            )
         except InventoryNotFoundError as e:
             logger.warning(f"Inventaire non trouvé: {str(e)}")
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_404_NOT_FOUND
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
             )
         except Exception as e:
             logger.error(f"Erreur lors de la récupération des détails d'un inventaire: {str(e)}", exc_info=True)
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la récupération des détails de l'inventaire",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
 class InventoryUpdateView(APIView):
@@ -435,9 +456,9 @@ class InventoryUpdateView(APIView):
             serializer = self.serializer_class(data=request.data)
             if not serializer.is_valid():
                 logger.warning(f"Données invalides lors de la mise à jour d'un inventaire: {serializer.errors}")
-                return Response(
+                return validation_error_response(
                     serializer.errors,
-                    status=status.HTTP_400_BAD_REQUEST
+                    message="Erreur de validation lors de la mise à jour de l'inventaire"
                 )
             
             # ÉTAPE 2: Validation métier avec le service
@@ -445,34 +466,37 @@ class InventoryUpdateView(APIView):
                 self.service.validate_update_data(serializer.validated_data)
             except InventoryValidationError as e:
                 logger.warning(f"Erreur de validation métier lors de la mise à jour: {str(e)}")
-                return Response(
-                    {"error": str(e)},
-                    status=status.HTTP_400_BAD_REQUEST
+                return error_response(
+                    message=str(e),
+                    status_code=status.HTTP_400_BAD_REQUEST
                 )
             
             # ÉTAPE 3: Mise à jour avec le service (qui utilise le use case)
             result = self.service.update_inventory(pk, serializer.validated_data)
             
-            # ÉTAPE 4: Retour de la réponse
-            return Response(result, status=status.HTTP_200_OK)
+            # ÉTAPE 4: Retour de la réponse standardisée
+            return success_response(
+                data=result,
+                message="Inventaire mis à jour avec succès"
+            )
             
         except InventoryNotFoundError as e:
             logger.warning(f"Inventaire non trouvé lors de la mise à jour: {str(e)}")
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_404_NOT_FOUND
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
             )
         except InventoryValidationError as e:
             logger.warning(f"Erreur de validation lors de la mise à jour: {str(e)}")
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_400_BAD_REQUEST
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
             )
         except Exception as e:
             logger.error(f"Erreur lors de la mise à jour d'un inventaire: {str(e)}", exc_info=True)
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la mise à jour de l'inventaire",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
 class InventoryDeleteView(APIView):
@@ -490,18 +514,27 @@ class InventoryDeleteView(APIView):
         try:
             service = InventoryService()
             service.delete_inventory(pk)
-            return Response({
-                "message": "L'inventaire a été supprimé avec succès"
-            }, status=status.HTTP_200_OK)
+            return success_response(
+                message="L'inventaire a été supprimé avec succès"
+            )
         except InventoryNotFoundError as e:
             logger.warning(f"Inventaire non trouvé lors de la suppression: {str(e)}")
-            return Response({"error": str(e)}, status=status.HTTP_404_NOT_FOUND)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
         except InventoryValidationError as e:
             logger.warning(f"Erreur de validation lors de la suppression: {str(e)}")
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
         except Exception as e:
             logger.error(f"Erreur lors de la suppression d'un inventaire: {str(e)}", exc_info=True)
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la suppression de l'inventaire",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class InventoryLaunchView(APIView):
     """
@@ -521,33 +554,42 @@ class InventoryLaunchView(APIView):
             self.service.launch_inventory(pk)
             
             # Préparer la réponse avec les informations de validation
-            response_data = {
-                "message": "L'inventaire a été lancé avec succès"
-            }
-            
-            # Ajouter les messages d'information s'ils existent
+            extra_data = {}
             if validation_result and 'infos' in validation_result:
-                response_data['infos'] = validation_result['infos']
+                extra_data['infos'] = validation_result['infos']
             
-            return Response(response_data, status=status.HTTP_200_OK)
+            return success_response(
+                message="L'inventaire a été lancé avec succès",
+                **extra_data
+            )
         except InventoryNotFoundError as e:
             logger.warning(f"Inventaire non trouvé lors du lancement: {str(e)}")
-            return Response({"error": str(e)}, status=status.HTTP_404_NOT_FOUND)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
         except InventoryValidationError as e:
             logger.warning(f"Erreur de validation lors du lancement: {str(e)}")
             # Séparer les erreurs multiples si elles sont séparées par " | "
             error_message = str(e)
             if " | " in error_message:
                 errors = error_message.split(" | ")
-                return Response({
-                    "errors": errors,
-                    "message": "Plusieurs erreurs de validation ont été détectées"
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response(
+                    message="Plusieurs erreurs de validation ont été détectées",
+                    errors=errors,
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
             else:
-                return Response({"error": error_message}, status=status.HTTP_400_BAD_REQUEST)
+                return error_response(
+                    message=error_message,
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
         except Exception as e:
             logger.error(f"Erreur lors du lancement de l'inventaire: {str(e)}", exc_info=True)
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors du lancement de l'inventaire",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class InventoryCancelView(APIView):
     """
@@ -563,18 +605,27 @@ class InventoryCancelView(APIView):
         """
         try:
             self.service.cancel_inventory(pk)
-            return Response({
-                "message": "L'inventaire a été annulé avec succès"
-            }, status=status.HTTP_200_OK)
+            return success_response(
+                message="L'inventaire a été annulé avec succès"
+            )
         except InventoryNotFoundError as e:
             logger.warning(f"Inventaire non trouvé lors de l'annulation: {str(e)}")
-            return Response({"error": str(e)}, status=status.HTTP_404_NOT_FOUND)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
         except InventoryValidationError as e:
             logger.warning(f"Erreur de validation lors de l'annulation: {str(e)}")
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
         except Exception as e:
             logger.error(f"Erreur lors de l'annulation de l'inventaire: {str(e)}", exc_info=True)
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de l'annulation de l'inventaire",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class InventoryTeamView(APIView):
     """
@@ -591,21 +642,21 @@ class InventoryTeamView(APIView):
         try:
             inventory = self.repository.get_with_related_data(pk)
             serializer = InventoryDetailModeFieldsSerializer(inventory)
-            return Response({
-                "message": "Détails de l'inventaire récupérés avec succès",
-                "data": serializer.data
-            })
+            return success_response(
+                data=serializer.data,
+                message="Détails de l'inventaire récupérés avec succès"
+            )
         except InventoryNotFoundError as e:
             logger.warning(f"Inventaire non trouvé: {str(e)}")
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_404_NOT_FOUND
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
             )
         except Exception as e:
             logger.error(f"Erreur lors de la récupération des détails de l'inventaire: {str(e)}", exc_info=True)
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la récupération des détails de l'inventaire",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
 class InventoryWarehouseStatsView(APIView):
@@ -633,35 +684,31 @@ class InventoryWarehouseStatsView(APIView):
             # Sérialiser les données
             serializer = InventoryWarehouseStatsSerializer(stats_data, many=True)
             
-            return Response({
-                'status': 'success',
-                'message': 'Statistiques des warehouses récupérées avec succès',
-                'inventory_id': inventory_id,
-                'warehouses_count': len(stats_data),
-                'data': serializer.data
-            })
+            return success_response(
+                data=serializer.data,
+                message='Statistiques des warehouses récupérées avec succès',
+                warehouses_count=len(stats_data)
+            )
             
         except InventoryNotFoundError as e:
-            return Response({
-                'status': 'error',
-                'message': 'Inventaire non trouvé',
-                'error': str(e)
-            }, status=status.HTTP_404_NOT_FOUND)
+            return error_response(
+                message='Inventaire non trouvé',
+                status_code=status.HTTP_404_NOT_FOUND
+            )
             
         except InventoryValidationError as e:
-            return Response({
-                'status': 'error',
-                'message': 'Erreur de validation',
-                'error': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message='Erreur de validation',
+                errors=[str(e)],
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
             
         except Exception as e:
             logger.error(f"Erreur lors de la récupération des statistiques des warehouses: {str(e)}")
-            return Response({
-                'status': 'error',
-                'message': 'Erreur lors de la récupération des statistiques des warehouses',
-                'error': str(e)
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response(
+                message='Erreur lors de la récupération des statistiques des warehouses',
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class InventoryResultByWarehouseView(APIView):
@@ -683,14 +730,10 @@ class InventoryResultByWarehouseView(APIView):
                 inventory_id=inventory_id,
                 warehouse_id=warehouse_id,
             )
-            payload = {
-                "success": True,
-                "data": results,
-            }
-            serializer = self.serializer_class(payload)
-            return Response(
-                serializer.data,
-                status=status.HTTP_200_OK,
+            serializer = self.serializer_class({"success": True, "data": results})
+            return success_response(
+                data=serializer.data.get('data'),
+                message="Résultats de l'inventaire récupérés avec succès"
             )
         except InventoryNotFoundError as error:
             logger.warning(
@@ -699,9 +742,9 @@ class InventoryResultByWarehouseView(APIView):
                 inventory_id,
                 warehouse_id,
             )
-            return Response(
-                {"success": False, "message": str(error)},
-                status=status.HTTP_404_NOT_FOUND,
+            return error_response(
+                message=str(error),
+                status_code=status.HTTP_404_NOT_FOUND
             )
         except InventoryValidationError as error:
             logger.warning(
@@ -711,9 +754,9 @@ class InventoryResultByWarehouseView(APIView):
                 warehouse_id,
                 error,
             )
-            return Response(
-                {"success": False, "message": str(error)},
-                status=status.HTTP_400_BAD_REQUEST,
+            return error_response(
+                message=str(error),
+                status_code=status.HTTP_400_BAD_REQUEST
             )
         except Exception as error:
             logger.error(
@@ -724,9 +767,9 @@ class InventoryResultByWarehouseView(APIView):
                 error,
                 exc_info=True,
             )
-            return Response(
-                {"success": False, "message": "Une erreur inattendue est survenue."},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            return error_response(
+                message="Une erreur inattendue est survenue lors de la récupération des résultats",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
 class InventoryImportView(APIView):
@@ -780,19 +823,19 @@ class InventoryImportView(APIView):
         try:
             # Validation du format de la requête
             if 'inventories' not in request.data:
-                return Response({
-                    'success': False,
-                    'message': 'Le champ "inventories" est requis'
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response(
+                    message='Le champ "inventories" est requis',
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
             
             inventories_data = request.data['inventories']
             options = request.data.get('options', {})
             
             if not isinstance(inventories_data, list):
-                return Response({
-                    'success': False,
-                    'message': 'Le champ "inventories" doit être une liste'
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response(
+                    message='Le champ "inventories" doit être une liste',
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
             
             # Options d'importation
             validate_only = options.get('validate_only', False)
@@ -865,13 +908,25 @@ class InventoryImportView(APIView):
                         break
             
             # Préparation de la réponse
+            summary = {
+                'total': len(inventories_data),
+                'success_count': success_count,
+                'error_count': error_count
+            }
+            
+            # Détermination du code de statut
+            if error_count == 0:
+                status_code = status.HTTP_201_CREATED
+                message = 'Tous les inventaires ont été importés avec succès'
+            elif success_count > 0:
+                status_code = status.HTTP_207_MULTI_STATUS
+                message = f'{success_count} inventaire(s) importé(s) avec succès, {error_count} erreur(s)'
+            else:
+                status_code = status.HTTP_400_BAD_REQUEST
+                message = 'Aucun inventaire n\'a pu être importé'
+            
             response_data = {
-                'success': error_count == 0 or not stop_on_error,
-                'summary': {
-                    'total': len(inventories_data),
-                    'success_count': success_count,
-                    'error_count': error_count
-                }
+                'summary': summary
             }
             
             if return_details:
@@ -880,22 +935,26 @@ class InventoryImportView(APIView):
                 if errors:
                     response_data['errors'] = errors
             
-            # Détermination du code de statut
             if error_count == 0:
-                status_code = status.HTTP_201_CREATED
-            elif success_count > 0:
-                status_code = status.HTTP_207_MULTI_STATUS
+                return success_response(
+                    data=response_data,
+                    message=message,
+                    status_code=status_code
+                )
             else:
-                status_code = status.HTTP_400_BAD_REQUEST
-            
-            return Response(response_data, status=status_code)
+                return error_response(
+                    message=message,
+                    errors=[err.get('error', 'Erreur inconnue') for err in errors] if errors else [],
+                    status_code=status_code,
+                    **response_data
+                )
             
         except Exception as e:
             logger.error(f"Erreur lors de l'importation des inventaires: {str(e)}", exc_info=True)
-            return Response({
-                'success': False,
-                'message': 'Une erreur inattendue s\'est produite lors de l\'importation'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response(
+                message='Une erreur inattendue s\'est produite lors de l\'importation',
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class InventoryCompleteView(APIView):
     """
@@ -926,37 +985,45 @@ class InventoryCompleteView(APIView):
                 # Sérialiser l'inventaire mis à jour
                 serializer = InventoryDetailSerializer(result['inventory'])
                 
-                return Response({
-                    "success": True,
-                    "message": result['message'],
-                    "data": serializer.data,
-                    "jobs_not_completed": [],
-                    "total_jobs": result['total_jobs'],
-                    "completed_jobs": result['completed_jobs']
-                }, status=status.HTTP_200_OK)
+                return success_response(
+                    data=serializer.data,
+                    message=result['message'],
+                    jobs_not_completed=[],
+                    total_jobs=result['total_jobs'],
+                    completed_jobs=result['completed_jobs']
+                )
             
             # Si l'inventaire n'a pas pu être finalisé (jobs non terminés)
             else:
-                return Response({
-                    "success": False,
-                    "message": result['message'],
-                    "jobs_not_completed": result['jobs_not_completed'],
-                    "total_jobs": result['total_jobs'],
-                    "completed_jobs": result['completed_jobs'],
-                    "data": None
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response(
+                    message=result['message'],
+                    errors=[f"Job {job.get('reference', job.get('id', 'inconnu'))} non terminé" for job in result.get('jobs_not_completed', [])],
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    jobs_not_completed=result['jobs_not_completed'],
+                    total_jobs=result['total_jobs'],
+                    completed_jobs=result['completed_jobs']
+                )
             
         except InventoryNotFoundError as e:
             logger.warning(f"Inventaire non trouvé lors de la finalisation: {str(e)}")
-            return Response({"error": str(e)}, status=status.HTTP_404_NOT_FOUND)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
             
         except InventoryValidationError as e:
             logger.warning(f"Erreur de validation lors de la finalisation: {str(e)}")
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
             
         except Exception as e:
             logger.error(f"Erreur lors de la finalisation de l'inventaire: {str(e)}", exc_info=True)
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la finalisation de l'inventaire",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class InventoryCloseView(APIView):
     """
@@ -984,22 +1051,31 @@ class InventoryCloseView(APIView):
             # Sérialiser l'inventaire mis à jour
             serializer = InventoryDetailSerializer(inventory)
             
-            return Response({
-                "message": "L'inventaire a été marqué comme clôturé avec succès",
-                "data": serializer.data
-            }, status=status.HTTP_200_OK)
+            return success_response(
+                data=serializer.data,
+                message="L'inventaire a été marqué comme clôturé avec succès"
+            )
             
         except InventoryNotFoundError as e:
             logger.warning(f"Inventaire non trouvé lors de la clôture: {str(e)}")
-            return Response({"error": str(e)}, status=status.HTTP_404_NOT_FOUND)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
             
         except InventoryValidationError as e:
             logger.warning(f"Erreur de validation lors de la clôture: {str(e)}")
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
             
         except Exception as e:
             logger.error(f"Erreur lors de la clôture de l'inventaire: {str(e)}", exc_info=True)
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la clôture de l'inventaire",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class StockImportView(APIView):
     """
@@ -1035,89 +1111,84 @@ class StockImportView(APIView):
         try:
             # Vérifier qu'un fichier a été fourni
             if 'file' not in request.FILES:
-                return Response({
-                    'success': False,
-                    'message': 'Aucun fichier fourni. Utilisez le champ "file" pour uploader le fichier Excel.'
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response(
+                    message='Aucun fichier fourni. Utilisez le champ "file" pour uploader le fichier Excel.',
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
             
             excel_file = request.FILES['file']
             
             # Vérifier l'extension du fichier
             if not excel_file.name.endswith(('.xlsx', '.xls')):
-                return Response({
-                    'success': False,
-                    'message': 'Le fichier doit être au format Excel (.xlsx ou .xls)'
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response(
+                    message='Le fichier doit être au format Excel (.xlsx ou .xls)',
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
             
             # ÉTAPE 1: Validation selon le type d'inventaire via le use case
             validation_result = self.validation_use_case.validate_stock_import(inventory_id)
             
             # Si l'import n'est pas autorisé, retourner l'erreur
             if not validation_result['can_import']:
-                return Response({
-                    'success': False,
-                    'message': validation_result['message'],
-                    'inventory_type': validation_result['inventory_type'],
-                    'existing_stocks_count': validation_result['existing_stocks_count'],
-                    'action_required': validation_result['action_required']
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response(
+                    message=validation_result['message'],
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    inventory_type=validation_result['inventory_type'],
+                    existing_stocks_count=validation_result['existing_stocks_count'],
+                    action_required=validation_result['action_required']
+                )
             
             # ÉTAPE 2: Si l'import est autorisé, procéder à l'import
             result = self.stock_service.import_stocks_from_excel(inventory_id, excel_file)
             
             # Préparer la réponse
-            if result['success']:
-                response_data = {
-                    'success': True,
-                    'message': result['message'],
-                    'inventory_type': validation_result['inventory_type'],
-                    'summary': {
-                        'total_rows': result['total_rows'],
-                        'valid_rows': result['valid_rows'],
-                        'invalid_rows': result['invalid_rows']
-                    }
-                }
-                
-                # Ajouter les détails des stocks importés si disponibles
-                if result.get('imported_stocks'):
-                    response_data['imported_stocks'] = result['imported_stocks']
-                
-                status_code = status.HTTP_201_CREATED
-            else:
-                response_data = {
-                    'success': False,
-                    'message': result['message'],
-                    'inventory_type': validation_result['inventory_type'],
-                    'summary': {
-                        'total_rows': result['total_rows'],
-                        'valid_rows': result['valid_rows'],
-                        'invalid_rows': result['invalid_rows']
-                    },
-                    'errors': result.get('errors', [])
-                }
-                status_code = status.HTTP_400_BAD_REQUEST
+            summary = {
+                'total_rows': result['total_rows'],
+                'valid_rows': result['valid_rows'],
+                'invalid_rows': result['invalid_rows']
+            }
             
-            return Response(response_data, status=status_code)
+            extra_data = {
+                'inventory_type': validation_result['inventory_type'],
+                'summary': summary
+            }
+            
+            if result.get('imported_stocks'):
+                extra_data['imported_stocks'] = result['imported_stocks']
+            
+            if result['success']:
+                return success_response(
+                    data=extra_data,
+                    message=result['message'],
+                    status_code=status.HTTP_201_CREATED
+                )
+            else:
+                return error_response(
+                    message=result['message'],
+                    errors=result.get('errors', []),
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    **extra_data
+                )
             
         except InventoryNotFoundError as e:
             logger.warning(f"Inventaire non trouvé lors de l'import de stocks: {str(e)}")
-            return Response({
-                'success': False,
-                'message': str(e)
-            }, status=status.HTTP_404_NOT_FOUND)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
             
         except StockValidationError as e:
             logger.warning(f"Erreur de validation lors de l'import de stocks: {str(e)}")
-            return Response({
-                'success': False,
-                'message': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
             
         except Exception as e:
             logger.error(f"Erreur lors de l'import de stocks: {str(e)}", exc_info=True)
-            return Response({
-                'success': False,
-                'message': 'Une erreur inattendue s\'est produite lors de l\'import'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
+            return error_response(
+                message='Une erreur inattendue s\'est produite lors de l\'import',
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            ) 
 
  
