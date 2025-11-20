@@ -62,13 +62,13 @@ CORS_ALLOW_CREDENTIALS=True
 # ============================================
 # Base de données PostgreSQL
 # ============================================
-# Base de données PostgreSQL utilisée sur le serveur (container externe)
+# Base de données PostgreSQL utilisée sur le serveur (installée physiquement sur le VPS)
 POSTGRES_DB=inventairedb
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=Smatch2025
-# Sur ton VPS, le PostgreSQL est accessible via l'IP du host Docker (bridge)
-# Ancienne valeur fonctionnelle : 172.17.0.1 sur le port 5432
-POSTGRES_HOST=172.17.0.1
+# Pour Docker sur Linux, utiliser host.docker.internal (mappé via extra_hosts dans docker-compose.yml)
+# Alternative: utiliser l'IP du bridge Docker (172.17.0.1) si PostgreSQL écoute sur toutes les interfaces
+POSTGRES_HOST=host.docker.internal
 POSTGRES_PORT=5432
 
 # URL de connexion (optionnel, généré automatiquement si non fourni)

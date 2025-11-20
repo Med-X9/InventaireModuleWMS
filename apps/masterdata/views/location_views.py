@@ -146,6 +146,15 @@ class UnassignedLocationsView(ServerSideDataTableView):
     min_page_size = 1
     max_page_size = 100
 
+    # Mapping frontend -> backend pour le DataTable « Emplacements disponibles »
+    filter_aliases = {
+        'id': 'id',
+        'reference': 'reference',
+        'location_reference': 'location_reference',
+        'zone_name': 'sous_zone__zone__zone_name',
+        'sous_zone_name': 'sous_zone__sous_zone_name',
+    }
+
     def get_datatable_queryset(self):
         """
         Récupère les emplacements non affectés pour le warehouse, l'account et l'inventaire

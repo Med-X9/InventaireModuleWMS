@@ -103,17 +103,25 @@ class InventoryListView(ServerSideDataTableView):
     ]
     status_fields = ['status']
     
-    # Mapping ultra-simple : 1 champ frontend = 1 champ Django
+    # Mapping frontend -> backend aligné sur les colonnes du DataTable
+    # Les clés correspondent aux champs utilisés côté frontend (InventoryManagement.vue)
     filter_aliases = {
+        # Colonnes principales visibles
         'label': 'label',
-        'reference': 'reference',
-        'status': 'status',
-        'inventory_type': 'inventory_type',
         'date': 'date',
+        'status': 'status',
+        'en_preparation_status_date': 'en_preparation_status_date',
+        'en_realisation_status_date': 'en_realisation_status_date',
+        'termine_status_date': 'termine_status_date',
+        'cloture_status_date': 'cloture_status_date',
+        'account_name': 'awi_links__account__account_name',
+        'warehouse_name': 'awi_links__warehouse__warehouse_name',
+
+        # Filtres complémentaires (non nécessairement affichés en colonne)
+        'reference': 'reference',
+        'inventory_type': 'inventory_type',
         'created_at': 'created_at',
         'updated_at': 'updated_at',
-        'account': 'awi_links__account__account_name',
-        'warehouse': 'awi_links__warehouse__warehouse_name',
         'count_mode': 'countings__count_mode',
     }
 

@@ -56,26 +56,17 @@ secrets/
 # Logs
 logs/
 *.log
-.txt
-.md
-.json
-.yaml
-.yml
-.xml
-.csv
-.tsv
-.sql
-.sql.gz
-.sql.bz2
-.zip
-.rar
-.7z
-.tar
-.tar.gz
-.tar.bz2
-.tar.xz
-.tar.lzma
-.tar.lz
+*.txt
+*.md
+*.json
+*.yaml
+*.yml
+*.xml
+*.csv
+*.tsv
+*.sql
+*.sql.gz
+*.sql.bz2
 # Coverage
 htmlcov/
 .coverage
