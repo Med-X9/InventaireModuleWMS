@@ -7,6 +7,7 @@ from ..serializers import (
     JobSerializer
 )
 from apps.core.datatables.filters import CompositeDataTableFilter, DjangoFilterDataTableFilter, FilterMappingFilter
+from ..utils.response_utils import success_response, error_response, validation_error_response
 
 from ..repositories.job_repository import JobRepository
 from ..services.job_service import JobService
@@ -161,17 +162,14 @@ class JobReadyView(APIView):
             use_case = JobReadyUseCase()
             result = use_case.execute(job_ids, counting_order)
             
-            return Response({
-                'success': True,
-                'message': result['message'],
-                'data': {
+            return success_response(
+                data={
                     'counting_order': result['counting_order'],
                     'jobs_processed': result['jobs_processed'],
-                    'assignments_processed': result['assignments_processed'],
-                    'jobs': result['jobs'],
-                    'assignments': result['assignments']
-                }
-            }, status=status.HTTP_200_OK)
+                    'jobs': result['jobs']
+                },
+                message=result['message']
+            )
         except JobCreationError as e:
             return Response({
                 'success': False,
@@ -681,21 +679,20 @@ class JobResetAssignmentsView(APIView):
         try:
             job_service = JobService()
             result = job_service.reset_jobs_assignments(job_ids)
-            return Response({
-                'success': True,
-                'message': f'{result["jobs_reset"]} jobs remis en attente avec succès',
-                'data': result
-            }, status=status.HTTP_200_OK)
+            return success_response(
+                data=result,
+                message=f'{result["jobs_reset"]} jobs remis en attente avec succès'
+            )
         except JobCreationError as e:
-            return Response({
-                'success': False,
-                'message': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
         except Exception as e:
-            return Response({
-                'success': False,
-                'message': f'Erreur interne : {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response(
+                message="Une erreur inattendue s'est produite",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class JobTransferView(APIView):
     """
@@ -716,21 +713,20 @@ class JobTransferView(APIView):
         try:
             job_service = JobService()
             result = job_service.transfer_jobs_by_counting_orders(job_ids, counting_orders)
-            return Response({
-                'success': True,
-                'message': f'{result["total_transferred"]} jobs transférés avec succès',
-                'data': result
-            }, status=status.HTTP_200_OK)
+            return success_response(
+                data=result,
+                message=f'{result["total_transferred"]} jobs transférés avec succès'
+            )
         except JobCreationError as e:
-            return Response({
-                'success': False,
-                'message': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
         except Exception as e:
-            return Response({
-                'success': False,
-                'message': f'Erreur interne : {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
+            return error_response(
+                message="Une erreur inattendue s'est produite lors du transfert",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            ) 
 
 class JobBatchAssignmentView(APIView):
     """

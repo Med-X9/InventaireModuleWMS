@@ -6,6 +6,7 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
 from apps.mobile.services.sync_service import SyncService
+from apps.mobile.utils import success_response, error_response
 from apps.mobile.exceptions import UploadDataException
 
 
@@ -141,23 +142,26 @@ class UploadDataView(APIView):
             countings = request.data.get('countings', [])
             assignments = request.data.get('assignments', [])
             
-            response_data = sync_service.upload_data( countings, assignments)
+            response_data = sync_service.upload_data(countings, assignments)
             
-            return Response(response_data, status=status.HTTP_200_OK)
+            return success_response(
+                data=response_data,
+                message="Données uploadées avec succès"
+            )
             
         except ValueError as e:
-            return Response({
-                'success': False,
-                'error': f'Données invalides: {str(e)}'
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=f'Données invalides: {str(e)}',
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
         except UploadDataException as e:
-            return Response({
-                'success': False,
-                'error': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
         except Exception as e:
             print(f"Erreur inattendue dans UploadDataView: {str(e)}")
-            return Response({
-                'success': False,
-                'error': 'Erreur interne du serveur'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response(
+                message='Erreur interne du serveur',
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

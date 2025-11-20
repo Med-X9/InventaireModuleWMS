@@ -123,21 +123,21 @@ class InventoryDuplicateSerializer(serializers.Serializer):
 
 class InventoryGetByIdSerializer(serializers.ModelSerializer):
     """Serializer pour récupérer un inventaire par son ID avec le format spécifique."""
-    account_id = serializers.SerializerMethodField()
-    warehouse_ids = serializers.SerializerMethodField()
+    account_reference = serializers.SerializerMethodField()
+    warehouse_references = serializers.SerializerMethodField()
     comptages = serializers.SerializerMethodField()
 
     class Meta:
         model = Inventory
-        fields = ['label', 'date', 'account_id', 'warehouse_ids', 'comptages']
+        fields = ['reference', 'label', 'date', 'account_reference', 'warehouse_references', 'comptages']
 
-    def get_account_id(self, obj):
+    def get_account_reference(self, obj):
         setting = Setting.objects.filter(inventory=obj).first()
-        return setting.account.id if setting else None
+        return setting.account.reference if setting and hasattr(setting.account, 'reference') else None
 
-    def get_warehouse_ids(self, obj):
+    def get_warehouse_references(self, obj):
         settings = Setting.objects.filter(inventory=obj)
-        return [setting.warehouse.id for setting in settings]
+        return [setting.warehouse.reference for setting in settings if hasattr(setting.warehouse, 'reference')]
 
     def get_comptages(self, obj):
         countings = Counting.objects.filter(inventory=obj).order_by('order')
@@ -149,24 +149,27 @@ class PdaTeamSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Assigment
-        fields = ['id', 'reference', 'user']
+        fields = ['reference', 'user']
 
 class InventoryDetailSerializer(serializers.ModelSerializer):
     """
     Sérialiseur pour les détails d'un inventaire.
     """
     account_name = serializers.SerializerMethodField()
+    account_reference = serializers.SerializerMethodField()
     warehouse_name = serializers.SerializerMethodField()
+    warehouse_references = serializers.SerializerMethodField()
     comptages = serializers.SerializerMethodField()
     equipe = serializers.SerializerMethodField()
 
     class Meta:
         model = Inventory
         fields = [
-            'id', 'reference', 'label', 'date', 'status', 'inventory_type',
+            'reference', 'label', 'date', 'status', 'inventory_type',
             'en_preparation_status_date',
             'en_realisation_status_date', 'termine_status_date',
-            'cloture_status_date', 'account_name', 'warehouse_name' ,'created_at',
+            'cloture_status_date', 'account_name', 'account_reference', 
+            'warehouse_name', 'warehouse_references', 'created_at',
             'comptages', 'equipe'
         ]
 
@@ -174,9 +177,17 @@ class InventoryDetailSerializer(serializers.ModelSerializer):
         setting = Setting.objects.filter(inventory=obj).first()
         return setting.account.account_name if setting else None
 
+    def get_account_reference(self, obj):
+        setting = Setting.objects.filter(inventory=obj).first()
+        return setting.account.reference if setting and hasattr(setting.account, 'reference') else None
+
     def get_warehouse_name(self, obj):
         settings = Setting.objects.filter(inventory=obj)
         return [setting.warehouse.warehouse_name for setting in settings]
+
+    def get_warehouse_references(self, obj):
+        settings = Setting.objects.filter(inventory=obj)
+        return [setting.warehouse.reference for setting in settings if hasattr(setting.warehouse, 'reference')]
 
     def get_comptages(self, obj):
         countings = Counting.objects.filter(inventory=obj).order_by('order')
@@ -188,26 +199,37 @@ class InventoryDetailSerializer(serializers.ModelSerializer):
 
 class InventorySerializer(serializers.ModelSerializer):
     account_name = serializers.SerializerMethodField()
+    account_reference = serializers.SerializerMethodField()
     warehouse_name = serializers.SerializerMethodField()
+    warehouse_references = serializers.SerializerMethodField()
     comptages = serializers.SerializerMethodField()
     equipe = serializers.SerializerMethodField()
 
     class Meta:
         model = Inventory
         fields = [
-            'id', 'label', 'date', 'status', 'inventory_type',
+            'reference', 'label', 'date', 'status', 'inventory_type',
             'en_preparation_status_date', 'en_realisation_status_date',
             'termine_status_date', 'cloture_status_date',
-            'account_name', 'warehouse_name', 'comptages', 'equipe'
+            'account_name', 'account_reference', 'warehouse_name', 
+            'warehouse_references', 'comptages', 'equipe'
         ]
 
     def get_account_name(self, obj):
         setting = Setting.objects.filter(inventory=obj).first()
         return setting.account.account_name if setting else None
 
+    def get_account_reference(self, obj):
+        setting = Setting.objects.filter(inventory=obj).first()
+        return setting.account.reference if setting and hasattr(setting.account, 'reference') else None
+
     def get_warehouse_name(self, obj):
         settings = Setting.objects.filter(inventory=obj)
         return [setting.warehouse.warehouse_name for setting in settings]
+
+    def get_warehouse_references(self, obj):
+        settings = Setting.objects.filter(inventory=obj)
+        return [setting.warehouse.reference for setting in settings if hasattr(setting.warehouse, 'reference')]
 
     def get_comptages(self, obj):
         countings = Counting.objects.filter(inventory=obj).order_by('order')
@@ -223,18 +245,17 @@ class InventoryTeamSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Assigment
-        fields = ['id', 'reference', 'user']
+        fields = ['reference', 'user']
 
 class InventoryWarehouseStatsSerializer(serializers.Serializer):
     """Serializer pour les statistiques des warehouses d'un inventaire"""
-    warehouse_id = serializers.IntegerField()
     warehouse_reference = serializers.CharField()
     warehouse_name = serializers.CharField()
     jobs_count = serializers.IntegerField()
     teams_count = serializers.IntegerField()
     
     class Meta:
-        fields = ['warehouse_id', 'warehouse_reference', 'warehouse_name', 'jobs_count', 'teams_count'] 
+        fields = ['warehouse_reference', 'warehouse_name', 'jobs_count', 'teams_count'] 
 
 class InventoryUpdateSerializer(serializers.Serializer):
     """Serializer pour la mise à jour d'inventaire."""
@@ -323,6 +344,7 @@ class InventoryUpdateSerializer(serializers.Serializer):
 
 class InventoryDetailModeFieldsSerializer(serializers.ModelSerializer):
     account_name = serializers.SerializerMethodField()
+    account_reference = serializers.SerializerMethodField()
     magasins = serializers.SerializerMethodField()
     comptages = serializers.SerializerMethodField()
     equipe = serializers.SerializerMethodField()
@@ -331,16 +353,20 @@ class InventoryDetailModeFieldsSerializer(serializers.ModelSerializer):
     class Meta:
         model = Inventory
         fields = [
-            'id', 'reference', 'label', 'date', 'status', 'inventory_type',
+            'reference', 'label', 'date', 'status', 'inventory_type',
             'en_preparation_status_date',
             'en_realisation_status_date', 'termine_status_date',
-            'cloture_status_date', 'account_name', 'magasins',
+            'cloture_status_date', 'account_name', 'account_reference', 'magasins',
             'comptages', 'equipe', 'ressources'
         ]
     
     def get_account_name(self, obj):
         setting = Setting.objects.filter(inventory=obj).first()
         return setting.account.account_name if setting else None
+
+    def get_account_reference(self, obj):
+        setting = Setting.objects.filter(inventory=obj).first()
+        return setting.account.reference if setting and hasattr(setting.account, 'reference') else None
     
     def get_magasins(self, obj):
         settings = Setting.objects.filter(inventory=obj).select_related('warehouse')
@@ -364,8 +390,8 @@ class InventoryDetailModeFieldsSerializer(serializers.ModelSerializer):
         from ..models import InventoryDetailRessource
         ressources = InventoryDetailRessource.objects.filter(inventory=obj).select_related('ressource')
         return [{
-            'id': ressource.id,
             'reference': ressource.reference,
+            'ressource_reference': ressource.ressource.reference if ressource.ressource and hasattr(ressource.ressource, 'reference') else None,
             'ressource_nom': ressource.ressource.libelle if ressource.ressource else None,
             'quantity': ressource.quantity
         } for ressource in ressources] 
@@ -374,7 +400,7 @@ class InventoryDetailWithWarehouseSerializer(serializers.ModelSerializer):
     """
     Sérialiseur pour les détails d'un inventaire avec informations complètes des warehouses
     """
-    account_id = serializers.SerializerMethodField()
+    account_reference = serializers.SerializerMethodField()
     warehouses = serializers.SerializerMethodField()
     comptages = serializers.SerializerMethodField()
     equipe = serializers.SerializerMethodField()
@@ -383,16 +409,16 @@ class InventoryDetailWithWarehouseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Inventory
         fields = [
-            'id', 'reference', 'label', 'date', 'status', 'inventory_type',
+            'reference', 'label', 'date', 'status', 'inventory_type',
             'en_preparation_status_date', 'en_realisation_status_date', 
             'termine_status_date', 'cloture_status_date', 'created_at', 'updated_at',
-            'account_id', 'warehouses', 'comptages', 'equipe', 'inventory_duration'
+            'account_reference', 'warehouses', 'comptages', 'equipe', 'inventory_duration'
         ]
         read_only_fields = ['created_at', 'updated_at']
 
-    def get_account_id(self, obj):
+    def get_account_reference(self, obj):
         setting = Setting.objects.filter(inventory=obj).first()
-        return setting.account.id if setting else None
+        return setting.account.reference if setting and hasattr(setting.account, 'reference') else None
 
     def get_warehouses(self, obj):
         """Récupère les informations détaillées des warehouses avec dates d'inventaire"""
@@ -404,7 +430,6 @@ class InventoryDetailWithWarehouseSerializer(serializers.ModelSerializer):
             
             # Ajouter les informations spécifiques à l'inventaire pour ce warehouse
             warehouse_data.update({
-                'setting_id': setting.id,
                 'setting_reference': setting.reference,
                 'setting_created_at': setting.created_at,
                 'setting_updated_at': setting.updated_at,

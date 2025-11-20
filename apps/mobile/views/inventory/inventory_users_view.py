@@ -6,6 +6,7 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
 from apps.mobile.services.inventory_service import InventoryService
+from apps.mobile.utils import success_response, error_response
 from apps.mobile.exceptions import (
     InventoryNotFoundException,
     AccountNotFoundException
@@ -134,32 +135,35 @@ class InventoryUsersView(APIView):
             
             response_data = inventory_service.get_inventory_users(inventory_id)
             
-            return Response(response_data, status=status.HTTP_200_OK)
+            return success_response(
+                data=response_data,
+                message="Utilisateurs récupérés avec succès"
+            )
             
         except InventoryNotFoundException as e:
-            return Response({
-                'success': False,
-                'error': str(e),
-                'error_type': 'INVENTORY_NOT_FOUND'
-            }, status=status.HTTP_404_NOT_FOUND)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND,
+                error_type='INVENTORY_NOT_FOUND'
+            )
         except AccountNotFoundException as e:
-            return Response({
-                'success': False,
-                'error': str(e),
-                'error_type': 'ACCOUNT_NOT_FOUND'
-            }, status=status.HTTP_404_NOT_FOUND)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND,
+                error_type='ACCOUNT_NOT_FOUND'
+            )
         except ValueError as e:
-            return Response({
-                'success': False,
-                'error': f'ID d\'inventaire invalide: {str(e)}',
-                'error_type': 'INVALID_PARAMETER'
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=f'ID d\'inventaire invalide: {str(e)}',
+                status_code=status.HTTP_400_BAD_REQUEST,
+                error_type='INVALID_PARAMETER'
+            )
         except Exception as e:
             print(f"Erreur inattendue dans InventoryUsersView: {str(e)}")
             import traceback
             print(f"Traceback complet: {traceback.format_exc()}")
-            return Response({
-                'success': False,
-                'error': 'Erreur interne du serveur',
-                'error_type': 'INTERNAL_ERROR'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response(
+                message="Erreur interne du serveur",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                error_type='INTERNAL_ERROR'
+            )

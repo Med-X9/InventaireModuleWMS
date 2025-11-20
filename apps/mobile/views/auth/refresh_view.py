@@ -6,6 +6,7 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
 from apps.mobile.services.auth_service import AuthService
+from apps.mobile.utils import success_response, error_response
 
 
 class RefreshTokenView(APIView):
@@ -91,9 +92,12 @@ class RefreshTokenView(APIView):
         response_data, error = auth_service.refresh_token(refresh_token)
         
         if error:
-            return Response({
-                'success': False,
-                'error': error
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=error,
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
         
-        return Response(response_data, status=status.HTTP_200_OK)
+        return success_response(
+            data=response_data,
+            message="Token rafraîchi avec succès"
+        )

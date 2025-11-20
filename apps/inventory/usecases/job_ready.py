@@ -129,7 +129,6 @@ class JobReadyUseCase:
                 # Toutes les validations sont passées, mettre en PRET tous les jobs validés
                 current_time = timezone.now()
                 updated_jobs = []
-                updated_assignments = []
                 
                 for job, counting, assignment in validated_data:
                     logger.info(
@@ -148,33 +147,27 @@ class JobReadyUseCase:
                     assignment.pret_date = current_time
                     assignment.save()
                     
-                    updated_jobs.append({
-                        'job_id': job.id,
-                        'job_reference': job.reference
-                    })
-                    
-                    updated_assignments.append({
-                        'assignment_id': assignment.id,
-                        'assignment_reference': assignment.reference,
-                        'counting_reference': counting.reference,
-                        'counting_order': counting_order
-                    })
+                    # Ajouter le job une seule fois avec ses informations de comptage
+                    if not any(j.get('job_reference') == job.reference for j in updated_jobs):
+                        updated_jobs.append({
+                            'job_reference': job.reference,
+                            'counting_order': counting_order,
+                            'counting_reference': counting.reference
+                        })
                     
                     logger.info(
-                        f"Assignment {assignment.reference} marqué comme PRET "
-                        f"(job: {job.reference}, comptage: {counting.reference}, ordre: {counting_order})"
+                        f"Job {job.reference} marqué comme PRET "
+                        f"(comptage: {counting.reference}, ordre: {counting_order})"
                     )
                 
                 return {
                     'message': (
-                        f"{len(updated_jobs)} job(s) et {len(updated_assignments)} affectation(s) "
+                        f"{len(updated_jobs)} job(s) "
                         f"marqué(s) comme PRET avec succès pour le comptage d'ordre {counting_order}"
                     ),
                     'counting_order': counting_order,
                     'jobs_processed': len(updated_jobs),
-                    'assignments_processed': len(updated_assignments),
-                    'jobs': updated_jobs,
-                    'assignments': updated_assignments
+                    'jobs': updated_jobs
                 }
                 
         except JobCreationError:

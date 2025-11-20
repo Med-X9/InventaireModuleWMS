@@ -6,6 +6,7 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
 from apps.mobile.services.user_service import UserService
+from apps.mobile.utils import success_response, error_response
 from apps.mobile.exceptions import (
     UserNotFoundException,
     AccountNotFoundException,
@@ -137,53 +138,53 @@ class UserProductsView(APIView):
             
             response_data = user_service.get_user_products(user_id)
             
-            return Response(response_data, status=status.HTTP_200_OK)
+            return success_response(
+                data=response_data,
+                message="Produits récupérés avec succès"
+            )
             
         except UserNotFoundException as e:
-            return Response({
-                'success': False,
-                'error': str(e),
-                'error_type': 'USER_NOT_FOUND'
-            }, status=status.HTTP_404_NOT_FOUND)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND,
+                error_type='USER_NOT_FOUND'
+            )
         except AccountNotFoundException as e:
-            return Response({
-                'success': False,
-                'error': str(e),
-                'error_type': 'ACCOUNT_NOT_FOUND'
-            }, status=status.HTTP_404_NOT_FOUND)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND,
+                error_type='ACCOUNT_NOT_FOUND'
+            )
         except ProductNotFoundException as e:
-            return Response({
-                'success': False,
-                'error': str(e),
-                'error_type': 'NO_PRODUCTS_FOUND',
-                'data': {
-                    'products': []
-                }
-            }, status=status.HTTP_200_OK)  # Retourner 200 avec liste vide
+            # Retourner 200 avec liste vide si aucun produit trouvé
+            return success_response(
+                data={'products': []},
+                message="Aucun produit trouvé"
+            )
         except DataValidationException as e:
-            return Response({
-                'success': False,
-                'error': str(e),
-                'error_type': 'VALIDATION_ERROR'
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST,
+                error_type='VALIDATION_ERROR'
+            )
         except DatabaseConnectionException as e:
-            return Response({
-                'success': False,
-                'error': str(e),
-                'error_type': 'DATABASE_ERROR'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                error_type='DATABASE_ERROR'
+            )
         except ValueError as e:
-            return Response({
-                'success': False,
-                'error': f'ID d\'utilisateur invalide: {str(e)}',
-                'error_type': 'INVALID_PARAMETER'
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=f'ID d\'utilisateur invalide: {str(e)}',
+                status_code=status.HTTP_400_BAD_REQUEST,
+                error_type='INVALID_PARAMETER'
+            )
         except Exception as e:
             print(f"Erreur inattendue dans UserProductsView: {str(e)}")
             import traceback
             print(f"Traceback complet: {traceback.format_exc()}")
-            return Response({
-                'success': False,
-                'error': f'Erreur interne du serveur: {str(e)}',
-                'error_type': 'INTERNAL_ERROR'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response(
+                message="Erreur interne du serveur",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                error_type='INTERNAL_ERROR'
+            )

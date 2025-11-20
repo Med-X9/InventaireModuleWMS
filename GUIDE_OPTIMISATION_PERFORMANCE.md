@@ -802,3 +802,4 @@ class InventoryUser(HttpUser):
 *Guide créé le: $(date)*
 *Version: 1.0*
 
+

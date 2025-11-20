@@ -5,6 +5,7 @@ from rest_framework.views import APIView
 
 from apps.mobile.serializers import PersonSerializer
 from apps.mobile.services.person_service import PersonService
+from apps.mobile.utils import success_response, error_response
 
 import logging
 
@@ -33,20 +34,14 @@ class PersonListView(APIView):
             # Sérialiser les données pour la réponse API
             serializer = PersonSerializer(persons, many=True)
 
-            return Response(
-                {
-                    "success": True,
-                    "data": serializer.data,
-                },
-                status=status.HTTP_200_OK,
+            return success_response(
+                data=serializer.data,
+                message="Personnes récupérées avec succès"
             )
         except Exception as exc:  # pragma: no cover - log et réponse générique
             logger.exception("Erreur lors de la récupération des personnes: %s", exc)
-            return Response(
-                {
-                    "success": False,
-                    "error": "Erreur interne du serveur",
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            return error_response(
+                message="Erreur interne du serveur",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 

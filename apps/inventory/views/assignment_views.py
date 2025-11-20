@@ -23,6 +23,7 @@ from ..serializers.inventory_resource_serializer import (
 from ..usecases.job_assignment import JobAssignmentUseCase
 from ..services.inventory_resource_service import InventoryResourceService
 from ..services.assignment_service import AssignmentService
+from ..utils.response_utils import success_response, error_response, validation_error_response
 from ..exceptions.assignment_exceptions import (
     AssignmentValidationError,
     AssignmentBusinessRuleError,
@@ -60,11 +61,10 @@ class AssignJobsToCountingView(APIView):
             # Validation des données d'entrée
             serializer = JobAssignmentSerializer(data=request_data)
             if not serializer.is_valid():
-                return Response({
-                    'success': False,
-                    'message': 'Données invalides',
-                    'errors': serializer.errors
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return validation_error_response(
+                    serializer.errors,
+                    message="Erreur de validation lors de l'affectation des jobs"
+                )
             
             # Traitement de l'affectation
             use_case = JobAssignmentUseCase()
@@ -72,53 +72,48 @@ class AssignJobsToCountingView(APIView):
             
             # Préparation de la réponse
             response_data = {
-                'success': result['success'],
-                'message': result['message'],
                 'assignments_created': result['assignments_created'],
                 'assignments_updated': result['assignments_updated'],
                 'total_assignments': result['total_assignments'],
                 'counting_order': result['counting_order'],
-                'inventory_id': result['inventory_id'],
                 'timestamp': timezone.now()
             }
             
-            response_serializer = JobAssignmentResponseSerializer(response_data)
-            return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+            return success_response(
+                data=response_data,
+                message=result['message'],
+                status_code=status.HTTP_201_CREATED
+            )
             
         except AssignmentValidationError as e:
-            return Response({
-                'success': False,
-                'message': 'Erreur de validation',
-                'error': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
             
         except AssignmentBusinessRuleError as e:
-            return Response({
-                'success': False,
-                'message': 'Règle métier non respectée',
-                'error': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
             
         except AssignmentSessionError as e:
-            return Response({
-                'success': False,
-                'message': 'Erreur d\'affectation de session',
-                'error': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
             
         except AssignmentNotFoundError as e:
-            return Response({
-                'success': False,
-                'message': 'Ressource non trouvée',
-                'error': str(e)
-            }, status=status.HTTP_404_NOT_FOUND)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
             
         except Exception as e:
-            return Response({
-                'success': False,
-                'message': 'Erreur interne du serveur',
-                'error': str(e)
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de l'affectation",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class AssignResourcesToInventoryView(APIView):
@@ -254,55 +249,52 @@ class SessionAssignmentsView(APIView):
             
             # Si aucune affectation trouvée, retourner une liste vide
             if not assignments:
-                return Response({
-                    'session_id': session_id,
-                    'session_username': None,
-                    'jobs': [],
-                    'assignments': [],
-                    'total_assignments': 0,
-                    'total_jobs': 0
-                }, status=status.HTTP_200_OK)
+                return success_response(
+                    data={
+                        'session_id': session_id,
+                        'session_username': None,
+                        'jobs': [],
+                        'total_jobs': 0
+                    },
+                    message="Aucune affectation trouvée pour cette session"
+                )
             
             # Récupérer les informations de la session depuis la première affectation
             session = assignments[0].session if assignments else None
             session_username = session.username if session else None
             
-            # Extraire les jobs uniques des assignments
+            # Extraire les jobs uniques des assignments (utiliser les références)
             jobs_dict = {}
             for assignment in assignments:
-                if assignment.job and assignment.job.id not in jobs_dict:
-                    jobs_dict[assignment.job.id] = assignment.job
+                if assignment.job and assignment.job.reference not in jobs_dict:
+                    jobs_dict[assignment.job.reference] = assignment.job
             
-            # Sérialiser les jobs et les assignments séparément
+            # Sérialiser les jobs uniquement (sans les assignments)
             jobs_list = list(jobs_dict.values())
             jobs_data = JobBasicSerializer(jobs_list, many=True).data
-            assignments_data = AssignmentSerializer(assignments, many=True).data
             
-            # Préparer la réponse
+            # Préparer la réponse avec uniquement les références des jobs
             response_data = {
                 'session_id': session_id,
                 'session_username': session_username,
                 'jobs': jobs_data,
-                'assignments': assignments_data,
-                'total_assignments': len(assignments),
                 'total_jobs': len(jobs_list)
             }
             
-            # Valider et retourner la réponse
-            response_serializer = SessionAssignmentsResponseSerializer(response_data)
-            return Response(response_serializer.data, status=status.HTTP_200_OK)
+            return success_response(
+                data=response_data,
+                message="Affectations récupérées avec succès"
+            )
             
         except AssignmentValidationError as e:
-            return Response({
-                'success': False,
-                'message': 'Erreur de validation',
-                'error': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
             
         except Exception as e:
-            return Response({
-                'success': False,
-                'message': 'Erreur interne du serveur',
-                'error': str(e)
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response(
+                message="Une erreur inattendue s'est produite",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 

@@ -61,8 +61,8 @@ class JobService(JobServiceInterface):
                 locations.append(location)
             
             # Créer un seul job pour tous les emplacements
+            # La référence sera générée automatiquement par la méthode save() du modèle
             job = self.repository.create_job(
-                reference=Job().generate_reference(Job.REFERENCE_PREFIX),
                 status='EN ATTENTE',
                 en_attente_date=timezone.now(),
                 warehouse=warehouse,
@@ -433,22 +433,34 @@ class JobService(JobServiceInterface):
         """
         from ..models import Assigment, Counting
         current_time = timezone.now()
-        updated_assignments = []
+        updated_jobs = []
         for job_id in job_ids:
+            job = Job.objects.filter(id=job_id).first()
+            if not job:
+                raise JobCreationError(f"Job avec l'ID {job_id} non trouvé.")
+            job_reference = job.reference
+            
             for order in orders:
                 assignment = Assigment.objects.select_related('counting').filter(job_id=job_id, counting__order=order).first()
                 if not assignment:
-                    raise JobCreationError(f"Aucune assignation trouvée pour le job {job_id} et le comptage d'ordre {order}.")
+                    raise JobCreationError(f"Aucune assignation trouvée pour le job {job_reference} et le comptage d'ordre {order}.")
                 if assignment.status == 'PRET':
-                    raise JobCreationError(f"Le job {job_id} pour le comptage d'ordre {order} est déjà au statut PRET.")
+                    raise JobCreationError(f"Le job {job_reference} pour le comptage d'ordre {order} est déjà au statut PRET.")
                 if assignment.status != 'AFFECTE':
-                    raise JobCreationError(f"Le job {job_id} pour le comptage d'ordre {order} n'est pas au statut AFFECTE (statut actuel : {assignment.status}).")
+                    raise JobCreationError(f"Le job {job_reference} pour le comptage d'ordre {order} n'est pas au statut AFFECTE (statut actuel : {assignment.status}).")
                 assignment.status = 'PRET'
                 assignment.pret_date = current_time
                 assignment.save()
-                updated_assignments.append({'job_id': job_id, 'order': order, 'assignment_id': assignment.id})
+            
+            # Ajouter le job une seule fois avec ses informations
+            if not any(j.get('job_reference') == job_reference for j in updated_jobs):
+                updated_jobs.append({
+                    'job_reference': job_reference,
+                    'counting_orders': [order for order in orders]
+                })
+        
         return {
-            'updated_assignments': updated_assignments,
+            'updated_jobs': updated_jobs,
             'ready_date': current_time
         }
 
@@ -523,7 +535,6 @@ class JobService(JobServiceInterface):
         from ..models import Assigment, Counting
         
         current_time = timezone.now()
-        transferred_assignments = []
         transferred_jobs = []
         errors = []
         
@@ -533,6 +544,13 @@ class JobService(JobServiceInterface):
             raise JobCreationError(f"Aucun comptage trouvé avec l'ordre {counting_order}")
         
         for job_id in job_ids:
+            # Récupérer le job pour obtenir sa référence
+            job = Job.objects.filter(id=job_id).first()
+            if not job:
+                errors.append(f"Job avec l'ID {job_id} non trouvé")
+                continue
+            job_reference = job.reference
+            
             # Récupérer l'assignement pour ce job et cet ordre de comptage
             assignment = Assigment.objects.select_related('job', 'counting').filter(
                 job_id=job_id, 
@@ -540,12 +558,12 @@ class JobService(JobServiceInterface):
             ).first()
             
             if not assignment:
-                errors.append(f"Aucune assignation trouvée pour le job {job_id} et le comptage d'ordre {counting_order}")
+                errors.append(f"Aucune assignation trouvée pour le job {job_reference} et le comptage d'ordre {counting_order}")
                 continue
                 
             # Vérifier que l'assignement est au statut PRET
             if assignment.status != 'PRET':
-                errors.append(f"Le job {job_id} pour le comptage d'ordre {counting_order} n'est pas au statut PRET (statut actuel : {assignment.status})")
+                errors.append(f"Le job {job_reference} pour le comptage d'ordre {counting_order} n'est pas au statut PRET (statut actuel : {assignment.status})")
                 continue
             
             # Transférer l'assignement
@@ -554,23 +572,17 @@ class JobService(JobServiceInterface):
             assignment.save()
             
             # Transférer le job lui-même
-            job = assignment.job
             job.status = 'TRANSFERT'
             job.transfert_date = current_time
             job.save()
             
-            transferred_assignments.append({
-                'job_id': job_id,
-                'job_reference': job.reference,
-                'counting_order': counting_order,
-                'counting_reference': assignment.counting.reference,
-                'assignment_id': assignment.id
-            })
-            
-            transferred_jobs.append({
-                'job_id': job_id,
-                'job_reference': job.reference
-            })
+            # Ajouter le job une seule fois avec ses informations
+            if not any(j.get('job_reference') == job.reference for j in transferred_jobs):
+                transferred_jobs.append({
+                    'job_reference': job.reference,
+                    'counting_order': counting_order,
+                    'counting_reference': assignment.counting.reference
+                })
         
         # Si des erreurs ont été collectées, les lever
         if errors:
@@ -578,11 +590,10 @@ class JobService(JobServiceInterface):
             raise JobCreationError(f"Erreurs lors du transfert : {error_message}")
         
         return {
-            'transferred_assignments': transferred_assignments,
             'transferred_jobs': transferred_jobs,
             'transfer_date': current_time,
             'counting_order': counting_order,
-            'total_transferred': len(transferred_assignments)
+            'total_transferred': len(transferred_jobs)
         }
     
     @transaction.atomic
@@ -600,7 +611,6 @@ class JobService(JobServiceInterface):
         from ..models import Assigment, Counting
         
         current_time = timezone.now()
-        transferred_assignments = []
         transferred_jobs = []
         errors = []
         
@@ -628,13 +638,20 @@ class JobService(JobServiceInterface):
             assignments_to_check = all_job_assignments.exclude(status='TRANSFERT')
             assignments_not_pret = assignments_to_check.exclude(status='PRET')
             
+            # Récupérer le job pour obtenir sa référence
+            job = all_job_assignments.first().job if all_job_assignments.exists() else None
+            if not job:
+                errors.append(f"Job avec l'ID {job_id} non trouvé")
+                continue
+            job_reference = job.reference
+            
             if assignments_not_pret.exists():
                 not_pret_details = [
                     f"comptage ordre {a.counting.order} (statut: {a.status})"
                     for a in assignments_not_pret.select_related('counting')
                 ]
                 errors.append(
-                    f"Le job {job_id} ne peut pas être transféré car certains comptages ne sont pas PRET : {', '.join(not_pret_details)}"
+                    f"Le job {job_reference} ne peut pas être transféré car certains comptages ne sont pas PRET : {', '.join(not_pret_details)}"
                 )
                 continue
             
@@ -645,19 +662,18 @@ class JobService(JobServiceInterface):
                 ).first()
                 
                 if not assignment:
-                    errors.append(f"Aucune assignation trouvée pour le job {job_id} et le comptage d'ordre {counting_order}")
+                    errors.append(f"Aucune assignation trouvée pour le job {job_reference} et le comptage d'ordre {counting_order}")
                     continue
                 
                 if assignment.status != 'PRET':
                     errors.append(
-                        f"Le job {job_id} pour le comptage d'ordre {counting_order} n'est pas au statut PRET (statut actuel : {assignment.status})"
+                        f"Le job {job_reference} pour le comptage d'ordre {counting_order} n'est pas au statut PRET (statut actuel : {assignment.status})"
                     )
                     continue
             
             # Si toutes les vérifications passent, procéder au transfert
-            # Récupérer le job une seule fois
-            job = all_job_assignments.first().job
             job_transferred = False
+            counting_references = []
             
             # Transférer les assignments pour les ordres de comptage demandés
             for counting_order in counting_orders:
@@ -671,25 +687,23 @@ class JobService(JobServiceInterface):
                 assignment.transfert_date = current_time
                 assignment.save()
                 
+                counting_references.append({
+                    'counting_order': counting_order,
+                    'counting_reference': assignment.counting.reference
+                })
+                
                 # Transférer le job lui-même (une seule fois par job, même s'il est déjà TRANSFERT)
                 if not job_transferred:
                     job.status = 'TRANSFERT'
                     job.transfert_date = current_time
                     job.save()
-                    
-                    transferred_jobs.append({
-                        'job_id': job_id,
-                        'job_reference': job.reference
-                    })
                     job_transferred = True
-                
-                transferred_assignments.append({
-                    'job_id': job_id,
-                    'job_reference': job.reference,
-                    'counting_order': counting_order,
-                    'counting_reference': assignment.counting.reference,
-                    'assignment_id': assignment.id
-                })
+            
+            # Ajouter le job une seule fois avec toutes ses informations de comptage
+            transferred_jobs.append({
+                'job_reference': job.reference,
+                'counting_references': counting_references
+            })
         
         # Si des erreurs ont été collectées, les lever
         if errors:
@@ -697,11 +711,10 @@ class JobService(JobServiceInterface):
             raise JobCreationError(f"Erreurs lors du transfert : {error_message}")
         
         return {
-            'transferred_assignments': transferred_assignments,
             'transferred_jobs': transferred_jobs,
             'transfer_date': current_time,
             'counting_orders': counting_orders,
-            'total_transferred': len(transferred_assignments)
+            'total_transferred': len(transferred_jobs)
         } 
 
     def get_job_progress_by_counting(self, job_id: int) -> Dict[str, Any]:

@@ -94,32 +94,33 @@ class AssignmentRulesSerializer(serializers.Serializer):
 class JobBasicSerializer(serializers.ModelSerializer):
     """
     Serializer basique pour un job
+    Utilise les références au lieu des IDs
     """
-    warehouse_id = serializers.IntegerField(source='warehouse.id', read_only=True)
+    warehouse_reference = serializers.CharField(source='warehouse.reference', read_only=True)
     warehouse_name = serializers.CharField(source='warehouse.warehouse_name', read_only=True)
-    inventory_id = serializers.IntegerField(source='inventory.id', read_only=True)
     inventory_reference = serializers.CharField(source='inventory.reference', read_only=True)
     inventory_label = serializers.CharField(source='inventory.label', read_only=True)
     
     class Meta:
         model = Job
-        fields = ['id', 'reference', 'status', 'warehouse_id', 'warehouse_name', 
-                  'inventory_id', 'inventory_reference', 'inventory_label']
+        fields = ['reference', 'status', 'warehouse_reference', 'warehouse_name', 
+                  'inventory_reference', 'inventory_label']
 
 class AssignmentSerializer(serializers.ModelSerializer):
     """
     Serializer pour une affectation (sans le job imbriqué)
+    Utilise les références au lieu des IDs
     """
     counting_order = serializers.IntegerField(source='counting.order', read_only=True)
     counting_reference = serializers.CharField(source='counting.reference', read_only=True)
     counting_count_mode = serializers.CharField(source='counting.count_mode', read_only=True)
-    job_id = serializers.IntegerField(source='job.id', read_only=True)
+    job_reference = serializers.CharField(source='job.reference', read_only=True)
     
     class Meta:
         model = Assigment
-        fields = ['id', 'reference', 'status', 'date_start', 'transfert_date', 
+        fields = ['reference', 'status', 'date_start', 'transfert_date', 
                   'entame_date', 'affecte_date', 'pret_date', 'counting_order', 
-                  'counting_reference', 'counting_count_mode', 'job_id']
+                  'counting_reference', 'counting_count_mode', 'job_reference']
 
 class SessionAssignmentsResponseSerializer(serializers.Serializer):
     """

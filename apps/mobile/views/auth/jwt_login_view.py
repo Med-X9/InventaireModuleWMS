@@ -6,6 +6,7 @@ from django.contrib.auth import authenticate
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from apps.users.models import UserApp
+from apps.mobile.utils import success_response, error_response
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -134,19 +135,21 @@ class JWTLoginView(TokenObtainPairView):
             
             if serializer.is_valid():
                 # Le serializer retourne déjà la réponse formatée
-                return Response(serializer.validated_data, status=status.HTTP_200_OK)
+                return success_response(
+                    data=serializer.validated_data,
+                    message="Connexion JWT réussie"
+                )
             else:
                 # En cas d'erreur de validation
-                return Response({
-                    'success': False,
-                    'error': 'Identifiants invalides',
-                    'details': serializer.errors
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response(
+                    message='Identifiants invalides',
+                    errors=[str(err) for err_list in serializer.errors.values() for err in (err_list if isinstance(err_list, list) else [err_list])],
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
                 
         except Exception as e:
             # Gestion des erreurs inattendues
-            return Response({
-                'success': False,
-                'error': 'Erreur interne du serveur',
-                'details': str(e)
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response(
+                message='Erreur interne du serveur',
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
