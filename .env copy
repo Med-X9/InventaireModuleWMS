@@ -68,8 +68,10 @@ POSTGRES_USER=postgres
 POSTGRES_PASSWORD=Smatch2025
 # Pour Docker sur Linux, utiliser host.docker.internal (mappé via extra_hosts dans docker-compose.yml)
 # Alternative: utiliser l'IP du bridge Docker (172.17.0.1) si PostgreSQL écoute sur toutes les interfaces
-POSTGRES_HOST=host.docker.internal
+POSTGRES_HOST=172.17.0.1
 POSTGRES_PORT=5432
+DATABASE_URL=postgres://postgres:smatch2025@172.17.0.1:5432/inventairedb
+
 
 # URL de connexion (optionnel, généré automatiquement si non fourni)
 # DATABASE_URL=postgres://postgres:PASSWORD@postgres:5432/inventairedb
