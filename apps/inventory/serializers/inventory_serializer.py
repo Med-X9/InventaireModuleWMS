@@ -400,6 +400,7 @@ class InventoryDetailWithWarehouseSerializer(serializers.ModelSerializer):
     """
     Sérialiseur pour les détails d'un inventaire avec informations complètes des warehouses
     """
+    account_id = serializers.SerializerMethodField()
     account_reference = serializers.SerializerMethodField()
     warehouses = serializers.SerializerMethodField()
     comptages = serializers.SerializerMethodField()
@@ -408,13 +409,17 @@ class InventoryDetailWithWarehouseSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Inventory
-        fields = [
+        fields = ['id',
             'reference', 'label', 'date', 'status', 'inventory_type',
             'en_preparation_status_date', 'en_realisation_status_date', 
             'termine_status_date', 'cloture_status_date', 'created_at', 'updated_at',
-            'account_reference', 'warehouses', 'comptages', 'equipe', 'inventory_duration'
+            'account_id', 'account_reference', 'warehouses', 'comptages', 'equipe', 'inventory_duration'
         ]
         read_only_fields = ['created_at', 'updated_at']
+
+    def get_account_id(self, obj):
+        setting = Setting.objects.filter(inventory=obj).first()
+        return setting.account.id if setting and setting.account else None
 
     def get_account_reference(self, obj):
         setting = Setting.objects.filter(inventory=obj).first()

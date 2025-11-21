@@ -730,7 +730,13 @@ class JobResetAssignmentsView(APIView):
 
 class JobTransferView(APIView):
     """
-    Vue pour transférer les jobs par comptage qui sont au statut PRET
+    Vue pour transférer les assignments par comptage qui sont au statut PRET.
+    
+    Règles métier :
+    - Seuls les assignments au statut PRET peuvent être transférés
+    - L'assignment doit correspondre au counting_order spécifié
+    - Si l'assignment n'est pas PRET ou ne correspond pas au counting_order, 
+      retourne un message d'erreur avec la référence du job et la raison
     """
     def post(self, request):
         serializer = JobTransferRequestSerializer(data=request.data)
@@ -746,10 +752,10 @@ class JobTransferView(APIView):
         
         try:
             job_service = JobService()
-            result = job_service.transfer_jobs_by_counting_orders(job_ids, counting_orders)
+            result = job_service.transfer_assignments_by_jobs_and_counting_orders(job_ids, counting_orders)
             return success_response(
                 data=result,
-                message=f'{result["total_transferred"]} jobs transférés avec succès'
+                message=f'{result["total_transferred"]} assignment(s) transféré(s) avec succès'
             )
         except JobCreationError as e:
             return error_response(
@@ -757,10 +763,12 @@ class JobTransferView(APIView):
                 status_code=status.HTTP_400_BAD_REQUEST
             )
         except Exception as e:
+            logger.error(f"Erreur inattendue lors du transfert : {str(e)}", exc_info=True)
             return error_response(
                 message="Une erreur inattendue s'est produite lors du transfert",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             ) 
+
 
 class JobBatchAssignmentView(APIView):
     """

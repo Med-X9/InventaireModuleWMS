@@ -715,6 +715,149 @@ class JobService(JobServiceInterface):
             'transfer_date': current_time,
             'counting_orders': counting_orders,
             'total_transferred': len(transferred_jobs)
+        }
+    
+    @transaction.atomic
+    def transfer_assignments_by_jobs_and_counting_orders(self, job_ids: list, counting_orders: list):
+        """
+        Transfère les assignments qui sont au statut PRET vers le statut TRANSFERT 
+        pour des jobs et ordres de comptage spécifiques.
+        
+        Récupère automatiquement les assignments correspondants à partir de job_ids et counting_orders.
+        
+        Règles métier :
+        - Seuls les assignments au statut PRET peuvent être transférés
+        - L'assignment doit correspondre au counting_order spécifié
+        - Si l'assignment n'est pas PRET ou ne correspond pas au counting_order, 
+          retourner un message d'erreur avec la référence du job et la raison
+        
+        Args:
+            job_ids: Liste des IDs des jobs pour lesquels transférer les assignments
+            counting_orders: Liste des ordres de comptage pour lesquels transférer les assignments
+            
+        Returns:
+            Dict contenant les informations sur les assignments transférés
+            
+        Raises:
+            JobCreationError: Si des erreurs de validation sont détectées
+        """
+        from ..models import Assigment, Counting
+        
+        current_time = timezone.now()
+        transferred_assignments = []
+        errors = []
+        
+        # Vérifier que tous les comptages existent
+        countings = Counting.objects.filter(order__in=counting_orders)
+        found_orders = set(countings.values_list('order', flat=True))
+        requested_orders = set(counting_orders)
+        missing_orders = requested_orders - found_orders
+        
+        if missing_orders:
+            raise JobCreationError(f"Aucun comptage trouvé avec les ordres : {sorted(missing_orders)}")
+        
+        # Récupérer tous les assignments correspondants aux jobs et counting_orders
+        assignments = Assigment.objects.select_related(
+            'job', 'counting'
+        ).filter(
+            job_id__in=job_ids,
+            counting__order__in=counting_orders
+        )
+        
+        # Grouper les assignments par job pour faciliter le traitement
+        assignments_by_job = {}
+        for assignment in assignments:
+            job_id = assignment.job_id
+            if job_id not in assignments_by_job:
+                assignments_by_job[job_id] = []
+            assignments_by_job[job_id].append(assignment)
+        
+        # Dictionnaire pour suivre les jobs qui ont au moins un assignment transféré
+        jobs_to_transfer = {}
+        
+        # Traiter chaque job
+        for job_id in job_ids:
+            job_assignments = assignments_by_job.get(job_id, [])
+            
+            # Récupérer le job pour obtenir sa référence
+            job = None
+            if job_assignments:
+                job = job_assignments[0].job
+            else:
+                # Si aucun assignment trouvé, essayer de récupérer le job directement
+                try:
+                    from ..models import Job
+                    job = Job.objects.get(id=job_id)
+                except Job.DoesNotExist:
+                    errors.append(f"Job avec l'ID {job_id} non trouvé")
+                    continue
+            
+            job_reference = job.reference if job else f"ID {job_id}"
+            
+            # Si aucun assignment trouvé pour ce job
+            if not job_assignments:
+                errors.append(
+                    f"Job {job_reference} : Aucun assignment trouvé pour les ordres de comptage {counting_orders}"
+                )
+                continue
+            
+            # Traiter chaque counting_order demandé
+            for counting_order in counting_orders:
+                # Trouver l'assignment correspondant à ce job et ce counting_order
+                assignment = None
+                for ass in job_assignments:
+                    if ass.counting.order == counting_order:
+                        assignment = ass
+                        break
+                
+                if not assignment:
+                    errors.append(
+                        f"Job {job_reference} : Aucun assignment trouvé pour le comptage d'ordre {counting_order}"
+                    )
+                    continue
+                
+                # Validation 1: Vérifier que l'assignment est au statut PRET
+                if assignment.status != 'PRET':
+                    errors.append(
+                        f"Job {job_reference} : L'assignment pour le comptage d'ordre {counting_order} "
+                        f"n'est pas au statut PRET (statut actuel : {assignment.status})"
+                    )
+                    continue
+                
+                # Si toutes les validations passent, procéder au transfert
+                assignment.status = 'TRANSFERT'
+                assignment.transfert_date = current_time
+                assignment.save()
+                
+                # Marquer le job pour transfert (si au moins un assignment est transféré)
+                if job_id not in jobs_to_transfer:
+                    jobs_to_transfer[job_id] = job
+                
+                transferred_assignments.append({
+                    'assignment_id': assignment.id,
+                    'assignment_reference': assignment.reference,
+                    'job_reference': job_reference,
+                    'job_id': job.id if job else None,
+                    'counting_order': counting_order,
+                    'counting_reference': assignment.counting.reference
+                })
+        
+        # Mettre à jour le statut des jobs qui ont au moins un assignment transféré
+        for job_id, job in jobs_to_transfer.items():
+            job.status = 'TRANSFERT'
+            job.transfert_date = current_time
+            job.save()
+        
+        # Si des erreurs ont été collectées, les lever
+        if errors:
+            error_message = " | ".join(errors)
+            raise JobCreationError(f"Erreurs lors du transfert : {error_message}")
+        
+        return {
+            'transferred_assignments': transferred_assignments,
+            'transfer_date': current_time,
+            'counting_orders': counting_orders,
+            'total_transferred': len(transferred_assignments)
         } 
 
     def get_job_progress_by_counting(self, job_id: int) -> Dict[str, Any]:

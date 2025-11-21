@@ -103,7 +103,7 @@ class JobBasicSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Job
-        fields = ['reference', 'status', 'warehouse_reference', 'warehouse_name', 
+        fields = ['id', 'reference', 'status', 'warehouse_reference', 'warehouse_name', 
                   'inventory_reference', 'inventory_label']
 
 class AssignmentSerializer(serializers.ModelSerializer):

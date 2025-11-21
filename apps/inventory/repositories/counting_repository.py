@@ -1,4 +1,5 @@
-from django.db.models import Q, Max, Sum, F
+from django.db.models import Q, Max, Sum, F, IntegerField
+from django.db.models.functions import Cast
 from ..models import Counting, CountingDetail, Inventory
 from apps.inventory.exceptions.counting_exceptions import CountingNotFoundError
 from ..interfaces.counting_interface import ICountingRepository
@@ -390,7 +391,8 @@ class CountingRepository(ICountingRepository):
             # Prendre le final_result (sera le même pour tous les CountingDetail d'une même combinaison)
             final_result_agg=Max('final_result_alias'),
             # Prendre le resolved (sera le même pour tous les CountingDetail d'une même combinaison)
-            resolved_agg=Max('resolved_alias')
+            # Cast en entier car PostgreSQL ne supporte pas MAX() sur les booléens
+            resolved_agg=Max(Cast('resolved_alias', IntegerField()))
         ).order_by(
             'warehouse_id_alias',
             'job_id',

@@ -154,8 +154,9 @@ class InventoryResultService:
                 entry_data["final_result"] = row["final_result_agg"]
             
             # Mettre à jour le resolved si disponible (sera le même pour tous les ordres)
+            # Convertir 0/1 en False/True car PostgreSQL retourne un entier après MAX(Cast(...))
             if row.get("resolved_agg") is not None:
-                entry_data["resolved"] = row["resolved_agg"]
+                entry_data["resolved"] = bool(row["resolved_agg"])
 
         formatted_results: List[Dict[str, Any]] = []
 

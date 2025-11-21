@@ -126,6 +126,50 @@ class JobRepository(JobRepositoryInterface):
             job__inventory=inventory
         ).exclude(job=job).first()
     
+    def get_job_details_with_assignments(
+        self,
+        inventory_id: Optional[int] = None,
+        warehouse_id: Optional[int] = None,
+        counting_order: Optional[int] = None
+    ) -> List[JobDetail]:
+        """
+        Récupère les JobDetail avec leurs Assignment correspondants selon job et counting.
+        
+        Args:
+            inventory_id: ID de l'inventaire (optionnel)
+            warehouse_id: ID de l'entrepôt (optionnel)
+            counting_order: Ordre du comptage (optionnel)
+            
+        Returns:
+            Liste de JobDetail avec leurs relations préchargées
+        """
+        queryset = JobDetail.objects.select_related(
+            'job',
+            'job__warehouse',
+            'job__inventory',
+            'location',
+            'counting'
+        ).prefetch_related(
+            'job__assigment_set__counting',
+            'job__assigment_set__personne',
+            'job__assigment_set__personne_two',
+            'job__assigment_set__session'
+        )
+        
+        # Filtres optionnels
+        if inventory_id:
+            queryset = queryset.filter(job__inventory_id=inventory_id)
+        
+        if warehouse_id:
+            queryset = queryset.filter(job__warehouse_id=warehouse_id)
+        
+        if counting_order:
+            queryset = queryset.filter(
+                job__assigment_set__counting__order=counting_order
+            ).distinct()
+        
+        return list(queryset.order_by('job__reference', 'location__location_reference'))
+    
     def get_jobs_by_ids(self, job_ids: List[int]) -> List[Job]:
         """Récupère des jobs par leurs IDs"""
         return list(Job.objects.filter(id__in=job_ids))

@@ -294,17 +294,19 @@ class JobResetAssignmentsRequestSerializer(serializers.Serializer):
 
 class JobTransferRequestSerializer(serializers.Serializer):
     """
-    Serializer pour transférer les jobs par comptage
+    Serializer pour transférer les assignments par comptage.
+    Accepte job_ids et counting_order, puis récupère automatiquement les assignments correspondants.
+    Transfère uniquement les assignments au statut PRET selon counting_order.
     """
     job_ids = serializers.ListField(
         child=serializers.IntegerField(),
         allow_empty=False,
-        help_text="Liste des IDs des jobs à transférer"
+        help_text="Liste des IDs des jobs pour lesquels transférer les assignments"
     )
     counting_order = IntegerListField(
         child=serializers.IntegerField(min_value=1),
         allow_empty=False,
-        help_text="Liste des ordres de comptage pour lesquels transférer les jobs (ex: [1, 2, 3])"
+        help_text="Liste des ordres de comptage pour lesquels transférer les assignments (ex: [1, 2, 3])"
     ) 
 
 class JobProgressByCountingSerializer(serializers.Serializer):
