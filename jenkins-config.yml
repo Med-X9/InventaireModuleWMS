@@ -57,9 +57,10 @@ sonarqube:
   status_check_delay: 10  # seconds
   
   # Setup Commands (run before analysis)
+  # Note: pip may not be available in Jenkins environment, these commands are optional
   setup_commands:
     - "echo 'Setting up Python environment...'"
-    - "python3 -m pip install --user -r requirements.txt"
+    - "python3 -m pip install --user -r requirements.txt || echo 'pip not available, skipping dependency installation'"
 
 # Deployment Configuration
 deployment:
