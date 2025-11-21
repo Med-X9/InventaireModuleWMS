@@ -361,7 +361,7 @@ class PendingJobsReferencesView(ServerSideDataTableView):
     default_order = '-created_at'
     page_size = 20
     min_page_size = 1
-    max_page_size = 100
+    max_page_size = 1000
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -379,7 +379,7 @@ class PendingJobsReferencesView(ServerSideDataTableView):
 class JobListPagination(PageNumberPagination):
     page_size = 10
     page_size_query_param = 'page_size'
-    max_page_size = 100
+    max_page_size = 1000
 
 class JobListWithLocationsView(ServerSideDataTableView):
     """
@@ -419,7 +419,7 @@ class JobListWithLocationsView(ServerSideDataTableView):
     # Configuration de pagination
     page_size = 20
     min_page_size = 1
-    max_page_size = 100
+    max_page_size = 1000
     
     # Mapping frontend -> backend pour les filtres (vue générique Jobs / JobManagement)
     filter_aliases = {
@@ -475,7 +475,7 @@ class WarehouseJobsView(ServerSideDataTableView):
     default_order = '-created_at'
     page_size = 20
     min_page_size = 1
-    max_page_size = 100
+    max_page_size = 1000
 
     # Mapping frontend -> backend pour le DataTable « Jobs créés »
     filter_aliases = {
@@ -546,7 +546,7 @@ class JobFullDetailListView(ServerSideDataTableView):
     # Configuration de pagination
     page_size = 20
     min_page_size = 1
-    max_page_size = 100
+    max_page_size = 1000
     
     # Champs de filtrage automatique
     filter_fields = [
@@ -650,7 +650,7 @@ class JobPendingListView(ServerSideDataTableView):
     # Configuration de pagination
     page_size = 20
     min_page_size = 1
-    max_page_size = 100
+    max_page_size = 1000
     
     # Mapping pour les filtres
     filter_aliases = {

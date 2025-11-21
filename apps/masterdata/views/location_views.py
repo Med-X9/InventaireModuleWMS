@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class StandardResultsSetPagination(PageNumberPagination):
     page_size = 10
     page_size_query_param = 'page_size'
-    max_page_size = 100
+    max_page_size = 1000
 
 class AllWarehouseLocationListView(APIView):
     def get(self, request, warehouse_id):
@@ -144,7 +144,7 @@ class UnassignedLocationsView(ServerSideDataTableView):
     default_order = 'location_reference'
     page_size = 20
     min_page_size = 1
-    max_page_size = 100
+    max_page_size = 1000
 
     # Mapping frontend -> backend pour le DataTable « Emplacements disponibles »
     filter_aliases = {

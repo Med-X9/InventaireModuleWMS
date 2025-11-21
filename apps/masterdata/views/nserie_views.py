@@ -20,7 +20,7 @@ from apps.core.datatables.mixins import ServerSideDataTableView
 class NSeriePagination(PageNumberPagination):
     page_size = 20
     page_size_query_param = 'page_size'
-    max_page_size = 100
+    max_page_size = 1000
 
 class NSerieListView(ServerSideDataTableView):
     """
@@ -34,7 +34,7 @@ class NSerieListView(ServerSideDataTableView):
     default_order = '-created_at'
     page_size = 20
     min_page_size = 1
-    max_page_size = 100
+    max_page_size = 1000
 
 class NSerieDetailView(RetrieveAPIView):
     """
@@ -167,7 +167,7 @@ class NSerieByProductView(ServerSideDataTableView):
     default_order = '-created_at'
     page_size = 20
     min_page_size = 1
-    max_page_size = 100
+    max_page_size = 1000
     
     def get_datatable_queryset(self):
         product_id = self.kwargs.get('product_id')
@@ -186,7 +186,7 @@ class NSerieByLocationView(ServerSideDataTableView):
     default_order = '-created_at'
     page_size = 20
     min_page_size = 1
-    max_page_size = 100
+    max_page_size = 1000
     
     def get_datatable_queryset(self):
         # Cette vue n'est pas disponible car NSerie n'a pas de champ location
@@ -203,7 +203,7 @@ class NSerieByStatusView(ServerSideDataTableView):
     default_order = '-created_at'
     page_size = 20
     min_page_size = 1
-    max_page_size = 100
+    max_page_size = 1000
     
     def get_datatable_queryset(self):
         status = self.kwargs.get('status')
@@ -221,7 +221,7 @@ class NSerieExpiredView(ServerSideDataTableView):
     default_order = 'date_expiration'
     page_size = 20
     min_page_size = 1
-    max_page_size = 100
+    max_page_size = 1000
     
     def get_datatable_queryset(self):
         nserie_service = NSerieService()
@@ -238,7 +238,7 @@ class NSerieExpiringView(ServerSideDataTableView):
     default_order = 'date_expiration'
     page_size = 20
     min_page_size = 1
-    max_page_size = 100
+    max_page_size = 1000
     
     def get_datatable_queryset(self):
         days = self.request.query_params.get('days', 30)
