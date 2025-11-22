@@ -14,7 +14,7 @@ DJANGO_DEBUG=False
 
 # Hosts autorisés (séparés par des virgules, utiliser le nom du domaine ou l'IP du serveur)
 # Exemple: localhost,127.0.0.1,votre-domaine.com,www.votre-domaine.com
-DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
+DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,147.93.55.221
 
 DJANGO_SETTINGS_MODULE=project.settings
 
