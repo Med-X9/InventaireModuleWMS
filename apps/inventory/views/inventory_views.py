@@ -1139,6 +1139,28 @@ class InventoryResultExportExcelView(APIView):
                 message=str(error),
                 status_code=status.HTTP_400_BAD_REQUEST
             )
+        except ValueError as error:
+            logger.warning(
+                "Erreur de valeur lors de l'export Excel (id=%s, warehouse_id=%s): %s",
+                inventory_id,
+                warehouse_id,
+                error,
+            )
+            return error_response(
+                message=str(error),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except ImportError as error:
+            logger.error(
+                "Dépendance manquante pour l'export Excel (id=%s, warehouse_id=%s): %s",
+                inventory_id,
+                warehouse_id,
+                error,
+            )
+            return error_response(
+                message=f"Configuration manquante pour l'export Excel: {str(error)}",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
         except Exception as error:
             logger.error(
                 "Erreur inattendue lors de l'export Excel (id=%s, warehouse_id=%s): %s",
@@ -1148,13 +1170,18 @@ class InventoryResultExportExcelView(APIView):
                 exc_info=True,
             )
             return error_response(
-                message="Une erreur inattendue est survenue lors de l'export Excel",
+                message=f"Une erreur inattendue est survenue lors de l'export Excel: {str(error)}",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
     def _generate_excel(self, results, inventory_id: int, warehouse_id: int):
         """
         Génère un fichier Excel à partir des résultats.
+        
+        Les colonnes suivantes sont exclues de l'export :
+        - location_id
+        - job_id
+        - ecart_comptage_id
         
         Args:
             results: Liste des résultats à exporter
@@ -1163,20 +1190,68 @@ class InventoryResultExportExcelView(APIView):
             
         Returns:
             BytesIO: Buffer contenant le fichier Excel
+            
+        Raises:
+            ValueError: Si les résultats sont vides ou invalides
+            ImportError: Si pandas ou openpyxl ne sont pas installés
         """
-        import pandas as pd
+        try:
+            import pandas as pd
+        except ImportError:
+            raise ImportError(
+                "pandas est requis pour l'export Excel. "
+                "Installez-le avec: pip install pandas"
+            )
+        
+        try:
+            import openpyxl
+        except ImportError:
+            raise ImportError(
+                "openpyxl est requis pour l'export Excel. "
+                "Installez-le avec: pip install openpyxl"
+            )
+        
         import io
         
+        # Vérifier que les résultats ne sont pas vides
+        if not results:
+            raise ValueError("Aucune donnée à exporter")
+        
+        # Mettre le code interne dans la clé product si présent
+        transformed_results = []
+        for result in results:
+            transformed_result = dict(result)
+            if 'product_internal_code' in transformed_result:
+                transformed_result['product'] = transformed_result.pop('product_internal_code')
+            transformed_results.append(transformed_result)
+        
         # Convertir les résultats en DataFrame
-        df = pd.DataFrame(results)
+        try:
+            df = pd.DataFrame(transformed_results)
+        except Exception as e:
+            logger.error(f"Erreur lors de la conversion en DataFrame: {e}", exc_info=True)
+            raise ValueError(f"Impossible de convertir les résultats en DataFrame: {str(e)}")
+        
+        # Vérifier que le DataFrame n'est pas vide
+        if df.empty:
+            raise ValueError("Le DataFrame est vide après conversion")
+        
+        # Vérifier que le DataFrame a des colonnes
+        if len(df.columns) == 0:
+            raise ValueError("Le DataFrame n'a aucune colonne")
+        
+        # Colonnes à exclure de l'export
+        excluded_columns = ['location_id', 'job_id', 'ecart_comptage_id']
         
         # Réorganiser les colonnes pour un meilleur affichage
-        # Ordre souhaité : location_id, location, job_id, product (si présent), product_description (si présent), 
-        # product_internal_code (si présent), puis tous les comptages, puis final_result, ecart_comptage_id, resolved
+        # Ordre souhaité : location, job_reference (si présent), product (si présent), 
+        # product_description (si présent), puis tous les comptages, puis final_result, resolved
         column_order = []
         
-        # Colonnes de base
-        base_columns = ['location_id', 'location', 'job_id']
+        # Colonnes de base (sans location_id et job_id)
+        base_columns = ['location']  # location_id exclu
+        
+        # Ajouter job_reference si présent (mais pas job_id)
         if 'job_reference' in df.columns:
             base_columns.append('job_reference')
         
@@ -1186,8 +1261,6 @@ class InventoryResultExportExcelView(APIView):
             product_columns.append('product')
         if 'product_description' in df.columns:
             product_columns.append('product_description')
-        if 'product_internal_code' in df.columns:
-            product_columns.append('product_internal_code')
         
         # Colonnes de comptage (triées par ordre)
         counting_columns = sorted([col for col in df.columns if col.endswith(' comptage')], 
@@ -1197,40 +1270,91 @@ class InventoryResultExportExcelView(APIView):
         ecart_columns = sorted([col for col in df.columns if col.startswith('ecart_')],
                               key=lambda x: tuple(map(int, x.split('_')[1:])) if all(part.isdigit() for part in x.split('_')[1:]) else (999, 999))
         
-        # Colonnes finales
+        # Colonnes finales (sans ecart_comptage_id)
         final_columns = []
         if 'final_result' in df.columns:
             final_columns.append('final_result')
-        if 'ecart_comptage_id' in df.columns:
-            final_columns.append('ecart_comptage_id')
+        # ecart_comptage_id exclu
         if 'resolved' in df.columns:
             final_columns.append('resolved')
         
         # Construire l'ordre final
         column_order = base_columns + product_columns + counting_columns + ecart_columns + final_columns
         
-        # Réorganiser le DataFrame
+        # Filtrer les colonnes exclues
+        column_order = [col for col in column_order if col not in excluded_columns]
+        
+        # Réorganiser le DataFrame en excluant les colonnes non désirées
         existing_columns = [col for col in column_order if col in df.columns]
+        
+        # Exclure également toutes les colonnes de la liste excluded_columns qui pourraient être présentes
+        existing_columns = [col for col in existing_columns if col not in excluded_columns]
+        
+        if not existing_columns:
+            # Si aucune colonne n'est trouvée, utiliser toutes les colonnes disponibles sauf celles exclues
+            existing_columns = [col for col in df.columns if col not in excluded_columns]
+        
         df = df[existing_columns]
+        
+        # Mapping des noms de colonnes techniques vers des noms conviviaux en français
+        column_name_mapping = {
+            'location': 'Emplacement',
+            'job_reference': 'Référence Job',
+            'product': 'Code Interne Article',
+            'product_description': 'Description Article',
+            'final_result': 'Résultat Final',
+            'resolved': 'Résolu',
+        }
+        
+        # Ajouter le mapping pour les colonnes de comptage dynamiquement
+        for col in df.columns:
+            if col.endswith(' comptage'):
+                # Extraire le numéro du comptage (ex: "1er comptage" -> "1er Comptage")
+                order_num = col.split()[0]
+                # Capitaliser la première lettre pour uniformiser
+                column_name_mapping[col] = f'{order_num.capitalize()} Comptage'
+            elif col.startswith('ecart_'):
+                # Extraire les numéros des comptages (ex: "ecart_1_2" -> "Écart Comptage 1-2")
+                parts = col.split('_')
+                if len(parts) >= 3 and parts[1].isdigit() and parts[2].isdigit():
+                    column_name_mapping[col] = f'Écart Comptage {parts[1]}-{parts[2]}'
+        
+        # Renommer les colonnes avec les noms conviviaux
+        df = df.rename(columns=column_name_mapping)
         
         # Créer le fichier Excel en mémoire
         excel_buffer = io.BytesIO()
-        with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Résultats')
-            
-            # Récupérer la feuille pour appliquer des formats
-            worksheet = writer.sheets['Résultats']
-            
-            # Ajuster la largeur des colonnes
-            from openpyxl.utils import get_column_letter
-            for idx, col in enumerate(df.columns, start=1):
-                max_length = max(
-                    df[col].astype(str).map(len).max(),
-                    len(str(col))
-                )
-                # Limiter la largeur maximale à 50
-                adjusted_width = min(max_length + 2, 50)
-                worksheet.column_dimensions[get_column_letter(idx)].width = adjusted_width
+        try:
+            with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name='Résultats')
+                
+                # Récupérer la feuille pour appliquer des formats
+                worksheet = writer.sheets['Résultats']
+                
+                # Ajuster la largeur des colonnes
+                from openpyxl.utils import get_column_letter
+                for idx, col in enumerate(df.columns, start=1):
+                    try:
+                        # Remplacer les valeurs None par des chaînes vides pour éviter les erreurs
+                        col_data = df[col].fillna('').astype(str)
+                        
+                        # Calculer la longueur maximale
+                        if len(col_data) > 0:
+                            max_data_length = col_data.map(len).max()
+                        else:
+                            max_data_length = 0
+                        
+                        max_length = max(max_data_length, len(str(col)))
+                        # Limiter la largeur maximale à 50
+                        adjusted_width = min(max_length + 2, 50)
+                        worksheet.column_dimensions[get_column_letter(idx)].width = adjusted_width
+                    except Exception as e:
+                        # Si l'ajustement de la largeur échoue, utiliser une largeur par défaut
+                        logger.warning(f"Impossible d'ajuster la largeur de la colonne {col}: {e}")
+                        worksheet.column_dimensions[get_column_letter(idx)].width = 15
+        except Exception as e:
+            logger.error(f"Erreur lors de la génération du fichier Excel: {e}", exc_info=True)
+            raise ValueError(f"Impossible de générer le fichier Excel: {str(e)}")
         
         excel_buffer.seek(0)
         return excel_buffer

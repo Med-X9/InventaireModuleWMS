@@ -128,10 +128,15 @@ class InventoryResultService:
             warehouse_id=warehouse_id,
         )
 
+        self.logger.debug(f"📊 Nombre de lignes agrégées récupérées: {len(aggregated_rows)}")
+
         max_order_global = 0
         entries: Dict[Tuple[int, Optional[int], Optional[int]], Dict[str, Any]] = {}
 
         if not aggregated_rows:
+            self.logger.warning(
+                f"⚠️ Aucune donnée agrégée trouvée pour inventory_id={inventory_id}, warehouse_id={warehouse_id}"
+            )
             return []
 
         for row in aggregated_rows:

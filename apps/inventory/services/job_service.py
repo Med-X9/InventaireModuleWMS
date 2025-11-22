@@ -726,9 +726,12 @@ class JobService(JobServiceInterface):
         Récupère automatiquement les assignments correspondants à partir de job_ids et counting_orders.
         
         Règles métier :
-        - Seuls les assignments au statut PRET peuvent être transférés
+        - Le job doit être au statut PRET, TRANSFERT ou ENTAME
+        - Tous les assignments du job doivent avoir le statut PRET, TRANSFERT ou ENTAME pour permettre un traitement progressif
+        - Seuls les assignments au statut PRET peuvent être transférés (pas ceux déjà en TRANSFERT ou ENTAME)
         - L'assignment doit correspondre au counting_order spécifié
-        - Si l'assignment n'est pas PRET ou ne correspond pas au counting_order, 
+        - Si le job est ENTAME, il reste ENTAME même après le transfert d'un comptage (ne change pas en TRANSFERT)
+        - Si tous les assignments du job ne sont pas PRET, TRANSFERT ou ENTAME, ou si l'assignment ne correspond pas au counting_order, 
           retourner un message d'erreur avec la référence du job et la raison
         
         Args:
@@ -794,10 +797,36 @@ class JobService(JobServiceInterface):
             
             job_reference = job.reference if job else f"ID {job_id}"
             
+            # Vérifier que le job est au statut PRET, TRANSFERT ou ENTAME
+            # (permet un traitement progressif : le job peut déjà être TRANSFERT si un comptage précédent a été transféré)
+            # Si le job est ENTAME, il reste ENTAME même après transfert d'un comptage
+            if job.status not in ['PRET', 'TRANSFERT', 'ENTAME']:
+                errors.append(
+                    f"Job {job_reference} : statut actuel '{job.status}' (attendu: 'PRET', 'TRANSFERT' ou 'ENTAME')"
+                )
+                continue
+            
             # Si aucun assignment trouvé pour ce job
             if not job_assignments:
                 errors.append(
                     f"Job {job_reference} : Aucun assignment trouvé pour les ordres de comptage {counting_orders}"
+                )
+                continue
+            
+            # Vérifier que tous les assignments de ce job sont soit PRET, TRANSFERT ou ENTAME
+            # (permet un traitement progressif : certains peuvent déjà être TRANSFERT ou ENTAME)
+            all_job_assignments = Assigment.objects.filter(job=job)
+            assignments_invalid_status = all_job_assignments.exclude(status__in=['PRET', 'TRANSFERT', 'ENTAME'])
+            
+            if assignments_invalid_status.exists():
+                # Récupérer les références des assignments avec statut invalide pour le message d'erreur
+                invalid_status_details = [
+                    f"comptage ordre {a.counting.order} (statut: {a.status})"
+                    for a in assignments_invalid_status.select_related('counting')
+                ]
+                errors.append(
+                    f"Job {job_reference} : Tous les assignments doivent avoir le statut PRET, TRANSFERT ou ENTAME pour transférer le job. "
+                    f"Assignments avec statut invalide : {', '.join(invalid_status_details)}"
                 )
                 continue
             
@@ -843,9 +872,12 @@ class JobService(JobServiceInterface):
                 })
         
         # Mettre à jour le statut des jobs qui ont au moins un assignment transféré
+        # Si le job est déjà ENTAME, il reste ENTAME (ne pas le changer en TRANSFERT)
         for job_id, job in jobs_to_transfer.items():
-            job.status = 'TRANSFERT'
-            job.transfert_date = current_time
+            # Ne changer le statut que si le job n'est pas déjà ENTAME
+            if job.status != 'ENTAME':
+                job.status = 'TRANSFERT'
+                job.transfert_date = current_time
             job.save()
         
         # Si des erreurs ont été collectées, les lever

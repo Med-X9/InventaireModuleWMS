@@ -329,12 +329,48 @@ class CountingRepository(ICountingRepository):
         Returns:
             Liste de dictionnaires contenant les quantités agrégées.
         """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Log initial pour débogage
+        logger.debug(f"🔍 Récupération des résultats pour inventory_id={inventory_id}, warehouse_id={warehouse_id}")
+        
+        # Vérifier d'abord combien de CountingDetail existent pour cet inventaire
+        all_counting_details = CountingDetail.objects.filter(
+            counting__inventory_id=inventory_id
+        )
+        logger.debug(f"📊 Nombre total de CountingDetail pour inventory_id={inventory_id}: {all_counting_details.count()}")
+        
         queryset = CountingDetail.objects.filter(
             counting__inventory_id=inventory_id
         )
 
         if warehouse_id is not None:
+            # Vérifier combien de CountingDetail existent avant le filtre warehouse
+            before_warehouse_filter = queryset.count()
+            logger.debug(f"📊 Nombre de CountingDetail avant filtre warehouse: {before_warehouse_filter}")
+            
             queryset = queryset.filter(job__warehouse_id=warehouse_id)
+            
+            # Vérifier combien de CountingDetail existent après le filtre warehouse
+            after_warehouse_filter = queryset.count()
+            logger.debug(f"📊 Nombre de CountingDetail après filtre warehouse_id={warehouse_id}: {after_warehouse_filter}")
+            
+            # Si aucun résultat, vérifier les jobs pour cet entrepôt
+            if after_warehouse_filter == 0:
+                from ..models import Job
+                jobs_count = Job.objects.filter(
+                    inventory_id=inventory_id,
+                    warehouse_id=warehouse_id
+                ).count()
+                logger.warning(f"⚠️ Aucun CountingDetail trouvé. Nombre de jobs pour inventory_id={inventory_id}, warehouse_id={warehouse_id}: {jobs_count}")
+                
+                # Vérifier les countings pour cet inventaire
+                from ..models import Counting
+                countings = Counting.objects.filter(inventory_id=inventory_id)
+                logger.debug(f"📊 Nombre de Counting pour inventory_id={inventory_id}: {countings.count()}")
+                for counting in countings:
+                    logger.debug(f"   - Counting id={counting.id}, order={counting.order}, count_mode={counting.count_mode}")
 
         # Sous-requêtes pour récupérer les infos d'EcartComptage (final_result, id)
         # Un EcartComptage est identifié par (product_id, location_id, inventory_id)
@@ -401,4 +437,7 @@ class CountingRepository(ICountingRepository):
             'counting_order_alias',
         )
 
-        return list(aggregated_queryset)
+        result_list = list(aggregated_queryset)
+        logger.debug(f"✅ Nombre de résultats agrégés retournés: {len(result_list)}")
+        
+        return result_list

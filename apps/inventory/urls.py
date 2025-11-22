@@ -30,6 +30,7 @@ from .views.resource_assignment_views import AssignResourcesToJobsView, JobResou
 from .views.counting_tracking_views import InventoryCountingTrackingView, JobDetailTrackingView
 from .views.counting_views import CountingLaunchView
 from .views.pdf_views import InventoryJobsPdfView, JobAssignmentPdfView
+from .views.excel_export_views import ConsolidatedArticleExcelExportView
 
 urlpatterns = [
     # ========================================
@@ -116,6 +117,13 @@ urlpatterns = [
     path('inventory/<int:inventory_id>/jobs/pdf/', InventoryJobsPdfView.as_view(), name='inventory-jobs-pdf'),
     # API pour generer le PDF d'un job/assignment/equipe specifique
     path('jobs/<int:job_id>/assignments/<int:assignment_id>/pdf/', JobAssignmentPdfView.as_view(), name='job-assignment-pdf'),
+    
+    # ========================================
+    # URL POUR L'EXPORT EXCEL CONSOLIDE
+    # ========================================
+    
+    # API pour exporter un fichier Excel consolidé par article
+    path('inventory/<int:inventory_id>/articles-consolides/export/', ConsolidatedArticleExcelExportView.as_view(), name='inventory-articles-consolides-export'),
     
     # ========================================
     # URLs POUR L'AFFECTATION DES RESSOURCES AUX JOBS

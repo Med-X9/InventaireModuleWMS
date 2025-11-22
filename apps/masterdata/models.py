@@ -282,7 +282,7 @@ class Product(CodeGeneratorMixin, TimeStampedModel):
         verbose_name_plural = _('Produits')
     
     def __str__(self):
-        return self.reference
+        return self.Internal_Product_Code
 
 class NSerie(CodeGeneratorMixin, TimeStampedModel):
     """

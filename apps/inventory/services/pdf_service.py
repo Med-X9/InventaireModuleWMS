@@ -427,10 +427,9 @@ class PDFService(PDFServiceInterface):
         headers = ['Emplacement']
         
         if 'vrac' not in counting.count_mode.lower():
-            # Mode par article
-            if counting.show_product:
-                headers.append('Article')  # Code barre
-                headers.append('Désignation')  # Toujours si show_product
+            # Mode par article - toujours afficher Article et Désignation pour le PDF
+            headers.append('Article')  # Code barre
+            headers.append('Désignation')
             headers.append('Quantité physique')  # Toujours présent
             
             if show_theorique:
@@ -457,13 +456,11 @@ class PDFService(PDFServiceInterface):
             table_row = [row['location']]
             
             if 'vrac' not in counting.count_mode.lower():
-                # Mode par article
-                if counting.show_product:
-                    # Article (code barre)
-                    table_row.append(row.get('barcode', '-'))
-                    # Désignation
-                    table_row.append(row.get('designation', '-'))
-                # Si show_product = False, pas de colonnes Article/Désignation
+                # Mode par article - toujours afficher Article et Désignation pour le PDF
+                # Article (code barre)
+                table_row.append(row.get('barcode', '-'))
+                # Désignation
+                table_row.append(row.get('designation', '-'))
                 
                 # Quantité physique (toujours)
                 table_row.append(row.get('quantite_physique', ''))
@@ -475,9 +472,11 @@ class PDFService(PDFServiceInterface):
                 
                 # Colonnes optionnelles
                 if counting.dlc:
-                    table_row.append('Oui' if row.get('dlc', False) else '-')
+                    # DLC est déjà formatée comme date ou '-' dans _prepare_table_rows_from_counting_details
+                    table_row.append(row.get('dlc', '-'))
                 if counting.n_lot:
-                    table_row.append('Oui' if row.get('n_lot', False) else '-')
+                    # n_lot est déjà la valeur ou '-' dans _prepare_table_rows_from_counting_details
+                    table_row.append(row.get('n_lot', '-'))
                 if counting.is_variant:
                     table_row.append('Oui' if row.get('is_variant', False) else '-')
             else:
@@ -623,7 +622,7 @@ class PDFService(PDFServiceInterface):
         
         elements.append(info_row2_table)
         
-        # Informations - Ligne 3: Utilisateur
+        # Informations - Ligne 3: Utilisateur (équipe affectée dans assignment)
         info_row3_data = [
             Paragraph(f"<b>Utilisateur:</b> {user if user else 'Non affecté'}", label_style),
         ]
@@ -1290,7 +1289,13 @@ class PDFService(PDFServiceInterface):
         warehouse_info = self._get_warehouse_info(inventory)
         account_info = self._get_account_info(inventory)
         
-        # Recuperer les personnes de l'equipe
+        # Recuperer la session affectee dans l'assignment
+        session = assignment.session
+        
+        # Preparer le nom de la session pour l'affichage dans l'en-tete
+        session_nom = session.username if session else "Non affecte"
+        
+        # Recuperer les personnes de l'equipe (pour equipe_nom si necessaire)
         personne = assignment.personne
         personne_two = assignment.personne_two
         
@@ -1324,8 +1329,9 @@ class PDFService(PDFServiceInterface):
         story = []
         
         # Construire les pages pour ce job avec les counting details
+        # Passer session_nom pour l'affichage dans l'en-tete "Utilisateur:"
         story.extend(self._build_job_pages_from_counting_details(
-            job, counting, equipe_nom, inventory, warehouse_info, account_info, counting_details
+            job, counting, session_nom, inventory, warehouse_info, account_info, counting_details
         ))
         
         # Creer le document PDF avec marges ajustees
@@ -1374,7 +1380,7 @@ class PDFService(PDFServiceInterface):
         self, 
         job, 
         counting, 
-        equipe_nom, 
+        session_nom, 
         inventory, 
         warehouse_info, 
         account_info, 
@@ -1401,9 +1407,9 @@ class PDFService(PDFServiceInterface):
             end_idx = min(start_idx + lines_per_page, len(all_table_rows))
             page_rows = all_table_rows[start_idx:end_idx]
             
-            # En-tete de page avec infos inventaire + job + equipe
+            # En-tete de page avec infos inventaire + job + session
             elements.extend(self._build_page_header(
-                inventory, job, equipe_nom, counting, warehouse_info, account_info, page_num + 1, total_pages
+                inventory, job, session_nom, counting, warehouse_info, account_info, page_num + 1, total_pages
             ))
             
             # Tableau des details du job (max 20 lignes) avec pagination en bas

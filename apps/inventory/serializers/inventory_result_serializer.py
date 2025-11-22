@@ -18,8 +18,16 @@ class InventoryWarehouseResultEntrySerializer(serializers.Serializer):
         """
         Retourne la structure telle qu'elle est générée par le service, en conservant
         les clés dynamiques demandées par le métier.
+        Met le code interne du produit dans la clé product.
         """
-        return instance
+        # Créer une copie pour ne pas modifier l'instance originale
+        result = dict(instance)
+        
+        # Mettre le code interne dans la clé product si présent
+        if 'product_internal_code' in result:
+            result['product'] = result.pop('product_internal_code')
+        
+        return result
 
 
 class InventoryWarehouseResultSerializer(serializers.Serializer):

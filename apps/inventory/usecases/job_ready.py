@@ -49,14 +49,34 @@ class JobReadyUseCase:
                 
                 # Valider et collecter tous les jobs/comptages valides (sans lever d'erreurs)
                 validated_data = []  # Liste des tuples (job, counting, assignment, order) validés
+                rejection_reasons = []  # Liste des raisons de rejet pour le diagnostic
                 
                 for job in jobs:
-                    # Ignorer les jobs qui n'ont pas le statut AFFECTE
-                    if job.status != 'AFFECTE':
-                        logger.debug(
-                            f"Job {job.reference} (ID: {job.id}) ignoré - statut actuel : {job.status} "
-                            f"(attendu: AFFECTE)"
+                    # Ignorer les jobs qui ne sont pas au statut AFFECTE ou PRET
+                    # (permet un traitement progressif : le job peut déjà être PRET si un comptage précédent a été traité)
+                    if job.status not in ['AFFECTE', 'PRET']:
+                        reason = f"Job {job.reference} (ID: {job.id}) : statut actuel '{job.status}' (attendu: 'AFFECTE' ou 'PRET')"
+                        logger.debug(reason)
+                        rejection_reasons.append(reason)
+                        continue
+                    
+                    # Vérifier que tous les assignments de ce job sont soit AFFECTE soit PRET
+                    # (permet un traitement progressif : certains peuvent déjà être PRET)
+                    all_assignments = Assigment.objects.filter(job=job)
+                    assignments_invalid_status = all_assignments.exclude(status__in=['AFFECTE', 'PRET'])
+                    
+                    if assignments_invalid_status.exists():
+                        # Récupérer les références des assignments avec statut invalide pour le log
+                        invalid_status_refs = [
+                            f"{ass.reference} (statut: {ass.status})" 
+                            for ass in assignments_invalid_status.select_related('counting')
+                        ]
+                        reason = (
+                            f"Job {job.reference} (ID: {job.id}) : tous les assignments doivent avoir le statut AFFECTE ou PRET. "
+                            f"Assignments avec statut invalide: {', '.join(invalid_status_refs)}"
                         )
+                        logger.warning(reason)
+                        rejection_reasons.append(reason)
                         continue
                     
                     # Traiter chaque ordre de comptage
@@ -65,52 +85,64 @@ class JobReadyUseCase:
                         try:
                             counting = Counting.objects.get(inventory=job.inventory, order=order)
                         except Counting.DoesNotExist:
-                            logger.debug(
-                                f"Comptage d'ordre {order} ignoré pour l'inventaire "
-                                f"{job.inventory.reference} (ID: {job.inventory.id}) du job {job.reference} (ID: {job.id})"
+                            reason = (
+                                f"Job {job.reference} (ID: {job.id}) : comptage d'ordre {order} n'existe pas "
+                                f"pour l'inventaire {job.inventory.reference}"
                             )
+                            logger.debug(reason)
+                            rejection_reasons.append(reason)
                             continue
                         
                         # Ignorer si l'affectation n'existe pas
                         try:
                             assignment = Assigment.objects.get(job=job, counting=counting)
                         except Assigment.DoesNotExist:
-                            logger.debug(
-                                f"Affectation ignorée pour le job {job.reference} (ID: {job.id}) "
-                                f"et le comptage d'ordre {order} (référence: {counting.reference})"
+                            reason = (
+                                f"Job {job.reference} (ID: {job.id}) : aucune affectation trouvée "
+                                f"pour le comptage d'ordre {order} (référence: {counting.reference})"
                             )
+                            logger.debug(reason)
+                            rejection_reasons.append(reason)
                             continue
                         
                         # Ignorer si l'affectation est déjà en PRET
                         if assignment.status == 'PRET':
-                            logger.debug(
-                                f"Affectation déjà en PRET pour le job {job.reference} (ID: {job.id}) "
-                                f"et le comptage d'ordre {order}"
+                            reason = (
+                                f"Job {job.reference} (ID: {job.id}) : affectation déjà en PRET "
+                                f"pour le comptage d'ordre {order}"
                             )
+                            logger.debug(reason)
+                            rejection_reasons.append(reason)
                             continue
                         
                         # Ignorer si le comptage est "image de stock"
                         if counting.count_mode == "image de stock":
-                            logger.debug(
-                                f"Comptage d'ordre {order} avec mode 'image de stock' ignoré "
-                                f"pour le job {job.reference} (ID: {job.id})"
+                            reason = (
+                                f"Job {job.reference} (ID: {job.id}) : comptage d'ordre {order} "
+                                f"avec mode 'image de stock' ignoré"
                             )
+                            logger.debug(reason)
+                            rejection_reasons.append(reason)
                             continue
                         
                         # Ignorer si l'affectation n'a pas de session
                         if assignment.session is None:
-                            logger.debug(
-                                f"Affectation sans session ignorée pour le job {job.reference} (ID: {job.id}) "
-                                f"et le comptage d'ordre {order}"
+                            reason = (
+                                f"Job {job.reference} (ID: {job.id}) : affectation sans session "
+                                f"pour le comptage d'ordre {order}"
                             )
+                            logger.debug(reason)
+                            rejection_reasons.append(reason)
                             continue
                         
                         # Ignorer si l'affectation n'a pas le statut AFFECTE
                         if assignment.status != 'AFFECTE':
-                            logger.debug(
-                                f"Affectation avec statut {assignment.status} ignorée pour le job {job.reference} (ID: {job.id}) "
-                                f"et le comptage d'ordre {order} (attendu: AFFECTE)"
+                            reason = (
+                                f"Job {job.reference} (ID: {job.id}) : affectation avec statut '{assignment.status}' "
+                                f"pour le comptage d'ordre {order} (attendu: 'AFFECTE')"
                             )
+                            logger.debug(reason)
+                            rejection_reasons.append(reason)
                             continue
                         
                         # Toutes les validations sont passées pour ce job et ce comptage
@@ -125,12 +157,20 @@ class JobReadyUseCase:
                             f"Aucun job/comptage valide trouvé pour être marqué comme PRET "
                             f"pour le comptage d'ordre {counting_order}"
                         )
-                    return {
+                    
+                    # Ajouter les raisons de rejet si disponibles
+                    response_data = {
                         'message': message,
                         'counting_order': counting_order,
                         'jobs_processed': 0,
                         'jobs': []
                     }
+                    
+                    if rejection_reasons:
+                        response_data['rejection_reasons'] = rejection_reasons
+                        response_data['total_rejections'] = len(rejection_reasons)
+                    
+                    return response_data
                 
                 # Mettre en PRET tous les jobs/comptages validés
                 current_time = timezone.now()
