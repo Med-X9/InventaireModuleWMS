@@ -1062,6 +1062,179 @@ class InventoryResultByWarehouseView(ServerSideDataTableView):
             )
 
 
+class InventoryResultExportExcelView(APIView):
+    """
+    Vue pour exporter les résultats d'inventaire en Excel.
+    """
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.service = InventoryResultService()
+    
+    def get(self, request, inventory_id: int, warehouse_id: int, *args, **kwargs):
+        """
+        Exporte les résultats d'un inventaire pour un entrepôt en fichier Excel.
+        
+        Args:
+            inventory_id: ID de l'inventaire
+            warehouse_id: ID de l'entrepôt
+            
+        Returns:
+            Fichier Excel avec les résultats
+        """
+        try:
+            # Récupérer les résultats via le service
+            results = self.service.get_inventory_results_for_warehouse(
+                inventory_id=inventory_id,
+                warehouse_id=warehouse_id,
+            )
+            
+            if not results:
+                return error_response(
+                    message="Aucun résultat trouvé pour cet inventaire et cet entrepôt",
+                    status_code=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Générer le fichier Excel
+            excel_buffer = self._generate_excel(results, inventory_id, warehouse_id)
+            
+            # Récupérer les informations de l'inventaire pour le nom du fichier
+            try:
+                inventory = Inventory.objects.get(id=inventory_id)
+                inventory_ref = inventory.reference.replace(' ', '_')
+            except Inventory.DoesNotExist:
+                inventory_ref = f"inventaire_{inventory_id}"
+            
+            # Définir le nom du fichier
+            filename = f"resultats_{inventory_ref}_warehouse_{warehouse_id}.xlsx"
+            
+            # Créer la réponse HTTP avec le fichier Excel
+            from django.http import HttpResponse
+            response = HttpResponse(
+                excel_buffer.getvalue(),
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            
+            return response
+            
+        except InventoryNotFoundError as error:
+            logger.warning(
+                "Inventaire introuvable lors de l'export Excel (id=%s, warehouse_id=%s).",
+                inventory_id,
+                warehouse_id,
+            )
+            return error_response(
+                message=str(error),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        except InventoryValidationError as error:
+            logger.warning(
+                "Erreur de validation lors de l'export Excel (id=%s, warehouse_id=%s): %s",
+                inventory_id,
+                warehouse_id,
+                error,
+            )
+            return error_response(
+                message=str(error),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as error:
+            logger.error(
+                "Erreur inattendue lors de l'export Excel (id=%s, warehouse_id=%s): %s",
+                inventory_id,
+                warehouse_id,
+                error,
+                exc_info=True,
+            )
+            return error_response(
+                message="Une erreur inattendue est survenue lors de l'export Excel",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def _generate_excel(self, results, inventory_id: int, warehouse_id: int):
+        """
+        Génère un fichier Excel à partir des résultats.
+        
+        Args:
+            results: Liste des résultats à exporter
+            inventory_id: ID de l'inventaire
+            warehouse_id: ID de l'entrepôt
+            
+        Returns:
+            BytesIO: Buffer contenant le fichier Excel
+        """
+        import pandas as pd
+        import io
+        
+        # Convertir les résultats en DataFrame
+        df = pd.DataFrame(results)
+        
+        # Réorganiser les colonnes pour un meilleur affichage
+        # Ordre souhaité : location_id, location, job_id, product (si présent), product_description (si présent), 
+        # product_internal_code (si présent), puis tous les comptages, puis final_result, ecart_comptage_id, resolved
+        column_order = []
+        
+        # Colonnes de base
+        base_columns = ['location_id', 'location', 'job_id']
+        if 'job_reference' in df.columns:
+            base_columns.append('job_reference')
+        
+        # Colonnes produit (si présentes)
+        product_columns = []
+        if 'product' in df.columns:
+            product_columns.append('product')
+        if 'product_description' in df.columns:
+            product_columns.append('product_description')
+        if 'product_internal_code' in df.columns:
+            product_columns.append('product_internal_code')
+        
+        # Colonnes de comptage (triées par ordre)
+        counting_columns = sorted([col for col in df.columns if col.endswith(' comptage')], 
+                                 key=lambda x: int(x.split()[0]) if x.split()[0].isdigit() else 999)
+        
+        # Colonnes d'écart (triées)
+        ecart_columns = sorted([col for col in df.columns if col.startswith('ecart_')],
+                              key=lambda x: tuple(map(int, x.split('_')[1:])) if all(part.isdigit() for part in x.split('_')[1:]) else (999, 999))
+        
+        # Colonnes finales
+        final_columns = []
+        if 'final_result' in df.columns:
+            final_columns.append('final_result')
+        if 'ecart_comptage_id' in df.columns:
+            final_columns.append('ecart_comptage_id')
+        if 'resolved' in df.columns:
+            final_columns.append('resolved')
+        
+        # Construire l'ordre final
+        column_order = base_columns + product_columns + counting_columns + ecart_columns + final_columns
+        
+        # Réorganiser le DataFrame
+        existing_columns = [col for col in column_order if col in df.columns]
+        df = df[existing_columns]
+        
+        # Créer le fichier Excel en mémoire
+        excel_buffer = io.BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Résultats')
+            
+            # Récupérer la feuille pour appliquer des formats
+            worksheet = writer.sheets['Résultats']
+            
+            # Ajuster la largeur des colonnes
+            from openpyxl.utils import get_column_letter
+            for idx, col in enumerate(df.columns, start=1):
+                max_length = max(
+                    df[col].astype(str).map(len).max(),
+                    len(str(col))
+                )
+                # Limiter la largeur maximale à 50
+                adjusted_width = min(max_length + 2, 50)
+                worksheet.column_dimensions[get_column_letter(idx)].width = adjusted_width
+        
+        excel_buffer.seek(0)
+        return excel_buffer
+
 
 class InventoryImportView(APIView):
     """

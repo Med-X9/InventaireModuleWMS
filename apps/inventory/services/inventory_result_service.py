@@ -7,6 +7,7 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..exceptions import InventoryNotFoundError, InventoryValidationError
+from ..models import Setting
 from ..repositories import (
     CountingRepository,
     InventoryRepository,
@@ -55,15 +56,38 @@ class InventoryResultService:
             )
             raise exc
 
-        warehouse = self.warehouse_repository.get_by_id(warehouse_id)
-        if warehouse is None:
+        # Vérifier que l'entrepôt existe et est associé à cet inventaire
+        from apps.masterdata.models import Warehouse
+        try:
+            warehouse = Warehouse.objects.get(id=warehouse_id, is_deleted=False)
+        except Warehouse.DoesNotExist:
             self.logger.warning(
                 "Entrepôt introuvable lors du calcul des résultats "
                 "(inventory_id=%s, warehouse_id=%s).",
                 inventory_id,
                 warehouse_id,
             )
-            raise InventoryValidationError("Entrepôt introuvable.")
+            raise InventoryValidationError(
+                f"Entrepôt introuvable (ID: {warehouse_id})."
+            )
+        
+        # Vérifier que l'entrepôt est bien associé à cet inventaire
+        if not Setting.objects.filter(inventory_id=inventory_id, warehouse_id=warehouse_id).exists():
+            # Récupérer les entrepôts associés à cet inventaire pour un message plus utile
+            associated_warehouses = Setting.objects.filter(
+                inventory_id=inventory_id
+            ).values_list('warehouse_id', flat=True)
+            
+            self.logger.warning(
+                "L'entrepôt %s n'est pas associé à l'inventaire %s. Entrepôts associés: %s",
+                warehouse_id,
+                inventory_id,
+                list(associated_warehouses),
+            )
+            raise InventoryValidationError(
+                f"L'entrepôt {warehouse_id} ({warehouse.warehouse_name}) n'est pas associé à cet inventaire. "
+                f"Entrepôts disponibles: {', '.join(map(str, associated_warehouses)) if associated_warehouses else 'Aucun'}."
+            )
 
         countings = self.counting_repository.get_by_inventory_id(inventory_id)
         if not countings:
