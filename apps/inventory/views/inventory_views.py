@@ -88,7 +88,7 @@ class InventoryListView(ServerSideDataTableView):
     # Configuration de pagination
     page_size = 20
     min_page_size = 1
-    max_page_size = 100
+    max_page_size = 1000
     
     # Champs de filtrage automatique - TOUS LES CHAMPS
     filter_fields = [
@@ -761,7 +761,7 @@ class InventoryResultByWarehouseView(ServerSideDataTableView):
     # Configuration de pagination
     page_size = 20
     min_page_size = 1
-    max_page_size = 100
+    max_page_size = 1000
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

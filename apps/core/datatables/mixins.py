@@ -124,9 +124,9 @@ def datatable_view(view_class: Type[APIView]) -> Type[APIView]:
                     search_fields=getattr(self, 'search_fields', []),
                     order_fields=getattr(self, 'order_fields', []),
                     default_order=getattr(self, 'default_order', '-id'),
-                    page_size=getattr(self, 'page_size', 25),
+                    page_size=getattr(self, 'page_size', 20),
                     min_page_size=getattr(self, 'min_page_size', 1),
-                    max_page_size=getattr(self, 'max_page_size', 100)
+                    max_page_size=getattr(self, 'max_page_size', 1000)
                 )
                 
                 # Queryset par défaut
@@ -167,9 +167,9 @@ def quick_datatable_view(model_cls: Type[Model] = None,
                         search_fields_list: List[str] = None,
                         order_fields_list: List[str] = None,
                         default_order_str: str = '-id',
-                        page_size_int: int = 25,
+                        page_size_int: int = 20,
                         min_page_size_int: int = 1,
-                        max_page_size_int: int = 100) -> Type[APIView]:
+                        max_page_size_int: int = 1000) -> Type[APIView]:
     """
     Crée rapidement une vue DataTable complète
     
@@ -448,9 +448,9 @@ class DataTableMixin:
             search_fields=getattr(self, 'search_fields', []),
             order_fields=getattr(self, 'order_fields', []),
             default_order=getattr(self, 'default_order', '-id'),
-            page_size=getattr(self, 'page_size', 25),
+            page_size=getattr(self, 'page_size', 20),
             min_page_size=getattr(self, 'min_page_size', 1),
-            max_page_size=getattr(self, 'max_page_size', 100)
+            max_page_size=getattr(self, 'max_page_size', 1000)
         )
     
     def get_datatable_queryset(self) -> QuerySet:
@@ -712,9 +712,9 @@ class ServerSideDataTableView(DataTableListView):
     default_order = '-id'
     
     # Configuration de pagination
-    page_size = 25
+    page_size = 20
     min_page_size = 1
-    max_page_size = 100
+    max_page_size = 1000
     
     # Champs de filtrage automatique
     filter_fields = []

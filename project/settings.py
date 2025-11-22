@@ -487,10 +487,10 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_THROTTLE_RATES': {
         'anon': '100/hour',  # 100 requêtes par heure pour les utilisateurs anonymes
-        'user': '1000/hour',  # 1000 requêtes par heure pour les utilisateurs authentifiés
-        'login': '5/minute',  # 5 tentatives de login par minute (protection force brute)
-        'refresh': '10/minute',  # 10 rafraîchissements par minute
-        'verify': '20/minute',  # 20 vérifications par minute
+        'user': '10000/hour',  # 10000 requêtes par heure pour les utilisateurs authentifiés (augmenté de 1000 à 10000)
+        'login': '10/minute',  # 10 tentatives de login par minute (protection force brute, augmenté de 5 à 10)
+        'refresh': '30/minute',  # 30 rafraîchissements par minute (augmenté de 10 à 30)
+        'verify': '50/minute',  # 50 vérifications par minute (augmenté de 20 à 50)
     }
 }  
 

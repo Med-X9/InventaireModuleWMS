@@ -230,7 +230,7 @@ class DataTableConfig(IDataTableConfig):
                  search_fields: List[str] = None,
                  order_fields: List[str] = None,
                  default_order: str = '-created_at',
-                 page_size: int = 25,
+                 page_size: int = 20,
                  min_page_size: int = 1,
                  max_page_size: int = 1000):
         """

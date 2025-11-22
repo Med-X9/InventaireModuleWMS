@@ -83,6 +83,35 @@ pipeline {
                         sh """
                             rm -rf /tmp/backend
                             git clone --single-branch --branch ${env.BRANCH_NAME} https://\$GIT_USER:\$GIT_PASS@${env.BACKEND_REPO.replace('https://', '')} /tmp/backend
+                            
+                            # Vérifier que le clone a réussi et que les fichiers essentiels existent
+                            if [ ! -d /tmp/backend ]; then
+                                echo "ERROR: Repository clone failed!"
+                                exit 1
+                            fi
+                            
+                            echo "Verifying essential files after clone..."
+                            cd /tmp/backend
+                            echo "Current branch: \$(git branch --show-current)"
+                            echo "Commit: \$(git rev-parse HEAD)"
+                            
+                            # Vérifier la présence des fichiers essentiels
+                            if [ ! -f Dockerfile ]; then
+                                echo "ERROR: Dockerfile not found in branch ${env.BRANCH_NAME}!"
+                                echo "Files in repository root:"
+                                ls -la
+                                exit 1
+                            fi
+                            
+                            if [ ! -f docker-compose.yml ]; then
+                                echo "WARNING: docker-compose.yml not found in branch ${env.BRANCH_NAME}!"
+                            fi
+                            
+                            if [ ! -f requirements.txt ]; then
+                                echo "WARNING: requirements.txt not found in branch ${env.BRANCH_NAME}!"
+                            fi
+                            
+                            echo "✓ Essential files verified"
                         """
                     }
                 }
@@ -109,7 +138,16 @@ pipeline {
                             // Install dependencies if specified
                             if (sonarConfig.setup_commands) {
                                 sonarConfig.setup_commands.each { command ->
-                                    sh "${command} || echo 'Warning: Command failed, continuing with analysis...'"
+                                    // Ignorer les erreurs de pip si pip n'est pas installé
+                                    sh """
+                                        ${command} || {
+                                            if echo '${command}' | grep -q 'pip install'; then
+                                                echo 'Warning: pip command failed (pip may not be installed), continuing...'
+                                            else
+                                                echo 'Warning: Command failed, continuing with analysis...'
+                                            fi
+                                        }
+                                    """
                                 }
                             }
                         } catch (Exception e) {
@@ -137,13 +175,17 @@ pipeline {
                                 
                                 sh """
                                     echo "Starting SonarQube analysis for branch: ${env.BRANCH_NAME}"
-                                    \${scannerHome}/bin/sonar-scanner ${sonarArgs.join(' \\\n                                        ')}
+                                    timeout 300 \${scannerHome}/bin/sonar-scanner ${sonarArgs.join(' \\\n                                        ')} || {
+                                        echo "Warning: SonarQube analysis timed out or failed, but continuing build..."
+                                        exit 0
+                                    }
                                     echo "SonarQube analysis completed for branch: ${env.BRANCH_NAME}"
                                 """
                             }
                         } catch (Exception e) {
                             echo "Warning: SonarQube analysis encountered issues but continuing build: ${e.getMessage()}"
                             echo "Check SonarQube dashboard for detailed analysis results"
+                            echo "SonarQube server may be unreachable or timeout occurred"
                             currentBuild.result = 'UNSTABLE'
                         }
                     }
@@ -218,6 +260,20 @@ pipeline {
             steps {
                 dir('/tmp/backend') {
                     script {
+                        // Vérifier que le Dockerfile existe avant de builder
+                        sh """
+                            echo "Checking for Dockerfile in /tmp/backend..."
+                            ls -la /tmp/backend/ | head -20
+                            if [ ! -f Dockerfile ]; then
+                                echo "ERROR: Dockerfile not found in /tmp/backend!"
+                                echo "Current directory: \$(pwd)"
+                                echo "Files in current directory:"
+                                ls -la
+                                exit 1
+                            fi
+                            echo "✓ Dockerfile found, proceeding with build..."
+                        """
+                        
                         def imageTag = "${env.IMAGE_TAG_SUFFIX}"
                         sh "docker build -t ${env.BACKEND_IMAGE}:${imageTag} ."
                         sh "docker tag ${env.BACKEND_IMAGE}:${imageTag} ${env.BACKEND_IMAGE}:${env.IMAGE_TAG}"

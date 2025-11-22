@@ -22,7 +22,7 @@ UTILISATION RAPIDE:
                 search_fields=['label', 'reference'],
                 order_fields=['id', 'label', 'date'],
                 default_order='-date',
-                page_size=25
+                page_size=20
             )
         
         def get_datatable_queryset(self):
@@ -205,7 +205,7 @@ EXEMPLES D'UTILISATION:
                 search_fields=['label', 'reference'],
                 order_fields=['id', 'label', 'date'],
                 default_order='-date',
-                page_size=25
+                page_size=20
             )
         
         def get_datatable_queryset(self):
