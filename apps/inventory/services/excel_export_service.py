@@ -77,7 +77,7 @@ class ExcelExportService:
             row = {
                 'Référence': product_data['product_reference'],
                 'Code Produit': product_data['product_code'],
-                'Description': product_data['product_description'],
+                'Désignation': product_data['product_description'],
                 'Code-barres': product_data['product_barcode'],
                 'Unité': product_data['product_unit'],
                 'Famille': product_data['product_family'],
