@@ -63,12 +63,29 @@ class UserProductsView(APIView):
                     type=openapi.TYPE_OBJECT,
                     properties={
                         'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=True),
+                        'message': openapi.Schema(type=openapi.TYPE_STRING, example='Produits récupérés avec succès'),
                         'data': openapi.Schema(
                             type=openapi.TYPE_OBJECT,
                             properties={
                                 'products': openapi.Schema(
                                     type=openapi.TYPE_ARRAY,
-                                    items=openapi.Schema(type=openapi.TYPE_OBJECT),
+                                    items=openapi.Schema(
+                                        type=openapi.TYPE_OBJECT,
+                                        properties={
+                                            'web_id': openapi.Schema(type=openapi.TYPE_INTEGER, example=5105),
+                                            'product_name': openapi.Schema(type=openapi.TYPE_STRING, nullable=True, example=None),
+                                            'product_code': openapi.Schema(type=openapi.TYPE_STRING, example='8690644022340'),
+                                            'internal_product_code': openapi.Schema(type=openapi.TYPE_STRING, example='M0405-0001'),
+                                            'family_name': openapi.Schema(type=openapi.TYPE_STRING, example='PASTEL'),
+                                            'is_variant': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
+                                            'n_lot': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
+                                            'n_serie': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
+                                            'dlc': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
+                                            'numeros_serie': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Schema(type=openapi.TYPE_OBJECT), example=[]),
+                                            'created_at': openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_DATETIME),
+                                            'updated_at': openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_DATETIME)
+                                        }
+                                    ),
                                     description="Liste des produits du même compte"
                                 )
                             }
@@ -131,15 +148,35 @@ class UserProductsView(APIView):
             user_id: ID de l'utilisateur (depuis l'URL)
             
         Returns:
-            Response: Liste des produits du même compte que l'utilisateur
+            Response: Liste des produits avec seulement les informations essentielles
         """
         try:
             user_service = UserService()
             
             response_data = user_service.get_user_products(user_id)
             
+            # Extraire seulement les informations demandées de chaque produit
+            products = []
+            if response_data and 'data' in response_data and 'products' in response_data['data']:
+                for product in response_data['data']['products']:
+                    products.append({
+                        'web_id': product.get('web_id'),
+                        'product_name': product.get('product_name'),
+                        'product_code': product.get('product_code'),
+                        'internal_product_code': product.get('internal_product_code'),
+                        'family_name': product.get('family_name'),
+                        'is_variant': product.get('is_variant'),
+                        'n_lot': product.get('n_lot'),
+                        'n_serie': product.get('n_serie'),
+                        'dlc': product.get('dlc'),
+                        'numeros_serie': product.get('numeros_serie', []),
+                        'created_at': product.get('created_at'),
+                        'updated_at': product.get('updated_at')
+                    })
+            
+            # Retourner avec success_response mais seulement les products dans data
             return success_response(
-                data=response_data,
+                data={'products': products},
                 message="Produits récupérés avec succès"
             )
             
@@ -156,10 +193,9 @@ class UserProductsView(APIView):
                 error_type='ACCOUNT_NOT_FOUND'
             )
         except ProductNotFoundException as e:
-            # Retourner 200 avec liste vide si aucun produit trouvé
             return success_response(
                 data={'products': []},
-                message="Aucun produit trouvé"
+                message="Produits récupérés avec succès"
             )
         except DataValidationException as e:
             return error_response(

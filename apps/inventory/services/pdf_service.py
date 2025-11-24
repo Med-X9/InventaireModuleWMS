@@ -13,9 +13,6 @@ import os
 from django.utils import timezone
 from ..interfaces.pdf_interface import PDFServiceInterface
 from ..repositories.pdf_repository import PDFRepository
-import logging
-
-logger = logging.getLogger(__name__)
 
 
 class PDFService(PDFServiceInterface):
@@ -106,63 +103,45 @@ class PDFService(PDFServiceInterface):
         
         # Construire le contenu
         story = []
-        total_jobs_processed = 0
-        total_jobs_with_content = 0
+        
+        # Log pour diagnostiquer
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Génération PDF pour inventaire {inventory_id}: {len(countings)} comptages trouvés")
         
         # Pour chaque comptage
         for counting in countings:
             # Recuperer TOUS les jobs pour ce comptage avec filtre PRET et TRANSFERT
             jobs = self.repository.get_jobs_by_counting(inventory, counting)
-            
-            logger.info(
-                f"Comptage {counting.order} (ID: {counting.id}): "
-                f"{len(jobs)} job(s) trouvé(s) avec statut PRET ou TRANSFERT"
-            )
+            logger.info(f"Comptage {counting.id} (ordre {counting.order}): {len(jobs)} jobs trouvés")
             
             if jobs:
                 # Grouper les jobs par utilisateur
                 jobs_by_user = self._group_jobs_by_user(jobs)
+                logger.info(f"Comptage {counting.id}: {len(jobs_by_user)} utilisateurs distincts")
                 
                 # Pour chaque utilisateur et chaque job
                 for user, user_jobs in jobs_by_user.items():
                     for job in user_jobs:
-                        total_jobs_processed += 1
                         # Construire les pages pour ce job (avec pagination de 20 lignes)
                         job_pages = self._build_job_pages(
                             job, counting, user, inventory, warehouse_info, account_info
                         )
                         if job_pages:
                             story.extend(job_pages)
-                            total_jobs_with_content += 1
+                            logger.info(f"Job {job.reference}: {len(job_pages)} éléments ajoutés au PDF")
                         else:
-                            logger.warning(
-                                f"Job {job.reference} (ID: {job.id}) n'a généré aucun contenu "
-                                f"pour le comptage {counting.order}"
-                            )
-            else:
-                logger.warning(
-                    f"Aucun job trouvé pour le comptage {counting.order} (ID: {counting.id}) "
-                    f"avec statut PRET ou TRANSFERT"
-                )
+                            logger.warning(f"Job {job.reference}: aucun élément généré (pas de job_details ou données vides)")
         
-        logger.info(
-            f"Génération PDF: {total_jobs_processed} job(s) traité(s), "
-            f"{total_jobs_with_content} job(s) avec contenu, "
-            f"{len(story)} élément(s) dans le story"
-        )
+        logger.info(f"Total éléments dans le PDF: {len(story)}")
         
-        # Vérifier qu'il y a du contenu avant de générer le PDF
+        # Vérifier qu'il y a du contenu à générer
         if not story:
-            error_msg = (
+            raise ValueError(
                 f"Aucun contenu à générer pour l'inventaire {inventory_id}. "
-                f"Raison possible: "
-                f"1) Aucun job avec statut PRET ou TRANSFERT trouvé pour les comptages d'ordre 1 ou 2, "
-                f"2) Les jobs trouvés n'ont pas d'emplacements (job_details), "
-                f"3) Les emplacements n'ont pas de stocks à afficher. "
-                f"Jobs traités: {total_jobs_processed}, Jobs avec contenu: {total_jobs_with_content}"
+                f"Vérifiez qu'il y a des jobs avec statut PRET ou TRANSFERT "
+                f"et des job_details associés pour les comptages d'ordre 1 ou 2."
             )
-            logger.error(error_msg)
-            raise ValueError(error_msg)
         
         # Creer le document PDF avec marges ajustées
         doc = SimpleDocTemplate(
@@ -184,6 +163,12 @@ class PDFService(PDFServiceInterface):
         
         # Reinitialiser le buffer
         buffer.seek(0)
+        
+        # Vérifier que le buffer contient des données
+        buffer_content = buffer.getvalue()
+        if len(buffer_content) == 0:
+            raise ValueError("Le PDF généré est vide")
+        
         return buffer
     
     def _get_warehouse_info(self, inventory):
@@ -417,6 +402,7 @@ class PDFService(PDFServiceInterface):
                     for stock in stocks:
                         row = {
                             'location': location.location_reference,
+                            'internal_product_code': stock.product.Internal_Product_Code if stock.product and stock.product.Internal_Product_Code else '-',
                             'barcode': stock.product.Barcode if stock.product and stock.product.Barcode else '-',
                             'designation': stock.product.Short_Description if stock.product else '-',
                             'quantite_theorique': stock.quantity_available,
@@ -430,6 +416,7 @@ class PDFService(PDFServiceInterface):
                     # Pas de stock - une ligne vide
                     row = {
                         'location': location.location_reference,
+                        'internal_product_code': '-',
                         'barcode': '-',
                         'designation': '-',
                         'quantite_theorique': '-',
@@ -471,7 +458,8 @@ class PDFService(PDFServiceInterface):
         
         if 'vrac' not in counting.count_mode.lower():
             # Mode par article - toujours afficher Article et Désignation pour le PDF
-            headers.append('Article')  # Code barre
+            headers.append('Article')  # Internal_Product_Code
+            headers.append('Code à barre')  # Barcode
             headers.append('Désignation')
             headers.append('Quantité physique')  # Toujours présent
             
@@ -500,7 +488,9 @@ class PDFService(PDFServiceInterface):
             
             if 'vrac' not in counting.count_mode.lower():
                 # Mode par article - toujours afficher Article et Désignation pour le PDF
-                # Article (code barre)
+                # Article (Internal_Product_Code)
+                table_row.append(row.get('internal_product_code', '-'))
+                # Code à barre (Barcode)
                 table_row.append(row.get('barcode', '-'))
                 # Désignation
                 table_row.append(row.get('designation', '-'))
@@ -1477,6 +1467,7 @@ class PDFService(PDFServiceInterface):
                 
                 row = {
                     'location': location.location_reference,
+                    'internal_product_code': product.Internal_Product_Code if product and product.Internal_Product_Code else '-',
                     'barcode': product.Barcode if product and product.Barcode else '-',
                     'designation': product.Short_Description if product else '-',
                     'quantite_physique': quantity,

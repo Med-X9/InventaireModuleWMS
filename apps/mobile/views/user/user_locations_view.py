@@ -63,12 +63,22 @@ class UserLocationsView(APIView):
                     type=openapi.TYPE_OBJECT,
                     properties={
                         'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=True),
+                        'message': openapi.Schema(type=openapi.TYPE_STRING, example='Emplacements récupérés avec succès'),
                         'data': openapi.Schema(
                             type=openapi.TYPE_OBJECT,
                             properties={
                                 'locations': openapi.Schema(
                                     type=openapi.TYPE_ARRAY,
-                                    items=openapi.Schema(type=openapi.TYPE_OBJECT),
+                                    items=openapi.Schema(
+                                        type=openapi.TYPE_OBJECT,
+                                        properties={
+                                            'web_id': openapi.Schema(type=openapi.TYPE_INTEGER, example=4146),
+                                            'location_reference': openapi.Schema(type=openapi.TYPE_STRING, example='00100'),
+                                            'location_name': openapi.Schema(type=openapi.TYPE_STRING, example='00100'),
+                                            'created_at': openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_DATETIME),
+                                            'updated_at': openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_DATETIME)
+                                        }
+                                    ),
                                     description="Liste des emplacements du même compte"
                                 )
                             }
@@ -131,15 +141,28 @@ class UserLocationsView(APIView):
             user_id: ID de l'utilisateur (depuis l'URL)
             
         Returns:
-            Response: Liste des emplacements du même compte que l'utilisateur
+            Response: Liste des emplacements avec seulement les informations essentielles
         """
         try:
             user_service = UserService()
             
             response_data = user_service.get_user_locations(user_id)
             
+            # Extraire seulement les informations demandées de chaque location
+            locations = []
+            if response_data and 'data' in response_data and 'locations' in response_data['data']:
+                for location in response_data['data']['locations']:
+                    locations.append({
+                        'web_id': location.get('web_id'),
+                        'location_reference': location.get('location_reference'),
+                        'location_name': location.get('location_name'),
+                        'created_at': location.get('created_at'),
+                        'updated_at': location.get('updated_at')
+                    })
+            
+            # Retourner avec success_response mais seulement les locations dans data
             return success_response(
-                data=response_data,
+                data={'locations': locations},
                 message="Emplacements récupérés avec succès"
             )
             
@@ -158,7 +181,7 @@ class UserLocationsView(APIView):
         except LocationNotFoundException as e:
             return success_response(
                 data={'locations': []},
-                message="Aucun emplacement trouvé"
+                message="Emplacements récupérés avec succès"
             )
         except DataValidationException as e:
             return error_response(
