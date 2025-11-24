@@ -326,18 +326,7 @@ pipeline {
                         
                         // Add or update IMAGE_TAG variable in .env file on remote server
                         sh """
-                            sshpass -p "\$PASS" ssh -o StrictHostKeyChecking=no "\$USER@\$DEPLOY_HOST" bash -c '
-                                cd /tmp/deployment/backend &&
-                                if grep -q "^IMAGE_TAG=" .env 2>/dev/null; then
-                                    sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${imageTag}|" .env
-                                    echo "Updated IMAGE_TAG=${imageTag} in .env file"
-                                else
-                                    echo "IMAGE_TAG=${imageTag}" >> .env
-                                    echo "Added IMAGE_TAG=${imageTag} to .env file"
-                                fi &&
-                                echo "Verifying IMAGE_TAG in .env:" &&
-                                grep "^IMAGE_TAG=" .env || echo "WARNING: IMAGE_TAG not found in .env"
-                            '
+                            sshpass -p "\$PASS" ssh -o StrictHostKeyChecking=no "\$USER@\$DEPLOY_HOST" "cd /tmp/deployment/backend && if grep -q '^IMAGE_TAG=' .env 2>/dev/null; then sed -i 's|^IMAGE_TAG=.*|IMAGE_TAG=${imageTag}|' .env && echo 'Updated IMAGE_TAG=${imageTag} in .env file'; else echo 'IMAGE_TAG=${imageTag}' >> .env && echo 'Added IMAGE_TAG=${imageTag} to .env file'; fi && echo 'Verifying IMAGE_TAG in .env:' && grep '^IMAGE_TAG=' .env || echo 'WARNING: IMAGE_TAG not found in .env'"
                         """
                     }
                 }
@@ -363,41 +352,7 @@ pipeline {
                     withCredentials([usernamePassword(credentialsId: env.DEPLOY_CREDS, usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                         def imageTag = env.BRANCH_NAME == 'main' ? 'prod-latest' : 'dev-latest'
                         sh """
-                            sshpass -p "\$PASS" ssh -o StrictHostKeyChecking=no "\$USER@\$DEPLOY_HOST" bash -c '
-                                cd /tmp/deployment/backend &&
-                                
-                                # Vérifier que le fichier .env existe
-                                if [ ! -f .env ]; then
-                                    echo "ERROR: .env file not found!"
-                                    exit 1
-                                fi
-                                
-                                # Vérifier que IMAGE_TAG est défini dans .env
-                                if ! grep -q "^IMAGE_TAG=" .env; then
-                                    echo "ERROR: IMAGE_TAG not found in .env file!"
-                                    echo "Adding IMAGE_TAG=${imageTag} to .env..."
-                                    echo "IMAGE_TAG=${imageTag}" >> .env
-                                fi
-                                
-                                # Afficher la valeur de IMAGE_TAG pour debug
-                                echo "Verifying IMAGE_TAG in .env:"
-                                grep "^IMAGE_TAG=" .env || echo "WARNING: IMAGE_TAG not found"
-                                
-                                # Vérifier que la valeur de IMAGE_TAG est valide (pas vide, pas d'espaces)
-                                IMAGE_TAG_VALUE=\$(grep "^IMAGE_TAG=" .env | cut -d= -f2)
-                                if [ -z "\$IMAGE_TAG_VALUE" ] || [ "\$IMAGE_TAG_VALUE" != "\${IMAGE_TAG_VALUE// /}" ]; then
-                                    echo "ERROR: IMAGE_TAG has invalid value: '\$IMAGE_TAG_VALUE'"
-                                    exit 1
-                                fi
-                                
-                                echo "IMAGE_TAG value: \$IMAGE_TAG_VALUE"
-                                echo "Expected image: smatchdigital/backend-app:\$IMAGE_TAG_VALUE"
-                                
-                                # Déployer
-                                docker-compose down -v && 
-                                docker-compose pull && 
-                                docker-compose up -d
-                            '
+                            sshpass -p "\$PASS" ssh -o StrictHostKeyChecking=no "\$USER@\$DEPLOY_HOST" "cd /tmp/deployment/backend && if [ ! -f .env ]; then echo 'ERROR: .env file not found!' && exit 1; fi && if ! grep -q '^IMAGE_TAG=' .env; then echo 'ERROR: IMAGE_TAG not found in .env file!' && echo 'Adding IMAGE_TAG=${imageTag} to .env...' && echo 'IMAGE_TAG=${imageTag}' >> .env; fi && echo 'Verifying IMAGE_TAG in .env:' && grep '^IMAGE_TAG=' .env || echo 'WARNING: IMAGE_TAG not found' && IMAGE_TAG_VALUE=\$(grep '^IMAGE_TAG=' .env | cut -d= -f2) && if [ -z \"\$IMAGE_TAG_VALUE\" ]; then echo 'ERROR: IMAGE_TAG has empty value' && exit 1; fi && echo \"IMAGE_TAG value: \$IMAGE_TAG_VALUE\" && echo \"Expected image: smatchdigital/backend-app:\$IMAGE_TAG_VALUE\" && docker-compose down -v && docker-compose pull && docker-compose up -d"
                         """
                     }
                 }

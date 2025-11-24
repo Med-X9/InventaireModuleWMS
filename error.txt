@@ -14,19 +14,17 @@ Seen branch in repository origin/dev-2
 Seen branch in repository origin/devops
 Seen branch in repository origin/main
 Seen 4 remote branches
-Obtained Jenkinsfile from 664a465e3574740081b09fb16d4ede7f072cdf86
+Obtained Jenkinsfile from 62c6475125242c205be8ee059ac0ee56164674c2
 [Pipeline] Start of Pipeline
 [Pipeline] node
-Still waiting to schedule task
-Waiting for next available executor
-Running on Jenkins in /var/jenkins_home/workspace/WMS_dev@2
+Running on Jenkins in /var/jenkins_home/workspace/WMS_dev
 [Pipeline] {
 [Pipeline] stage
 [Pipeline] { (Declarative: Checkout SCM)
 [Pipeline] checkout
 The recommended git tool is: git
 using credential github-creds
- > git rev-parse --resolve-git-dir /var/jenkins_home/workspace/WMS_dev@2/.git # timeout=10
+ > git rev-parse --resolve-git-dir /var/jenkins_home/workspace/WMS_dev/.git # timeout=10
 Fetching changes from the remote Git repository
  > git config remote.origin.url https://github.com/Med-X9/InventaireModuleWMS.git # timeout=10
 Fetching without tags
@@ -35,10 +33,10 @@ Fetching upstream changes from https://github.com/Med-X9/InventaireModuleWMS.git
  > git --version # 'git version 2.39.5'
 using GIT_ASKPASS to set credentials github-creds
  > git fetch --no-tags --force --progress -- https://github.com/Med-X9/InventaireModuleWMS.git +refs/heads/*:refs/remotes/origin/* # timeout=10
-Checking out Revision 664a465e3574740081b09fb16d4ede7f072cdf86 (dev)
+Checking out Revision 62c6475125242c205be8ee059ac0ee56164674c2 (dev)
  > git config core.sparsecheckout # timeout=10
- > git checkout -f 664a465e3574740081b09fb16d4ede7f072cdf86 # timeout=10
-Commit message: "Merge branch 'dev-2' into dev"
+ > git checkout -f 62c6475125242c205be8ee059ac0ee56164674c2 # timeout=10
+Commit message: "update"
  > git rev-list --no-walk 664a465e3574740081b09fb16d4ede7f072cdf86 # timeout=10
 [Pipeline] }
 [Pipeline] // stage
@@ -65,8 +63,94 @@ Masking supported pattern matches of $GIT_PASS
 [Pipeline] {
 [Pipeline] sh
 + rm -rf /tmp/backend
++ echo Cloning repository branch dev...
+Cloning repository branch dev...
 + git clone --single-branch --branch dev https://Med-X9:****@github.com/Med-X9/InventaireModuleWMS.git /tmp/backend
 Cloning into '/tmp/backend'...
++ [ ! -d /tmp/backend ]
++ ls -A /tmp/backend
++ [ -z .cursorrules
+.dockerignore
+.env copy
+.git
+.gitattributes
+.gitignore
+DATATABLE_ENDPOINTS.md
+Dockerfile
+GUIDE_OPTIMISATION_PERFORMANCE.md
+Jenkinsfile
+Jenkinsfile.backup
+RAPPORT_PERFORMANCE_APPS.md
+SECURITY.md
+apps
+config
+diagnostic_502.sh
+diagnostic_postgres.sh
+docker-compose.yml
+error.txt
+fix_postgres_connection.sh
+fix_postgres_quick.sh
+jenkins-config.yml
+manage.py
+nginx
+package.json
+project
+requirements.txt
+static
+staticfiles
+templates
+test_api_commands.txt
+test_counting_detail_api.py
+test_counting_detail_service.py
+test_counting_detail_simple.py ]
++ echo ✓ Repository cloned successfully
+✓ Repository cloned successfully
++ cd /tmp/backend
++ git branch --show-current
++ echo Current branch: dev
+Current branch: dev
++ git rev-parse HEAD
++ echo Commit: 62c6475125242c205be8ee059ac0ee56164674c2
+Commit: 62c6475125242c205be8ee059ac0ee56164674c2
++ pwd
++ echo Working directory: /tmp/backend
+Working directory: /tmp/backend
++ echo Files in repository root:
+Files in repository root:
++ ls -la
++ head -20
+total 256
+drwxr-xr-x 10 jenkins jenkins  4096 Nov 24 14:27 .
+drwxrwxrwt  1 root    root     4096 Nov 24 14:27 ..
+-rw-r--r--  1 jenkins jenkins  5483 Nov 24 14:27 .cursorrules
+-rw-r--r--  1 jenkins jenkins   634 Nov 24 14:27 .dockerignore
+-rw-r--r--  1 jenkins jenkins  4119 Nov 24 14:27 .env copy
+drwxr-xr-x  8 jenkins jenkins  4096 Nov 24 14:27 .git
+-rw-r--r--  1 jenkins jenkins    66 Nov 24 14:27 .gitattributes
+-rw-r--r--  1 jenkins jenkins   668 Nov 24 14:27 .gitignore
+-rw-r--r--  1 jenkins jenkins  7442 Nov 24 14:27 DATATABLE_ENDPOINTS.md
+-rw-r--r--  1 jenkins jenkins  1598 Nov 24 14:27 Dockerfile
+-rw-r--r--  1 jenkins jenkins 23780 Nov 24 14:27 GUIDE_OPTIMISATION_PERFORMANCE.md
+-rw-r--r--  1 jenkins jenkins 24601 Nov 24 14:27 Jenkinsfile
+-rw-r--r--  1 jenkins jenkins 16657 Nov 24 14:27 Jenkinsfile.backup
+-rw-r--r--  1 jenkins jenkins  9659 Nov 24 14:27 RAPPORT_PERFORMANCE_APPS.md
+-rw-r--r--  1 jenkins jenkins  5963 Nov 24 14:27 SECURITY.md
+drwxr-xr-x  7 jenkins jenkins  4096 Nov 24 14:27 apps
+drwxr-xr-x  3 jenkins jenkins  4096 Nov 24 14:27 config
+-rw-r--r--  1 jenkins jenkins  2881 Nov 24 14:27 diagnostic_502.sh
+-rw-r--r--  1 jenkins jenkins  7175 Nov 24 14:27 diagnostic_postgres.sh
++ [ ! -f Dockerfile ]
++ [ ! -r Dockerfile ]
++ echo ✓ Dockerfile found and readable
+✓ Dockerfile found and readable
++ echo Dockerfile preview (first 5 lines):
+Dockerfile preview (first 5 lines):
++ head -5 Dockerfile
+# Stage 1: Builder
+FROM python:3.12.1-slim as builder
+
+# Variables d'environnement pour Python
+ENV PYTHONUNBUFFERED=1 \
 [Pipeline] }
 [Pipeline] // withCredentials
 [Pipeline] }
@@ -95,13 +179,13 @@ Injecting SonarQube environment variables using the configuration: SonarQube-Ser
 + echo Starting SonarQube analysis for branch: dev
 Starting SonarQube analysis for branch: dev
 + /var/jenkins_home/tools/hudson.plugins.sonar.SonarRunnerInstallation/sonar-scanner/bin/sonar-scanner -Dsonar.projectKey=inventaire-module-wms-dev -Dsonar.projectName=InventaireModuleWMS-dev -Dsonar.projectVersion=1.0 -Dsonar.sources=apps,project,config -Dsonar.sourceEncoding=UTF-8 -Dsonar.language=py -Dsonar.python.version=3.12 -Dsonar.tests=apps -Dsonar.test.inclusions=**/tests/**/*.py,**/test_*.py -Dsonar.exclusions=**/migrations/**,**/staticfiles/**,**/static/**,**/media/**,**/__pycache__/**,**/venv/**,**/env/**,**/node_modules/**,**/*.pyc,**/manage.py,**/wsgi.py,**/asgi.py,**/settings/**,**/*.min.js,**/*.min.css -Dsonar.coverage.exclusions=**/migrations/**,**/tests/**,**/test_*.py,**/conftest.py,**/manage.py,**/wsgi.py,**/asgi.py,**/settings/**,**/__init__.py -Dsonar.cpd.exclusions=**/migrations/**,**/tests/** -Dsonar.qualitygate.wait=false
-14:07:36.162 INFO  Scanner configuration file: /var/jenkins_home/tools/hudson.plugins.sonar.SonarRunnerInstallation/sonar-scanner/conf/sonar-scanner.properties
-14:07:36.172 INFO  Project root configuration file: NONE
-14:07:36.212 INFO  SonarScanner CLI 7.2.0.5079
-14:07:36.216 INFO  Linux 5.15.0-1078-kvm amd64
-14:07:44.761 ERROR Failed to query server version: Call to URL [http://147.93.55.221:9000/api/v2/analysis/version] failed: Connect timed out
-14:07:44.762 INFO  EXECUTION FAILURE
-14:07:44.763 INFO  Total time: 8.648s
+14:27:21.029 INFO  Scanner configuration file: /var/jenkins_home/tools/hudson.plugins.sonar.SonarRunnerInstallation/sonar-scanner/conf/sonar-scanner.properties
+14:27:21.037 INFO  Project root configuration file: NONE
+14:27:21.071 INFO  SonarScanner CLI 7.2.0.5079
+14:27:21.076 INFO  Linux 5.15.0-1078-kvm amd64
+14:27:30.012 ERROR Failed to query server version: Call to URL [http://147.93.55.221:9000/api/v2/analysis/version] failed: Connect timed out
+14:27:30.012 INFO  EXECUTION FAILURE
+14:27:30.013 INFO  Total time: 9.033s
 [Pipeline] }
 WARN: Unable to locate 'report-task.txt' in the workspace. Did the SonarScanner succeed?
 [Pipeline] // withSonarQubeEnv
@@ -138,18 +222,145 @@ Masking supported pattern matches of $SONAR_PASS
 [Pipeline] // stage
 [Pipeline] stage
 [Pipeline] { (Build Backend Docker Image)
+[Pipeline] script
+[Pipeline] {
+[Pipeline] sh
++ test -d /tmp/backend
++ test -f /tmp/backend/Dockerfile
+[Pipeline] echo
+✓ /tmp/backend exists and contains Dockerfile, proceeding...
+[Pipeline] }
+[Pipeline] // script
 [Pipeline] dir
 Running in /tmp/backend
 [Pipeline] {
 [Pipeline] script
 [Pipeline] {
 [Pipeline] sh
++ echo Checking for Dockerfile in /tmp/backend...
+Checking for Dockerfile in /tmp/backend...
++ pwd
++ echo Current directory: /tmp/backend
+Current directory: /tmp/backend
++ echo Files in current directory:
+Files in current directory:
++ ls -la
++ head -20
+total 256
+drwxr-xr-x 10 jenkins jenkins  4096 Nov 24 14:27 .
+drwxrwxrwt  1 root    root     4096 Nov 24 14:27 ..
+-rw-r--r--  1 jenkins jenkins  5483 Nov 24 14:27 .cursorrules
+-rw-r--r--  1 jenkins jenkins   634 Nov 24 14:27 .dockerignore
+-rw-r--r--  1 jenkins jenkins  4119 Nov 24 14:27 .env copy
+drwxr-xr-x  8 jenkins jenkins  4096 Nov 24 14:27 .git
+-rw-r--r--  1 jenkins jenkins    66 Nov 24 14:27 .gitattributes
+-rw-r--r--  1 jenkins jenkins   668 Nov 24 14:27 .gitignore
+-rw-r--r--  1 jenkins jenkins  7442 Nov 24 14:27 DATATABLE_ENDPOINTS.md
+-rw-r--r--  1 jenkins jenkins  1598 Nov 24 14:27 Dockerfile
+-rw-r--r--  1 jenkins jenkins 23780 Nov 24 14:27 GUIDE_OPTIMISATION_PERFORMANCE.md
+-rw-r--r--  1 jenkins jenkins 24601 Nov 24 14:27 Jenkinsfile
+-rw-r--r--  1 jenkins jenkins 16657 Nov 24 14:27 Jenkinsfile.backup
+-rw-r--r--  1 jenkins jenkins  9659 Nov 24 14:27 RAPPORT_PERFORMANCE_APPS.md
+-rw-r--r--  1 jenkins jenkins  5963 Nov 24 14:27 SECURITY.md
+drwxr-xr-x  7 jenkins jenkins  4096 Nov 24 14:27 apps
+drwxr-xr-x  3 jenkins jenkins  4096 Nov 24 14:27 config
+-rw-r--r--  1 jenkins jenkins  2881 Nov 24 14:27 diagnostic_502.sh
+-rw-r--r--  1 jenkins jenkins  7175 Nov 24 14:27 diagnostic_postgres.sh
++ [ ! -f Dockerfile ]
++ echo ✓ Dockerfile found, proceeding with build...
+✓ Dockerfile found, proceeding with build...
++ echo Dockerfile content (first 10 lines):
+Dockerfile content (first 10 lines):
++ head -10 Dockerfile
+# Stage 1: Builder
+FROM python:3.12.1-slim as builder
+
+# Variables d'environnement pour Python
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+[Pipeline] sh
 + docker build -t smatchdigital/backend-app:dev-latest .
 #1 [internal] load build definition from Dockerfile
-#1 sha256:6925e06683033bc5c56a98cb5b9d8b29c79500c14d6429bb3efea8cb6fed74b6
-#1 transferring dockerfile: 2B done
-#1 DONE 0.0s
-failed to read dockerfile: open Dockerfile: no such file or directory
+#1 sha256:b8f515d5a5fbb6f5fa1c9134775d183166a1c41ac5f54c303ced5016183ca92b
+#1 transferring dockerfile: 1.64kB 0.0s done
+#1 DONE 0.1s
+
+#2 [internal] load metadata for docker.io/library/python:3.12.1-slim
+#2 sha256:a07069dc958021cc816bea7823fc3e4954b38af80da9bf1f3712dfeed56385e8
+#2 ...
+
+#3 [auth] library/python:pull token for registry-1.docker.io
+#3 sha256:5f2594ecc73aaf85bdeb10547fff84f5679f14af018c62b2c9a5d5394ee19574
+#3 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/python:3.12.1-slim
+#2 sha256:a07069dc958021cc816bea7823fc3e4954b38af80da9bf1f3712dfeed56385e8
+#2 DONE 0.6s
+
+#4 [internal] load .dockerignore
+#4 sha256:beed26e04aff343def81fd85537d6a371ee636ffe3d4e425574344ff7950d63c
+#4 transferring context:
+#4 transferring context: 676B done
+#4 DONE 0.1s
+
+#15 [builder 1/6] FROM docker.io/library/python:3.12.1-slim@sha256:a64ac5be6928c6a94f00b16e09cdf3ba3edd44452d10ffa4516a58004873573e
+#15 sha256:e273cb5ac7a1cd05346c91f29188df86b54dfbe0e1ebda7e0d9226be2c00a93a
+#15 DONE 0.0s
+
+#10 [internal] load build context
+#10 sha256:df9a312a0f65db84e0aa130ef7b4fba5e4b12b2244a6fa1a9c84517e40b6c728
+#10 transferring context: 30.87MB 0.5s done
+#10 DONE 0.5s
+
+#11 [builder 4/6] RUN python -m venv /opt/venv
+#11 sha256:87d9ea77699748e335a90c9a0a1b642b3b3b9c19b1e3bc6f20b1da36b153a187
+#11 CACHED
+
+#9 [builder 5/6] COPY requirements.txt .
+#9 sha256:eef0c6446688ba98674f69b9594de54ee95c464b223f1a01ddfaddf16404baf5
+#9 CACHED
+
+#8 [builder 6/6] RUN pip install --no-cache-dir -r requirements.txt gunicorn
+#8 sha256:3982ea09c5f6d0ff30a771d33418e76e65fe25625628896a8a4b7bf8771ed8bc
+#8 CACHED
+
+#14 [builder 2/6] WORKDIR /app
+#14 sha256:3cfad0fb69c30b17bc7c6cf818a99fde99eaf4f1a1ff164269b8600d574dbb56
+#14 CACHED
+
+#13 [stage-1 3/6] RUN apt-get update && apt-get install -y --no-install-recommends     libpq5     && rm -rf /var/lib/apt/lists/*
+#13 sha256:bb0994fa5efab918fda64aaeca4ba2184bf7a67b8155a2ab03061d0689f46a27
+#13 CACHED
+
+#12 [builder 3/6] RUN apt-get update && apt-get install -y --no-install-recommends     build-essential     libpq-dev     && rm -rf /var/lib/apt/lists/*
+#12 sha256:0b137bf840eb80a2ae7b9508d71339d3701a3b0ad03c0fd9e39f41970a7a5b83
+#12 CACHED
+
+#7 [stage-1 4/6] COPY --from=builder /opt/venv /opt/venv
+#7 sha256:5a99a8136b08cdf2574685c92ba20c39607a83c8c113f898ccc2381bd3c967d4
+#7 CACHED
+
+#6 [stage-1 5/6] COPY . .
+#6 sha256:fab0bd9aa4b840aad8351366558ae5c8cc8c227d040a68eea2cea1f9b13fbbb5
+#6 DONE 0.6s
+
+#5 [stage-1 6/6] RUN mkdir -p /app/static /app/media /app/logs     && chmod -R 755 /app/static /app/media     && chmod -R 777 /app/logs     && useradd -U app_user     && chown -R app_user:app_user /app
+#5 sha256:2de3695ed883ee4de461aaf341d5fa4aaa1d36f129ac615309144d84542fc05a
+#5 DONE 2.5s
+
+#16 exporting to image
+#16 sha256:53d938ca601b09cbe1be70e7bff0c1734e8fcdab75f6702ee16b42237b28a6fc
+#16 exporting layers
+#16 exporting layers 0.3s done
+#16 writing image sha256:80b07fed1064d496441974e03480f8d8dfe43e6db7c12fd7fb7394421310634b done
+#16 naming to docker.io/smatchdigital/backend-app:dev-latest done
+#16 DONE 0.3s
+[Pipeline] sh
++ docker tag smatchdigital/backend-app:dev-latest smatchdigital/backend-app:latest
 [Pipeline] }
 [Pipeline] // script
 [Pipeline] }
@@ -158,20 +369,181 @@ failed to read dockerfile: open Dockerfile: no such file or directory
 [Pipeline] // stage
 [Pipeline] stage
 [Pipeline] { (Push Docker Images)
-Stage "Push Docker Images" skipped due to earlier failure(s)
-[Pipeline] getContext
+[Pipeline] script
+[Pipeline] {
+[Pipeline] withCredentials
+Masking supported pattern matches of $PASS
+[Pipeline] {
+[Pipeline] sh
+Warning: A secret was passed to "sh" using Groovy String interpolation, which is insecure.
+		 Affected argument(s) used the following variable(s): [PASS]
+		 See https://jenkins.io/redirect/groovy-string-interpolation for details.
++ echo ****
++ docker login -u smatchdigital --password-stdin
+WARNING! Your password will be stored unencrypted in /var/jenkins_home/.docker/config.json.
+Configure a credential helper to remove this warning. See
+https://docs.docker.com/engine/reference/commandline/login/#credentials-store
+
+Login Succeeded
+[Pipeline] }
+[Pipeline] // withCredentials
+[Pipeline] sh
++ docker push smatchdigital/backend-app:dev-latest
+The push refers to repository [docker.io/smatchdigital/backend-app]
+3949bd356a6e: Preparing
+7e2d8b4f571e: Preparing
+805052629f50: Preparing
+42c156d3ff0d: Preparing
+acac357f5b53: Preparing
+6fdc32920d25: Preparing
+41aaeb647441: Preparing
+95ac61d1a52e: Preparing
+da5d55102092: Preparing
+6fdc32920d25: Waiting
+41aaeb647441: Waiting
+95ac61d1a52e: Waiting
+fb1bd2fc5282: Preparing
+da5d55102092: Waiting
+fb1bd2fc5282: Waiting
+acac357f5b53: Layer already exists
+805052629f50: Layer already exists
+42c156d3ff0d: Layer already exists
+6fdc32920d25: Layer already exists
+41aaeb647441: Layer already exists
+95ac61d1a52e: Layer already exists
+fb1bd2fc5282: Layer already exists
+da5d55102092: Layer already exists
+7e2d8b4f571e: Pushed
+3949bd356a6e: Pushed
+dev-latest: digest: sha256:1cdbdd5501d1d435565a03666236f545bf789872a839127a69167641e9538554 size: 2420
+[Pipeline] sh
++ docker push smatchdigital/backend-app:latest
+The push refers to repository [docker.io/smatchdigital/backend-app]
+3949bd356a6e: Preparing
+7e2d8b4f571e: Preparing
+805052629f50: Preparing
+42c156d3ff0d: Preparing
+acac357f5b53: Preparing
+6fdc32920d25: Preparing
+41aaeb647441: Preparing
+95ac61d1a52e: Preparing
+da5d55102092: Preparing
+fb1bd2fc5282: Preparing
+6fdc32920d25: Waiting
+41aaeb647441: Waiting
+95ac61d1a52e: Waiting
+da5d55102092: Waiting
+fb1bd2fc5282: Waiting
+acac357f5b53: Layer already exists
+7e2d8b4f571e: Layer already exists
+805052629f50: Layer already exists
+3949bd356a6e: Layer already exists
+42c156d3ff0d: Layer already exists
+95ac61d1a52e: Layer already exists
+da5d55102092: Layer already exists
+6fdc32920d25: Layer already exists
+fb1bd2fc5282: Layer already exists
+41aaeb647441: Layer already exists
+latest: digest: sha256:1cdbdd5501d1d435565a03666236f545bf789872a839127a69167641e9538554 size: 2420
+[Pipeline] }
+[Pipeline] // script
 [Pipeline] }
 [Pipeline] // stage
 [Pipeline] stage
 [Pipeline] { (Upload Essential Files)
-Stage "Upload Essential Files" skipped due to earlier failure(s)
-[Pipeline] getContext
+[Pipeline] script
+[Pipeline] {
+[Pipeline] echo
+Preparing deployment files for development environment with image: smatchdigital/backend-app:dev-latest
+[Pipeline] withCredentials
+Masking supported pattern matches of $PASS
+[Pipeline] {
+[Pipeline] sh
++ echo DEBUG: contenu de /tmp/backend
+DEBUG: contenu de /tmp/backend
++ ls -la /tmp/backend
+total 256
+drwxr-xr-x 10 jenkins jenkins  4096 Nov 24 14:27 .
+drwxrwxrwt  1 root    root     4096 Nov 24 14:27 ..
+-rw-r--r--  1 jenkins jenkins  5483 Nov 24 14:27 .cursorrules
+-rw-r--r--  1 jenkins jenkins   634 Nov 24 14:27 .dockerignore
+-rw-r--r--  1 jenkins jenkins  4119 Nov 24 14:27 .env copy
+drwxr-xr-x  8 jenkins jenkins  4096 Nov 24 14:27 .git
+-rw-r--r--  1 jenkins jenkins    66 Nov 24 14:27 .gitattributes
+-rw-r--r--  1 jenkins jenkins   668 Nov 24 14:27 .gitignore
+-rw-r--r--  1 jenkins jenkins  7442 Nov 24 14:27 DATATABLE_ENDPOINTS.md
+-rw-r--r--  1 jenkins jenkins  1598 Nov 24 14:27 Dockerfile
+-rw-r--r--  1 jenkins jenkins 23780 Nov 24 14:27 GUIDE_OPTIMISATION_PERFORMANCE.md
+-rw-r--r--  1 jenkins jenkins 24601 Nov 24 14:27 Jenkinsfile
+-rw-r--r--  1 jenkins jenkins 16657 Nov 24 14:27 Jenkinsfile.backup
+-rw-r--r--  1 jenkins jenkins  9659 Nov 24 14:27 RAPPORT_PERFORMANCE_APPS.md
+-rw-r--r--  1 jenkins jenkins  5963 Nov 24 14:27 SECURITY.md
+drwxr-xr-x  7 jenkins jenkins  4096 Nov 24 14:27 apps
+drwxr-xr-x  3 jenkins jenkins  4096 Nov 24 14:27 config
+-rw-r--r--  1 jenkins jenkins  2881 Nov 24 14:27 diagnostic_502.sh
+-rw-r--r--  1 jenkins jenkins  7175 Nov 24 14:27 diagnostic_postgres.sh
+-rw-r--r--  1 jenkins jenkins  2541 Nov 24 14:27 docker-compose.yml
+-rw-r--r--  1 jenkins jenkins  7700 Nov 24 14:27 error.txt
+-rw-r--r--  1 jenkins jenkins  8168 Nov 24 14:27 fix_postgres_connection.sh
+-rw-r--r--  1 jenkins jenkins  1669 Nov 24 14:27 fix_postgres_quick.sh
+-rw-r--r--  1 jenkins jenkins  3356 Nov 24 14:27 jenkins-config.yml
+-rw-r--r--  1 jenkins jenkins   663 Nov 24 14:27 manage.py
+drwxr-xr-x  2 jenkins jenkins  4096 Nov 24 14:27 nginx
+-rw-r--r--  1 jenkins jenkins   268 Nov 24 14:27 package.json
+drwxr-xr-x  5 jenkins jenkins  4096 Nov 24 14:27 project
+-rw-r--r--  1 jenkins jenkins  1468 Nov 24 14:27 requirements.txt
+drwxr-xr-x  3 jenkins jenkins  4096 Nov 24 14:27 static
+drwxr-xr-x  8 jenkins jenkins  4096 Nov 24 14:27 staticfiles
+drwxr-xr-x  3 jenkins jenkins  4096 Nov 24 14:27 templates
+-rw-r--r--  1 jenkins jenkins  1974 Nov 24 14:27 test_api_commands.txt
+-rw-r--r--  1 jenkins jenkins 10643 Nov 24 14:27 test_counting_detail_api.py
+-rw-r--r--  1 jenkins jenkins  4991 Nov 24 14:27 test_counting_detail_service.py
+-rw-r--r--  1 jenkins jenkins  6532 Nov 24 14:27 test_counting_detail_simple.py
++ echo DEBUG: docker-compose.yml
+DEBUG: docker-compose.yml
++ ls -la /tmp/backend/docker-compose.yml
+-rw-r--r-- 1 jenkins jenkins 2541 Nov 24 14:27 /tmp/backend/docker-compose.yml
++ sshpass -p **** ssh -o StrictHostKeyChecking=no root@147.93.55.221 rm -rf /tmp/deployment/backend && mkdir -p /tmp/deployment/backend/nginx
++ sshpass -p **** scp -o StrictHostKeyChecking=no /tmp/backend/docker-compose.yml root@147.93.55.221:/tmp/deployment/backend/
++ sshpass -p **** scp -o StrictHostKeyChecking=no /tmp/backend/Dockerfile root@147.93.55.221:/tmp/deployment/backend/
++ sshpass -p **** scp -r -o StrictHostKeyChecking=no /tmp/backend/nginx/Dockerfile /tmp/backend/nginx/nginx-ssl.conf /tmp/backend/nginx/nginx.conf root@147.93.55.221:/tmp/deployment/backend/nginx/
++ sshpass -p **** scp -o StrictHostKeyChecking=no /tmp/backend/.env copy root@147.93.55.221:/tmp/deployment/backend/.env
+[Pipeline] sh
++ sshpass -p **** ssh -o StrictHostKeyChecking=no root@147.93.55.221 bash -c 
+                                cd /tmp/deployment/backend &&
+                                if grep -q "^IMAGE_TAG=" .env 2>/dev/null; then
+                                    sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=dev-latest|" .env
+                                    echo "Updated IMAGE_TAG=dev-latest in .env file"
+                                else
+                                    echo "IMAGE_TAG=dev-latest" >> .env
+                                    echo "Added IMAGE_TAG=dev-latest to .env file"
+                                fi &&
+                                echo "Verifying IMAGE_TAG in .env:" &&
+                                grep "^IMAGE_TAG=" .env || echo "WARNING: IMAGE_TAG not found in .env"
+                            
+bash: -c: option requires an argument
+Updated IMAGE_TAG=dev-latest in .env file
+Verifying IMAGE_TAG in .env:
+IMAGE_TAG=dev-latest
+[Pipeline] }
+[Pipeline] // withCredentials
+[Pipeline] }
+[Pipeline] // script
 [Pipeline] }
 [Pipeline] // stage
 [Pipeline] stage
 [Pipeline] { (Deploy Backend on Remote Server)
-Stage "Deploy Backend on Remote Server" skipped due to earlier failure(s)
-[Pipeline] getContext
+[Pipeline] script
+[Pipeline] {
+[Pipeline] withCredentials
+Masking supported pattern matches of $PASS
+[Pipeline] {
+[Pipeline] sh
+/var/jenkins_home/workspace/WMS_dev@tmp/durable-12b62079/script.sh.copy: 22: Syntax error: ")" unexpected
+[Pipeline] }
+[Pipeline] // withCredentials
+[Pipeline] }
+[Pipeline] // script
 [Pipeline] }
 [Pipeline] // stage
 [Pipeline] stage
@@ -181,10 +553,18 @@ Stage "Deploy Backend on Remote Server" skipped due to earlier failure(s)
 [Pipeline] sh
 + rm -rf /tmp/backend
 + docker system prune -f
-Deleted build cache objects:
-10di62jod6trypzaxmg7s1m2w
+Deleted Images:
+untagged: smatchdigital/backend-app@sha256:92f3c29da9fec4da3fe7fe92c9e3f951314b6e54d562522e42b1cebb7062237e
+deleted: sha256:e4a6922795b08362bc68b7368b23fafd55d3281163d82425abe46eefdac030d5
 
-Total reclaimed space: 0B
+Deleted build cache objects:
+fgc8l9drjzz8pxk7v0qwasmfx
+i80u4mc00bxxkx57naonziz6t
+v6f9e61ag34fdxz1et4869f7b
+0xhg2qrngj8trejmovnv44gbe
+repefynhf2px2pq2h9sceyto3
+
+Total reclaimed space: 92.46MB
 [Pipeline] }
 [Pipeline] // script
 [Pipeline] script
@@ -202,5 +582,5 @@ Total reclaimed space: 0B
 [Pipeline] }
 [Pipeline] // node
 [Pipeline] End of Pipeline
-ERROR: script returned exit code 1
+ERROR: script returned exit code 2
 Finished: FAILURE
