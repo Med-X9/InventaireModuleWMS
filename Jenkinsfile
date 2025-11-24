@@ -352,7 +352,7 @@ pipeline {
                     withCredentials([usernamePassword(credentialsId: env.DEPLOY_CREDS, usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                         def imageTag = env.BRANCH_NAME == 'main' ? 'prod-latest' : 'dev-latest'
                         sh """
-                            sshpass -p "\$PASS" ssh -o StrictHostKeyChecking=no "\$USER@\$DEPLOY_HOST" bash -c "
+                            sshpass -p "\$PASS" ssh -o StrictHostKeyChecking=no "\$USER@\$DEPLOY_HOST" 'bash -s' << 'ENDSSH'
                                 cd /tmp/deployment/backend || exit 1
                                 
                                 if [ ! -f .env ]; then
@@ -370,18 +370,18 @@ pipeline {
                                 grep '^IMAGE_TAG=' .env || echo 'WARNING: IMAGE_TAG not found'
                                 
                                 IMAGE_TAG_VALUE=\$(grep '^IMAGE_TAG=' .env | cut -d= -f2)
-                                if [ -z \"\$IMAGE_TAG_VALUE\" ]; then
+                                if [ -z "\$IMAGE_TAG_VALUE" ]; then
                                     echo 'ERROR: IMAGE_TAG has empty value'
                                     exit 1
                                 fi
                                 
-                                echo \"IMAGE_TAG value: \$IMAGE_TAG_VALUE\"
-                                echo \"Expected image: smatchdigital/backend-app:\$IMAGE_TAG_VALUE\"
+                                echo "IMAGE_TAG value: \$IMAGE_TAG_VALUE"
+                                echo "Expected image: smatchdigital/backend-app:\$IMAGE_TAG_VALUE"
                                 
                                 docker-compose down -v
                                 docker-compose pull
                                 docker-compose up -d
-                            "
+ENDSSH
                         """
                     }
                 }
