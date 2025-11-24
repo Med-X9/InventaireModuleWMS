@@ -37,6 +37,8 @@ class InventoryJobsPdfView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
         
         try:
+            logger.info(f"Début de la génération du PDF pour l'inventaire {inventory_id}")
+            
             # Executer le use case
             use_case = InventoryJobsPdfUseCase()
             result = use_case.execute(inventory_id, counting_id)
@@ -44,6 +46,27 @@ class InventoryJobsPdfView(APIView):
             if result['success']:
                 # Retourner le PDF
                 pdf_buffer = result['pdf_buffer']
+                
+                # Vérifier que le buffer contient des données
+                pdf_content = pdf_buffer.getvalue()
+                pdf_size = len(pdf_content)
+                
+                logger.info(f"PDF généré avec succès. Taille: {pdf_size} bytes")
+                
+                if pdf_size == 0:
+                    logger.error(f"Le PDF généré est vide pour l'inventaire {inventory_id}")
+                    return Response({
+                        'success': False,
+                        'message': 'Le PDF généré est vide. Vérifiez qu\'il y a des jobs avec des données pour cet inventaire.'
+                    }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                
+                # Vérifier que c'est bien un PDF (commence par %PDF)
+                if not pdf_content.startswith(b'%PDF'):
+                    logger.error(f"Le contenu généré n'est pas un PDF valide pour l'inventaire {inventory_id}")
+                    return Response({
+                        'success': False,
+                        'message': 'Le contenu généré n\'est pas un PDF valide'
+                    }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
                 
                 # Definir le nom du fichier
                 filename = f"inventaire_{inventory_id}"
@@ -53,13 +76,17 @@ class InventoryJobsPdfView(APIView):
                 
                 # Creer la reponse HTTP avec le PDF
                 response = HttpResponse(
-                    pdf_buffer.getvalue(),
+                    pdf_content,
                     content_type='application/pdf'
                 )
                 response['Content-Disposition'] = f'attachment; filename="{filename}"'
+                response['Content-Length'] = str(pdf_size)
+                
+                logger.info(f"PDF retourné avec succès. Nom: {filename}, Taille: {pdf_size} bytes")
                 
                 return response
             else:
+                logger.error(f"Le use case a retourné success=False pour l'inventaire {inventory_id}")
                 return Response({
                     'success': False,
                     'message': 'Erreur lors de la generation du PDF'
