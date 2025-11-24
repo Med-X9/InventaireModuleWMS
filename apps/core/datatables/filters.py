@@ -993,4 +993,143 @@ class CompositeColumnFilter(IDataTableFilter):
             
         except Exception as e:
             logger.error(f"❌ Erreur CONCAT: {str(e)}")
-            return queryset 
+            return queryset
+
+
+class DataTableColumnFilter(IDataTableFilter):
+    """
+    Filtre pour gérer les filtres de colonnes DataTables au format:
+    columns[i][data]=field_name
+    columns[i][search][value]=search_value
+    columns[i][operator]=operator (in, equals, contains, etc.)
+    
+    PRINCIPE SOLID : Single Responsibility
+    - Responsabilité unique : gérer les filtres de colonnes DataTables
+    - Supporte tous les opérateurs standards (in, equals, contains, etc.)
+    
+    UTILISATION:
+        Le filtre est automatiquement appliqué si des paramètres columns[i][search][value] sont présents.
+    """
+    
+    def __init__(self, column_field_mapping: dict = None):
+        """
+        Initialise le filtre de colonnes DataTables
+        
+        Args:
+            column_field_mapping (dict): Mapping optionnel colonne -> champ Django
+        """
+        self.column_field_mapping = column_field_mapping or {}
+    
+    def apply_filters(self, request: HttpRequest, queryset: QuerySet) -> QuerySet:
+        """
+        Applique les filtres de colonnes DataTables
+        
+        Args:
+            request (HttpRequest): Requête HTTP avec paramètres columns[i][search][value]
+            queryset (QuerySet): Queryset initial à filtrer
+            
+        Returns:
+            QuerySet: Queryset filtré par les colonnes
+        """
+        from django.db.models import Q
+        from urllib.parse import unquote
+        
+        logger.info(f"🔍 DataTableColumnFilter: Début du filtrage - {queryset.count()} éléments avant")
+        logger.debug(f"🔍 Paramètres GET: {dict(request.GET)}")
+        
+        # Parcourir tous les paramètres columns[i][data] pour trouver les colonnes avec filtres
+        column_indices = set()
+        for param_name in request.GET.keys():
+            if param_name.startswith('columns[') and param_name.endswith('][data]'):
+                # Extraire l'index de la colonne
+                try:
+                    index_str = param_name.replace('columns[', '').replace('][data]', '')
+                    column_indices.add(int(index_str))
+                    logger.debug(f"🔍 Colonne détectée: index={index_str}")
+                except ValueError:
+                    continue
+        
+        if not column_indices:
+            logger.debug("🔍 Aucune colonne avec filtre détectée")
+            return queryset
+        
+        logger.info(f"🔍 Colonnes avec filtres détectées: {column_indices}")
+        
+        q_objects = []
+        
+        for column_index in column_indices:
+            # Récupérer le nom du champ depuis columns[i][data]
+            column_data = request.GET.get(f'columns[{column_index}][data]', '')
+            if not column_data:
+                logger.debug(f"🔍 Colonne {column_index}: pas de [data]")
+                continue
+            
+            # Récupérer la valeur de recherche
+            search_value = request.GET.get(f'columns[{column_index}][search][value]', '')
+            if not search_value:
+                logger.debug(f"🔍 Colonne {column_index}: pas de [search][value]")
+                continue
+            
+            # Récupérer l'opérateur (par défaut: 'equals')
+            operator = request.GET.get(f'columns[{column_index}][operator]', 'equals')
+            
+            # Déterminer le champ Django réel
+            field_name = self.column_field_mapping.get(column_data, column_data)
+            
+            logger.info(f"🔍 Colonne {column_index}: data='{column_data}', field='{field_name}', operator='{operator}', value='{search_value}'")
+            
+            # Normaliser la valeur de recherche
+            search_value = search_value.replace('+', ' ').strip()
+            search_value = unquote(search_value)
+            logger.debug(f"🔍 Valeur normalisée: '{search_value}'")
+            
+            # Appliquer l'opérateur approprié
+            try:
+                if operator == 'in':
+                    # Opérateur 'in' : la valeur peut être une liste séparée par des virgules
+                    values = [v.strip() for v in search_value.split(',') if v.strip()]
+                    if values:
+                        q_objects.append(Q(**{f'{field_name}__in': values}))
+                        logger.debug(f"🔧 Filtre colonne {column_index} ({field_name}): operator='in', values={values}")
+                elif operator == 'equals':
+                    # Opérateur 'equals' : correspondance exacte
+                    q_objects.append(Q(**{f'{field_name}__exact': search_value}))
+                    logger.debug(f"🔧 Filtre colonne {column_index} ({field_name}): operator='equals', value='{search_value}'")
+                elif operator == 'contains':
+                    # Opérateur 'contains' : contient le terme
+                    q_objects.append(Q(**{f'{field_name}__icontains': search_value}))
+                    logger.debug(f"🔧 Filtre colonne {column_index} ({field_name}): operator='contains', value='{search_value}'")
+                elif operator == 'startswith':
+                    # Opérateur 'startswith' : commence par
+                    q_objects.append(Q(**{f'{field_name}__istartswith': search_value}))
+                    logger.debug(f"🔧 Filtre colonne {column_index} ({field_name}): operator='startswith', value='{search_value}'")
+                elif operator == 'endswith':
+                    # Opérateur 'endswith' : termine par
+                    q_objects.append(Q(**{f'{field_name}__iendswith': search_value}))
+                    logger.debug(f"🔧 Filtre colonne {column_index} ({field_name}): operator='endswith', value='{search_value}'")
+                elif operator == 'notEqual':
+                    # Opérateur 'notEqual' : différent de
+                    q_objects.append(~Q(**{f'{field_name}__exact': search_value}))
+                    logger.debug(f"🔧 Filtre colonne {column_index} ({field_name}): operator='notEqual', value='{search_value}'")
+                else:
+                    # Opérateur par défaut : exact
+                    q_objects.append(Q(**{f'{field_name}__exact': search_value}))
+                    logger.debug(f"🔧 Filtre colonne {column_index} ({field_name}): operator='{operator}' (fallback exact), value='{search_value}'")
+            except Exception as e:
+                logger.error(f"❌ Erreur lors de l'application du filtre colonne {column_index} ({field_name}): {str(e)}")
+                continue
+        
+        # Appliquer tous les filtres avec AND
+        if q_objects:
+            logger.info(f"🔍 Application de {len(q_objects)} filtres de colonnes DataTables")
+            combined_q = Q()
+            for q_obj in q_objects:
+                combined_q &= q_obj
+            count_before = queryset.count()
+            queryset = queryset.filter(combined_q)
+            count_after = queryset.count()
+            logger.info(f"🔍 DataTableColumnFilter: {count_before} → {count_after} éléments après filtrage")
+        else:
+            logger.warning("🔍 Aucun filtre Q créé - vérifier les paramètres")
+        
+        return queryset 

@@ -6,7 +6,6 @@ from ..serializers import (
     InventoryJobCreateSerializer,
     JobSerializer
 )
-from apps.core.datatables.filters import CompositeDataTableFilter, DjangoFilterDataTableFilter, FilterMappingFilter
 from ..utils.response_utils import success_response, error_response, validation_error_response
 
 from ..repositories.job_repository import JobRepository
@@ -356,8 +355,20 @@ class PendingJobsReferencesView(ServerSideDataTableView):
     model = Job
     serializer_class = PendingJobReferenceSerializer
     filterset_class = PendingJobFilter
-    search_fields = ['reference', 'inventory__reference', 'inventory__label', 'warehouse__reference', 'warehouse__warehouse_name']
-    order_fields = ['created_at', 'reference', 'inventory__reference', 'warehouse__warehouse_name']
+    
+    # Champs de recherche - tous les champs disponibles
+    search_fields = [
+        'reference', 'status', 'created_at',
+        'inventory__reference', 'inventory__label',
+        'warehouse__reference', 'warehouse__warehouse_name'
+    ]
+    
+    # Champs de tri - tous les champs disponibles
+    order_fields = [
+        'id', 'reference', 'status', 'created_at',
+        'inventory__reference', 'inventory__label',
+        'warehouse__reference', 'warehouse__warehouse_name'
+    ]
     default_order = '-created_at'
     page_size = 20
     min_page_size = 1
@@ -441,22 +452,6 @@ class JobListWithLocationsView(ServerSideDataTableView):
         from ..repositories.job_repository import JobRepository
         self.repository = JobRepository()
     
-    def get_datatable_filter(self):
-        """Filtre unifié qui gère automatiquement tout"""
-
-        
-        composite_filter = CompositeDataTableFilter()
-        
-        # Filtre Django Filter si configuré
-        if self.filterset_class:
-            composite_filter.add_filter(DjangoFilterDataTableFilter(self.filterset_class))
-        
-        # Filtre de mapping qui gère automatiquement tous les opérateurs
-        mapping_filter = FilterMappingFilter(self.filter_aliases)
-        composite_filter.add_filter(mapping_filter)
-        
-        return composite_filter
-    
     def get_datatable_queryset(self):
         """
         Récupère les jobs via le repository avec relations préchargées.
@@ -470,8 +465,23 @@ class WarehouseJobsView(ServerSideDataTableView):
     """
     model = Job
     serializer_class = JobListWithLocationsSerializer
-    search_fields = ['reference']
-    order_fields = ['created_at', 'status', 'reference']
+    
+    # Champs de recherche - tous les champs disponibles
+    search_fields = [
+        'reference', 'status', 'created_at',
+        'warehouse__warehouse_name', 'warehouse__reference',
+        'inventory__reference', 'inventory__label',
+        'jobdetail__location__location_reference',
+        'jobdetail__location__sous_zone__sous_zone_name',
+        'jobdetail__location__sous_zone__zone__zone_name'
+    ]
+    
+    # Champs de tri - tous les champs disponibles
+    order_fields = [
+        'id', 'reference', 'status', 'created_at',
+        'warehouse__warehouse_name', 'inventory__reference'
+    ]
+    
     default_order = '-created_at'
     page_size = 20
     min_page_size = 1
@@ -483,6 +493,10 @@ class WarehouseJobsView(ServerSideDataTableView):
         'reference': 'reference',
         'status': 'status',
         'created_at': 'created_at',
+        'warehouse_name': 'warehouse__warehouse_name',
+        'warehouse_reference': 'warehouse__reference',
+        'inventory_reference': 'inventory__reference',
+        'inventory_label': 'inventory__label',
         'location_reference': 'jobdetail__location__location_reference',
         'zone_name': 'jobdetail__location__sous_zone__zone__zone_name',
         'sous_zone_name': 'jobdetail__location__sous_zone__sous_zone_name',
@@ -529,17 +543,25 @@ class JobFullDetailListView(ServerSideDataTableView):
     model = Job
     serializer_class = JobFullDetailSerializer
     
-    # Champs de recherche et tri
+    # Champs de recherche et tri - tous les champs disponibles
     search_fields = [
-        'reference', 'status', 'created_at', 'warehouse__warehouse_name',
-        'inventory__reference', 'inventory__label', 'jobdetail__location__location_reference',
-        'assigment__counting__reference', 'assigment__session__username',
-        'jobdetailressource__ressource__reference'
+        'reference', 'status', 'created_at',
+        'warehouse__warehouse_name', 'warehouse__reference',
+        'inventory__reference', 'inventory__label',
+        'jobdetail__location__location_reference',
+        'jobdetail__location__sous_zone__sous_zone_name',
+        'jobdetail__location__sous_zone__zone__zone_name',
+        'assigment__counting__reference', 'assigment__counting__order',
+        'assigment__session__username', 'assigment__status',
+        'jobdetailressource__ressource__reference',
+        'jobdetailressource__ressource__name'
     ]
     
     order_fields = [
-        'id', 'reference', 'status', 'created_at', 'warehouse__warehouse_name',
-        'inventory__reference', 'inventory__label'
+        'id', 'reference', 'status', 'created_at',
+        'warehouse__warehouse_name', 'warehouse__reference',
+        'inventory__reference', 'inventory__label',
+        'assigment__counting__order', 'assigment__status'
     ]
     default_order = '-created_at'
     
@@ -587,22 +609,6 @@ class JobFullDetailListView(ServerSideDataTableView):
         super().__init__(*args, **kwargs)
         self.repository = JobRepository()
     
-    def get_datatable_filter(self):
-        """Filtre unifié qui gère automatiquement tout"""
-
-        
-        composite_filter = CompositeDataTableFilter()
-        
-        # Filtre Django Filter si configuré
-        if self.filterset_class:
-            composite_filter.add_filter(DjangoFilterDataTableFilter(self.filterset_class))
-        
-        # Filtre de mapping qui gère automatiquement tous les opérateurs
-        mapping_filter = FilterMappingFilter(self.filter_aliases)
-        composite_filter.add_filter(mapping_filter)
-        
-        return composite_filter
-
     def get_datatable_queryset(self):
         """
         Récupère les jobs validés et entamés via le repository avec relations préchargées.
@@ -634,16 +640,23 @@ class JobPendingListView(ServerSideDataTableView):
     serializer_class = JobPendingSerializer
     filterset_class = JobFullDetailFilter
     
-    # Champs de recherche et tri
+    # Champs de recherche et tri - tous les champs disponibles
     search_fields = [
         'reference', 'status', 'created_at',
+        'warehouse__warehouse_name', 'warehouse__reference',
+        'inventory__reference', 'inventory__label',
         'jobdetail__location__location_reference',
-        'assigment__counting__reference', 'assigment__session__username',
-        'jobdetailressource__ressource__reference'
+        'jobdetail__location__sous_zone__sous_zone_name',
+        'jobdetail__location__sous_zone__zone__zone_name',
+        'assigment__counting__reference', 'assigment__counting__order',
+        'assigment__session__username', 'assigment__status',
+        'jobdetailressource__ressource__reference',
+        'jobdetailressource__ressource__name'
     ]
     
     order_fields = [
-        'id', 'reference', 'status', 'created_at'
+        'id', 'reference', 'status', 'created_at',
+        'warehouse__warehouse_name', 'inventory__reference'
     ]
     default_order = '-created_at'
     
@@ -666,21 +679,6 @@ class JobPendingListView(ServerSideDataTableView):
         
         self.repository = JobRepository()
     
-    def get_datatable_filter(self):
-        """Filtre unifié qui gère automatiquement tout"""
-        
-        composite_filter = CompositeDataTableFilter()
-        
-        # Filtre Django Filter si configuré
-        if self.filterset_class:
-            composite_filter.add_filter(DjangoFilterDataTableFilter(self.filterset_class))
-        
-        # Filtre de mapping qui gère automatiquement tous les opérateurs
-        mapping_filter = FilterMappingFilter(self.filter_aliases)
-        composite_filter.add_filter(mapping_filter)
-        
-        return composite_filter
-
     def get_datatable_queryset(self):
         """
         Récupère les jobs en attente via le repository avec relations préchargées.

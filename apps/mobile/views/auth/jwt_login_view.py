@@ -20,10 +20,20 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         Valide les données et retourne les tokens + infos utilisateur
         """
         # Appeler la validation parent pour obtenir les tokens
+        # Cette méthode lève AuthenticationFailed si les identifiants sont invalides
+        # ou si l'utilisateur n'est pas actif
         data = super().validate(attrs)
         
-        # Récupérer l'utilisateur authentifié
+        # Récupérer l'utilisateur authentifié (défini par super().validate())
         user = self.user
+        
+        # Vérification supplémentaire que l'utilisateur est actif
+        # (déjà vérifié par super().validate(), mais double vérification pour sécurité)
+        if not user.is_active:
+            raise AuthenticationFailed(
+                'Ce compte utilisateur est désactivé.',
+                code='user_inactive'
+            )
         
         # Formater la réponse selon le format demandé
         response_data = {
@@ -129,36 +139,32 @@ class JWTLoginView(TokenObtainPairView):
         """
         Gère la requête POST de connexion
         """
+        import logging
+        logger = logging.getLogger(__name__)
+        
         try:
             # Utiliser le serializer parent pour la validation et la génération des tokens
             serializer = self.get_serializer(data=request.data)
             
-            # Utiliser raise_exception=False pour éviter que les exceptions ne soient levées automatiquement
-            if serializer.is_valid(raise_exception=False):
-                # Le serializer retourne déjà la réponse formatée
-                return Response(serializer.validated_data, status=status.HTTP_200_OK)
-            else:
-                # En cas d'erreur de validation
-                return Response({
-                    'success': False,
-                    'error': 'Identifiants invalides',
-                    'details': serializer.errors
-                }, status=status.HTTP_400_BAD_REQUEST)
+            # Valider les données - AuthenticationFailed sera levée si les identifiants sont invalides
+            serializer.is_valid(raise_exception=True)
+            
+            # Le serializer retourne déjà la réponse formatée
+            return Response(serializer.validated_data, status=status.HTTP_200_OK)
                 
         except AuthenticationFailed as e:
             # Gestion spécifique des erreurs d'authentification
+            logger.warning(f"Tentative de connexion échouée: {str(e)}")
             return Response({
                 'success': False,
                 'error': 'Identifiants invalides',
-                'details': str(e)
+                'details': 'Nom d\'utilisateur ou mot de passe incorrect'
             }, status=status.HTTP_401_UNAUTHORIZED)
         except Exception as e:
             # Gestion des erreurs inattendues
-            import logging
-            logger = logging.getLogger(__name__)
             logger.error(f"Erreur inattendue lors de la connexion JWT: {str(e)}", exc_info=True)
             return Response({
                 'success': False,
                 'error': 'Erreur interne du serveur',
-                'details': str(e)
+                'details': str(e) if logger.level <= logging.DEBUG else 'Une erreur est survenue lors de la connexion'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
