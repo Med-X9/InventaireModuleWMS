@@ -12,6 +12,7 @@ from apps.mobile.exceptions import (
     UserNotAssignedException,
     InvalidStatusTransitionException,
     JobNotFoundException,
+    AssignmentAlreadyStartedException,
 )
 
 
@@ -89,12 +90,12 @@ class AssignmentStatusView(APIView):
                 )
             ),
             400: openapi.Response(
-                description="Transition de statut invalide",
+                description="Transition de statut invalide ou assignment déjà entamé",
                 schema=openapi.Schema(
                     type=openapi.TYPE_OBJECT,
                     properties={
                         'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
-                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Transition de statut invalide')
+                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Transition de statut invalide ou assignment déjà entamé')
                     }
                 )
             ),
@@ -186,6 +187,12 @@ class AssignmentStatusView(APIView):
             )
             
         except InvalidStatusTransitionException as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            
+        except AssignmentAlreadyStartedException as e:
             return error_response(
                 message=str(e),
                 status_code=status.HTTP_400_BAD_REQUEST
