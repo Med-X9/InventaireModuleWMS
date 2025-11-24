@@ -236,7 +236,7 @@ class JobPendingSerializer(serializers.ModelSerializer):
         first_assignment = obj.assigment_set.select_related('counting').first()
         
         if first_assignment and first_assignment.counting:
-            # Filtrer par le counting du premier assignment actif
+            # Filtrer par le counting du premier assignment actif 
             job_details = obj.jobdetail_set.filter(
                 counting=first_assignment.counting
             ).select_related('location__sous_zone__zone').order_by('location_id', '-id')

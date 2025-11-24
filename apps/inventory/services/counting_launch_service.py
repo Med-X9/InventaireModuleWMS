@@ -102,7 +102,6 @@ class CountingLaunchService:
                 target_counting = counting_order_three
             else:
                 next_order = self.counting_repository.get_next_order(job.inventory_id)
-                self._ensure_previous_countings_completed(job.id, target_order=next_order)
                 self._ensure_previous_countings_completed(job.id, location.id, target_order=next_order)
                 target_counting = self.counting_repository.duplicate_counting(counting_order_three.id)
                 new_counting_created = True
