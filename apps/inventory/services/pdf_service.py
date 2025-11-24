@@ -7,7 +7,7 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak, KeepTogether
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak, KeepTogether, Image
 from django.conf import settings
 import os
 from django.utils import timezone
@@ -222,9 +222,9 @@ class PDFService(PDFServiceInterface):
                 logo_width = 4*cm  # Agrandi de 3cm à 5cm
                 logo_height = 2*cm  # Agrandi de 1.5cm à 2.5cm
                 
-                # Position: maximum à gauche et en haut (0.2cm de marge minimale)
+                # Position: maximum à gauche et en haut (0.2cm de marge minimale + 1.5cm vers le bas)
                 x = 0.02*cm  # Presque au bord gauche
-                y = doc.pagesize[1] - 0.2*cm - logo_height  # Presque au bord supérieur
+                y = doc.pagesize[1] - 0.2*cm - logo_height - 1.5*cm  # Déplacé de 1.5 cm vers le bas
                 
                 canvas_obj.drawImage(logo_path, x, y, width=logo_width, height=logo_height, preserveAspectRatio=True)
                 canvas_obj.restoreState()
@@ -266,7 +266,7 @@ class PDFService(PDFServiceInterface):
                 logo_width = 4*cm
                 logo_height = 2*cm
                 x = 0.02*cm
-                y = doc.pagesize[1] - 0.2*cm - logo_height
+                y = doc.pagesize[1] - 0.2*cm - logo_height - 1.5*cm  # Déplacé de 1.5 cm vers le bas
                 canvas_obj.drawImage(logo_path, x, y, width=logo_width, height=logo_height, preserveAspectRatio=True)
                 canvas_obj.restoreState()
             except Exception as e:
@@ -546,17 +546,8 @@ class PDFService(PDFServiceInterface):
             ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
             ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
             ('FONTSIZE', (0, 1), (-1, -1), 8),
-            ('ALIGN', (0, 1), (-1, -1), 'LEFT'),
-            ('ALIGN', (0, 1), (0, -1), 'CENTER'),  # Emplacement centré
+            ('ALIGN', (0, 1), (-1, -1), 'CENTER'),  # Toutes les valeurs centrées
         ]
-        
-        # Aligner les quantités à droite
-        quantite_physique_idx = headers.index('Quantité physique')
-        table_style.append(('ALIGN', (quantite_physique_idx, 1), (quantite_physique_idx, -1), 'RIGHT'))
-        
-        if 'Quantité théorique' in headers:
-            quantite_theorique_idx = headers.index('Quantité théorique')
-            table_style.append(('ALIGN', (quantite_theorique_idx, 1), (quantite_theorique_idx, -1), 'RIGHT'))
         
         # Ajouter les lignes de séparation entre toutes les colonnes
         table_style.extend([
@@ -581,6 +572,9 @@ class PDFService(PDFServiceInterface):
         elements = []
         styles = getSampleStyleSheet()
         
+        # Espace de 1.5 cm en haut pour déplacer le logo et le titre vers le bas
+        elements.append(Spacer(1, 1.5*cm))
+        
         # Style pour les labels (en gras)
         label_style = ParagraphStyle(
             'LabelStyle',
@@ -603,19 +597,20 @@ class PDFService(PDFServiceInterface):
             alignment=0,  # Left
         )
         
-        # Style pour le titre
+        # Style pour le titre (centré, au même niveau vertical que le logo)
         title_style = ParagraphStyle(
             'HeaderTitle',
             parent=styles['Heading4'],
             fontSize=14,
             textColor=colors.HexColor('#000000'),
             spaceAfter=8,
-            alignment=1,  # Center
+            spaceBefore=0,  # Pas d'espace avant pour être au même niveau que le logo
+            alignment=1,  # Center - centré
         )
         
-        # Titre en gras
+        # Titre centré en haut (au même niveau vertical que le logo)
         elements.append(Paragraph("<b>FICHE DE COMPTAGE</b>", title_style))
-        elements.append(Spacer(1, 0.15*cm))
+        elements.append(Spacer(1, 1*cm))  # Espace entre le titre et les informations
         
         # Informations de l'inventaire - Ligne 1: Référence Inventaire | Type | Magasin
         info_row1_data = [
@@ -629,9 +624,9 @@ class PDFService(PDFServiceInterface):
             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('LEFTPADDING', (0, 0), (-1, -1), 0),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 5),
-            ('TOPPADDING', (0, 0), (-1, -1), 0),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+            ('TOPPADDING', (0, 0), (-1, -1), 2),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
         ]))
         
         elements.append(info_row1_table)
@@ -648,9 +643,9 @@ class PDFService(PDFServiceInterface):
             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('LEFTPADDING', (0, 0), (-1, -1), 0),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 5),
-            ('TOPPADDING', (0, 0), (-1, -1), 0),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+            ('TOPPADDING', (0, 0), (-1, -1), 2),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
         ]))
         
         elements.append(info_row2_table)
@@ -666,12 +661,12 @@ class PDFService(PDFServiceInterface):
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('LEFTPADDING', (0, 0), (-1, -1), 0),
             ('RIGHTPADDING', (0, 0), (-1, -1), 0),
-            ('TOPPADDING', (0, 0), (-1, -1), 0),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+            ('TOPPADDING', (0, 0), (-1, -1), 2),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
         ]))
         
         elements.append(info_row3_table)
-        elements.append(Spacer(1, 0.3*cm))
+        elements.append(Spacer(1, 1*cm))  # Espace entre l'en-tête et le tableau principal
         
         return elements
     
@@ -793,6 +788,9 @@ class PDFService(PDFServiceInterface):
         styles = getSampleStyleSheet()
         
         elements = []
+        
+        # Espace de 1.5 cm en haut pour déplacer le contenu vers le bas
+        elements.append(Spacer(1, 1.5*cm))
         
         # Style pour le titre
         title_style = ParagraphStyle(
