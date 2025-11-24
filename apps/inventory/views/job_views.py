@@ -122,20 +122,20 @@ class JobValidateView(APIView):
 
 class JobReadyView(APIView):
     """
-    Vue pour marquer plusieurs jobs et un comptage spécifique comme PRET
+    Vue pour marquer tous les assignments d'un job comme PRET
     
-    Permet de mettre en statut PRET plusieurs jobs et un comptage spécifique identifié par son ordre (1, 2 ou 3).
-    Si counting_order n'est pas fourni, tous les comptages des jobs seront marqués comme PRET.
+    Permet de mettre en statut PRET tous les assignments avec statut AFFECTE des jobs spécifiés.
+    Le paramètre counting_order est ignoré (conservé pour rétrocompatibilité).
     """
     
     def post(self, request):
         """
-        Marque plusieurs jobs et un comptage spécifique (par ordre) comme PRET
+        Marque tous les assignments avec statut AFFECTE des jobs spécifiés comme PRET
         
         Body attendu:
         {
             "job_ids": [1, 2, 3],
-            "counting_order": 1  # ou 2, ou 3 (optionnel - si non fourni, tous les comptages seront marqués comme PRET)
+            "counting_order": 2  # optionnel, ignoré (conservé pour rétrocompatibilité)
         }
         """
         serializer = JobReadyRequestSerializer(data=request.data)
@@ -163,12 +163,14 @@ class JobReadyView(APIView):
             use_case = JobReadyUseCase()
             result = use_case.execute(job_ids, counting_order)
             
+            # Construire la réponse sans counting_order
+            response_data = {
+                'jobs_processed': result['jobs_processed'],
+                'jobs': result['jobs']
+            }
+            
             return success_response(
-                data={
-                    'counting_order': result['counting_order'],
-                    'jobs_processed': result['jobs_processed'],
-                    'jobs': result['jobs']
-                },
+                data=response_data,
                 message=result['message']
             )
         except JobCreationError as e:

@@ -142,7 +142,7 @@ class JobReadyRequestSerializer(serializers.Serializer):
         allow_null=True,
         min_value=1,
         max_value=3,
-        help_text="Ordre du comptage (1, 2 ou 3) à marquer comme PRET. Si non fourni, tous les comptages seront marqués comme PRET"
+        help_text="Paramètre ignoré (conservé pour rétrocompatibilité). Tous les assignments avec statut AFFECTE seront marqués comme PRET."
     )
 
 class JobAssignmentDetailSerializer(serializers.ModelSerializer):

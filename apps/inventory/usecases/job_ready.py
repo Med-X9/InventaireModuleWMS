@@ -1,10 +1,10 @@
 """
-Use case pour marquer plusieurs jobs et un comptage spécifique comme PRET
+Use case pour marquer tous les assignments d'un job comme PRET
 """
 from typing import Dict, Any, List, Optional
 from django.db import transaction
 from django.utils import timezone
-from ..models import Job, Assigment, Counting
+from ..models import Job, Assigment
 from ..exceptions import JobCreationError
 import logging
 
@@ -12,8 +12,7 @@ logger = logging.getLogger(__name__)
 
 class JobReadyUseCase:
     """
-    Use case pour marquer plusieurs jobs et un comptage spécifique (par ordre) comme PRET
-    Si counting_order est None, tous les comptages seront marqués comme PRET
+    Use case pour marquer tous les assignments d'un job (avec statut AFFECTE) comme PRET
     """
     
     def __init__(self):
@@ -21,12 +20,11 @@ class JobReadyUseCase:
     
     def execute(self, job_ids: List[int], counting_order: Optional[int] = None) -> Dict[str, Any]:
         """
-        Marque plusieurs jobs et le comptage spécifié par ordre comme PRET
-        Si counting_order est None, tous les comptages (1, 2, 3) seront marqués comme PRET
+        Marque tous les assignments avec statut AFFECTE des jobs spécifiés comme PRET
         
         Args:
             job_ids: Liste des IDs des jobs à marquer comme PRET
-            counting_order: Ordre du comptage (1, 2 ou 3) à marquer comme PRET. Si None, tous les comptages seront traités
+            counting_order: Paramètre ignoré (conservé pour rétrocompatibilité)
             
         Returns:
             Dict[str, Any]: Résultat du traitement avec la liste des jobs traités
@@ -36,132 +34,54 @@ class JobReadyUseCase:
         """
         try:
             with transaction.atomic():
-                # Récupérer les jobs existants (ignorer ceux qui n'existent pas)
+                # Récupérer les jobs existants
                 jobs = Job.objects.filter(id__in=job_ids)
                 
-                # Déterminer les ordres de comptage à traiter
-                if counting_order is None:
-                    # Si counting_order n'est pas fourni, traiter tous les comptages (1, 2, 3)
-                    counting_orders = [1, 2, 3]
-                else:
-                    # Sinon, traiter uniquement le comptage spécifié
-                    counting_orders = [counting_order]
-                
-                # Valider et collecter tous les jobs/comptages valides (sans lever d'erreurs)
-                validated_data = []  # Liste des tuples (job, counting, assignment, order) validés
+                # Valider et collecter tous les jobs/assignments valides
+                validated_data = []  # Liste des tuples (job, assignment) validés
                 rejection_reasons = []  # Liste des raisons de rejet pour le diagnostic
                 
                 for job in jobs:
-                    # Ignorer les jobs qui ne sont pas au statut AFFECTE ou PRET
-                    # (permet un traitement progressif : le job peut déjà être PRET si un comptage précédent a été traité)
-                    if job.status not in ['AFFECTE', 'PRET']:
-                        reason = f"Job {job.reference} (ID: {job.id}) : statut actuel '{job.status}' (attendu: 'AFFECTE' ou 'PRET')"
+                    # Ignorer les jobs qui ne sont pas au statut AFFECTE
+                    if job.status != 'AFFECTE':
+                        reason = f"Job {job.reference} (ID: {job.id}) : statut actuel '{job.status}' (attendu: 'AFFECTE')"
                         logger.debug(reason)
                         rejection_reasons.append(reason)
                         continue
                     
-                    # Vérifier que tous les assignments de ce job sont soit AFFECTE soit PRET
-                    # (permet un traitement progressif : certains peuvent déjà être PRET)
-                    all_assignments = Assigment.objects.filter(job=job)
-                    assignments_invalid_status = all_assignments.exclude(status__in=['AFFECTE', 'PRET'])
+                    # Récupérer tous les assignments du job avec statut AFFECTE
+                    assignments = Assigment.objects.filter(job=job, status='AFFECTE')
                     
-                    if assignments_invalid_status.exists():
-                        # Récupérer les références des assignments avec statut invalide pour le log
-                        invalid_status_refs = [
-                            f"{ass.reference} (statut: {ass.status})" 
-                            for ass in assignments_invalid_status.select_related('counting')
-                        ]
+                    if not assignments.exists():
                         reason = (
-                            f"Job {job.reference} (ID: {job.id}) : tous les assignments doivent avoir le statut AFFECTE ou PRET. "
-                            f"Assignments avec statut invalide: {', '.join(invalid_status_refs)}"
+                            f"Job {job.reference} (ID: {job.id}) : aucun assignment avec statut AFFECTE trouvé"
                         )
-                        logger.warning(reason)
+                        logger.debug(reason)
                         rejection_reasons.append(reason)
                         continue
                     
-                    # Traiter chaque ordre de comptage
-                    for order in counting_orders:
-                        # Ignorer si le comptage n'existe pas
-                        try:
-                            counting = Counting.objects.get(inventory=job.inventory, order=order)
-                        except Counting.DoesNotExist:
-                            reason = (
-                                f"Job {job.reference} (ID: {job.id}) : comptage d'ordre {order} n'existe pas "
-                                f"pour l'inventaire {job.inventory.reference}"
-                            )
-                            logger.debug(reason)
-                            rejection_reasons.append(reason)
-                            continue
-                        
-                        # Ignorer si l'affectation n'existe pas
-                        try:
-                            assignment = Assigment.objects.get(job=job, counting=counting)
-                        except Assigment.DoesNotExist:
-                            reason = (
-                                f"Job {job.reference} (ID: {job.id}) : aucune affectation trouvée "
-                                f"pour le comptage d'ordre {order} (référence: {counting.reference})"
-                            )
-                            logger.debug(reason)
-                            rejection_reasons.append(reason)
-                            continue
-                        
-                        # Ignorer si l'affectation est déjà en PRET
-                        if assignment.status == 'PRET':
-                            reason = (
-                                f"Job {job.reference} (ID: {job.id}) : affectation déjà en PRET "
-                                f"pour le comptage d'ordre {order}"
-                            )
-                            logger.debug(reason)
-                            rejection_reasons.append(reason)
-                            continue
-                        
-                        # Ignorer si le comptage est "image de stock"
-                        if counting.count_mode == "image de stock":
-                            reason = (
-                                f"Job {job.reference} (ID: {job.id}) : comptage d'ordre {order} "
-                                f"avec mode 'image de stock' ignoré"
-                            )
-                            logger.debug(reason)
-                            rejection_reasons.append(reason)
-                            continue
-                        
-                        # Ignorer si l'affectation n'a pas de session
+                    # Ajouter tous les assignments valides
+                    for assignment in assignments:
+                        # Vérifier que l'assignment a une session
                         if assignment.session is None:
                             reason = (
-                                f"Job {job.reference} (ID: {job.id}) : affectation sans session "
-                                f"pour le comptage d'ordre {order}"
+                                f"Job {job.reference} (ID: {job.id}) : assignment {assignment.reference} "
+                                f"sans session ignoré"
                             )
                             logger.debug(reason)
                             rejection_reasons.append(reason)
                             continue
                         
-                        # Ignorer si l'affectation n'a pas le statut AFFECTE
-                        if assignment.status != 'AFFECTE':
-                            reason = (
-                                f"Job {job.reference} (ID: {job.id}) : affectation avec statut '{assignment.status}' "
-                                f"pour le comptage d'ordre {order} (attendu: 'AFFECTE')"
-                            )
-                            logger.debug(reason)
-                            rejection_reasons.append(reason)
-                            continue
-                        
-                        # Toutes les validations sont passées pour ce job et ce comptage
-                        validated_data.append((job, counting, assignment, order))
+                        # Toutes les validations sont passées pour ce job et cet assignment
+                        validated_data.append((job, assignment))
                 
-                # Si aucun job/comptage valide n'a été trouvé, retourner un succès avec 0 jobs traités
+                # Si aucun job/assignment valide n'a été trouvé, retourner un succès avec 0 jobs traités
                 if not validated_data:
-                    if counting_order is None:
-                        message = "Aucun job/comptage valide trouvé pour être marqué comme PRET"
-                    else:
-                        message = (
-                            f"Aucun job/comptage valide trouvé pour être marqué comme PRET "
-                            f"pour le comptage d'ordre {counting_order}"
-                        )
+                    message = "Aucun job/assignment valide trouvé pour être marqué comme PRET"
                     
                     # Ajouter les raisons de rejet si disponibles
                     response_data = {
                         'message': message,
-                        'counting_order': counting_order,
                         'jobs_processed': 0,
                         'jobs': []
                     }
@@ -172,18 +92,18 @@ class JobReadyUseCase:
                     
                     return response_data
                 
-                # Mettre en PRET tous les jobs/comptages validés
+                # Mettre en PRET tous les jobs/assignments validés
                 current_time = timezone.now()
                 updated_jobs = []
                 processed_jobs = set()  # Pour éviter de traiter plusieurs fois le même job
                 
-                for job, counting, assignment, order in validated_data:
+                for job, assignment in validated_data:
                     logger.info(
                         f"Marquage du job {job.reference} (ID: {job.id}) "
-                        f"et du comptage d'ordre {order} ({counting.reference}) comme PRET"
+                        f"et de l'assignment {assignment.reference} comme PRET"
                     )
                     
-                    # Marquer le job comme PRET (si ce n'est pas déjà fait par un autre comptage)
+                    # Marquer le job comme PRET (si ce n'est pas déjà fait)
                     if job.id not in processed_jobs:
                         job.status = 'PRET'
                         if job.pret_date is None:
@@ -196,56 +116,43 @@ class JobReadyUseCase:
                     assignment.pret_date = current_time
                     assignment.save()
                     
-                    # Ajouter le job avec ses informations de comptage
+                    # Ajouter le job avec ses informations d'assignment
                     job_entry = next(
                         (j for j in updated_jobs if j.get('job_reference') == job.reference),
                         None
                     )
                     if job_entry:
-                        # Ajouter ce comptage à la liste des comptages traités pour ce job
-                        if 'counting_orders' not in job_entry:
-                            job_entry['counting_orders'] = []
-                        job_entry['counting_orders'].append({
-                            'order': order,
-                            'counting_reference': counting.reference
+                        # Ajouter cet assignment à la liste des assignments traités pour ce job
+                        if 'assignments' not in job_entry:
+                            job_entry['assignments'] = []
+                        job_entry['assignments'].append({
+                            'assignment_reference': assignment.reference,
+                            'counting_reference': assignment.counting.reference if assignment.counting else None
                         })
                     else:
                         # Créer une nouvelle entrée pour ce job
                         job_data = {
                             'job_reference': job.reference,
-                            'counting_reference': counting.reference
-                        }
-                        if counting_order is None:
-                            # Si on traite tous les comptages, créer une liste
-                            job_data['counting_orders'] = [{
-                                'order': order,
-                                'counting_reference': counting.reference
+                            'assignments': [{
+                                'assignment_reference': assignment.reference,
+                                'counting_reference': assignment.counting.reference if assignment.counting else None
                             }]
-                        else:
-                            # Si on traite un seul comptage, utiliser counting_order
-                            job_data['counting_order'] = order
+                        }
                         updated_jobs.append(job_data)
                     
                     logger.info(
                         f"Job {job.reference} marqué comme PRET "
-                        f"(comptage: {counting.reference}, ordre: {order})"
+                        f"(assignment: {assignment.reference})"
                     )
                 
                 # Construire le message de retour
-                if counting_order is None:
-                    message = (
-                        f"{len(updated_jobs)} job(s) "
-                        f"marqué(s) comme PRET avec succès pour tous les comptages valides"
-                    )
-                else:
-                    message = (
-                        f"{len(updated_jobs)} job(s) "
-                        f"marqué(s) comme PRET avec succès pour le comptage d'ordre {counting_order}"
-                    )
+                message = (
+                    f"{len(updated_jobs)} job(s) "
+                    f"marqué(s) comme PRET avec succès"
+                )
                 
                 return {
                     'message': message,
-                    'counting_order': counting_order,
                     'jobs_processed': len(updated_jobs),
                     'jobs': updated_jobs
                 }
@@ -253,13 +160,10 @@ class JobReadyUseCase:
         except JobCreationError:
             raise
         except Exception as e:
-            counting_order_str = "tous les comptages" if counting_order is None else f"le comptage d'ordre {counting_order}"
             logger.error(
-                f"Erreur inattendue lors de la mise en prêt des jobs {job_ids} "
-                f"et de {counting_order_str}: {str(e)}",
+                f"Erreur inattendue lors de la mise en prêt des jobs {job_ids}: {str(e)}",
                 exc_info=True
             )
             raise JobCreationError(
-                f"Erreur inattendue lors de la mise en prêt des jobs {job_ids} "
-                f"et de {counting_order_str}: {str(e)}"
+                f"Erreur inattendue lors de la mise en prêt des jobs {job_ids}: {str(e)}"
             ) 
