@@ -247,7 +247,7 @@ class Location(CodeGeneratorMixin, TimeStampedModel):
         verbose_name_plural = _('Emplacements')
     
     def __str__(self):
-        return self.location_reference
+        return self.reference
 
 class Product(CodeGeneratorMixin, TimeStampedModel):
     """

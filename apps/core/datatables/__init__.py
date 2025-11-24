@@ -2,48 +2,16 @@
 Package DataTable ServerSide - Export des classes principales
 
 Ce package fournit une solution complète pour gérer les tableaux de données avec pagination,
-tri, recherche et filtres avancés. Il est conçu selon les principes SOLID et offre une
-architecture modulaire et extensible.
+tri, recherche et filtres avancés. Il est conçu selon les principes SOLID, KISS et DRY.
 
-ARCHITECTURE:
-- Interfaces (SOLID) : IDataTableConfig, IDataTableProcessor, IDataTableFilter, IDataTableSerializer
-- Implémentations : DataTableConfig, DataTableProcessor, DataTableFilter, DataTableSerializer
-- Filtres : DjangoFilterDataTableFilter, DateRangeFilter, StatusFilter, CompositeDataTableFilter
-- Sérialiseurs : CustomDataTableSerializer, NestedDataTableSerializer, AggregatedDataTableSerializer
-- Mixins : DataTableMixin, DataTableAPIView, DataTableListView
-- Utilitaires : datatable_view, quick_datatable_view, is_datatable_request
+PRINCIPES:
+- SOLID : Architecture modulaire et extensible
+- KISS : Simplicité et facilité d'utilisation
+- DRY : Réutilisation maximale du code
 
-UTILISATION RAPIDE:
-    from apps.core.datatables import DataTableListView, DataTableConfig
-    
-    class MonInventaireView(DataTableListView):
-        def get_datatable_config(self):
-            return DataTableConfig(
-                search_fields=['label', 'reference'],
-                order_fields=['id', 'label', 'date'],
-                default_order='-date',
-                page_size=20
-            )
-        
-        def get_datatable_queryset(self):
-            return Inventory.objects.filter(is_deleted=False)
-
-FONCTIONNALITÉS:
-- Détection automatique du format de requête (DataTable vs REST API)
-- Recherche globale dans plusieurs champs
-- Tri avancé supportant DataTable et REST API
-- Filtres composites combinant différents types de filtres
-- Pagination flexible avec limites configurables
-- Sérialisation personnalisable
-- Architecture extensible via les interfaces
-
-PRINCIPES SOLID:
-- Single Responsibility : Chaque classe a une responsabilité unique
-- Open/Closed : Ouvert à l'extension, fermé à la modification
-- Liskov Substitution : Les interfaces peuvent être substituées
-- Interface Segregation : Interfaces spécifiques et cohérentes
-- Dependency Inversion : Dépend des abstractions, pas des implémentations
+VERSION: 1.0.0
 """
+__version__ = "1.0.0"
 
 # =============================================================================
 # EXPORT DES CLASSES DE BASE (Interfaces et Implémentations)
@@ -126,6 +94,52 @@ from .mixins import (
 )
 
 # =============================================================================
+# EXPORT AG-GRID (Support AG-Grid compatible)
+# =============================================================================
+
+# AG-Grid Models - Modèles compatibles AG-Grid
+from .models import (
+    SortDirection,            # Direction de tri (asc/desc)
+    FilterType,               # Types de filtres (text, number, date, set)
+    FilterOperator,           # Opérateurs de filtres (equals, contains, etc.)
+    SortModelItem,            # Modèle de tri (sortModel)
+    FilterModelItem,          # Modèle de filtre (filterModel)
+    QueryModel                # Modèle de requête complet (sortModel + filterModel)
+)
+
+# AG-Grid Engines - Moteurs de traitement
+from .engines import (
+    FilterEngine,             # Moteur de filtrage (QueryModel → Q())
+    SortEngine,               # Moteur de tri multi-colonnes
+    PaginationEngine          # Moteur de pagination (infinite scroll)
+)
+
+# AG-Grid Operators - Registry d'opérateurs
+from .operators import (
+    OperatorRegistry          # Registry pour convertir opérateurs AG-Grid → Django ORM
+)
+
+# AG-Grid DataSource - Sources de données
+from .datasource import (
+    IDataSource,              # Interface pour sources de données
+    QuerySetDataSource,       # DataSource pour QuerySet Django
+    ListDataSource,           # DataSource pour liste de dictionnaires
+    CallableDataSource,       # DataSource pour fonction callable
+    DataSourceFactory         # Factory pour créer des DataSource
+)
+
+# AG-Grid Response - Modèle de réponse
+from .response import (
+    ResponseModel             # Modèle de réponse compatible AG-Grid
+)
+
+# QueryModel Mixin - Mixin pour intégration simple (maintenant dans mixins.py)
+from .mixins import (
+    QueryModelMixin,         # Mixin pour ajouter support QueryModel
+    QueryModelView            # Vue complète avec support QueryModel
+)
+
+# =============================================================================
 # EXPORT PUBLIC - Toutes les classes et fonctions disponibles
 # =============================================================================
 
@@ -177,7 +191,31 @@ __all__ = [
     'DataTableListView',             # Vue spécialisée pour les listes avec DataTable
     'datatable_view',                # Décorateur pour transformer une vue en DataTable
     'quick_datatable_view',          # Fonction pour créer rapidement une vue DataTable
-    'is_datatable_request'           # Fonction utilitaire pour détecter les requêtes DataTable
+    'is_datatable_request',          # Fonction utilitaire pour détecter les requêtes DataTable (DEPRECATED: use RequestFormatDetector)
+    'RequestFormatDetector',         # Détecteur de format de requête (SOLID)
+    'RequestParameterExtractor',     # Extracteur de paramètres (DRY)
+    
+    # =====================================================================
+    # QUERY MODEL (Support QueryModel)
+    # =====================================================================
+    'SortDirection',                 # Direction de tri (asc/desc)
+    'FilterType',                    # Types de filtres (text, number, date, set)
+    'FilterOperator',                # Opérateurs de filtres (equals, contains, etc.)
+    'SortModelItem',                 # Modèle de tri (sortModel)
+    'FilterModelItem',               # Modèle de filtre (filterModel)
+    'QueryModel',                    # Modèle de requête complet
+    'FilterEngine',                  # Moteur de filtrage
+    'SortEngine',                    # Moteur de tri multi-colonnes
+    'PaginationEngine',               # Moteur de pagination (infinite scroll)
+    'OperatorRegistry',               # Registry d'opérateurs
+    'IDataSource',                   # Interface pour sources de données
+    'QuerySetDataSource',            # DataSource pour QuerySet
+    'ListDataSource',                # DataSource pour liste de dicts
+    'CallableDataSource',            # DataSource pour fonction callable
+    'DataSourceFactory',             # Factory pour créer des DataSource
+    'ResponseModel',                 # Modèle de réponse QueryModel
+    'QueryModelMixin',               # Mixin pour support QueryModel
+    'QueryModelView'                  # Vue complète avec support QueryModel
 ]
 
 # =============================================================================
