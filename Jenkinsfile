@@ -42,10 +42,52 @@ pipeline {
             }
             steps {
                 withCredentials([usernamePassword(credentialsId: 'git-cred', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_PASS')]) {
-                    sh '''
+                    sh """
+                        # Nettoyer le répertoire existant
                         rm -rf /tmp/backend
-                        git clone --single-branch --branch ${BRANCH_NAME} https://$GIT_USER:$GIT_PASS@github.com/Med-X9/InventaireModuleWMS.git /tmp/backend
-                    '''
+                        
+                        # Cloner le repository
+                        echo "Cloning repository branch ${env.BRANCH_NAME}..."
+                        git clone --single-branch --branch ${env.BRANCH_NAME} https://\$GIT_USER:\$GIT_PASS@github.com/Med-X9/InventaireModuleWMS.git /tmp/backend
+                        
+                        # Vérifier que le clone a réussi
+                        if [ ! -d /tmp/backend ]; then
+                            echo "ERROR: Repository clone failed - directory not created!"
+                            exit 1
+                        fi
+                        
+                        # Vérifier que le répertoire n'est pas vide
+                        if [ -z "\$(ls -A /tmp/backend)" ]; then
+                            echo "ERROR: Repository clone failed - directory is empty!"
+                            exit 1
+                        fi
+                        
+                        echo "✓ Repository cloned successfully"
+                        cd /tmp/backend
+                        echo "Current branch: \$(git branch --show-current)"
+                        echo "Commit: \$(git rev-parse HEAD)"
+                        echo "Working directory: \$(pwd)"
+                        echo "Files in repository root:"
+                        ls -la | head -20
+                        
+                        # Vérifier la présence du Dockerfile
+                        if [ ! -f Dockerfile ]; then
+                            echo "ERROR: Dockerfile not found in branch ${env.BRANCH_NAME}!"
+                            echo "Searching for Dockerfile in subdirectories:"
+                            find . -name "Dockerfile" -type f 2>/dev/null || echo "No Dockerfile found"
+                            exit 1
+                        fi
+                        
+                        # Vérifier que le Dockerfile est lisible
+                        if [ ! -r Dockerfile ]; then
+                            echo "ERROR: Dockerfile exists but is not readable!"
+                            exit 1
+                        fi
+                        
+                        echo "✓ Dockerfile found and readable"
+                        echo "Dockerfile preview (first 5 lines):"
+                        head -5 Dockerfile || true
+                    """
                 }
             }
         }
@@ -163,9 +205,62 @@ pipeline {
                 }
             }
             steps {
+                script {
+                    def imageTag = env.BRANCH_NAME == 'main' ? 'prod-latest' : 'dev-latest'
+                    
+                    // Vérifier que le répertoire existe et contient le Dockerfile
+                    def backendExists = sh(
+                        script: "test -d /tmp/backend && test -f /tmp/backend/Dockerfile",
+                        returnStatus: true
+                    ) == 0
+                    
+                    if (!backendExists) {
+                        echo "⚠️  /tmp/backend not found or Dockerfile missing, re-cloning repository..."
+                        withCredentials([usernamePassword(credentialsId: 'git-cred', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_PASS')]) {
+                            sh """
+                                rm -rf /tmp/backend
+                                git clone --single-branch --branch ${env.BRANCH_NAME} https://\$GIT_USER:\$GIT_PASS@github.com/Med-X9/InventaireModuleWMS.git /tmp/backend
+                                
+                                if [ ! -d /tmp/backend ] || [ ! -f /tmp/backend/Dockerfile ]; then
+                                    echo "ERROR: Repository clone failed or Dockerfile not found!"
+                                    exit 1
+                                fi
+                                
+                                echo "✓ Repository re-cloned successfully"
+                                cd /tmp/backend
+                                echo "Current branch: \$(git branch --show-current)"
+                                echo "Commit: \$(git rev-parse HEAD)"
+                                echo "Dockerfile exists: \$(test -f Dockerfile && echo 'YES' || echo 'NO')"
+                            """
+                        }
+                    } else {
+                        echo "✓ /tmp/backend exists and contains Dockerfile, proceeding..."
+                    }
+                }
+                
                 dir('/tmp/backend') {
                     script {
                         def imageTag = env.BRANCH_NAME == 'main' ? 'prod-latest' : 'dev-latest'
+                        
+                        // Vérifications finales avant le build
+                        sh """
+                            echo "Checking for Dockerfile in /tmp/backend..."
+                            echo "Current directory: \$(pwd)"
+                            echo "Files in current directory:"
+                            ls -la | head -20
+                            
+                            if [ ! -f Dockerfile ]; then
+                                echo "ERROR: Dockerfile not found in /tmp/backend!"
+                                echo "Attempting to list all files:"
+                                find . -type f -name "Dockerfile" 2>/dev/null || echo "No Dockerfile found anywhere"
+                                exit 1
+                            fi
+                            
+                            echo "✓ Dockerfile found, proceeding with build..."
+                            echo "Dockerfile content (first 10 lines):"
+                            head -10 Dockerfile || true
+                        """
+                        
                         sh "docker build -t ${BACKEND_IMAGE}:${imageTag} ."
                         sh "docker tag ${BACKEND_IMAGE}:${imageTag} ${BACKEND_IMAGE}:${IMAGE_TAG}"
                     }
