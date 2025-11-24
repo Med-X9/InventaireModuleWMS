@@ -30,13 +30,7 @@ from ..utils.response_utils import success_response, error_response, validation_
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from apps.inventory.usecases.inventory_launch_validation import InventoryLaunchValidationUseCase
-from apps.core.datatables.mixins import ServerSideDataTableView, quick_datatable_view
-from apps.core.datatables.base import DataTableConfig, IDataTableFilter
-from apps.core.datatables.filters import (
-    DjangoFilterDataTableFilter, DateRangeFilter, StatusFilter, CompositeDataTableFilter,
-    StringFilter, DateFilter, NumberFilter, FilterMappingFilter
-)
-from apps.core.datatables.serializers import DataTableSerializer
+from apps.core.datatables.mixins import ServerSideDataTableView
 
 # Configuration du logger
 logger = logging.getLogger(__name__)
@@ -44,101 +38,83 @@ logger = logging.getLogger(__name__)
 
 class InventoryListView(ServerSideDataTableView):
     """
-    Vue pour lister les inventaires avec pagination et filtres.
-    Supporte à la fois l'API REST normale et DataTable ServerSide.
+    Vue ultra-simplifiée - Configuration minimale absolue
     
-    FONCTIONNALITÉS AUTOMATIQUES:
-    - Tri sur tous les champs configurés (ordering=field ou -field)
-    - Tri DataTable (order[0][column]=index&order[0][dir]=asc/desc)
-    - Recherche sur champs multiples
-    - Filtrage avancé avec django-filter
-    - Filtrage par date (date_exact, date_start, date_end)
-    - Filtrage par statut (status, status_in)
-    - Pagination optimisée
-    - Sérialisation flexible
+    Supporte automatiquement :
+    - Format QueryModel (POST JSON ou GET query params)
+    - Format DataTable standard (GET query params)
+    - Format REST API (GET query params)
     
-    PARAMÈTRES DE REQUÊTE SUPPORTÉS:
-    - Tri: ordering=label, ordering=-date, ordering=created_at, ordering=reference, ordering=status, ordering=inventory_type
-    - Tri DataTable: order[0][column]=2&order[0][dir]=asc
-    - Recherche: search=terme
-    - Pagination: page=1&page_size=25
-    - Filtres: status=active, inventory_type=general, reference=INV-xxx
-    - Dates: date_exact=2024-01-01, date_start=2024-01-01, date_end=2024-12-31
-    - Statuts: status=active, status_in=active,pending,completed
+    Le package détecte automatiquement :
+    - Champs de recherche depuis le serializer
+    - Champs de tri depuis le serializer
+    - Champs de date depuis le modèle (DateTimeField, DateField)
+    - Champs de statut depuis le modèle (CharField avec choices)
+    - Optimisations de requêtes
+    
+    ENDPOINTS:
+    - GET  /web/api/inventory/ (tous formats supportés)
+    - POST /web/api/inventory/ (format QueryModel uniquement)
+    
+    DOCUMENTATION: Voir INVENTORY_QUERYMODEL_API.md
     """
     
-    # Configuration de base
+    # Configuration minimale
     model = Inventory
     serializer_class = InventoryDetailSerializer
     
-    # Champs de recherche et tri - TOUS LES CHAMPS
+    # Champs de recherche - tous les champs disponibles dans le JSON
     search_fields = [
-        'label', 'reference', 'status', 'inventory_type', 
-        'account_name', 'warehouse_name', 'created_at', 'date',
-        'en_preparation_status_date', 'en_realisation_status_date', 
-        'termine_status_date', 'cloture_status_date'
+        'reference', 'label', 'status', 'inventory_type', 'date',
+        'en_preparation_status_date', 'en_realisation_status_date',
+        'termine_status_date', 'cloture_status_date', 'created_at',
+        # Relations pour account_name, account_reference, warehouse_name
+        'awi_links__account__account_name',
+        'awi_links__account__reference',
+        'awi_links__warehouse__warehouse_name',
+        'awi_links__warehouse__reference'
     ]
+    
+    # Champs de tri - tous les champs disponibles
     order_fields = [
-        'id', 'reference', 'label', 'date', 'status', 'inventory_type', 
-        'created_at', 'updated_at', 'en_preparation_status_date', 
-        'en_realisation_status_date', 'termine_status_date', 'cloture_status_date'
+        'id', 'reference', 'label', 'date', 'status', 'inventory_type',
+        'en_preparation_status_date', 'en_realisation_status_date',
+        'termine_status_date', 'cloture_status_date', 'created_at',
+        'awi_links__account__account_name',
+        'awi_links__warehouse__warehouse_name'
     ]
-    default_order = '-created_at'
     
-    # Configuration de pagination
-    page_size = 20
-    min_page_size = 1
-    max_page_size = 1000
-    
-    # Champs de filtrage automatique - TOUS LES CHAMPS
-    filter_fields = [
-        'status', 'inventory_type', 'reference', 'label', 'id',
-        'label_contains', 'label_exact', 'label_startswith', 'label_endswith',
-        'reference_contains', 'reference_exact',
-        'account_contains', 'warehouse_contains',
-        'count_mode_contains'
-    ]
-    date_fields = [
-        'date', 'created_at', 'updated_at', 'en_preparation_status_date', 
-        'en_realisation_status_date', 'termine_status_date', 'cloture_status_date'
-    ]
-    status_fields = ['status']
-    
-    # Mapping frontend -> backend aligné sur les colonnes du DataTable
-    # Les clés correspondent aux champs utilisés côté frontend (InventoryManagement.vue)
+    # Mapping frontend -> backend pour le filtrage par colonnes
     filter_aliases = {
-        # Colonnes principales visibles
+        'reference': 'reference',
         'label': 'label',
         'date': 'date',
         'status': 'status',
+        'inventory_type': 'inventory_type',
         'en_preparation_status_date': 'en_preparation_status_date',
         'en_realisation_status_date': 'en_realisation_status_date',
         'termine_status_date': 'termine_status_date',
         'cloture_status_date': 'cloture_status_date',
-        'account_name': 'awi_links__account__account_name',
-        'warehouse_name': 'awi_links__warehouse__warehouse_name',
-
-        # Filtres complémentaires (non nécessairement affichés en colonne)
-        'reference': 'reference',
-        'inventory_type': 'inventory_type',
         'created_at': 'created_at',
-        'updated_at': 'updated_at',
-        'count_mode': 'countings__count_mode',
+        'account_name': 'awi_links__account__account_name',
+        'account_reference': 'awi_links__account__reference',
+        'warehouse_name': 'awi_links__warehouse__warehouse_name',
+        'warehouse_references': 'awi_links__warehouse__reference'
     }
+    
+    # Optionnel : seulement si vous voulez personnaliser
+    default_order = '-created_at'
+    page_size = 20
 
-    def get_datatable_filter(self) -> IDataTableFilter:
-        """Filtre unifié qui gère automatiquement tout"""
-        composite_filter = CompositeDataTableFilter()
-        
-        # Filtre Django Filter si configuré
-        if self.filterset_class:
-            composite_filter.add_filter(DjangoFilterDataTableFilter(self.filterset_class))
-        
-        # Filtre de mapping qui gère automatiquement tous les opérateurs
-        mapping_filter = FilterMappingFilter(self.filter_aliases)
-        composite_filter.add_filter(mapping_filter)
-        
-        return composite_filter
+    def get_datatable_queryset(self):
+        """Optimisation automatique des requêtes"""
+        queryset = super().get_datatable_queryset()
+        # awi_links est une relation inverse (reverse relation), utiliser prefetch_related
+        return queryset.prefetch_related(
+            'awi_links__account',
+            'awi_links__warehouse',
+            'countings'
+        )
 
 
 
@@ -714,26 +690,10 @@ class InventoryWarehouseStatsView(APIView):
 class InventoryResultByWarehouseView(ServerSideDataTableView):
     """
     Vue permettant de récupérer les résultats d'un inventaire agrégés par entrepôt.
-    Supporte à la fois l'API REST normale et DataTable ServerSide.
-    
-    FONCTIONNALITÉS AUTOMATIQUES:
-    - Tri sur tous les champs configurés (ordering=field ou -field)
-    - Tri DataTable (order[0][column]=index&order[0][dir]=asc/desc)
-    - Recherche sur champs multiples
-    - Pagination optimisée
-    - Sérialisation flexible
-    
-    PARAMÈTRES DE REQUÊTE SUPPORTÉS:
-    - Tri: ordering=location, ordering=-location_id, ordering=product
-    - Tri DataTable: order[0][column]=0&order[0][dir]=asc
-    - Recherche: search=terme
-    - Pagination: page=1&page_size=25
+    Configuration minimale - Supporte automatiquement DataTable et REST API.
     """
     
-    # Configuration de base
     serializer_class = InventoryWarehouseResultSerializer
-    
-    # Champs de recherche et tri
     search_fields = [
         'location', 'product', 'product_description', 'product_internal_code',
         'job_reference', 'final_result'
@@ -743,9 +703,9 @@ class InventoryResultByWarehouseView(ServerSideDataTableView):
         'job_id', 'job_reference', 'final_result', 'resolved'
     ]
     default_order = 'location'
+    page_size = 20
     
     # Mapping des colonnes DataTable vers les champs réels
-    # Les clés correspondent aux valeurs de columns[X][data] dans la requête DataTable
     column_field_mapping = {
         'id': 'location_id',
         'article': 'product',
@@ -758,263 +718,182 @@ class InventoryResultByWarehouseView(ServerSideDataTableView):
         'resultats': 'final_result',
     }
     
-    # Configuration de pagination
-    page_size = 20
-    min_page_size = 1
-    max_page_size = 1000
-    
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.service = InventoryResultService()
     
     def _get_results_data(self, inventory_id: int, warehouse_id: int) -> list:
-        """
-        Récupère les données brutes depuis le service.
-        
-        Returns:
-            Liste de dictionnaires contenant les résultats
-        """
-        return self.service.get_inventory_results_for_warehouse(
-            inventory_id=inventory_id,
-            warehouse_id=warehouse_id,
-        )
+        """Récupère les données brutes depuis le service."""
+        return self.service.get_inventory_results_for_warehouse(inventory_id, warehouse_id)
     
     def _apply_search_on_list(self, data_list: list, search_term: str) -> list:
-        """
-        Applique la recherche sur une liste de dictionnaires.
-        
-        Args:
-            data_list: Liste de dictionnaires à filtrer
-            search_term: Terme de recherche
-            
-        Returns:
-            Liste filtrée
-        """
+        """Applique la recherche sur une liste de dictionnaires."""
         if not search_term:
             return data_list
-        
         search_clean = search_term.lower().strip()
         if not search_clean:
             return data_list
-        
         filtered = []
         for item in data_list:
-            # Rechercher dans tous les champs de recherche
             for field in self.search_fields:
                 value = item.get(field)
                 if value is not None and search_clean in str(value).lower():
                     filtered.append(item)
                     break
-        
         return filtered
     
     def _get_field_name_from_column(self, column_index: int, request) -> str:
-        """
-        Obtient le nom du champ réel à partir de l'index de colonne DataTable.
-        
-        Args:
-            column_index: Index de la colonne DataTable
-            request: Requête HTTP
-            
-        Returns:
-            Nom du champ réel
-        """
-        # Essayer de récupérer le nom de la colonne depuis columns[X][data]
+        """Obtient le nom du champ réel à partir de l'index de colonne DataTable."""
         column_data = request.GET.get(f'columns[{column_index}][data]', '')
         if column_data and column_data in self.column_field_mapping:
             return self.column_field_mapping[column_data]
-        
-        # Fallback: utiliser l'index directement si dans order_fields
         if 0 <= column_index < len(self.order_fields):
             return self.order_fields[column_index]
-        
-        # Par défaut
         return self.default_order.lstrip('-')
     
     def _apply_ordering_on_list(self, data_list: list, ordering: str) -> list:
-        """
-        Applique le tri sur une liste de dictionnaires.
-        
-        Args:
-            data_list: Liste de dictionnaires à trier
-            ordering: Champ de tri (ex: 'location', '-location_id', '1er comptage')
-            
-        Returns:
-            Liste triée
-        """
+        """Applique le tri sur une liste de dictionnaires."""
         if not ordering:
             ordering = self.default_order
-        
         reverse = ordering.startswith('-')
         field = ordering.lstrip('-')
-        
         def sort_key(item):
             value = item.get(field)
-            # Gérer les valeurs None
             if value is None:
-                # Pour les champs numériques, utiliser 0 ou une grande valeur
-                # Pour les champs texte, utiliser chaîne vide ou 'zzz'
                 if field.endswith(' comptage') or field.startswith('ecart_') or field in ['final_result', 'location_id', 'job_id']:
                     return float('-inf') if not reverse else float('inf')
                 return '' if not reverse else 'zzz'
-            
-            # Pour les champs numériques, convertir en nombre
             if field.endswith(' comptage') or field.startswith('ecart_') or field in ['final_result', 'location_id', 'job_id']:
                 try:
                     return float(value) if value is not None else (float('-inf') if not reverse else float('inf'))
                 except (ValueError, TypeError):
                     return float('-inf') if not reverse else float('inf')
-            
-            # Pour les champs texte, convertir en string
             return str(value).lower()
-        
         return sorted(data_list, key=sort_key, reverse=reverse)
     
-    def handle_datatable_request(self, request, inventory_id: int, warehouse_id: int, *args, **kwargs):
-        """
-        Gère les requêtes DataTable avec traitement sur liste de dictionnaires.
-        """
-        try:
-            # Récupérer les données depuis le service
-            results = self._get_results_data(inventory_id, warehouse_id)
-            logger.debug(f"Données récupérées: {len(results)} résultats")
-            
-            # Appliquer la recherche
-            search_term = request.GET.get('search', {}).get('value', '') if isinstance(request.GET.get('search'), dict) else request.GET.get('search', '')
-            if not search_term:
-                # Essayer aussi le format simple
-                search_term = request.GET.get('search', '')
-            
-            if search_term:
-                logger.debug(f"Recherche appliquée: '{search_term}'")
-                results = self._apply_search_on_list(results, search_term)
-                logger.debug(f"Après recherche: {len(results)} résultats")
-            
-            # Appliquer le tri DataTable
-            # DataTable peut envoyer plusieurs ordres (order[0], order[1], etc.)
-            ordering_applied = False
-            order_index = 0
-            
-            # Log tous les paramètres order pour débogage
-            order_params = {k: v for k, v in request.GET.items() if k.startswith('order')}
-            logger.debug(f"Paramètres de tri DataTable: {order_params}")
-            
-            while f'order[{order_index}][column]' in request.GET:
+    def _apply_column_filters_on_list(self, data_list: list, request) -> list:
+        """Applique les filtres de colonnes DataTables sur une liste de dictionnaires."""
+        from urllib.parse import unquote
+        column_indices = set()
+        for param_name in request.GET.keys():
+            if param_name.startswith('columns[') and param_name.endswith('][data]'):
                 try:
-                    column_index = int(request.GET.get(f'order[{order_index}][column]', 0))
-                    direction = request.GET.get(f'order[{order_index}][dir]', 'asc')
-                    
-                    # Obtenir le nom du champ réel depuis le mapping
-                    field = self._get_field_name_from_column(column_index, request)
-                    ordering = f"-{field}" if direction == 'desc' else field
-                    
-                    logger.info(f"Tri DataTable appliqué: colonne {column_index} -> champ '{field}' direction '{direction}'")
-                    results = self._apply_ordering_on_list(results, ordering)
-                    ordering_applied = True
-                    order_index += 1
-                except (ValueError, IndexError) as e:
-                    logger.warning(f"Erreur lors du tri DataTable: {e}", exc_info=True)
-                    break
-            
-            # Si aucun tri DataTable n'a été appliqué, utiliser le tri par défaut
-            if not ordering_applied:
-                logger.debug(f"Aucun tri DataTable détecté, utilisation du tri par défaut: '{self.default_order}'")
-                results = self._apply_ordering_on_list(results, self.default_order)
-            
-            # Pagination DataTable
+                    index_str = param_name.replace('columns[', '').replace('][data]', '')
+                    column_indices.add(int(index_str))
+                except ValueError:
+                    continue
+        if not column_indices:
+            return data_list
+        filtered = data_list
+        for column_index in column_indices:
+            column_data = request.GET.get(f'columns[{column_index}][data]', '')
+            if not column_data:
+                continue
+            search_value = request.GET.get(f'columns[{column_index}][search][value]', '')
+            if not search_value:
+                continue
+            operator = request.GET.get(f'columns[{column_index}][operator]', 'equals')
+            field_name = self.column_field_mapping.get(column_data, column_data)
+            search_value = unquote(search_value.replace('+', ' ').strip())
+            if operator == 'in':
+                values = [v.strip() for v in search_value.split(',') if v.strip()]
+                filtered = [item for item in filtered if str(item.get(field_name, '')).strip() in values]
+            elif operator == 'equals':
+                filtered = [item for item in filtered if str(item.get(field_name, '')).strip() == search_value]
+            elif operator == 'contains':
+                search_lower = search_value.lower()
+                filtered = [item for item in filtered if search_lower in str(item.get(field_name, '')).lower()]
+            elif operator == 'startswith':
+                search_lower = search_value.lower()
+                filtered = [item for item in filtered if str(item.get(field_name, '')).lower().startswith(search_lower)]
+            elif operator == 'endswith':
+                search_lower = search_value.lower()
+                filtered = [item for item in filtered if str(item.get(field_name, '')).lower().endswith(search_lower)]
+            elif operator == 'notEqual':
+                filtered = [item for item in filtered if str(item.get(field_name, '')).strip() != search_value]
+            else:
+                filtered = [item for item in filtered if str(item.get(field_name, '')).strip() == search_value]
+        return filtered
+    
+    def _process_list_data(self, results: list, request) -> tuple:
+        """Traite les données de liste : filtres, recherche, tri, pagination."""
+        # Filtres de colonnes
+        results = self._apply_column_filters_on_list(results, request)
+        # Recherche
+        search_term = request.GET.get('search', {}).get('value', '') if isinstance(request.GET.get('search'), dict) else request.GET.get('search', '')
+        if not search_term:
+            search_term = request.GET.get('search', '')
+        if search_term:
+            results = self._apply_search_on_list(results, search_term)
+        # Tri
+        ordering_applied = False
+        order_index = 0
+        while f'order[{order_index}][column]' in request.GET:
             try:
-                start = int(request.GET.get('start', 0))
-                length = int(request.GET.get('length', self.page_size))
-                length = min(max(self.min_page_size, length), self.max_page_size)
-            except (ValueError, TypeError):
-                start = 0
-                length = self.page_size
-            
-            total_count = len(results)
-            paginated_results = results[start:start + length]
-            
-            # Sérialisation
+                column_index = int(request.GET.get(f'order[{order_index}][column]', 0))
+                direction = request.GET.get(f'order[{order_index}][dir]', 'asc')
+                field = self._get_field_name_from_column(column_index, request)
+                ordering = f"-{field}" if direction == 'desc' else field
+                results = self._apply_ordering_on_list(results, ordering)
+                ordering_applied = True
+                order_index += 1
+            except (ValueError, IndexError):
+                break
+        if not ordering_applied:
+            results = self._apply_ordering_on_list(results, self.default_order)
+        # Pagination
+        try:
+            start = int(request.GET.get('start', 0))
+            length = int(request.GET.get('length', self.page_size))
+            length = min(max(self.min_page_size, length), self.max_page_size)
+        except (ValueError, TypeError):
+            start = 0
+            length = self.page_size
+        total_count = len(results)
+        paginated_results = results[start:start + length]
+        return paginated_results, total_count
+    
+    def handle_datatable_request(self, request, inventory_id: int, warehouse_id: int, *args, **kwargs):
+        """Gère les requêtes DataTable avec traitement sur liste de dictionnaires."""
+        try:
+            results = self._get_results_data(inventory_id, warehouse_id)
+            paginated_results, total_count = self._process_list_data(results, request)
             serializer = self.serializer_class({"success": True, "data": paginated_results})
-            serialized_data = serializer.data.get('data', [])
-            
-            # Réponse DataTable
-            draw = int(request.GET.get('draw', 1))
             return Response({
-                'draw': draw,
+                'draw': int(request.GET.get('draw', 1)),
                 'recordsTotal': total_count,
                 'recordsFiltered': total_count,
-                'data': serialized_data
+                'data': serializer.data.get('data', [])
             })
-            
         except InventoryNotFoundError as error:
-            logger.warning(
-                "Inventaire introuvable lors de la récupération des résultats "
-                "(inventory_id=%s, warehouse_id=%s).",
-                inventory_id,
-                warehouse_id,
-            )
-            return error_response(
-                message=str(error),
-                status_code=status.HTTP_404_NOT_FOUND
-            )
+            return error_response(message=str(error), status_code=status.HTTP_404_NOT_FOUND)
         except InventoryValidationError as error:
-            logger.warning(
-                "Erreur de validation lors de l'agrégation des résultats "
-                "(inventory_id=%s, warehouse_id=%s): %s",
-                inventory_id,
-                warehouse_id,
-                error,
-            )
-            return error_response(
-                message=str(error),
-                status_code=status.HTTP_400_BAD_REQUEST
-            )
+            return error_response(message=str(error), status_code=status.HTTP_400_BAD_REQUEST)
         except Exception as error:
-            logger.error(
-                "Erreur inattendue lors de la récupération des résultats de l'inventaire "
-                "(inventory_id=%s, warehouse_id=%s): %s",
-                inventory_id,
-                warehouse_id,
-                error,
-                exc_info=True,
-            )
+            logger.error(f"Erreur lors de la récupération des résultats: {str(error)}", exc_info=True)
             return error_response(
-                message="Une erreur inattendue est survenue lors de la récupération des résultats",
+                message="Une erreur inattendue est survenue",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
     def handle_rest_request(self, request, inventory_id: int, warehouse_id: int, *args, **kwargs):
-        """
-        Gère les requêtes REST API normales avec pagination simple.
-        """
+        """Gère les requêtes REST API normales avec pagination simple."""
         try:
-            # Récupérer les données depuis le service
             results = self._get_results_data(inventory_id, warehouse_id)
-            
-            # Appliquer la recherche
             search_term = request.GET.get('search', '')
             if search_term:
                 results = self._apply_search_on_list(results, search_term)
-            
-            # Appliquer le tri REST API
             ordering = request.GET.get('ordering', self.default_order)
             results = self._apply_ordering_on_list(results, ordering)
-            
-            # Pagination REST API
             try:
                 page = max(1, int(request.GET.get('page', 1)))
                 page_size = min(max(self.min_page_size, int(request.GET.get('page_size', self.page_size))), self.max_page_size)
             except (ValueError, TypeError):
                 page = 1
                 page_size = self.page_size
-            
             start = (page - 1) * page_size
-            end = start + page_size
-            paginated_results = results[start:end]
-            
-            # Sérialisation
+            paginated_results = results[start:start + page_size]
             serializer = self.serializer_class({"success": True, "data": paginated_results})
-            
             total_count = len(results)
             return Response({
                 'count': total_count,
@@ -1023,41 +902,14 @@ class InventoryResultByWarehouseView(ServerSideDataTableView):
                 'page_size': page_size,
                 'total_pages': (total_count + page_size - 1) // page_size
             })
-            
         except InventoryNotFoundError as error:
-            logger.warning(
-                "Inventaire introuvable lors de la récupération des résultats "
-                "(inventory_id=%s, warehouse_id=%s).",
-                inventory_id,
-                warehouse_id,
-            )
-            return error_response(
-                message=str(error),
-                status_code=status.HTTP_404_NOT_FOUND
-            )
+            return error_response(message=str(error), status_code=status.HTTP_404_NOT_FOUND)
         except InventoryValidationError as error:
-            logger.warning(
-                "Erreur de validation lors de l'agrégation des résultats "
-                "(inventory_id=%s, warehouse_id=%s): %s",
-                inventory_id,
-                warehouse_id,
-                error,
-            )
-            return error_response(
-                message=str(error),
-                status_code=status.HTTP_400_BAD_REQUEST
-            )
+            return error_response(message=str(error), status_code=status.HTTP_400_BAD_REQUEST)
         except Exception as error:
-            logger.error(
-                "Erreur inattendue lors de la récupération des résultats de l'inventaire "
-                "(inventory_id=%s, warehouse_id=%s): %s",
-                inventory_id,
-                warehouse_id,
-                error,
-                exc_info=True,
-            )
+            logger.error(f"Erreur lors de la récupération des résultats: {str(error)}", exc_info=True)
             return error_response(
-                message="Une erreur inattendue est survenue lors de la récupération des résultats",
+                message="Une erreur inattendue est survenue",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 

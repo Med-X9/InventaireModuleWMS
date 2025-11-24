@@ -46,10 +46,18 @@ from .base import DataTableConfig, DataTableProcessor, IDataTableFilter, IDataTa
 from .filters import DjangoFilterDataTableFilter, DateRangeFilter, StatusFilter, CompositeDataTableFilter, FilterMappingFilter
 from .serializers import DataTableSerializer
 from .exporters import export_manager
+from .request_handler import RequestFormatDetector, RequestParameterExtractor
 
 logger = logging.getLogger(__name__)
 
 def is_datatable_request(request: HttpRequest) -> bool:
+    """
+    Détecte si une requête est une requête DataTable.
+    
+    DEPRECATED: Use RequestFormatDetector.is_datatable_request() instead.
+    Kept for backward compatibility.
+    """
+    return RequestFormatDetector.is_datatable_request(request)
     """
     Détecte si une requête est une requête DataTable
     
@@ -375,19 +383,151 @@ class DataTableMixin:
             return self.handle_datatable_request(request, *args, **kwargs)
         return super().get(request, *args, **kwargs)
     
+    def _is_query_model_request(self, request) -> bool:
+        """
+        Détecte si la requête utilise le format QueryModel.
+        
+        Utilise RequestFormatDetector pour la détection (SOLID - Dependency Inversion).
+        """
+        return RequestFormatDetector.is_query_model_request(request)
+    
+    def _get_column_field_mapping_for_querymodel(self) -> Dict[str, str]:
+        """
+        Crée un mapping column_field_mapping pour QueryModel depuis order_fields.
+        
+        Utilise order_fields pour créer un mapping col_id -> field_name.
+        Si filter_aliases existe, l'utilise aussi.
+        """
+        mapping = {}
+        
+        # Utiliser filter_aliases si disponible (plus précis)
+        if hasattr(self, 'filter_aliases') and self.filter_aliases:
+            mapping.update(self.filter_aliases)
+        
+        # Ajouter order_fields comme mapping direct (col_id = field_name)
+        if hasattr(self, 'order_fields') and self.order_fields:
+            for field in self.order_fields:
+                if field not in mapping:
+                    mapping[field] = field
+        
+        # Ajouter search_fields aussi
+        if hasattr(self, 'search_fields') and self.search_fields:
+            for field in self.search_fields:
+                if field not in mapping:
+                    mapping[field] = field
+        
+        return mapping
+    
+    def _handle_querymodel_request(self, request, queryset, *args, **kwargs):
+        """
+        Gère une requête QueryModel avec les engines.
+        
+        Utilise FilterEngine, SortEngine et PaginationEngine pour traiter QueryModel.
+        Supporte aussi la recherche globale via query params ou request.data.
+        """
+        from apps.core.datatables.models import QueryModel, FilterModelItem, FilterType, FilterOperator
+        from apps.core.datatables.engines import FilterEngine, SortEngine, PaginationEngine
+        from django.db.models import Q
+        
+        logger = logging.getLogger(__name__)
+        
+        try:
+            # Parser QueryModel
+            query_model = QueryModel.from_request(request)
+            logger.debug(f"🔧 QueryModel détecté: sortModel={len(query_model.sort_model)}, filterModel={len(query_model.filter_model)}")
+            
+            # Gérer la recherche globale (DRY - utilise RequestParameterExtractor)
+            search_value = RequestParameterExtractor.get_search_value(request)
+            
+            # Appliquer la recherche globale si présente
+            if search_value and hasattr(self, 'search_fields') and self.search_fields:
+                search_clean = search_value.strip()
+                if search_clean:
+                    search_query = Q()
+                    for field in self.search_fields:
+                        search_query |= Q(**{f"{field}__icontains": search_clean})
+                    queryset = queryset.filter(search_query)
+                    logger.debug(f"🔧 Recherche globale appliquée: '{search_clean}' dans {self.search_fields}")
+            
+            # Créer le mapping colonnes -> champs
+            column_mapping = self._get_column_field_mapping_for_querymodel()
+            
+            # Appliquer les filtres avec FilterEngine
+            if query_model.filter_model:
+                filter_engine = FilterEngine(column_mapping)
+                queryset = filter_engine.apply_filters(queryset, query_model.filter_model)
+                logger.debug(f"🔧 Filtres QueryModel appliqués: {queryset.count()} éléments")
+            
+            # Appliquer le tri avec SortEngine
+            if query_model.sort_model:
+                sort_engine = SortEngine(column_mapping)
+                queryset = sort_engine.apply_sorting(queryset, query_model.sort_model)
+                logger.debug(f"🔧 Tri QueryModel appliqué")
+            elif hasattr(self, 'default_order') and self.default_order:
+                # Appliquer le tri par défaut si aucun tri dans QueryModel
+                queryset = queryset.order_by(self.default_order)
+            
+            # Paginer avec PaginationEngine
+            pagination_engine = PaginationEngine(
+                default_page_size=self.page_size,
+                max_page_size=self.max_page_size
+            )
+            pagination_result = pagination_engine.paginate(
+                queryset,
+                start_row=query_model.start_row,
+                end_row=query_model.end_row
+            )
+            
+            paginated_queryset = pagination_result['queryset']
+            total_count = pagination_result['total_count']
+            
+            # Sérialiser
+            serializer = self.serializer_class(paginated_queryset, many=True)
+            
+            # Réponse DataTable (DRY - utilise RequestParameterExtractor)
+            response_data = {
+                'draw': RequestParameterExtractor.get_draw_value(request),
+                'recordsTotal': total_count,
+                'recordsFiltered': total_count,
+                'data': serializer.data
+            }
+            
+            return Response(response_data)
+            
+        except Exception as e:
+            logger.error(f"Erreur lors du traitement QueryModel: {str(e)}", exc_info=True)
+            raise
+    
     def handle_datatable_request(self, request, *args, **kwargs):
-        """Gère les requêtes DataTable avec implémentation directe pour éviter les problèmes de sérialisation"""
+        """
+        Gère les requêtes DataTable avec support QueryModel et format standard.
+        
+        Détecte automatiquement le format :
+        - QueryModel : POST JSON ou GET avec sortModel/filterModel
+        - Format standard : Query params DataTable/REST API
+        """
         import logging
         logger = logging.getLogger(__name__)
         
         logger.debug(f"🚀 DataTable: {request.GET.get('affectation_personne_full_name_exact', 'sans filtre')}")
         
         try:
+            # S'assurer que les champs sont détectés automatiquement si nécessaire
+            self._auto_detect_fields()
+            
             # Queryset de base
             queryset = self.get_datatable_queryset()
             if queryset is None:
                 logger.warning("get_datatable_queryset() returned None; using empty queryset")
                 queryset = self.model.objects.none()
+            
+            # PRIORITÉ 1: Vérifier si c'est une requête QueryModel
+            if self._is_query_model_request(request):
+                logger.debug("🔧 Format QueryModel détecté - Utilisation des engines")
+                return self._handle_querymodel_request(request, queryset, *args, **kwargs)
+            
+            # PRIORITÉ 2: Format standard (query params)
+            logger.debug("🔧 Format standard détecté - Utilisation du parsing direct")
             
             # Appliquer les filtres Django Filter si configuré (en premier)
             if self.filterset_class:
@@ -403,10 +543,12 @@ class DataTableMixin:
             else:
                 logger.debug(f"ℹ️  Aucun filterset_class configuré - Utilisation DataTable uniquement")
 
-            # Appliquer le mapping des filtres directement (filtres dynamiques)
-            logger.debug(f"🔧 Mapping direct: {queryset.count()} éléments avant")
-            queryset = self.apply_filter_mapping_direct(queryset, request)
-            logger.debug(f"🔧 Mapping direct: {queryset.count()} éléments après")
+            # Appliquer tous les filtres via le filtre composite (inclut DataTableColumnFilter)
+            logger.debug(f"🔧 Filtres composites: {queryset.count()} éléments avant")
+            filter_handler = self.get_datatable_filter()
+            if filter_handler:
+                queryset = filter_handler.apply_filters(request, queryset)
+            logger.debug(f"🔧 Filtres composites: {queryset.count()} éléments après")
             
             # Recherche globale
             queryset = self.apply_search_direct(queryset, request)
@@ -743,8 +885,73 @@ class ServerSideDataTableView(DataTableListView):
                 f"min_page_size ({self.min_page_size}) et max_page_size ({self.max_page_size})"
             )
     
+    def _auto_detect_fields(self):
+        """
+        Détection automatique des champs depuis le modèle et le serializer.
+        
+        Détecte automatiquement :
+        - search_fields et order_fields depuis le serializer
+        - date_fields depuis le modèle (DateTimeField, DateField)
+        - status_fields depuis le modèle (CharField avec choices)
+        """
+        # Détection automatique des champs de date depuis le modèle
+        if self.model and not self.date_fields:
+            from django.db import models
+            date_fields = []
+            for field in self.model._meta.get_fields():
+                if isinstance(field, (models.DateTimeField, models.DateField)):
+                    date_fields.append(field.name)
+            if date_fields:
+                self.date_fields = date_fields
+        
+        # Détection automatique des champs de statut depuis le modèle
+        if self.model and not self.status_fields:
+            from django.db import models
+            status_fields = []
+            for field in self.model._meta.get_fields():
+                if isinstance(field, models.CharField) and hasattr(field, 'choices') and field.choices:
+                    status_fields.append(field.name)
+            if status_fields:
+                self.status_fields = status_fields
+        
+        # Détection automatique des champs depuis le serializer
+        if self.serializer_class and (not self.search_fields or not self.order_fields):
+            serializer_fields = []
+            
+            # Méthode 1 : Depuis Meta.fields
+            if hasattr(self.serializer_class, 'Meta') and hasattr(self.serializer_class.Meta, 'fields'):
+                serializer_fields = list(self.serializer_class.Meta.fields)
+            
+            # Méthode 2 : Depuis les champs du serializer
+            if not serializer_fields:
+                try:
+                    serializer_instance = self.serializer_class()
+                    serializer_fields = [f for f in serializer_instance.fields.keys() if not f.startswith('get_')]
+                except:
+                    pass
+            
+            # Utiliser les champs du serializer pour search et order si non définis
+            if not self.search_fields and serializer_fields:
+                # Exclure les champs non recherchables
+                searchable_fields = [
+                    f for f in serializer_fields 
+                    if not f.endswith('_id') and f not in ['id', 'pk'] and not f.startswith('get_')
+                ]
+                self.search_fields = searchable_fields[:15]  # Limiter à 15 champs
+            
+            if not self.order_fields and serializer_fields:
+                # Exclure les champs non triables (SerializerMethodField)
+                orderable_fields = [
+                    f for f in serializer_fields 
+                    if not f.startswith('get_') and f not in ['comptages', 'equipe']
+                ]
+                self.order_fields = orderable_fields[:20]  # Limiter à 20 champs
+    
     def get_datatable_config(self) -> DataTableConfig:
-        """Configuration DataTable avec valeurs par défaut intelligentes"""
+        """Configuration DataTable avec détection automatique et valeurs par défaut intelligentes"""
+        # Détection automatique si les champs ne sont pas définis
+        self._auto_detect_fields()
+        
         return DataTableConfig(
             search_fields=self.search_fields,
             order_fields=self.order_fields,
@@ -772,10 +979,18 @@ class ServerSideDataTableView(DataTableListView):
         return queryset
     
     def get_datatable_filter(self) -> IDataTableFilter:
-        """Filtre composite avec tous les types de filtres"""
+        """
+        Filtre composite avec tous les types de filtres - GESTION AUTOMATIQUE
+        
+        Le package gère automatiquement :
+        - Filtres de date (date_exact, date_start, date_end) pour tous les date_fields
+        - Filtres de statut (status, status_in) pour tous les status_fields
+        - Mapping des filtres (filter_aliases) avec tous les opérateurs
+        - Filtres de colonnes DataTables (columns[i][search][value])
+        """
         composite_filter = CompositeDataTableFilter()
         
-        # Filtre Django Filter si configuré
+        # Filtre Django Filter si configuré (optionnel)
         if self.filterset_class:
             composite_filter.add_filter(DjangoFilterDataTableFilter(self.filterset_class))
         
@@ -786,6 +1001,27 @@ class ServerSideDataTableView(DataTableListView):
         # Filtres automatiques pour les champs de statut
         for status_field in self.status_fields:
             composite_filter.add_filter(StatusFilter(status_field))
+        
+        # Filtre de mapping automatique si filter_aliases est défini
+        if self.filter_aliases:
+            dynamic_filters = getattr(self, 'dynamic_filters', None)
+            composite_filter.add_filter(FilterMappingFilter(self.filter_aliases, dynamic_filters))
+        
+        # Filtre de colonnes DataTables (columns[i][search][value])
+        # Créer le mapping colonne -> champ depuis order_fields et filter_aliases
+        column_mapping = {}
+        if hasattr(self, 'order_fields') and self.order_fields:
+            for field in self.order_fields:
+                column_mapping[field] = field
+        if hasattr(self, 'filter_aliases') and self.filter_aliases:
+            column_mapping.update(self.filter_aliases)
+        if hasattr(self, 'search_fields') and self.search_fields:
+            for field in self.search_fields:
+                if field not in column_mapping:
+                    column_mapping[field] = field
+        
+        from .filters import DataTableColumnFilter
+        composite_filter.add_filter(DataTableColumnFilter(column_mapping))
         
         return composite_filter
     
@@ -814,6 +1050,22 @@ class ServerSideDataTableView(DataTableListView):
         if hasattr(self, 'composite_columns'):
             from .filters import CompositeColumnFilter
             composite_filter.add_filter(CompositeColumnFilter(self.composite_columns))
+        
+        # Filtre de colonnes DataTables (columns[i][search][value])
+        # Créer le mapping colonne -> champ depuis order_fields et filter_aliases
+        column_mapping = {}
+        if hasattr(self, 'order_fields') and self.order_fields:
+            for field in self.order_fields:
+                column_mapping[field] = field
+        if hasattr(self, 'filter_aliases') and self.filter_aliases:
+            column_mapping.update(self.filter_aliases)
+        if hasattr(self, 'search_fields') and self.search_fields:
+            for field in self.search_fields:
+                if field not in column_mapping:
+                    column_mapping[field] = field
+        
+        from .filters import DataTableColumnFilter
+        composite_filter.add_filter(DataTableColumnFilter(column_mapping))
         
         return composite_filter
     
@@ -849,18 +1101,39 @@ class ServerSideDataTableView(DataTableListView):
         
         if not search:
             return queryset
+        
+        # S'assurer que search_fields est défini
+        if not hasattr(self, 'search_fields') or not self.search_fields:
+            # Essayer de détecter automatiquement depuis la config
+            config = self.get_datatable_config()
+            search_fields = config.get_search_fields()
+            if not search_fields:
+                logger.debug("⚠️ Aucun search_fields configuré - recherche globale ignorée")
+                return queryset
+        else:
+            search_fields = self.search_fields
             
         from django.db.models import Q
         
         # Nettoyer la recherche
         search_clean = search.replace('+', ' ').strip()
+        if not search_clean:
+            return queryset
         
         # Recherche dans tous les champs configurés
         search_query = Q()
-        for field in self.search_fields:
-            search_query |= Q(**{f"{field}__icontains": search_clean})
+        for field in search_fields:
+            try:
+                search_query |= Q(**{f"{field}__icontains": search_clean})
+            except Exception as e:
+                logger.warning(f"⚠️ Erreur lors de l'ajout du champ '{field}' à la recherche: {e}")
+                continue
         
-        return queryset.filter(search_query)
+        if search_query:
+            queryset = queryset.filter(search_query)
+            logger.debug(f"🔍 Recherche globale appliquée: '{search_clean}' dans {search_fields}")
+        
+        return queryset
     
     def apply_ordering_direct(self, queryset, request):
         """Applique le tri directement sur le queryset"""
@@ -910,7 +1183,7 @@ class ServerSideDataTableView(DataTableListView):
         return DataTableSerializer(self.serializer_class)
     
     def get(self, request, *args, **kwargs):
-        """Gère les requêtes avec détection automatique et mapping des filtres"""
+        """Gère les requêtes GET avec détection automatique et mapping des filtres"""
         # PRIORITÉ 1: Vérifier si c'est une demande d'export
         export_format = request.GET.get('export')
         if export_format and hasattr(self, 'is_export_enabled') and self.is_export_enabled():
@@ -924,6 +1197,30 @@ class ServerSideDataTableView(DataTableListView):
         # PRIORITÉ 3: Traiter comme requête REST normale
         else:
             return self.handle_rest_request(request, *args, **kwargs)
+    
+    def post(self, request, *args, **kwargs):
+        """
+        Gère les requêtes POST avec support QueryModel (JSON body).
+        
+        SOLID - Single Responsibility: Routes POST requests
+        KISS: Simple routing logic
+        """
+        # PRIORITÉ 1: Vérifier si c'est une demande d'export
+        export_format = RequestParameterExtractor.get_export_format(request)
+        if export_format and hasattr(self, 'is_export_enabled') and self.is_export_enabled():
+            if hasattr(self, 'handle_export_request'):
+                return self.handle_export_request(request, export_format, *args, **kwargs)
+        
+        # PRIORITÉ 2: Vérifier si c'est une requête QueryModel (POST avec JSON)
+        if RequestFormatDetector.is_query_model_request(request):
+            return self.handle_datatable_request(request, *args, **kwargs)
+        
+        # PRIORITÉ 3: Traiter comme requête DataTable standard
+        if RequestFormatDetector.is_datatable_request(request):
+            return self.handle_datatable_request(request, *args, **kwargs)
+        
+        # PRIORITÉ 4: Traiter comme requête REST normale
+        return self.handle_rest_request(request, *args, **kwargs)
     
     def handle_rest_request(self, request, *args, **kwargs):
         """Gère les requêtes REST API normales avec pagination simple"""
@@ -986,4 +1283,257 @@ class ServerSideDataTableView(DataTableListView):
             return Response(
                 {"error": "Erreur lors du traitement de la requête REST API"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            ) 
+            )
+
+
+# =============================================================================
+# QUERY MODEL MIXIN (Support QueryModel)
+# =============================================================================
+
+class QueryModelMixin:
+    """
+    Mixin pour ajouter le support QueryModel à une vue.
+    
+    Ce mixin est spécialisé pour le format QueryModel uniquement (sortModel, filterModel).
+    Pour un support plus complet (DataTable + QueryModel + REST API), 
+    utilisez ServerSideDataTableView.
+    
+    USAGE SIMPLE:
+    
+    class MyView(QueryModelMixin, APIView):
+        model = MyModel
+        serializer_class = MySerializer
+        column_field_mapping = {
+            'id': 'id',
+            'name': 'name',
+            'age': 'age'
+        }
+        
+        def get_queryset(self):
+            return MyModel.objects.all()
+    
+    La vue supporte automatiquement:
+    - Tri multi-colonnes (sortModel)
+    - Filtres complexes (filterModel)
+    - Infinite scroll (startRow/endRow)
+    - Format de réponse QueryModel
+    """
+    
+    # Configuration requise
+    serializer_class: Optional[type] = None
+    column_field_mapping: Dict[str, str] = {}  # col_id -> field_name
+    
+    # Configuration optionnelle
+    default_page_size: int = 100
+    max_page_size: int = 1000
+    
+    def get_queryset(self) -> QuerySet:
+        """
+        Retourne le QuerySet de base.
+        
+        À surcharger dans la vue pour personnaliser le QuerySet.
+        """
+        if hasattr(self, 'model'):
+            return self.model.objects.all()
+        raise NotImplementedError(
+            "Vous devez soit définir 'model' soit surcharger 'get_queryset()'"
+        )
+    
+    def get_data_source(self):
+        """
+        Retourne la source de données.
+        
+        Par défaut, utilise get_queryset(). Peut être surchargé pour
+        utiliser une liste de dictionnaires ou une fonction callable.
+        """
+        from .datasource import DataSourceFactory
+        queryset = self.get_queryset()
+        return DataSourceFactory.create(queryset)
+    
+    def get_column_field_mapping(self) -> Dict[str, str]:
+        """
+        Retourne le mapping colonnes -> champs Django.
+        
+        Par défaut, utilise self.column_field_mapping.
+        Peut être surchargé pour un mapping dynamique.
+        """
+        return getattr(self, 'column_field_mapping', {})
+    
+    def get_serializer_class(self) -> type:
+        """Retourne la classe de serializer"""
+        if self.serializer_class is None:
+            raise NotImplementedError(
+                "Vous devez définir 'serializer_class'"
+            )
+        return self.serializer_class
+    
+    def serialize_data(
+        self,
+        data: Union[QuerySet, List[Dict[str, Any]]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Sérialise les données avec le serializer.
+        
+        Args:
+            data: QuerySet ou liste de dictionnaires
+            
+        Returns:
+            Liste de dictionnaires sérialisés
+        """
+        serializer_class = self.get_serializer_class()
+        
+        if isinstance(data, QuerySet):
+            # QuerySet -> utiliser many=True
+            serializer = serializer_class(data, many=True)
+            return serializer.data
+        elif isinstance(data, list):
+            # Liste de dicts -> sérialiser chaque élément
+            serializer = serializer_class(data, many=True)
+            return serializer.data
+        else:
+            # Convertir en liste si nécessaire
+            data_list = list(data) if hasattr(data, '__iter__') else [data]
+            serializer = serializer_class(data_list, many=True)
+            return serializer.data
+    
+    def process_request(
+        self,
+        request: HttpRequest,
+        *args,
+        **kwargs
+    ) -> Response:
+        """
+        Traite une requête complète au format QueryModel.
+        
+        FLUX:
+        1. Parser QueryModel depuis la requête
+        2. Récupérer la source de données
+        3. Appliquer les filtres (FilterEngine)
+        4. Appliquer le tri (SortEngine)
+        5. Paginer (PaginationEngine)
+        6. Sérialiser les données
+        7. Retourner ResponseModel
+        
+        Args:
+            request: Requête HTTP
+            *args, **kwargs: Arguments additionnels
+            
+        Returns:
+            Response DRF avec format QueryModel
+        """
+        from .models import QueryModel
+        from .engines import FilterEngine, SortEngine, PaginationEngine
+        from .response import ResponseModel
+        
+        try:
+            # 1. Parser QueryModel
+            query_model = QueryModel.from_request(request)
+            
+            # 2. Récupérer la source de données
+            data_source = self.get_data_source()
+            data = data_source.get_data()
+            
+            # 3. Appliquer les filtres (si QuerySet)
+            if isinstance(data, QuerySet):
+                column_mapping = self.get_column_field_mapping()
+                filter_engine = FilterEngine(column_mapping)
+                data = filter_engine.apply_filters(data, query_model.filter_model)
+            
+            # 4. Appliquer le tri (si QuerySet)
+            if isinstance(data, QuerySet):
+                column_mapping = self.get_column_field_mapping()
+                sort_engine = SortEngine(column_mapping)
+                data = sort_engine.apply_sorting(data, query_model.sort_model)
+            
+            # 5. Paginer
+            if isinstance(data, QuerySet):
+                pagination_engine = PaginationEngine(
+                    default_page_size=self.default_page_size,
+                    max_page_size=self.max_page_size
+                )
+                pagination_result = pagination_engine.paginate(
+                    data,
+                    start_row=query_model.start_row,
+                    end_row=query_model.end_row
+                )
+                paginated_data = pagination_result['queryset']
+                total_count = pagination_result['total_count']
+            else:
+                # Pour les listes, paginer manuellement
+                start = query_model.start_row
+                end = query_model.end_row or (start + self.default_page_size)
+                total_count = len(data)
+                paginated_data = data[start:end]
+            
+            # 6. Sérialiser
+            serialized_data = self.serialize_data(paginated_data)
+            
+            # 7. Retourner ResponseModel
+            response_model = ResponseModel.from_data(
+                data=serialized_data,
+                total_count=total_count
+            )
+            
+            return Response(response_model.to_dict(), status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Erreur lors du traitement QueryModel: {str(e)}", exc_info=True)
+            return Response(
+                {
+                    "success": False,
+                    "message": f"Erreur lors du traitement: {str(e)}",
+                    "rowData": [],
+                    "rowCount": 0
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class QueryModelView(QueryModelMixin, APIView):
+    """
+    Vue complète avec support QueryModel.
+    
+    Cette classe est spécialisée pour le format QueryModel uniquement.
+    Pour un support plus complet (DataTable + QueryModel + REST API), 
+    utilisez ServerSideDataTableView.
+    
+    USAGE:
+    
+    class MyView(QueryModelView):
+        model = MyModel
+        serializer_class = MySerializer
+        column_field_mapping = {
+            'id': 'id',
+            'name': 'name'
+        }
+    
+    La vue expose automatiquement:
+    - POST /api/my-view/ (avec QueryModel dans le body)
+    - GET /api/my-view/?sortModel=...&filterModel=... (format QueryModel)
+    """
+    
+    def post(self, request, *args, **kwargs):
+        """
+        POST pour requêtes QueryModel (format JSON dans body).
+        
+        Body attendu:
+        {
+            "sortModel": [...],
+            "filterModel": {...},
+            "startRow": 0,
+            "endRow": 100
+        }
+        """
+        return self.process_request(request, *args, **kwargs)
+    
+    def get(self, request, *args, **kwargs):
+        """
+        GET pour requêtes QueryModel (format query params).
+        
+        Query params:
+        - sortModel: JSON string
+        - filterModel: JSON string
+        - startRow: int
+        - endRow: int
+        """
+        return self.process_request(request, *args, **kwargs) 
