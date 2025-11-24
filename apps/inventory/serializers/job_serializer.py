@@ -47,9 +47,11 @@ class JobSerializer(serializers.ModelSerializer):
         fields = ['id', 'reference', 'status', 'warehouse', 'inventory']
 
 class JobDetailSerializer(serializers.ModelSerializer):
+    location_reference = serializers.CharField(source='location.location_reference', read_only=True)
+    
     class Meta:
         model = JobDetail
-        fields = ['id', 'reference', 'location', 'job', 'status']
+        fields = ['id', 'reference', 'location', 'location_reference', 'job', 'status']
 
 class EmplacementSerializer(serializers.Serializer):
     emplacements = serializers.ListField(
