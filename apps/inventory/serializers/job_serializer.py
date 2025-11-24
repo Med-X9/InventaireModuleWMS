@@ -307,6 +307,23 @@ class JobTransferRequestSerializer(serializers.Serializer):
         child=serializers.IntegerField(min_value=1),
         allow_empty=False,
         help_text="Liste des ordres de comptage pour lesquels transférer les assignments (ex: [1, 2, 3])"
+    )
+
+class JobManualEntryRequestSerializer(serializers.Serializer):
+    """
+    Serializer pour mettre les jobs et leurs assignments en statut SAISIE MANUELLE.
+    Accepte job_ids et counting_order, puis récupère automatiquement les assignments correspondants.
+    Met en statut SAISIE MANUELLE les jobs et assignments selon counting_order.
+    """
+    job_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False,
+        help_text="Liste des IDs des jobs pour lesquels mettre en saisie manuelle"
+    )
+    counting_order = IntegerListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+        help_text="Liste des ordres de comptage pour lesquels mettre en saisie manuelle (ex: [1, 2, 3])"
     ) 
 
 class JobProgressByCountingSerializer(serializers.Serializer):

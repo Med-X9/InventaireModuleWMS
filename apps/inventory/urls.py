@@ -23,7 +23,7 @@ from .views.inventory_views import (
 from apps.inventory.views import InventoryWarehousesView, AccountWarehousesView
 
 
-from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView, JobBatchAssignmentView, JobTransferView, JobProgressByCountingView, InventoryProgressByCountingView
+from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView, JobBatchAssignmentView, JobTransferView, JobManualEntryView, JobProgressByCountingView, InventoryProgressByCountingView
 from .views.ecart_comptage_views import EcartComptageUpdateFinalResultView, EcartComptageResolveView
 from .views.assignment_views import AssignJobsToCountingView, AssignResourcesToInventoryView, InventoryResourcesView, SessionAssignmentsView
 from .views.resource_assignment_views import AssignResourcesToJobsView, JobResourcesView, RemoveResourcesFromJobView
@@ -95,6 +95,8 @@ urlpatterns = [
     path('inventory/assign-jobs-manual/', JobBatchAssignmentView.as_view(), name='assign-jobs-manual'),
     # URL pour transférer les jobs par comptage
     path('jobs/transfer/', JobTransferView.as_view(), name='job-transfer'),
+    # URL pour mettre les jobs en saisie manuelle
+    path('jobs/manual-entry/', JobManualEntryView.as_view(), name='job-manual-entry'),
     
     # URLs pour l'avancement des emplacements par job et par counting
     path('jobs/<int:job_id>/progress-by-counting/', JobProgressByCountingView.as_view(), name='job-progress-by-counting'),

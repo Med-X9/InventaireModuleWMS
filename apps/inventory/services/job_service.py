@@ -891,6 +891,189 @@ class JobService(JobServiceInterface):
             'counting_orders': counting_orders,
             'total_transferred': len(transferred_assignments)
         } 
+    
+    @transaction.atomic
+    def set_manual_entry_status_by_jobs_and_counting_orders(self, job_ids: list, counting_orders: list):
+        """
+        Met les jobs et leurs assignments en statut SAISIE MANUELLE 
+        pour des jobs et ordres de comptage spécifiques.
+        
+        Récupère automatiquement les assignments correspondants à partir de job_ids et counting_orders.
+        
+        Règles métier :
+        - Le job doit être au statut PRET, TRANSFERT ou ENTAME
+        - Tous les assignments du job doivent avoir le statut PRET, TRANSFERT ou ENTAME pour permettre un traitement progressif
+        - Seuls les assignments au statut PRET, TRANSFERT ou ENTAME peuvent être mis en saisie manuelle
+        - L'assignment doit correspondre au counting_order spécifié
+        - Si le job est ENTAME, il reste ENTAME même après la mise en saisie manuelle d'un comptage (ne change pas en SAISIE MANUELLE)
+        - Si tous les assignments du job ne sont pas PRET, TRANSFERT ou ENTAME, ou si l'assignment ne correspond pas au counting_order, 
+          retourner un message d'erreur avec la référence du job et la raison
+        
+        Args:
+            job_ids: Liste des IDs des jobs pour lesquels mettre en saisie manuelle
+            counting_orders: Liste des ordres de comptage pour lesquels mettre en saisie manuelle
+            
+        Returns:
+            Dict contenant les informations sur les jobs et assignments mis en saisie manuelle
+            
+        Raises:
+            JobCreationError: Si des erreurs de validation sont détectées
+        """
+        from ..models import Assigment, Counting
+        
+        current_time = timezone.now()
+        manual_entry_jobs = []
+        manual_entry_assignments = []
+        errors = []
+        
+        # Vérifier que tous les comptages existent
+        countings = Counting.objects.filter(order__in=counting_orders)
+        found_orders = set(countings.values_list('order', flat=True))
+        requested_orders = set(counting_orders)
+        missing_orders = requested_orders - found_orders
+        
+        if missing_orders:
+            raise JobCreationError(f"Aucun comptage trouvé avec les ordres : {sorted(missing_orders)}")
+        
+        # Récupérer tous les assignments correspondants aux jobs et counting_orders
+        assignments = Assigment.objects.select_related(
+            'job', 'counting'
+        ).filter(
+            job_id__in=job_ids,
+            counting__order__in=counting_orders
+        )
+        
+        # Grouper les assignments par job pour faciliter le traitement
+        assignments_by_job = {}
+        for assignment in assignments:
+            job_id = assignment.job_id
+            if job_id not in assignments_by_job:
+                assignments_by_job[job_id] = []
+            assignments_by_job[job_id].append(assignment)
+        
+        # Dictionnaire pour suivre les jobs qui ont au moins un assignment mis en saisie manuelle
+        jobs_to_update = {}
+        
+        # Traiter chaque job
+        for job_id in job_ids:
+            job_assignments = assignments_by_job.get(job_id, [])
+            
+            # Récupérer le job pour obtenir sa référence
+            job = None
+            if job_assignments:
+                job = job_assignments[0].job
+            else:
+                # Si aucun assignment trouvé, essayer de récupérer le job directement
+                try:
+                    from ..models import Job
+                    job = Job.objects.get(id=job_id)
+                except Job.DoesNotExist:
+                    errors.append(f"Job avec l'ID {job_id} non trouvé")
+                    continue
+            
+            job_reference = job.reference if job else f"ID {job_id}"
+            
+            # Vérifier que le job est au statut PRET, TRANSFERT ou ENTAME
+            if job.status not in ['PRET', 'TRANSFERT', 'ENTAME']:
+                errors.append(
+                    f"Job {job_reference} : statut actuel '{job.status}' (attendu: 'PRET', 'TRANSFERT' ou 'ENTAME')"
+                )
+                continue
+            
+            # Si aucun assignment trouvé pour ce job
+            if not job_assignments:
+                errors.append(
+                    f"Job {job_reference} : Aucun assignment trouvé pour les ordres de comptage {counting_orders}"
+                )
+                continue
+            
+            # Vérifier que tous les assignments de ce job sont soit PRET, TRANSFERT ou ENTAME
+            all_job_assignments = Assigment.objects.filter(job=job)
+            assignments_invalid_status = all_job_assignments.exclude(status__in=['PRET', 'TRANSFERT', 'ENTAME'])
+            
+            if assignments_invalid_status.exists():
+                # Récupérer les références des assignments avec statut invalide pour le message d'erreur
+                invalid_status_details = [
+                    f"comptage ordre {a.counting.order} (statut: {a.status})"
+                    for a in assignments_invalid_status.select_related('counting')
+                ]
+                errors.append(
+                    f"Job {job_reference} : Tous les assignments doivent avoir le statut PRET, TRANSFERT ou ENTAME pour mettre en saisie manuelle. "
+                    f"Assignments avec statut invalide : {', '.join(invalid_status_details)}"
+                )
+                continue
+            
+            # Traiter chaque counting_order demandé
+            for counting_order in counting_orders:
+                # Trouver l'assignment correspondant à ce job et ce counting_order
+                assignment = None
+                for ass in job_assignments:
+                    if ass.counting.order == counting_order:
+                        assignment = ass
+                        break
+                
+                if not assignment:
+                    errors.append(
+                        f"Job {job_reference} : Aucun assignment trouvé pour le comptage d'ordre {counting_order}"
+                    )
+                    continue
+                
+                # Validation: Vérifier que l'assignment est au statut PRET, TRANSFERT ou ENTAME
+                if assignment.status not in ['PRET', 'TRANSFERT', 'ENTAME']:
+                    errors.append(
+                        f"Job {job_reference} : L'assignment pour le comptage d'ordre {counting_order} "
+                        f"n'est pas au statut PRET, TRANSFERT ou ENTAME (statut actuel : {assignment.status})"
+                    )
+                    continue
+                
+                # Si toutes les validations passent, procéder à la mise en saisie manuelle
+                # Note: Les assignments n'ont pas de statut SAISIE MANUELLE dans leur modèle,
+                # donc on les laisse dans leur statut actuel mais on marque le job
+                # Si besoin, on peut ajouter un champ ou un statut pour les assignments plus tard
+                
+                # Marquer le job pour mise à jour (si au moins un assignment est traité)
+                if job_id not in jobs_to_update:
+                    jobs_to_update[job_id] = job
+                
+                manual_entry_assignments.append({
+                    'assignment_id': assignment.id,
+                    'assignment_reference': assignment.reference,
+                    'job_reference': job_reference,
+                    'job_id': job.id if job else None,
+                    'counting_order': counting_order,
+                    'counting_reference': assignment.counting.reference,
+                    'previous_status': assignment.status
+                })
+        
+        # Mettre à jour le statut des jobs qui ont au moins un assignment traité
+        # Si le job est déjà ENTAME, il reste ENTAME (ne pas le changer en SAISIE MANUELLE)
+        for job_id, job in jobs_to_update.items():
+            # Ne changer le statut que si le job n'est pas déjà ENTAME
+            if job.status != 'ENTAME':
+                job.status = 'SAISIE MANUELLE'
+                job.saisie_manuelle_date = current_time
+            job.save()
+            
+            manual_entry_jobs.append({
+                'job_id': job.id,
+                'job_reference': job.reference,
+                'status': job.status,
+                'saisie_manuelle_date': job.saisie_manuelle_date
+            })
+        
+        # Si des erreurs ont été collectées, les lever
+        if errors:
+            error_message = " | ".join(errors)
+            raise JobCreationError(f"Erreurs lors de la mise en saisie manuelle : {error_message}")
+        
+        return {
+            'manual_entry_jobs': manual_entry_jobs,
+            'manual_entry_assignments': manual_entry_assignments,
+            'saisie_manuelle_date': current_time,
+            'counting_orders': counting_orders,
+            'total_jobs': len(manual_entry_jobs),
+            'total_assignments': len(manual_entry_assignments)
+        }
 
     def get_job_progress_by_counting(self, job_id: int) -> Dict[str, Any]:
         """

@@ -233,7 +233,7 @@ class Location(CodeGeneratorMixin, TimeStampedModel):
     CODE_PREFIX = 'LOC'
     
     reference = models.CharField(_('Code de l\'emplacement'), unique=True, max_length=20)
-    location_reference = models.CharField(_('Référence de l\'emplacement'), unique=True, max_length=30)
+    location_reference = models.CharField(_('Référence de l\'emplacement'), max_length=30)
     sous_zone = models.ForeignKey(SousZone, on_delete=models.CASCADE, verbose_name=_('Sous-zone'))
     location_type = models.ForeignKey(LocationType, on_delete=models.CASCADE, verbose_name=_('Type d\'emplacement'))
     capacity = models.IntegerField(_('Capacité'), null=True, blank=True, validators=[MinValueValidator(0)])

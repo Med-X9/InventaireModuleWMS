@@ -24,6 +24,7 @@ from ..serializers.job_serializer import (
     JobResetAssignmentsRequestSerializer,
     PendingJobReferenceSerializer,
     JobTransferRequestSerializer,
+    JobManualEntryRequestSerializer,
     JobProgressByCountingSerializer
 )
 from ..serializers.job_assignment_batch_serializer import JobBatchAssignmentRequestSerializer
@@ -768,6 +769,49 @@ class JobTransferView(APIView):
             logger.error(f"Erreur inattendue lors du transfert : {str(e)}", exc_info=True)
             return error_response(
                 message="Une erreur inattendue s'est produite lors du transfert",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class JobManualEntryView(APIView):
+    """
+    Vue pour mettre les jobs et leurs assignments en statut SAISIE MANUELLE.
+    
+    Règles métier :
+    - Seuls les jobs au statut PRET, TRANSFERT ou ENTAME peuvent être mis en saisie manuelle
+    - Seuls les assignments au statut PRET, TRANSFERT ou ENTAME peuvent être mis en saisie manuelle
+    - L'assignment doit correspondre au counting_order spécifié
+    - Si le job ou l'assignment n'est pas dans un statut valide ou ne correspond pas au counting_order, 
+      retourne un message d'erreur avec la référence du job et la raison
+    """
+    def post(self, request):
+        serializer = JobManualEntryRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({
+                'success': False,
+                'message': 'Erreur de validation',
+                'errors': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        job_ids = serializer.validated_data['job_ids']
+        counting_orders = serializer.validated_data['counting_order']
+        
+        try:
+            job_service = JobService()
+            result = job_service.set_manual_entry_status_by_jobs_and_counting_orders(job_ids, counting_orders)
+            return success_response(
+                data=result,
+                message=f'{result["total_jobs"]} job(s) et {result["total_assignments"]} assignment(s) mis en saisie manuelle avec succès'
+            )
+        except JobCreationError as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Erreur inattendue lors de la mise en saisie manuelle : {str(e)}", exc_info=True)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la mise en saisie manuelle",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             ) 
 
