@@ -14,7 +14,7 @@ Seen branch in repository origin/dev-2
 Seen branch in repository origin/devops
 Seen branch in repository origin/main
 Seen 4 remote branches
-Obtained Jenkinsfile from 172a6b28385678d86338fc074fadd85af9b9cb14
+Obtained Jenkinsfile from d0a5f5d66129557e14b617c7a47d41ca2d0e0bb1
 [Pipeline] Start of Pipeline
 [Pipeline] node
 Running on Jenkins in /var/jenkins_home/workspace/WMS_dev
@@ -33,11 +33,11 @@ Fetching upstream changes from https://github.com/Med-X9/InventaireModuleWMS.git
  > git --version # 'git version 2.39.5'
 using GIT_ASKPASS to set credentials github-creds
  > git fetch --no-tags --force --progress -- https://github.com/Med-X9/InventaireModuleWMS.git +refs/heads/*:refs/remotes/origin/* # timeout=10
-Checking out Revision 172a6b28385678d86338fc074fadd85af9b9cb14 (dev)
+Checking out Revision d0a5f5d66129557e14b617c7a47d41ca2d0e0bb1 (dev)
  > git config core.sparsecheckout # timeout=10
- > git checkout -f 172a6b28385678d86338fc074fadd85af9b9cb14 # timeout=10
+ > git checkout -f d0a5f5d66129557e14b617c7a47d41ca2d0e0bb1 # timeout=10
 Commit message: "update"
- > git rev-list --no-walk c17e739b82c7d771155e896e486667579de805a2 # timeout=10
+ > git rev-list --no-walk 44bf12fff2e69836df8cee8a902f1eb5b1929f62 # timeout=10
 [Pipeline] }
 [Pipeline] // stage
 [Pipeline] withEnv
@@ -88,11 +88,21 @@ Masking supported pattern matches of $GIT_PASS
 + rm -rf /tmp/backend
 + git clone --single-branch --branch dev https://smatch-digital:****@github.com/Med-X9/InventaireModuleWMS.git /tmp/backend
 Cloning into '/tmp/backend'...
-Updating files:  97% (581/593)
-Updating files:  98% (582/593)
-Updating files:  99% (588/593)
-Updating files: 100% (593/593)
-Updating files: 100% (593/593), done.
++ [ ! -d /tmp/backend ]
++ echo Verifying essential files after clone...
+Verifying essential files after clone...
++ cd /tmp/backend
++ git branch --show-current
++ echo Current branch: dev
+Current branch: dev
++ git rev-parse HEAD
++ echo Commit: d0a5f5d66129557e14b617c7a47d41ca2d0e0bb1
+Commit: d0a5f5d66129557e14b617c7a47d41ca2d0e0bb1
++ [ ! -f Dockerfile ]
++ [ ! -f docker-compose.yml ]
++ [ ! -f requirements.txt ]
++ echo ✓ Essential files verified
+✓ Essential files verified
 [Pipeline] }
 [Pipeline] // withCredentials
 [Pipeline] }
@@ -117,29 +127,28 @@ Setting up Python environment...
 [Pipeline] sh
 + python3 -m pip install --user -r requirements.txt
 /usr/bin/python3: No module named pip
-+ echo Warning: Command failed, continuing with analysis...
-Warning: Command failed, continuing with analysis...
++ echo pip not available, skipping dependency installation
+pip not available, skipping dependency installation
 [Pipeline] withSonarQubeEnv
 Injecting SonarQube environment variables using the configuration: SonarQube-Server
 [Pipeline] {
 [Pipeline] sh
 + echo Starting SonarQube analysis for branch: dev
 Starting SonarQube analysis for branch: dev
-+ /var/jenkins_home/tools/hudson.plugins.sonar.SonarRunnerInstallation/sonar-scanner/bin/sonar-scanner -Dsonar.projectKey=inventaire-module-wms-dev -Dsonar.projectName=InventaireModuleWMS-dev -Dsonar.projectVersion=1.0 -Dsonar.sources=apps,project,config -Dsonar.sourceEncoding=UTF-8 -Dsonar.language=py -Dsonar.python.version=3.12 -Dsonar.tests=apps -Dsonar.test.inclusions=**/tests/**/*.py,**/test_*.py -Dsonar.exclusions=**/migrations/**,**/staticfiles/**,**/static/**,**/media/**,**/__pycache__/**,**/venv/**,**/env/**,**/node_modules/**,**/*.pyc,**/manage.py,**/wsgi.py,**/asgi.py,**/settings/**,**/*.min.js,**/*.min.css -Dsonar.coverage.exclusions=**/migrations/**,**/tests/**,**/test_*.py,**/conftest.py,**/manage.py,**/wsgi.py,**/asgi.py,**/settings/**,**/__init__.py -Dsonar.cpd.exclusions=**/migrations/**,**/tests/** -Dsonar.qualitygate.wait=false
-13:42:06.196 INFO  Scanner configuration file: /var/jenkins_home/tools/hudson.plugins.sonar.SonarRunnerInstallation/sonar-scanner/conf/sonar-scanner.properties
-13:42:06.210 INFO  Project root configuration file: NONE
-13:42:06.300 INFO  SonarScanner CLI 7.2.0.5079
-13:42:06.308 INFO  Linux 5.15.0-1078-kvm amd64
-13:42:16.405 ERROR Failed to query server version: Call to URL [http://147.93.55.221:9000/api/v2/analysis/version] failed: Connect timed out
-13:42:16.405 INFO  EXECUTION FAILURE
-13:42:16.406 INFO  Total time: 10.340s
++ timeout 300 /var/jenkins_home/tools/hudson.plugins.sonar.SonarRunnerInstallation/sonar-scanner/bin/sonar-scanner -Dsonar.projectKey=inventaire-module-wms-dev -Dsonar.projectName=InventaireModuleWMS-dev -Dsonar.projectVersion=1.0 -Dsonar.sources=apps,project,config -Dsonar.sourceEncoding=UTF-8 -Dsonar.language=py -Dsonar.python.version=3.12 -Dsonar.tests=apps -Dsonar.test.inclusions=**/tests/**/*.py,**/test_*.py -Dsonar.exclusions=**/migrations/**,**/staticfiles/**,**/static/**,**/media/**,**/__pycache__/**,**/venv/**,**/env/**,**/node_modules/**,**/*.pyc,**/manage.py,**/wsgi.py,**/asgi.py,**/settings/**,**/*.min.js,**/*.min.css -Dsonar.coverage.exclusions=**/migrations/**,**/tests/**,**/test_*.py,**/conftest.py,**/manage.py,**/wsgi.py,**/asgi.py,**/settings/**,**/__init__.py -Dsonar.cpd.exclusions=**/migrations/**,**/tests/** -Dsonar.qualitygate.wait=false
+11:19:58.447 INFO  Scanner configuration file: /var/jenkins_home/tools/hudson.plugins.sonar.SonarRunnerInstallation/sonar-scanner/conf/sonar-scanner.properties
+11:19:58.455 INFO  Project root configuration file: NONE
+11:19:58.509 INFO  SonarScanner CLI 7.2.0.5079
+11:19:58.516 INFO  Linux 5.15.0-1078-kvm amd64
+11:20:08.373 ERROR Failed to query server version: Call to URL [http://147.93.55.221:9000/api/v2/analysis/version] failed: Connect timed out
+11:20:08.373 INFO  EXECUTION FAILURE
+11:20:08.374 INFO  Total time: 9.985s
++ echo Warning: SonarQube analysis timed out or failed, but continuing build...
+Warning: SonarQube analysis timed out or failed, but continuing build...
++ exit 0
 [Pipeline] }
 WARN: Unable to locate 'report-task.txt' in the workspace. Did the SonarScanner succeed?
 [Pipeline] // withSonarQubeEnv
-[Pipeline] echo
-Warning: SonarQube analysis encountered issues but continuing build: script returned exit code 1
-[Pipeline] echo
-Check SonarQube dashboard for detailed analysis results
 [Pipeline] }
 [Pipeline] // script
 [Pipeline] }
@@ -178,13 +187,26 @@ Running in /tmp/backend
 [Pipeline] script
 [Pipeline] {
 [Pipeline] sh
-+ docker build -t smatchdigital/backend-app:dev-latest .
-#1 [internal] load build definition from Dockerfile
-#1 sha256:7234bbf7ac807f0593f0106334e48cb716ea54b0187a52a98d6354ea648505c2
-#1 transferring dockerfile: 0.0s
-#1 transferring dockerfile: 2B 0.0s done
-#1 DONE 0.1s
-failed to read dockerfile: open Dockerfile: no such file or directory
++ echo Checking for Dockerfile in /tmp/backend...
+Checking for Dockerfile in /tmp/backend...
++ ls -la /tmp/backend/
++ head -20
+total 8
+drwxr-xr-x 2 jenkins jenkins 4096 Nov 24 11:22 .
+drwxrwxrwt 1 root    root    4096 Nov 24 11:22 ..
++ [ ! -f Dockerfile ]
++ echo ERROR: Dockerfile not found in /tmp/backend!
+ERROR: Dockerfile not found in /tmp/backend!
++ pwd
++ echo Current directory: /tmp/backend
+Current directory: /tmp/backend
++ echo Files in current directory:
+Files in current directory:
++ ls -la
+total 8
+drwxr-xr-x 2 jenkins jenkins 4096 Nov 24 11:22 .
+drwxrwxrwt 1 root    root    4096 Nov 24 11:22 ..
++ exit 1
 [Pipeline] }
 [Pipeline] // script
 [Pipeline] }
@@ -218,9 +240,6 @@ Stage "Deploy Backend on Remote Server" skipped due to earlier failure(s)
 + rm -rf /tmp/backend
 [Pipeline] sh
 + docker system prune -f
-Deleted build cache objects:
-oxi6sm73bz8s21dtoee8q9c8h
-
 Total reclaimed space: 0B
 [Pipeline] }
 [Pipeline] // script
