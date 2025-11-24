@@ -13,6 +13,9 @@ import os
 from django.utils import timezone
 from ..interfaces.pdf_interface import PDFServiceInterface
 from ..repositories.pdf_repository import PDFRepository
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class PDFService(PDFServiceInterface):
@@ -103,11 +106,18 @@ class PDFService(PDFServiceInterface):
         
         # Construire le contenu
         story = []
+        total_jobs_processed = 0
+        total_jobs_with_content = 0
         
         # Pour chaque comptage
         for counting in countings:
             # Recuperer TOUS les jobs pour ce comptage avec filtre PRET et TRANSFERT
             jobs = self.repository.get_jobs_by_counting(inventory, counting)
+            
+            logger.info(
+                f"Comptage {counting.order} (ID: {counting.id}): "
+                f"{len(jobs)} job(s) trouvé(s) avec statut PRET ou TRANSFERT"
+            )
             
             if jobs:
                 # Grouper les jobs par utilisateur
@@ -116,10 +126,43 @@ class PDFService(PDFServiceInterface):
                 # Pour chaque utilisateur et chaque job
                 for user, user_jobs in jobs_by_user.items():
                     for job in user_jobs:
+                        total_jobs_processed += 1
                         # Construire les pages pour ce job (avec pagination de 20 lignes)
-                        story.extend(self._build_job_pages(
+                        job_pages = self._build_job_pages(
                             job, counting, user, inventory, warehouse_info, account_info
-                        ))
+                        )
+                        if job_pages:
+                            story.extend(job_pages)
+                            total_jobs_with_content += 1
+                        else:
+                            logger.warning(
+                                f"Job {job.reference} (ID: {job.id}) n'a généré aucun contenu "
+                                f"pour le comptage {counting.order}"
+                            )
+            else:
+                logger.warning(
+                    f"Aucun job trouvé pour le comptage {counting.order} (ID: {counting.id}) "
+                    f"avec statut PRET ou TRANSFERT"
+                )
+        
+        logger.info(
+            f"Génération PDF: {total_jobs_processed} job(s) traité(s), "
+            f"{total_jobs_with_content} job(s) avec contenu, "
+            f"{len(story)} élément(s) dans le story"
+        )
+        
+        # Vérifier qu'il y a du contenu avant de générer le PDF
+        if not story:
+            error_msg = (
+                f"Aucun contenu à générer pour l'inventaire {inventory_id}. "
+                f"Raison possible: "
+                f"1) Aucun job avec statut PRET ou TRANSFERT trouvé pour les comptages d'ordre 1 ou 2, "
+                f"2) Les jobs trouvés n'ont pas d'emplacements (job_details), "
+                f"3) Les emplacements n'ont pas de stocks à afficher. "
+                f"Jobs traités: {total_jobs_processed}, Jobs avec contenu: {total_jobs_with_content}"
+            )
+            logger.error(error_msg)
+            raise ValueError(error_msg)
         
         # Creer le document PDF avec marges ajustées
         doc = SimpleDocTemplate(
