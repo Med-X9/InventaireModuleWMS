@@ -22,6 +22,10 @@ class ActionLoggingMiddleware:
         # Code exécuté avant la vue
         response = self.get_response(request)
 
+        # Exclure les endpoints d'authentification pour éviter toute latence supplémentaire
+        if request.path.startswith('/api/auth/'):
+            return response
+
         # Code exécuté après la vue
         if request.user.is_authenticated:
             try:
