@@ -356,4 +356,155 @@ class EmplacementProgressSerializer(serializers.Serializer):
 
 class InventoryJobsPdfRequestSerializer(serializers.Serializer):
     """Serializer pour la requête de génération du PDF des jobs d'inventaire (obsolète - plus utilisé)"""
-    pass 
+    pass
+
+class AssignmentWithDatesSerializer(serializers.ModelSerializer):
+    """
+    Serializer pour les assignments avec toutes les dates et informations
+    """
+    counting_order = serializers.IntegerField(source='counting.order', read_only=True)
+    counting_reference = serializers.CharField(source='counting.reference', read_only=True)
+    session_info = serializers.SerializerMethodField()
+    personne_info = serializers.SerializerMethodField()
+    personne_two_info = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Assigment
+        fields = [
+            'id',
+            'reference',
+            'status',
+            'counting_order',
+            'counting_reference',
+            'transfert_date',
+            'entame_date',
+            'affecte_date',
+            'pret_date',
+            'date_start',
+            'created_at',
+            'updated_at',
+            'session_info',
+            'personne_info',
+            'personne_two_info'
+        ]
+    
+    def get_session_info(self, obj):
+        """Retourne les informations de la session si elle existe"""
+        if obj.session:
+            return {
+                'id': obj.session.id,
+                'username': obj.session.username
+            }
+        return None
+    
+    def get_personne_info(self, obj):
+        """Retourne les informations de la première personne si elle existe"""
+        if obj.personne:
+            return {
+                'id': obj.personne.id,
+                'reference': obj.personne.reference,
+                'nom': obj.personne.nom,
+                'prenom': obj.personne.prenom
+            }
+        return None
+    
+    def get_personne_two_info(self, obj):
+        """Retourne les informations de la deuxième personne si elle existe"""
+        if obj.personne_two:
+            return {
+                'id': obj.personne_two.id,
+                'reference': obj.personne_two.reference,
+                'nom': obj.personne_two.nom,
+                'prenom': obj.personne_two.prenom
+            }
+        return None
+
+class AssignmentFlatSerializer(serializers.ModelSerializer):
+    """
+    Serializer pour les assignments avec format plat incluant les infos du job
+    Format demandé : liste plate avec job_id, reference, id, status, dates, etc.
+    """
+    job_id = serializers.IntegerField(source='job.id', read_only=True)
+    reference = serializers.CharField(source='job.reference', read_only=True)
+    counting_order = serializers.IntegerField(source='counting.order', read_only=True)
+    counting_reference = serializers.CharField(source='counting.reference', read_only=True)
+    session_info = serializers.SerializerMethodField()
+    personne_1 = serializers.SerializerMethodField()
+    personne_2 = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Assigment
+        fields = [
+            'job_id',
+            'reference',
+            'id',
+            'status',
+            'counting_order',
+            'counting_reference',
+            'transfert_date',
+            'entame_date',
+            'affecte_date',
+            'pret_date',
+            'date_start',
+            'created_at',
+            'updated_at',
+            'session_info',
+            'personne_1',
+            'personne_2'
+        ]
+    
+    def get_session_info(self, obj):
+        """Retourne le username de la session si elle existe"""
+        if obj.session:
+            return obj.session.username
+        return None
+    
+    def get_personne_1(self, obj):
+        """Retourne le format "NOM Prénom" de la première personne si elle existe"""
+        if obj.personne:
+            return f"{obj.personne.nom} {obj.personne.prenom}"
+        return None
+    
+    def get_personne_2(self, obj):
+        """Retourne le format "NOM Prénom" de la deuxième personne si elle existe"""
+        if obj.personne_two:
+            return f"{obj.personne_two.nom} {obj.personne_two.prenom}"
+        return None
+
+class JobWithAssignmentsSerializer(serializers.ModelSerializer):
+    """
+    Serializer pour les jobs avec leurs assignments et toutes les dates
+    """
+    assignments = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Job
+        fields = [
+            'id',
+            'reference',
+            'status',
+            'en_attente_date',
+            'affecte_date',
+            'pret_date',
+            'transfert_date',
+            'entame_date',
+            'valide_date',
+            'termine_date',
+            'saisie_manuelle_date',
+            'created_at',
+            'updated_at',
+            'assignments'
+        ]
+    
+    def get_assignments(self, obj):
+        """
+        Récupère les assignments du job filtrés par counting_order si fourni dans le contexte
+        """
+        assignments = obj.assigment_set.all()
+        
+        # Filtrer par counting_order si fourni dans le contexte
+        counting_order = self.context.get('counting_order')
+        if counting_order is not None:
+            assignments = assignments.filter(counting__order=counting_order)
+        
+        return AssignmentWithDatesSerializer(assignments, many=True).data 

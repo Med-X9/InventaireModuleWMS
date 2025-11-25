@@ -23,7 +23,7 @@ from .views.inventory_views import (
 from apps.inventory.views import InventoryWarehousesView, AccountWarehousesView
 
 
-from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView, JobBatchAssignmentView, JobTransferView, JobManualEntryView, JobProgressByCountingView, InventoryProgressByCountingView
+from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView, JobBatchAssignmentView, JobTransferView, JobManualEntryView, JobProgressByCountingView, InventoryProgressByCountingView, JobsWithAssignmentsByWarehouseAndCountingView
 from .views.ecart_comptage_views import EcartComptageUpdateFinalResultView, EcartComptageResolveView
 from .views.assignment_views import AssignJobsToCountingView, AssignResourcesToInventoryView, InventoryResourcesView, SessionAssignmentsView
 from .views.resource_assignment_views import AssignResourcesToJobsView, JobResourcesView, RemoveResourcesFromJobView
@@ -85,6 +85,7 @@ urlpatterns = [
     path('jobs/list/', JobListWithLocationsView.as_view(), name='jobs-list-with-locations'),
     path('jobs/valid/warehouse/<int:warehouse_id>/inventory/<int:inventory_id>/', JobFullDetailListView.as_view(), name='valid-jobs-by-warehouse-inventory'),
     path('jobs/pending/', JobPendingListView.as_view(), name='jobs-pending'),
+    path('warehouse/<int:warehouse_id>/counting/<int:counting_order>/jobs/', JobsWithAssignmentsByWarehouseAndCountingView.as_view(), name='jobs-with-assignments-by-warehouse-counting'),
     
     # ========================================
     # URLs POUR L'AFFECTATION DES JOBS

@@ -318,4 +318,72 @@ class JobRepository(JobRepositoryInterface):
             'assigment_set__counting',
             'assigment_set__session',
             'jobdetailressource_set__ressource'
+        )
+    
+    def get_jobs_with_assignments_by_warehouse_and_counting(
+        self,
+        warehouse_id: int,
+        counting_order: int
+    ) -> List[Job]:
+        """
+        Récupère les jobs avec leurs assignments filtrés par warehouse et ordre de comptage.
+        
+        Args:
+            warehouse_id: ID de l'entrepôt
+            counting_order: Ordre du comptage
+            
+        Returns:
+            Liste des jobs avec leurs assignments préchargés
+        """
+        # Récupérer les IDs des assignments qui correspondent au warehouse et counting_order
+        assignment_ids = Assigment.objects.filter(
+            job__warehouse_id=warehouse_id,
+            counting__order=counting_order
+        ).values_list('job_id', flat=True).distinct()
+        
+        if not assignment_ids:
+            return []
+        
+        # Récupérer les jobs avec toutes leurs relations préchargées
+        return list(
+            Job.objects.filter(
+                id__in=assignment_ids,
+                warehouse_id=warehouse_id
+            ).select_related(
+                'warehouse',
+                'inventory'
+            ).prefetch_related(
+                'assigment_set__counting',
+                'assigment_set__personne',
+                'assigment_set__personne_two',
+                'assigment_set__session'
+            ).order_by('reference')
+        )
+    
+    def get_assignments_by_warehouse_and_counting(
+        self,
+        warehouse_id: int,
+        counting_order: int
+    ) -> List[Assigment]:
+        """
+        Récupère les assignments filtrés par warehouse et ordre de comptage.
+        
+        Args:
+            warehouse_id: ID de l'entrepôt
+            counting_order: Ordre du comptage
+            
+        Returns:
+            Liste des assignments avec leurs relations préchargées
+        """
+        return list(
+            Assigment.objects.filter(
+                job__warehouse_id=warehouse_id,
+                counting__order=counting_order
+            ).select_related(
+                'job',
+                'counting',
+                'personne',
+                'personne_two',
+                'session'
+            ).order_by('job__reference', 'id')
         ) 
