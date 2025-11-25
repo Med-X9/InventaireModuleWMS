@@ -1177,6 +1177,46 @@ class JobService(JobServiceInterface):
                 'success': False,
                 'error': str(e)
             }
+    
+    def get_jobs_with_assignments_by_warehouse_and_counting(
+        self,
+        warehouse_id: int,
+        counting_order: int
+    ) -> List[Job]:
+        """
+        Récupère les jobs avec leurs assignments filtrés par warehouse et ordre de comptage.
+        
+        Args:
+            warehouse_id: ID de l'entrepôt
+            counting_order: Ordre du comptage
+            
+        Returns:
+            Liste des jobs avec leurs assignments préchargés
+        """
+        return self.repository.get_jobs_with_assignments_by_warehouse_and_counting(
+            warehouse_id=warehouse_id,
+            counting_order=counting_order
+        )
+    
+    def get_assignments_by_warehouse_and_counting(
+        self,
+        warehouse_id: int,
+        counting_order: int
+    ) -> List[Assigment]:
+        """
+        Récupère les assignments filtrés par warehouse et ordre de comptage.
+        
+        Args:
+            warehouse_id: ID de l'entrepôt
+            counting_order: Ordre du comptage
+            
+        Returns:
+            Liste des assignments avec leurs relations préchargées
+        """
+        return self.repository.get_assignments_by_warehouse_and_counting(
+            warehouse_id=warehouse_id,
+            counting_order=counting_order
+        )
 
     def get_inventory_progress_by_counting(self, inventory_id: int) -> Dict[str, Any]:
         """
@@ -1245,4 +1285,44 @@ class JobService(JobServiceInterface):
             return {
                 'success': False,
                 'error': str(e)
-            } 
+            }
+    
+    def get_jobs_with_assignments_by_warehouse_and_counting(
+        self,
+        warehouse_id: int,
+        counting_order: int
+    ) -> List[Job]:
+        """
+        Récupère les jobs avec leurs assignments filtrés par warehouse et ordre de comptage.
+        
+        Args:
+            warehouse_id: ID de l'entrepôt
+            counting_order: Ordre du comptage
+            
+        Returns:
+            Liste des jobs avec leurs assignments préchargés
+        """
+        return self.repository.get_jobs_with_assignments_by_warehouse_and_counting(
+            warehouse_id=warehouse_id,
+            counting_order=counting_order
+        )
+    
+    def get_assignments_by_warehouse_and_counting(
+        self,
+        warehouse_id: int,
+        counting_order: int
+    ) -> List[Assigment]:
+        """
+        Récupère les assignments filtrés par warehouse et ordre de comptage.
+        
+        Args:
+            warehouse_id: ID de l'entrepôt
+            counting_order: Ordre du comptage
+            
+        Returns:
+            Liste des assignments avec leurs relations préchargées
+        """
+        return self.repository.get_assignments_by_warehouse_and_counting(
+            warehouse_id=warehouse_id,
+            counting_order=counting_order
+        ) 

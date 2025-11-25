@@ -1411,36 +1411,45 @@ class CountingDetailService:
         current_result: Optional[int]
     ) -> Optional[int]:
         """
-        Détermine le résultat final d'un écart selon les règles métier :
-        - Nécessite au moins 2 comptages pour calculer un résultat.
-        - Deux comptages identiques suffisent à confirmer une valeur.
-        - Si plusieurs valeurs sont confirmées, on privilégie la plus récente.
-        - Si aucun consensus, on conserve le résultat courant.
+        Détermine le résultat final d'un écart selon les règles métier.
+        
+        Logique uniforme pour TOUS les comptages :
+        - Pour n'importe quel comptage (2ème, 3ème, 4ème, etc.), toujours vérifier
+          s'il correspond à au moins un comptage précédent.
+        - Si oui → enregistrer cette valeur dans resultat
+        - Si non → enregistrer dans ecart (pas de resultat, ou conserver le précédent)
+        
+        Règles détaillées :
+        1. 1er = 2ème → enregistrer dans resultat
+        2. 1er ≠ 2ème → enregistrer dans ecart (pas de resultat)
+        3. Nᵉ différent de tous les comptages précédents → enregistrer dans ecart (pas de resultat)
+        4. Nᵉ égal à au moins un seul comptage parmi tous les précédents → enregistrer dans resultat
+        
+        Args:
+            sequences: Liste de toutes les ComptageSequence (dans l'ordre chronologique)
+            current_result: Résultat actuel de l'écart (peut être None)
+            
+        Returns:
+            int: La valeur à enregistrer dans final_result, ou None si pas de consensus
         """
         if len(sequences) < 2:
             return None  # Pas de résultat si moins de 2 comptages
         
-        counts: Dict[int, int] = {}
-        latest_index: Dict[int, int] = {}
-        for index, sequence in enumerate(sequences):
-            quantity = sequence.quantity
-            counts[quantity] = counts.get(quantity, 0) + 1
-            latest_index[quantity] = index
+        # Logique uniforme : pour le comptage actuel (dernière séquence),
+        # toujours vérifier s'il correspond à au moins un comptage précédent
+        comptage_actuel = sequences[-1]
+        quantite_actuelle = comptage_actuel.quantity
         
-        # Filtrer les valeurs présentes au moins deux fois
-        consensus_candidates = [
-            (counts[value], latest_index[value], value)
-            for value in counts
-            if counts[value] >= 2
-        ]
+        # Extraire toutes les quantités des comptages précédents
+        # (on exclut la dernière séquence qui est le comptage actuel)
+        quantites_precedentes = [seq.quantity for seq in sequences[:-1]]
         
-        if not consensus_candidates:
+        # Vérifier si le comptage actuel correspond à au moins un comptage précédent
+        if quantite_actuelle in quantites_precedentes:
+            # Le comptage actuel correspond à au moins un précédent → enregistrer dans resultat
+            return quantite_actuelle
+        else:
+            # Le comptage actuel est différent de tous les précédents → enregistrer dans ecart
+            # On conserve le résultat actuel s'il existe (cas où un précédent comptage avait trouvé un consensus),
+            # sinon None
             return current_result
-        
-        # Si le résultat courant est encore valide, on le conserve
-        if current_result is not None and counts.get(current_result, 0) >= 2:
-            return current_result
-        
-        # Choisir la valeur avec le plus grand nombre d'occurrences, puis la plus récente
-        consensus_candidates.sort(key=lambda item: (item[0], item[1]))
-        return consensus_candidates[-1][2]

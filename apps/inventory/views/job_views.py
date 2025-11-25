@@ -24,7 +24,9 @@ from ..serializers.job_serializer import (
     PendingJobReferenceSerializer,
     JobTransferRequestSerializer,
     JobManualEntryRequestSerializer,
-    JobProgressByCountingSerializer
+    JobProgressByCountingSerializer,
+    JobWithAssignmentsSerializer,
+    AssignmentFlatSerializer
 )
 from ..serializers.job_assignment_batch_serializer import JobBatchAssignmentRequestSerializer
 from ..usecases.job_batch_assignment import JobBatchAssignmentUseCase
@@ -920,4 +922,61 @@ class InventoryProgressByCountingView(APIView):
             return Response({
                 'success': False,
                 'message': f'Erreur interne : {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class JobsWithAssignmentsByWarehouseAndCountingView(APIView):
+    """
+    API pour récupérer les jobs avec leurs assignments filtrés par warehouse et ordre de comptage.
+    
+    GET /api/inventory/warehouse/<int:warehouse_id>/counting/<int:counting_order>/jobs/
+    """
+    permission_classes = []
+    
+    def get(self, request, warehouse_id, counting_order):
+        """
+        Récupère les jobs avec leurs assignments filtrés par warehouse et ordre de comptage.
+        
+        Args:
+            request: Requête HTTP
+            warehouse_id: ID de l'entrepôt
+            counting_order: Ordre du comptage
+            
+        Returns:
+            Response: Liste des jobs avec leurs assignments et toutes les dates
+        """
+        try:
+            # Valider les paramètres
+            if not warehouse_id or warehouse_id <= 0:
+                return error_response(
+                    message="L'ID de l'entrepôt doit être un entier positif",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            if not counting_order or counting_order <= 0:
+                return error_response(
+                    message="L'ordre du comptage doit être un entier positif",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Appeler le service pour récupérer directement les assignments
+            service = JobService()
+            assignments = service.get_assignments_by_warehouse_and_counting(
+                warehouse_id=warehouse_id,
+                counting_order=counting_order
+            )
+            
+            # Sérialiser les assignments avec le format plat demandé
+            serializer = AssignmentFlatSerializer(assignments, many=True)
+            
+            return success_response(
+                data=serializer.data,
+                message=f"{len(assignments)} assignment(s) trouvé(s) pour l'entrepôt {warehouse_id} et le comptage d'ordre {counting_order}"
+            )
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des jobs avec assignments : {str(e)}", exc_info=True)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la récupération des données",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            ) 
