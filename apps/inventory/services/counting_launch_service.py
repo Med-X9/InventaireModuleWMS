@@ -224,17 +224,28 @@ class CountingLaunchService:
             job_detail = self.job_repository.get_job_detail_by_job_location_and_counting(
                 job, location, counting
             )
-            
+
             if job_detail is None:
-                if target_order == 3:
+                assignment = self.assignment_repository.get_assignment_by_job_and_order(job.id, order)
+                if assignment and assignment.status == 'TERMINE':
+                    job_detail = self.job_repository.create_job_detail(
+                        reference=JobDetail().generate_reference(JobDetail.REFERENCE_PREFIX),
+                        location=location,
+                        job=job,
+                        counting=counting,
+                        status='TERMINE',
+                        termine_date=timezone.now(),
+                    )
+                else:
+                    if target_order == 3:
+                        raise CountingValidationError(
+                            f"Impossible de lancer le 3ème comptage pour cet emplacement : "
+                            f"l'emplacement n'a pas de JobDetail pour le comptage d'ordre {order}."
+                        )
                     raise CountingValidationError(
-                        f"Impossible de lancer le 3ème comptage pour cet emplacement : "
+                        f"Impossible de lancer le comptage d'ordre {target_order} pour cet emplacement : "
                         f"l'emplacement n'a pas de JobDetail pour le comptage d'ordre {order}."
                     )
-                raise CountingValidationError(
-                    f"Impossible de lancer le comptage d'ordre {target_order} pour cet emplacement : "
-                    f"l'emplacement n'a pas de JobDetail pour le comptage d'ordre {order}."
-                )
             
             # Vérifier que le JobDetail a le statut TERMINE
             if job_detail.status != 'TERMINE':

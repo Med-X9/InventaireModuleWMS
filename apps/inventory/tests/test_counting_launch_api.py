@@ -127,7 +127,7 @@ class CountingLaunchAPITestCase(TestCase):
             location=self.location,
             job=self.job,
             counting=self.counting1,
-            status='EN ATTENTE',
+            status='TERMINE',
         )
 
         JobDetail.objects.create(
@@ -135,7 +135,7 @@ class CountingLaunchAPITestCase(TestCase):
             location=self.location,
             job=self.job,
             counting=self.counting2,
-            status='EN ATTENTE',
+            status='TERMINE',
         )
 
         self.assignment1 = Assigment.objects.create(
@@ -170,7 +170,14 @@ class CountingLaunchAPITestCase(TestCase):
 
         response = self.client.post(self.url, data=payload, format='json')
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        if response.status_code != status.HTTP_201_CREATED:
+            self.fail(f"Response content: {response.content}")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+            msg=f"Response data: {response.data}",
+        )
         self.assertTrue(response.data['success'])
 
         data = response.data['data']
@@ -198,6 +205,10 @@ class CountingLaunchAPITestCase(TestCase):
         first_response = self.client.post(self.url, data=payload, format='json')
         self.assertEqual(first_response.status_code, status.HTTP_201_CREATED)
 
+        job_detail_order3 = JobDetail.objects.get(job=self.job, location=self.location, counting=self.counting3)
+        job_detail_order3.status = 'TERMINE'
+        job_detail_order3.save()
+
         assignment_order3 = Assigment.objects.get(job=self.job, counting=self.counting3)
         assignment_order3.status = 'TERMINE'
         assignment_order3.save()
@@ -206,7 +217,11 @@ class CountingLaunchAPITestCase(TestCase):
 
         response = self.client.post(self.url, data=payload, format='json')
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+            msg=f"Response data: {response.data}",
+        )
         self.assertTrue(response.data['success'])
 
         data = response.data['data']
@@ -229,10 +244,53 @@ class CountingLaunchAPITestCase(TestCase):
         job_detail = JobDetail.objects.filter(job=self.job, location=self.location, counting=new_counting).first()
         self.assertIsNotNone(job_detail)
 
+    def test_launch_fourth_counting_recreates_missing_order_three_jobdetail(self):
+        """Le service recrée le JobDetail d'ordre 3 manquant si l'affectation est terminée."""
+        payload = {
+            'job_id': self.job.id,
+            'location_id': self.location.id,
+            'session_id': self.session.id,
+        }
+
+        # Lancer une première fois pour créer le comptage d'ordre 3
+        first_response = self.client.post(self.url, data=payload, format='json')
+        self.assertEqual(first_response.status_code, status.HTTP_201_CREATED)
+
+        job_detail_order3 = JobDetail.objects.get(job=self.job, location=self.location, counting=self.counting3)
+        job_detail_order3.status = 'TERMINE'
+        job_detail_order3.save()
+
+        # Simuler un JobDetail d'ordre 3 supprimé alors que l'affectation est terminée
+        JobDetail.objects.filter(job=self.job, location=self.location, counting=self.counting3).delete()
+        assignment_order3 = Assigment.objects.get(job=self.job, counting=self.counting3)
+        assignment_order3.status = 'TERMINE'
+        assignment_order3.termine_date = timezone.now()
+        assignment_order3.save()
+
+        response = self.client.post(self.url, data=payload, format='json')
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+            msg=f"Response data: {response.data}",
+        )
+        self.assertTrue(response.data['success'])
+
+        recreated_job_detail = JobDetail.objects.filter(
+            job=self.job,
+            location=self.location,
+            counting=self.counting3,
+        ).first()
+        self.assertIsNotNone(recreated_job_detail)
+        self.assertEqual(recreated_job_detail.status, 'TERMINE')
+
     def test_launch_third_counting_requires_previous_orders_completed(self):
         """Le 3ème comptage ne peut pas être lancé si le 1er ou le 2ème n'est pas terminé."""
         self.assignment1.status = 'AFFECTE'
         self.assignment1.save()
+        job_detail_order1 = JobDetail.objects.get(job=self.job, location=self.location, counting=self.counting1)
+        job_detail_order1.status = 'EN ATTENTE'
+        job_detail_order1.save()
 
         payload = {
             'job_id': self.job.id,
