@@ -120,7 +120,12 @@ DATABASES = {
         'PASSWORD': config('POSTGRES_PASSWORD', default='root'),
         'HOST': config('POSTGRES_HOST', default='127.0.0.1'),
         'PORT': config('POSTGRES_PORT', default='5432'),
-
+        # Réutilisation des connexions pour améliorer les performances
+        # CONN_MAX_AGE: durée en secondes pendant laquelle une connexion peut être réutilisée
+        # 600 = 10 minutes (recommandé pour production)
+        'CONN_MAX_AGE': 600,
+        # Vérification de santé des connexions (recommandé avec CONN_MAX_AGE)
+        'CONN_HEALTH_CHECKS': True,
     }
 }
 DEFAULT_CHARSET = 'utf-8'
