@@ -26,14 +26,15 @@ from ..serializers.job_serializer import (
     JobManualEntryRequestSerializer,
     JobProgressByCountingSerializer,
     JobWithAssignmentsSerializer,
-    AssignmentFlatSerializer
+    AssignmentFlatSerializer,
+    JobDetailSimpleSerializer
 )
 from ..serializers.job_assignment_batch_serializer import JobBatchAssignmentRequestSerializer
 from ..usecases.job_batch_assignment import JobBatchAssignmentUseCase
 from ..exceptions import JobCreationError
 import logging
 from datetime import datetime
-from ..models import Job, Warehouse
+from ..models import Job, Warehouse, Assigment, JobDetail
 from rest_framework.generics import ListAPIView
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
@@ -925,58 +926,210 @@ class InventoryProgressByCountingView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-class JobsWithAssignmentsByWarehouseAndCountingView(APIView):
+class JobsWithAssignmentsByWarehouseAndCountingView(ServerSideDataTableView):
     """
     API pour récupérer les jobs avec leurs assignments filtrés par warehouse et ordre de comptage.
+    Support DataTable avec pagination, tri, recherche et filtrage.
     
     GET /api/inventory/warehouse/<int:warehouse_id>/counting/<int:counting_order>/jobs/
-    """
-    permission_classes = []
     
-    def get(self, request, warehouse_id, counting_order):
+    FONCTIONNALITÉS AUTOMATIQUES:
+    - Tri sur tous les champs configurés
+    - Recherche sur champs multiples
+    - Filtrage avancé
+    - Pagination optimisée
+    - Relations préchargées pour performance
+    
+    PARAMÈTRES:
+    - Tri: ordering=reference, ordering=-created_at, ordering=status
+    - Recherche: search=terme
+    - Pagination: page=1&page_size=20
+    - Filtres: status=TERMINE, job_id=88, personne_1=BOUFENZI
+    """
+    
+    # Configuration de base
+    model = Assigment
+    serializer_class = AssignmentFlatSerializer
+    
+    # Champs de recherche - tous les champs disponibles
+    search_fields = [
+        'job__reference',
+        'job__status',
+        'reference',
+        'status',
+        'counting__reference',
+        'counting__order',
+        'session__username',
+        'personne__nom',
+        'personne__prenom',
+        'personne_two__nom',
+        'personne_two__prenom',
+        'job__warehouse__warehouse_name',
+        'job__warehouse__reference',
+        'job__inventory__reference',
+        'job__inventory__label'
+    ]
+    
+    # Champs de tri - tous les champs disponibles
+    order_fields = [
+        'id',
+        'job_id',
+        'job__reference',
+        'job__status',
+        'reference',
+        'status',
+        'counting__order',
+        'counting__reference',
+        'transfert_date',
+        'entame_date',
+        'affecte_date',
+        'pret_date',
+        'date_start',
+        'created_at',
+        'updated_at',
+        'session__username',
+        'personne__nom',
+        'personne_two__nom'
+    ]
+    default_order = '-created_at'
+    
+    # Configuration de pagination
+    page_size = 20
+    min_page_size = 1
+    max_page_size = 1000
+    
+    # Mapping frontend -> backend pour le filtrage par colonnes
+    filter_aliases = {
+        'job_id': 'job__id',
+        'job_reference': 'job__reference',
+        'job_status': 'job__status',
+        'reference': 'reference',
+        'status': 'status',
+        'counting_order': 'counting__order',
+        'counting_reference': 'counting__reference',
+        'session_info': 'session__username',
+        'personne_1': 'personne__nom',
+        'personne_2': 'personne_two__nom',
+        'warehouse_name': 'job__warehouse__warehouse_name',
+        'inventory_reference': 'job__inventory__reference'
+    }
+    
+    # Champs de date pour filtrage automatique
+    date_fields = [
+        'transfert_date',
+        'entame_date',
+        'affecte_date',
+        'pret_date',
+        'date_start',
+        'created_at',
+        'updated_at'
+    ]
+    
+    # Champs de statut pour filtrage automatique
+    status_fields = ['status', 'job__status']
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from ..repositories.job_repository import JobRepository
+        self.repository = JobRepository()
+    
+    def get_datatable_queryset(self):
         """
-        Récupère les jobs avec leurs assignments filtrés par warehouse et ordre de comptage.
+        Récupère le queryset d'assignments filtrés par warehouse et counting_order.
+        ⚠️ Règle: La vue ne doit PAS utiliser Assigment.objects directement.
+        """
+        warehouse_id = self.kwargs.get('warehouse_id')
+        counting_order = self.kwargs.get('counting_order')
         
-        Args:
-            request: Requête HTTP
-            warehouse_id: ID de l'entrepôt
-            counting_order: Ordre du comptage
-            
-        Returns:
-            Response: Liste des jobs avec leurs assignments et toutes les dates
+        # Valider les paramètres
+        if not warehouse_id or warehouse_id <= 0:
+            raise ValueError("L'ID de l'entrepôt doit être un entier positif")
+        
+        if not counting_order or counting_order <= 0:
+            raise ValueError("L'ordre du comptage doit être un entier positif")
+        
+        return self.repository.get_assignments_by_warehouse_and_counting_queryset(
+            warehouse_id=warehouse_id,
+            counting_order=counting_order
+        )
+
+
+class JobDetailsByJobAndCountingView(ServerSideDataTableView):
+    """
+    Vue DataTable pour récupérer les JobDetail d'un job filtrés par ordre de comptage.
+    Supporte automatiquement : tri, recherche, filtrage, pagination.
+    Retourne uniquement location, status et les dates.
+    """
+    
+    # Configuration minimale
+    model = JobDetail
+    serializer_class = JobDetailSimpleSerializer
+    
+    # Champs de recherche
+    search_fields = [
+        'location__location_reference',
+        'location__sous_zone__sous_zone_name',
+        'location__sous_zone__zone__zone_name',
+        'status'
+    ]
+    
+    # Champs de tri
+    order_fields = [
+        'id',
+        'location__location_reference',
+        'location__sous_zone__sous_zone_name',
+        'status',
+        'en_attente_date',
+        'termine_date',
+        'location__created_at',
+        'location__updated_at'
+    ]
+    
+    # Mapping frontend -> backend pour le filtrage par colonnes
+    filter_aliases = {
+        'id': 'location__id',
+        'location_reference': 'location__location_reference',
+        'sous_zone_name': 'location__sous_zone__sous_zone_name',
+        'zone_name': 'location__sous_zone__zone__zone_name',
+        'is_active': 'location__is_active',
+        'status': 'status',
+        'en_attente_date': 'en_attente_date',
+        'termine_date': 'termine_date',
+        'created_at': 'location__created_at',
+        'updated_at': 'location__updated_at'
+    }
+    
+    # Configuration par défaut
+    default_order = 'location__location_reference'
+    page_size = 20
+    
+    # Champs de date pour filtrage automatique
+    date_fields = ['en_attente_date', 'termine_date', 'location__created_at', 'location__updated_at']
+    
+    # Champs de statut pour filtrage automatique
+    status_fields = ['status', 'location__is_active']
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.repository = JobRepository()
+    
+    def get_datatable_queryset(self):
         """
-        try:
-            # Valider les paramètres
-            if not warehouse_id or warehouse_id <= 0:
-                return error_response(
-                    message="L'ID de l'entrepôt doit être un entier positif",
-                    status_code=status.HTTP_400_BAD_REQUEST
-                )
-            
-            if not counting_order or counting_order <= 0:
-                return error_response(
-                    message="L'ordre du comptage doit être un entier positif",
-                    status_code=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Appeler le service pour récupérer directement les assignments
-            service = JobService()
-            assignments = service.get_assignments_by_warehouse_and_counting(
-                warehouse_id=warehouse_id,
-                counting_order=counting_order
-            )
-            
-            # Sérialiser les assignments avec le format plat demandé
-            serializer = AssignmentFlatSerializer(assignments, many=True)
-            
-            return success_response(
-                data=serializer.data,
-                message=f"{len(assignments)} assignment(s) trouvé(s) pour l'entrepôt {warehouse_id} et le comptage d'ordre {counting_order}"
-            )
-            
-        except Exception as e:
-            logger.error(f"Erreur lors de la récupération des jobs avec assignments : {str(e)}", exc_info=True)
-            return error_response(
-                message="Une erreur inattendue s'est produite lors de la récupération des données",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-            ) 
+        Récupère le queryset de JobDetail filtrés par job_id et counting_order.
+        ⚠️ Règle: La vue ne doit PAS utiliser JobDetail.objects directement.
+        """
+        job_id = self.kwargs.get('job_id')
+        counting_order = self.kwargs.get('counting_order')
+        
+        # Valider les paramètres
+        if not job_id or job_id <= 0:
+            return JobDetail.objects.none()
+        
+        if not counting_order or counting_order <= 0:
+            return JobDetail.objects.none()
+        
+        # Récupérer le queryset via le repository
+        return self.repository.get_job_details_by_job_and_counting_order_queryset(
+            job_id=job_id,
+            counting_order=counting_order
+        ) 

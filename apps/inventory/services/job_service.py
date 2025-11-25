@@ -75,7 +75,8 @@ class JobService(JobServiceInterface):
                     reference=JobDetail().generate_reference(JobDetail.REFERENCE_PREFIX),
                     location=location,
                     job=job,
-                    status='EN ATTENTE'
+                    status='EN ATTENTE',
+                    en_attente_date=timezone.now(),
                 )
             
             # Créer les assignements selon la configuration des comptages
@@ -1217,6 +1218,27 @@ class JobService(JobServiceInterface):
             warehouse_id=warehouse_id,
             counting_order=counting_order
         )
+    
+    def get_assignments_by_warehouse_and_counting_queryset(
+        self,
+        warehouse_id: int,
+        counting_order: int
+    ):
+        """
+        Récupère un queryset d'assignments filtrés par warehouse et ordre de comptage.
+        Utilisé pour les vues DataTable.
+        
+        Args:
+            warehouse_id: ID de l'entrepôt
+            counting_order: Ordre du comptage
+            
+        Returns:
+            QuerySet des assignments avec leurs relations préchargées
+        """
+        return self.repository.get_assignments_by_warehouse_and_counting_queryset(
+            warehouse_id=warehouse_id,
+            counting_order=counting_order
+        )
 
     def get_inventory_progress_by_counting(self, inventory_id: int) -> Dict[str, Any]:
         """
@@ -1323,6 +1345,27 @@ class JobService(JobServiceInterface):
             Liste des assignments avec leurs relations préchargées
         """
         return self.repository.get_assignments_by_warehouse_and_counting(
+            warehouse_id=warehouse_id,
+            counting_order=counting_order
+        )
+    
+    def get_assignments_by_warehouse_and_counting_queryset(
+        self,
+        warehouse_id: int,
+        counting_order: int
+    ):
+        """
+        Récupère un queryset d'assignments filtrés par warehouse et ordre de comptage.
+        Utilisé pour les vues DataTable.
+        
+        Args:
+            warehouse_id: ID de l'entrepôt
+            counting_order: Ordre du comptage
+            
+        Returns:
+            QuerySet des assignments avec leurs relations préchargées
+        """
+        return self.repository.get_assignments_by_warehouse_and_counting_queryset(
             warehouse_id=warehouse_id,
             counting_order=counting_order
         ) 

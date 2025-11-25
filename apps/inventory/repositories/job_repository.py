@@ -386,4 +386,124 @@ class JobRepository(JobRepositoryInterface):
                 'personne_two',
                 'session'
             ).order_by('job__reference', 'id')
+        )
+    
+    def get_assignments_by_warehouse_and_counting_queryset(
+        self,
+        warehouse_id: int,
+        counting_order: int
+    ):
+        """
+        Récupère un queryset d'assignments filtrés par warehouse et ordre de comptage.
+        Utilisé pour les vues DataTable.
+        
+        Args:
+            warehouse_id: ID de l'entrepôt
+            counting_order: Ordre du comptage
+            
+        Returns:
+            QuerySet des assignments avec leurs relations préchargées
+        """
+        return Assigment.objects.filter(
+            job__warehouse_id=warehouse_id,
+            counting__order=counting_order
+        ).select_related(
+            'job',
+            'job__warehouse',
+            'job__inventory',
+            'counting',
+            'personne',
+            'personne_two',
+            'session'
+        )
+    
+    def get_job_details_by_job_and_counting_order(
+        self,
+        job_id: int,
+        counting_order: int
+    ) -> List[JobDetail]:
+        """
+        Récupère les JobDetail d'un job filtrés par ordre de comptage.
+        
+        Args:
+            job_id: ID du job
+            counting_order: Ordre du comptage
+            
+        Returns:
+            Liste des JobDetail avec location, status et dates uniquement
+        """
+        # Récupérer le job pour obtenir l'inventaire
+        job = self.get_job_by_id(job_id)
+        if not job:
+            return []
+        
+        # Récupérer le counting par ordre et inventaire
+        try:
+            counting = Counting.objects.get(
+                inventory=job.inventory,
+                order=counting_order
+            )
+        except Counting.DoesNotExist:
+            return []
+        
+        # Récupérer les JobDetail filtrés par job et counting
+        return list(
+            JobDetail.objects.filter(
+                job_id=job_id,
+                counting=counting
+            ).select_related(
+                'location'
+            ).only(
+                'id',
+                'location',
+                'status',
+                'en_attente_date',
+                'termine_date'
+            ).order_by('location__location_reference')
+        )
+    
+    def get_job_details_by_job_and_counting_order_queryset(
+        self,
+        job_id: int,
+        counting_order: int
+    ):
+        """
+        Récupère un QuerySet de JobDetail d'un job filtrés par ordre de comptage.
+        Utilisé pour les vues DataTable.
+        
+        Args:
+            job_id: ID du job
+            counting_order: Ordre du comptage
+            
+        Returns:
+            QuerySet des JobDetail avec location, status et dates uniquement
+        """
+        # Récupérer le job pour obtenir l'inventaire
+        job = self.get_job_by_id(job_id)
+        if not job:
+            return JobDetail.objects.none()
+        
+        # Récupérer le counting par ordre et inventaire
+        try:
+            counting = Counting.objects.get(
+                inventory=job.inventory,
+                order=counting_order
+            )
+        except Counting.DoesNotExist:
+            return JobDetail.objects.none()
+        
+        # Récupérer les JobDetail filtrés par job et counting
+        return JobDetail.objects.filter(
+            job_id=job_id,
+            counting=counting
+        ).select_related(
+            'location',
+            'location__sous_zone',
+            'location__sous_zone__zone'
+        ).only(
+            'id',
+            'location',
+            'status',
+            'en_attente_date',
+            'termine_date'
         ) 

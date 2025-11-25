@@ -53,6 +53,25 @@ class JobDetailSerializer(serializers.ModelSerializer):
         model = JobDetail
         fields = ['id', 'reference', 'location', 'location_reference', 'job', 'status']
 
+class JobDetailSimpleSerializer(serializers.ModelSerializer):
+    """
+    Serializer minimaliste pour JobDetail qui retourne les informations de location avec le statut et les dates
+    """
+    # Champs de location
+    id = serializers.IntegerField(source='location.id', read_only=True)
+    location_reference = serializers.CharField(source='location.location_reference', read_only=True)
+    is_active = serializers.BooleanField(source='location.is_active', read_only=True)
+    created_at = serializers.DateTimeField(source='location.created_at', read_only=True)
+    updated_at = serializers.DateTimeField(source='location.updated_at', read_only=True)
+    # Statut et dates du JobDetail
+    status = serializers.CharField(read_only=True)
+    en_attente_date = serializers.DateTimeField(read_only=True, allow_null=True)
+    termine_date = serializers.DateTimeField(read_only=True, allow_null=True)
+    
+    class Meta:
+        model = JobDetail
+        fields = ['id', 'location_reference', 'is_active', 'status', 'en_attente_date', 'termine_date', 'created_at', 'updated_at']
+
 class EmplacementSerializer(serializers.Serializer):
     emplacements = serializers.ListField(
         child=serializers.IntegerField(),
