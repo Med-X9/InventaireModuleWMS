@@ -484,6 +484,32 @@ class ProductImportService:
         
         for index, row_data in enumerate(dataset.dict):
             try:
+                # Normaliser les valeurs booléennes avant l'import
+                boolean_fields = ['is variant', 'n lot', 'n serie', 'dlc']
+                for field in boolean_fields:
+                    if field in row_data:
+                        value = row_data[field]
+                        # Normaliser: None, '', 'None', 'null' -> False
+                        if value is None or value == '' or str(value).strip().lower() in ('none', 'null', 'n/a', 'na'):
+                            row_data[field] = False
+                        elif isinstance(value, bool):
+                            row_data[field] = value
+                        elif isinstance(value, str):
+                            value_lower = value.strip().lower()
+                            if value_lower in ('true', '1', 'yes', 'oui', 'o', 'y', 't'):
+                                row_data[field] = True
+                            elif value_lower in ('false', '0', 'no', 'non', 'n', 'f'):
+                                row_data[field] = False
+                            else:
+                                row_data[field] = False
+                        elif isinstance(value, (int, float)):
+                            row_data[field] = bool(value)
+                        else:
+                            row_data[field] = False
+                    else:
+                        # Si la colonne n'existe pas, définir à False
+                        row_data[field] = False
+                
                 # Créer un dataset avec une seule ligne
                 from tablib import Dataset
                 single_row_dataset = Dataset()
@@ -492,7 +518,7 @@ class ProductImportService:
                 if not single_row_dataset.headers and dataset.headers:
                     single_row_dataset.headers = dataset.headers
                 
-                # Ajouter la ligne
+                # Ajouter la ligne avec les valeurs normalisées
                 row_values = [row_data.get(header, '') for header in dataset.headers]
                 single_row_dataset.append(row_values)
                 

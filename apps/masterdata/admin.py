@@ -129,9 +129,22 @@ class OptionalBooleanWidget(widgets.BooleanWidget):
         Nettoie la valeur booléenne.
         Les valeurs vides, None, ou chaînes vides retournent False (valeur par défaut).
         """
-        if value is None or value == '' or str(value).strip() == '':
+        if value is None:
             return False
-        return super().clean(value, row, *args, **kwargs)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            value = value.strip()
+            if value == '' or value.lower() in ('none', 'null', 'n/a', 'na', ''):
+                return False
+            if value.lower() in ('true', '1', 'yes', 'oui', 'o', 'y', 't'):
+                return True
+            if value.lower() in ('false', '0', 'no', 'non', 'n', 'f'):
+                return False
+        if isinstance(value, (int, float)):
+            return bool(value)
+        # Par défaut, retourner False si la valeur ne peut pas être convertie
+        return False
 
 class AutoCreateRegroupementWidget(widgets.ForeignKeyWidget):
     """Widget personnalisé qui crée automatiquement les regroupements manquants"""
@@ -383,24 +396,46 @@ class ProductResource(resources.ModelResource):
         attribute='Product_Family',
         widget=ForeignKeyWidget(Family, 'family_name')
     )
-    n_lot = fields.Field(column_name='n lot', attribute='n_lot', widget=BooleanWidget())
-    n_serie = fields.Field(column_name='n serie', attribute='n_serie', widget=BooleanWidget())
-    dlc = fields.Field(column_name='dlc', attribute='dlc', widget=BooleanWidget())
+    n_lot = fields.Field(column_name='n lot', attribute='n_lot', widget=OptionalBooleanWidget())
+    n_serie = fields.Field(column_name='n serie', attribute='n_serie', widget=OptionalBooleanWidget())
+    dlc = fields.Field(column_name='dlc', attribute='dlc', widget=OptionalBooleanWidget())
+    is_variant = fields.Field(column_name='is variant', attribute='Is_Variant', widget=OptionalBooleanWidget())
 
     class Meta:
         model = Product
         fields = (
             'short_description', 'barcode', 'product_group', 'stock_unit',
             'product_status', 'internal_product_code', 'product_family',
-            'n_lot', 'n_serie', 'dlc'
+            'n_lot', 'n_serie', 'dlc', 'is_variant'
         )
-        import_id_fields = ('barcode',)
+        import_id_fields = ('internal_product_code',)
         skip_unchanged = True
         report_skipped = True
         use_transactions = True
         batch_size = 500  # Import par lots pour éviter timeout
 
     # Vérifie que toutes les lignes ont un product_family existant
+
+    def _normalize_boolean(self, value):
+        """
+        Normalise une valeur en booléen.
+        Retourne False si la valeur est None, vide, ou ne peut pas être convertie.
+        """
+        if value is None:
+            return False
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            value = value.strip().lower()
+            if value in ('', 'none', 'null', 'n/a', 'na'):
+                return False
+            if value in ('true', '1', 'yes', 'oui', 'o', 'y', 't'):
+                return True
+            if value in ('false', '0', 'no', 'non', 'n', 'f'):
+                return False
+        if isinstance(value, (int, float)):
+            return bool(value)
+        return False
 
     def before_import_row(self, row, **kwargs):
         family_name = row.get('product family')
@@ -412,12 +447,46 @@ class ProductResource(resources.ModelResource):
             raise exceptions.ImportError(
                 f"La famille '{family_name}' n'existe pas dans la base de données."
             )
+        
+        # Normaliser les valeurs booléennes pour éviter les NULL
+        boolean_fields = ['is variant', 'n lot', 'n serie', 'dlc']
+        for field in boolean_fields:
+            if field in row:
+                row[field] = self._normalize_boolean(row[field])
+            else:
+                # Si la colonne n'existe pas, définir à False par défaut
+                row[field] = False
+    
+    def after_import_row(self, row, row_result, **kwargs):
+        """
+        Appelé après l'import d'une ligne pour s'assurer que les champs booléens ne sont jamais None.
+        """
+        if row_result.instance and row_result.instance.pk:
+            # S'assurer que Is_Variant et les autres booléens ne sont jamais None
+            needs_save = False
+            if row_result.instance.Is_Variant is None:
+                row_result.instance.Is_Variant = False
+                needs_save = True
+            if row_result.instance.n_lot is None:
+                row_result.instance.n_lot = False
+                needs_save = True
+            if row_result.instance.n_serie is None:
+                row_result.instance.n_serie = False
+                needs_save = True
+            if row_result.instance.dlc is None:
+                row_result.instance.dlc = False
+                needs_save = True
+            # Sauvegarder si des modifications ont été apportées
+            if needs_save:
+                row_result.instance.save(update_fields=['Is_Variant', 'n_lot', 'n_serie', 'dlc'])
 
 
-    # Surcharge pour gérer les variations de noms de colonne pour barcode
+    # Surcharge pour gérer les variations de noms de colonne pour internal_product_code
     def get_or_init_instance(self, instance_loader, row):
         field_variations = {
-            'barcode': ['barcode', 'Barcode', 'BARCODE', 'code-barres', 'code barres', 'Code-Barres'],
+            'internal_product_code': ['internal product code', 'Internal Product Code', 'INTERNAL PRODUCT CODE', 
+                                     'internal_product_code', 'Internal_Product_Code', 'code produit', 
+                                     'Code Produit', 'CODE PRODUIT'],
         }
         for field_name, variations in field_variations.items():
             for key in row.keys():
@@ -429,7 +498,9 @@ class ProductResource(resources.ModelResource):
     # Vérifie les import_id_fields
     def _check_import_id_fields(self, headers):
         field_to_columns = {
-            'barcode': ['barcode', 'Barcode', 'BARCODE', 'code-barres', 'code barres', 'Code-Barres'],
+            'internal_product_code': ['internal product code', 'Internal Product Code', 'INTERNAL PRODUCT CODE', 
+                                     'internal_product_code', 'Internal_Product_Code', 'code produit', 
+                                     'Code Produit', 'CODE PRODUIT'],
         }
         normalized_headers = {h.lower().strip(): h for h in headers}
         available_headers = ', '.join(headers[:10])
