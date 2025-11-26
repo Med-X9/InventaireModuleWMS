@@ -2,7 +2,7 @@ from typing import List, Dict, Any, Optional
 from django.db import transaction
 from django.db.models import Q
 from ..interfaces.job_interface import JobRepositoryInterface
-from ..models import Job, Assigment, Counting, Inventory, JobDetail
+from ..models import Job, Assigment, Counting, Inventory, JobDetail, CountingDetail
 from apps.masterdata.models import Warehouse, Location
 from django.utils import timezone
 
@@ -506,4 +506,80 @@ class JobRepository(JobRepositoryInterface):
             'status',
             'en_attente_date',
             'termine_date'
-        ) 
+        )
+    
+    def get_jobs_with_assignments_and_counting_details(
+        self,
+        inventory_id: int,
+        warehouse_id: int
+    ) -> List[Job]:
+        """
+        Récupère les jobs avec leurs assignments et les CountingDetail des 1er et 2ème comptages.
+        
+        Args:
+            inventory_id: ID de l'inventaire
+            warehouse_id: ID de l'entrepôt
+            
+        Returns:
+            Liste des jobs avec leurs assignments et counting details préchargés
+        """
+        # Récupérer les jobs filtrés par inventory et warehouse
+        jobs = list(
+            Job.objects.filter(
+                inventory_id=inventory_id,
+                warehouse_id=warehouse_id
+            ).select_related(
+                'warehouse',
+                'inventory'
+            ).prefetch_related(
+                'assigment_set__counting',
+                'assigment_set__personne',
+                'assigment_set__personne_two',
+                'assigment_set__session'
+            ).order_by('reference')
+        )
+        
+        # Récupérer les comptages d'ordre 1 et 2 pour cet inventaire
+        countings = Counting.objects.filter(
+            inventory_id=inventory_id,
+            order__in=[1, 2]
+        ).order_by('order')
+        
+        counting_1 = countings.filter(order=1).first()
+        counting_2 = countings.filter(order=2).first()
+        
+        if not counting_1 or not counting_2:
+            return jobs
+        
+        # Précharger les CountingDetail pour chaque job et chaque comptage
+        job_ids = [job.id for job in jobs]
+        
+        # Récupérer tous les CountingDetail pour les jobs et les comptages
+        counting_details_1 = {
+            (cd.job_id, cd.location_id, cd.product_id if cd.product else None, 
+             cd.n_lot, cd.dlc): cd
+            for cd in CountingDetail.objects.filter(
+                job_id__in=job_ids,
+                counting=counting_1
+            ).select_related('location', 'product', 'counting', 'job')
+        }
+        
+        counting_details_2 = {
+            (cd.job_id, cd.location_id, cd.product_id if cd.product else None,
+             cd.n_lot, cd.dlc): cd
+            for cd in CountingDetail.objects.filter(
+                job_id__in=job_ids,
+                counting=counting_2
+            ).select_related('location', 'product', 'counting', 'job')
+        }
+        
+        # Attacher les counting details aux jobs (via un attribut temporaire)
+        for job in jobs:
+            job._counting_details_1 = {
+                k: v for k, v in counting_details_1.items() if k[0] == job.id
+            }
+            job._counting_details_2 = {
+                k: v for k, v in counting_details_2.items() if k[0] == job.id
+            }
+        
+        return jobs 

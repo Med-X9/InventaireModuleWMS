@@ -21,23 +21,20 @@ class UserLocationsView(APIView):
     API pour récupérer les emplacements du même compte qu'un utilisateur.
     
     Permet de récupérer la liste des emplacements (locations) appartenant au même
-    compte qu'un utilisateur spécifique. Utile pour la gestion des inventaires
+    compte de l'utilisateur connecté. Utile pour la gestion des inventaires
     et l'affichage des emplacements disponibles pour le comptage.
     
-    URL: /mobile/api/user/{user_id}/locations/
+    URL: /mobile/api/locations/
     
     Fonctionnalités:
     - Récupération des emplacements du même compte
-    - Validation de l'existence de l'utilisateur
-    - Filtrage par compte associé à l'utilisateur
+    - L'utilisateur est récupéré automatiquement depuis le token d'authentification
+    - Filtrage par compte associé à l'utilisateur connecté
     - Gestion des erreurs spécifiques et cas d'absence d'emplacements
-    
-    Paramètres d'URL:
-    - user_id (int): ID de l'utilisateur
     
     Réponses:
     - 200: Liste des emplacements récupérée avec succès (peut être vide)
-    - 400: ID d'utilisateur invalide ou erreur de validation
+    - 400: Erreur de validation
     - 401: Non authentifié
     - 404: Utilisateur ou compte non trouvé
     - 500: Erreur interne du serveur ou erreur de base de données
@@ -46,16 +43,7 @@ class UserLocationsView(APIView):
     
     @swagger_auto_schema(
         operation_summary="Récupération des emplacements utilisateur mobile",
-        operation_description="Récupère la liste des emplacements appartenant au même compte qu'un utilisateur spécifique",
-        manual_parameters=[
-            openapi.Parameter(
-                'user_id',
-                openapi.IN_PATH,
-                description="ID de l'utilisateur",
-                type=openapi.TYPE_INTEGER,
-                required=True
-            )
-        ],
+        operation_description="Récupère la liste des emplacements appartenant au même compte de l'utilisateur connecté (récupéré depuis le token)",
         responses={
             200: openapi.Response(
                 description="Liste des emplacements récupérée avec succès",
@@ -87,13 +75,13 @@ class UserLocationsView(APIView):
                 )
             ),
             400: openapi.Response(
-                description="ID d'utilisateur invalide ou erreur de validation",
+                description="Erreur de validation",
                 schema=openapi.Schema(
                     type=openapi.TYPE_OBJECT,
                     properties={
                         'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
-                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='ID d\'utilisateur invalide'),
-                        'error_type': openapi.Schema(type=openapi.TYPE_STRING, example='INVALID_PARAMETER')
+                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Erreur de validation'),
+                        'error_type': openapi.Schema(type=openapi.TYPE_STRING, example='VALIDATION_ERROR')
                     }
                 )
             ),
@@ -132,18 +120,22 @@ class UserLocationsView(APIView):
         security=[{'Bearer': []}],
         tags=['Utilisateur Mobile']
     )
-    def get(self, request, user_id):
+    def get(self, request):
         """
-        Récupère les emplacements du même compte qu'un utilisateur.
+        Récupère les emplacements du même compte de l'utilisateur connecté.
         
         Args:
             request: Requête GET
-            user_id: ID de l'utilisateur (depuis l'URL)
+            - L'utilisateur est récupéré automatiquement depuis le token d'authentification
             
         Returns:
             Response: Liste des emplacements avec seulement les informations essentielles
         """
         try:
+            # Récupérer l'utilisateur depuis le token d'authentification
+            user_id = request.user.id
+            print(f"user_id depuis token: {user_id}")
+            
             user_service = UserService()
             
             response_data = user_service.get_user_locations(user_id)
@@ -197,9 +189,9 @@ class UserLocationsView(APIView):
             )
         except ValueError as e:
             return error_response(
-                message=f'ID d\'utilisateur invalide: {str(e)}',
+                message=f'Erreur de validation: {str(e)}',
                 status_code=status.HTTP_400_BAD_REQUEST,
-                error_type='INVALID_PARAMETER'
+                error_type='VALIDATION_ERROR'
             )
         except Exception as e:
             print(f"Erreur inattendue dans UserLocationsView: {str(e)}")

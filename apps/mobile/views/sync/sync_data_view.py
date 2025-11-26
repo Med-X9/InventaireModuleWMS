@@ -23,11 +23,8 @@ class SyncDataView(APIView):
     jobs, assignments, produits, emplacements et stocks.
     
     Comportement:
-    - Si user_id est fourni dans l'URL, récupère les inventaires du même compte que cet utilisateur
-    - Sinon, récupère tous les inventaires en réalisation
-    
-    Paramètres d'URL:
-    - user_id (int, optionnel): ID de l'utilisateur pour la synchronisation
+    - Récupère l'utilisateur depuis le token d'authentification
+    - Récupère les inventaires du même compte que l'utilisateur connecté
     
     Paramètres de requête:
     - inventory_id (int, optionnel): ID d'inventaire spécifique à synchroniser
@@ -144,13 +141,13 @@ class SyncDataView(APIView):
         security=[{'Bearer': []}],
         tags=['Synchronisation Mobile']
     )
-    def get(self, request, user_id):
+    def get(self, request):
         """
-        Récupère toutes les données de synchronisation pour un utilisateur.
+        Récupère toutes les données de synchronisation pour l'utilisateur connecté.
         
         Args:
             request: Requête GET avec paramètres optionnels
-            user_id: ID de l'utilisateur (optionnel, utilise l'utilisateur connecté si non fourni)
+            - L'utilisateur est récupéré automatiquement depuis le token d'authentification
             
         Returns:
             Response: Données complètes de synchronisation incluant:
@@ -161,16 +158,15 @@ class SyncDataView(APIView):
                 - stocks disponibles
         """
         try:
-            print(f"user_id: {user_id}")
+            # Récupérer l'utilisateur depuis le token d'authentification
+            target_user_id = request.user.id
+            print(f"user_id depuis token: {target_user_id}")
+            
             sync_service = SyncService()
             
             # Récupérer les paramètres de synchronisation
             # inventory_id = request.GET.get('inventory_id')
             
-            # Si user_id est fourni dans l'URL, utiliser cet utilisateur
-            # Sinon, utiliser l'utilisateur connecté
-            if user_id:
-                target_user_id = user_id
             response_data = sync_service.sync_data(target_user_id)
             
             return success_response(

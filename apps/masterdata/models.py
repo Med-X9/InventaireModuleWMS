@@ -238,7 +238,7 @@ class Location(CodeGeneratorMixin, TimeStampedModel):
     location_type = models.ForeignKey(LocationType, on_delete=models.CASCADE, verbose_name=_('Type d\'emplacement'))
     capacity = models.IntegerField(_('Capacité'), null=True, blank=True, validators=[MinValueValidator(0)])
     is_active = models.BooleanField(_('Actif'), default=True)
-    description = models.TextField(_('Description'), max_length=100, null=True, blank=True)
+    description = models.TextField(_('Description'), max_length=255, null=True, blank=True)
     regroupement = models.ForeignKey('RegroupementEmplacement', on_delete=models.SET_NULL, null=True, blank=True, related_name='locations')
     history = HistoricalRecords()
     

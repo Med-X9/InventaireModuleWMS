@@ -12,11 +12,10 @@ urlpatterns = [
         "auth/refresh/", views.RefreshTokenView.as_view(), name="mobile_refresh_token"
     ),
     # Synchronisation unifiée - Bonne pratique
-    # path("sync/data/", views.SyncDataView.as_view(), name="mobile_sync_data"),
     path(
-        "sync/data/user/<int:user_id>/",
+        "sync/data/",
         views.SyncDataView.as_view(),
-        name="mobile_sync_data_by_user",
+        name="mobile_sync_data",
     ),
     path("sync/upload/", views.UploadDataView.as_view(), name="mobile_upload_data"),
     # Utilisateurs du même compte d'inventaire
@@ -27,19 +26,19 @@ urlpatterns = [
     ),
     # Produits du même compte qu'un utilisateur
     path(
-        "user/<int:user_id>/products/",
+        "products/",
         views.UserProductsView.as_view(),
         name="mobile_user_products",
     ),
     # Locations du même compte qu'un utilisateur
     path(
-        "user/<int:user_id>/locations/",
+        "locations/",
         views.UserLocationsView.as_view(),
         name="mobile_user_locations",
     ),
     # Stocks du même compte qu'un utilisateur
     path(
-        "user/<int:user_id>/stocks/",
+        "stocks/",
         views.UserStocksView.as_view(),
         name="mobile_user_stocks",
     ),
@@ -51,7 +50,7 @@ urlpatterns = [
     ),
     # Gestion des assignments et jobs
     path(
-        "user/<int:user_id>/assignment/<int:assignment_id>/status/",
+        "assignment/<int:assignment_id>/status/",
         views.AssignmentStatusView.as_view(),
         name="mobile_assignment_status",
     ),

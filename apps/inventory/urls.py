@@ -24,6 +24,7 @@ from apps.inventory.views import InventoryWarehousesView, AccountWarehousesView
 
 
 from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView, JobBatchAssignmentView, JobTransferView, JobManualEntryView, JobProgressByCountingView, InventoryProgressByCountingView, JobsWithAssignmentsByWarehouseAndCountingView, JobDetailsByJobAndCountingView
+from .views.job_discrepancy_views import JobDiscrepancyView
 from .views.ecart_comptage_views import EcartComptageUpdateFinalResultView, EcartComptageResolveView
 from .views.assignment_views import AssignJobsToCountingView, AssignResourcesToInventoryView, InventoryResourcesView, SessionAssignmentsView
 from .views.resource_assignment_views import AssignResourcesToJobsView, JobResourcesView, RemoveResourcesFromJobView
@@ -87,6 +88,8 @@ urlpatterns = [
     path('jobs/pending/', JobPendingListView.as_view(), name='jobs-pending'),
     path('warehouse/<int:warehouse_id>/counting/<int:counting_order>/jobs/', JobsWithAssignmentsByWarehouseAndCountingView.as_view(), name='jobs-with-assignments-by-warehouse-counting'),
     path('jobs/<int:job_id>/counting/<int:counting_order>/details/', JobDetailsByJobAndCountingView.as_view(), name='job-details-by-job-and-counting'),
+    # Récupération des jobs avec écarts entre 1er et 2ème comptage (suivie)
+    path('inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/discrepancies/', JobDiscrepancyView.as_view(), name='job-discrepancies'),
     
     # ========================================
     # URLs POUR L'AFFECTATION DES JOBS

@@ -24,17 +24,17 @@ class AssignmentStatusView(APIView):
     vers le statut "ENTAME" dans l'application mobile. Gère la cohérence des
     statuts entre les deux entités.
     
-    URL: /api/mobile/user/{user_id}/assignment/{assignment_id}/status/
+    URL: /api/mobile/assignment/{assignment_id}/status/
     
     Fonctionnalités:
     - Mise à jour du statut assignment vers ENTAME
     - Mise à jour du statut job associé vers ENTAME
+    - L'utilisateur est récupéré automatiquement depuis le token d'authentification
     - Validation des permissions utilisateur
     - Gestion des transitions de statut valides
     - Cohérence des données entre assignment et job
     
     Paramètres d'URL:
-    - user_id (int): ID de l'utilisateur assigné
     - assignment_id (int): ID de l'assignment à mettre à jour
     
     Réponses:
@@ -53,15 +53,8 @@ class AssignmentStatusView(APIView):
     
     @swagger_auto_schema(
         operation_summary="Mise à jour du statut d'assignment mobile",
-        operation_description="Met à jour le statut d'un assignment et de son job associé vers ENTAME",
+        operation_description="Met à jour le statut d'un assignment et de son job associé vers ENTAME. L'utilisateur est récupéré depuis le token d'authentification",
         manual_parameters=[
-            openapi.Parameter(
-                'user_id',
-                openapi.IN_PATH,
-                description="ID de l'utilisateur assigné",
-                type=openapi.TYPE_INTEGER,
-                required=True
-            ),
             openapi.Parameter(
                 'assignment_id',
                 openapi.IN_PATH,
@@ -142,19 +135,23 @@ class AssignmentStatusView(APIView):
         security=[{'Bearer': []}],
         tags=['Assignment Mobile']
     )
-    def post(self, request, user_id, assignment_id):
+    def post(self, request, assignment_id):
         """
         Met à jour le statut d'un assignment et de son job vers ENTAME.
         
         Args:
             request: Requête POST
-            user_id: ID de l'utilisateur (depuis l'URL)
+            - L'utilisateur est récupéré automatiquement depuis le token d'authentification
             assignment_id: ID de l'assignment (depuis l'URL)
             
         Returns:
             Response: Confirmation de mise à jour avec données des statuts
         """
         try:
+            # Récupérer l'utilisateur depuis le token d'authentification
+            user_id = request.user.id
+            print(f"user_id depuis token: {user_id}")
+            
             # Statut fixe : ENTAME
             new_status = "ENTAME"
             
