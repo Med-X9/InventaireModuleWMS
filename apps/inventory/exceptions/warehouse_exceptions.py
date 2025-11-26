@@ -5,3 +5,6 @@ class WarehouseAccountValidationError(Exception):
 class WarehouseAccountNotFoundError(Exception):
     """Exception levée lorsque aucun entrepôt n'est trouvé pour un compte donné."""
 
+
+class WarehouseNotFoundError(Exception):
+    """Exception levée lorsqu'un entrepôt n'est pas trouvé."""

@@ -32,6 +32,7 @@ from .views.counting_tracking_views import InventoryCountingTrackingView, JobDet
 from .views.counting_views import CountingLaunchView
 from .views.pdf_views import InventoryJobsPdfView, JobAssignmentPdfView
 from .views.excel_export_views import ConsolidatedArticleExcelExportView
+from .views.job_export_view import JobExportView
 
 urlpatterns = [
     # ========================================
@@ -90,6 +91,8 @@ urlpatterns = [
     path('jobs/<int:job_id>/counting/<int:counting_order>/details/', JobDetailsByJobAndCountingView.as_view(), name='job-details-by-job-and-counting'),
     # Récupération des jobs avec écarts entre 1er et 2ème comptage (suivie)
     path('inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/discrepancies/', JobDiscrepancyView.as_view(), name='job-discrepancies'),
+    # Export des jobs prêts
+    path('inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/export/', JobExportView.as_view(), name='job-export'),
     
     # ========================================
     # URLs POUR L'AFFECTATION DES JOBS
