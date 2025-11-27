@@ -1,12 +1,14 @@
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+from django.http import HttpResponse
+import io
+from datetime import datetime
 
 from apps.mobile.services.user_service import UserService
-from apps.mobile.utils import success_response, error_response
+from apps.mobile.utils import error_response
 from apps.mobile.exceptions import (
     UserNotFoundException,
     AccountNotFoundException,
@@ -18,22 +20,23 @@ from apps.mobile.exceptions import (
 
 class UserProductsView(APIView):
     """
-    API pour récupérer les produits du même compte qu'un utilisateur.
+    API pour exporter les produits du même compte qu'un utilisateur en format Excel.
     
-    Permet de récupérer la liste des produits appartenant au même compte
-    de l'utilisateur connecté. Utile pour la gestion des inventaires
-    et l'affichage des produits disponibles pour le comptage.
+    Permet d'exporter la liste des produits appartenant au même compte
+    de l'utilisateur connecté sous forme de fichier Excel (.xlsx).
+    Utile pour la gestion des inventaires et l'export des produits disponibles.
     
     URL: /mobile/api/products/
     
     Fonctionnalités:
-    - Récupération des produits du même compte
+    - Export des produits du même compte en format Excel
     - L'utilisateur est récupéré automatiquement depuis le token d'authentification
     - Filtrage par compte associé à l'utilisateur connecté
+    - Génération d'un fichier Excel avec formatage et en-têtes stylisés
     - Gestion des erreurs spécifiques et cas d'absence de produits
     
     Réponses:
-    - 200: Liste des produits récupérée avec succès (peut être vide)
+    - 200: Fichier Excel généré avec succès
     - 400: Erreur de validation
     - 401: Non authentifié
     - 404: Utilisateur ou compte non trouvé
@@ -42,44 +45,19 @@ class UserProductsView(APIView):
     permission_classes = [IsAuthenticated]
     
     @swagger_auto_schema(
-        operation_summary="Récupération des produits utilisateur mobile",
-        operation_description="Récupère la liste des produits appartenant au même compte de l'utilisateur connecté (récupéré depuis le token)",
+        operation_summary="Export Excel des produits utilisateur mobile",
+        operation_description="Exporte la liste des produits appartenant au même compte de l'utilisateur connecté en format Excel (.xlsx)",
         responses={
             200: openapi.Response(
-                description="Liste des produits récupérée avec succès",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=True),
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example='Produits récupérés avec succès'),
-                        'data': openapi.Schema(
-                            type=openapi.TYPE_OBJECT,
-                            properties={
-                                'products': openapi.Schema(
-                                    type=openapi.TYPE_ARRAY,
-                                    items=openapi.Schema(
-                                        type=openapi.TYPE_OBJECT,
-                                        properties={
-                                            'web_id': openapi.Schema(type=openapi.TYPE_INTEGER, example=5105),
-                                            'product_name': openapi.Schema(type=openapi.TYPE_STRING, nullable=True, example=None),
-                                            'product_code': openapi.Schema(type=openapi.TYPE_STRING, example='8690644022340'),
-                                            'internal_product_code': openapi.Schema(type=openapi.TYPE_STRING, example='M0405-0001'),
-                                            'family_name': openapi.Schema(type=openapi.TYPE_STRING, example='PASTEL'),
-                                            'is_variant': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
-                                            'n_lot': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
-                                            'n_serie': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
-                                            'dlc': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
-                                            'numeros_serie': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Schema(type=openapi.TYPE_OBJECT), example=[]),
-                                            'created_at': openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_DATETIME),
-                                            'updated_at': openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_DATETIME)
-                                        }
-                                    ),
-                                    description="Liste des produits du même compte"
-                                )
-                            }
+                description="Fichier Excel généré avec succès",
+                content={
+                    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': {
+                        'schema': openapi.Schema(
+                            type=openapi.TYPE_FILE,
+                            description="Fichier Excel contenant les produits"
                         )
                     }
-                )
+                }
             ),
             400: openapi.Response(
                 description="Erreur de validation",
@@ -129,14 +107,14 @@ class UserProductsView(APIView):
     )
     def get(self, request):
         """
-        Récupère les produits du même compte de l'utilisateur connecté.
+        Exporte les produits du même compte de l'utilisateur connecté en fichier Excel.
         
         Args:
             request: Requête GET
             - L'utilisateur est récupéré automatiquement depuis le token d'authentification
             
         Returns:
-            Response: Liste des produits avec seulement les informations essentielles
+            HttpResponse: Fichier Excel contenant les produits
         """
         try:
             # Récupérer l'utilisateur depuis le token d'authentification
@@ -166,11 +144,21 @@ class UserProductsView(APIView):
                         'updated_at': product.get('updated_at')
                     })
             
-            # Retourner avec success_response mais seulement les products dans data
-            return success_response(
-                data={'products': products},
-                message="Produits récupérés avec succès"
+            # Générer le fichier Excel
+            excel_buffer = self._generate_excel(products)
+            
+            # Définir le nom du fichier avec timestamp
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"produits_utilisateur_{user_id}_{timestamp}.xlsx"
+            
+            # Créer la réponse HTTP avec le fichier Excel
+            response = HttpResponse(
+                excel_buffer.getvalue(),
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
             )
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            
+            return response
             
         except UserNotFoundException as e:
             return error_response(
@@ -185,10 +173,16 @@ class UserProductsView(APIView):
                 error_type='ACCOUNT_NOT_FOUND'
             )
         except ProductNotFoundException as e:
-            return success_response(
-                data={'products': []},
-                message="Produits récupérés avec succès"
+            # Générer un fichier Excel vide avec seulement les en-têtes
+            excel_buffer = self._generate_excel([])
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"produits_utilisateur_{request.user.id}_{timestamp}.xlsx"
+            response = HttpResponse(
+                excel_buffer.getvalue(),
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
             )
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            return response
         except DataValidationException as e:
             return error_response(
                 message=str(e),
@@ -207,6 +201,12 @@ class UserProductsView(APIView):
                 status_code=status.HTTP_400_BAD_REQUEST,
                 error_type='VALIDATION_ERROR'
             )
+        except ImportError as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                error_type='DEPENDENCY_ERROR'
+            )
         except Exception as e:
             print(f"Erreur inattendue dans UserProductsView: {str(e)}")
             import traceback
@@ -216,3 +216,126 @@ class UserProductsView(APIView):
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 error_type='INTERNAL_ERROR'
             )
+    
+    def _generate_excel(self, products: list) -> io.BytesIO:
+        """
+        Génère un fichier Excel à partir de la liste des produits.
+        
+        Args:
+            products: Liste des produits à exporter
+            
+        Returns:
+            BytesIO: Buffer contenant le fichier Excel
+            
+        Raises:
+            ImportError: Si openpyxl n'est pas installé
+        """
+        try:
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, Alignment, PatternFill
+        except ImportError:
+            raise ImportError(
+                "openpyxl est requis pour l'export Excel. "
+                "Installez-le avec: pip install openpyxl"
+            )
+        
+        # Créer le workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Produits"
+        
+        # Définir les en-têtes
+        headers = [
+            'ID',
+            'Nom du produit',
+            'Code produit',
+            'Code produit interne',
+            'Famille',
+            'Est variante',
+            'N° Lot',
+            'N° Série',
+            'DLC',
+            'Numéros de série',
+            'Date de création',
+            'Date de mise à jour'
+        ]
+        
+        # Style pour les en-têtes
+        header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+        header_font = Font(bold=True, color="FFFFFF")
+        header_alignment = Alignment(horizontal="center", vertical="center")
+        
+        # Écrire les en-têtes
+        for col_num, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col_num)
+            cell.value = header
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = header_alignment
+        
+        # Écrire les données
+        for row_num, product in enumerate(products, 2):
+            # Convertir les valeurs booléennes en texte
+            is_variant = "Oui" if product.get('is_variant') else "Non"
+            n_lot = "Oui" if product.get('n_lot') else "Non"
+            n_serie = "Oui" if product.get('n_serie') else "Non"
+            dlc = "Oui" if product.get('dlc') else "Non"
+            
+            # Convertir la liste des numéros de série en chaîne
+            numeros_serie = product.get('numeros_serie', [])
+            numeros_serie_str = ', '.join([str(ns) for ns in numeros_serie]) if numeros_serie else ''
+            
+            # Formater les dates
+            created_at = product.get('created_at', '')
+            updated_at = product.get('updated_at', '')
+            if created_at:
+                try:
+                    if isinstance(created_at, str):
+                        created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    pass
+            if updated_at:
+                try:
+                    if isinstance(updated_at, str):
+                        updated_at = datetime.fromisoformat(updated_at.replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    pass
+            
+            ws.cell(row=row_num, column=1, value=product.get('web_id'))
+            ws.cell(row=row_num, column=2, value=product.get('product_name'))
+            ws.cell(row=row_num, column=3, value=product.get('product_code'))
+            ws.cell(row=row_num, column=4, value=product.get('internal_product_code'))
+            ws.cell(row=row_num, column=5, value=product.get('family_name'))
+            ws.cell(row=row_num, column=6, value=is_variant)
+            ws.cell(row=row_num, column=7, value=n_lot)
+            ws.cell(row=row_num, column=8, value=n_serie)
+            ws.cell(row=row_num, column=9, value=dlc)
+            ws.cell(row=row_num, column=10, value=numeros_serie_str)
+            ws.cell(row=row_num, column=11, value=created_at)
+            ws.cell(row=row_num, column=12, value=updated_at)
+        
+        # Ajuster la largeur des colonnes
+        column_widths = {
+            'A': 10,  # ID
+            'B': 30,  # Nom du produit
+            'C': 20,  # Code produit
+            'D': 20,  # Code produit interne
+            'E': 20,  # Famille
+            'F': 15,  # Est variante
+            'G': 10,  # N° Lot
+            'H': 10,  # N° Série
+            'I': 10,  # DLC
+            'J': 40,  # Numéros de série
+            'K': 20,  # Date de création
+            'L': 20,  # Date de mise à jour
+        }
+        
+        for col, width in column_widths.items():
+            ws.column_dimensions[col].width = width
+        
+        # Sauvegarder dans un buffer
+        excel_buffer = io.BytesIO()
+        wb.save(excel_buffer)
+        excel_buffer.seek(0)
+        
+        return excel_buffer
