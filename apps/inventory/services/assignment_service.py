@@ -94,30 +94,13 @@ class AssignmentService(IAssignmentService):
                 existing_assignment = self.repository.get_existing_assignment_for_job_and_counting(job.id, counting.id)
                 
                 if existing_assignment:
-                    # Réaffectation : vérifier les statuts existants
-                    current_job_status = job.status
-                    current_assignment_status = existing_assignment.status
-                    
-                    # Statuts à préserver lors d'une réaffectation
-                    preserved_statuses = ['PRET', 'TRANSFERT']
-                    
-                    # Déterminer le statut à utiliser pour l'affectation
-                    # Si le job ou l'affectation a un statut à préserver, le conserver
-                    if current_job_status in preserved_statuses or current_assignment_status in preserved_statuses:
-                        # Conserver le statut existant (priorité au statut de l'affectation si présent)
-                        new_assignment_status = current_assignment_status if current_assignment_status in preserved_statuses else current_job_status
-                    else:
-                        # Nouvelle affectation normale
-                        new_assignment_status = 'AFFECTE'
-                    
-                    # Mettre à jour l'affectation existante pour ce comptage
+                    # Réaffectation : préserver le statut existant, modifier uniquement la session
+                    # Ne pas modifier le statut de l'assignment lors d'une réaffectation
+                    # Seulement mettre à jour la session et la date_start
                     existing_assignment.date_start = date_start or timezone.now()
                     existing_assignment.session = session
-                    existing_assignment.status = new_assignment_status
-                    
-                    # Mettre à jour la date seulement si le statut change vers AFFECTE
-                    if new_assignment_status == 'AFFECTE':
-                        existing_assignment.affecte_date = timezone.now()
+                    # Le statut reste inchangé lors d'une réaffectation
+                    # existing_assignment.status reste tel quel
                     
                     existing_assignment.save()
                     assignments_updated += 1
@@ -143,9 +126,9 @@ class AssignmentService(IAssignmentService):
                 
                 if should_update_status:
                     # Statuts à préserver pour le job lors d'une réaffectation
-                    preserved_job_statuses = ['PRET', 'TRANSFERT']
+                    preserved_job_statuses = ['PRET', 'TRANSFERT', 'ENTAME', 'TERMINE']
                     
-                    # Ne pas modifier le statut du job s'il est déjà PRET ou TRANSFERT
+                    # Ne pas modifier le statut du job s'il est déjà PRET, TRANSFERT, ENTAME ou TERMINE
                     if job.status not in preserved_job_statuses:
                         # Mettre à jour le statut des affectations à AFFECTE (sauf celles préservées)
                         self.update_assignments_status_to_affecte(job.id, inventory_id)
@@ -267,7 +250,7 @@ class AssignmentService(IAssignmentService):
     def update_assignments_status_to_affecte(self, job_id: int, inventory_id: int) -> None:
         """
         Met à jour le statut des affectations à 'AFFECTE' pour un job donné
-        Ne modifie pas les affectations avec des statuts à préserver (PRET, TRANSFERT)
+        Ne modifie pas les affectations avec des statuts à préserver (PRET, TRANSFERT, ENTAME, TERMINE)
         
         Args:
             job_id: ID du job
@@ -280,7 +263,7 @@ class AssignmentService(IAssignmentService):
         )
         
         # Statuts à préserver lors de la mise à jour
-        preserved_statuses = ['PRET', 'TRANSFERT']
+        preserved_statuses = ['PRET', 'TRANSFERT', 'ENTAME', 'TERMINE']
         
         # Mettre à jour le statut et la date d'affectation
         current_time = timezone.now()

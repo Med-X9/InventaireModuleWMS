@@ -331,3 +331,5 @@ class CountingDetailView(APIView):
             
         except Exception as e:
             return self._handle_exception(e)
+
+
