@@ -873,6 +873,7 @@ class JobBatchAssignmentView(APIView):
                 }
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
 
+
 class JobProgressByCountingView(APIView):
     """
     Vue pour afficher l'avancement des emplacements par job et par counting

@@ -222,7 +222,8 @@ class CountingDetailService:
                 ecart_cache = self._prefetch_ecarts_and_sequences(created_details)
                 
                 # OPTIMISATION 6: Traiter tous les comptages en lot (avec cache)
-                ecarts_to_update = set()
+                # Suivre les écarts à mettre à jour avec leurs champs respectifs
+                ecarts_to_update_with_fields = {}  # ecart_id -> {'fields': [...], 'ecart': EcartComptage}
                 
                 for item in counting_details_to_process:
                     try:
@@ -235,14 +236,41 @@ class CountingDetailService:
                             ecart_cache
                         )
                         
-                        # Générer la référence avant sauvegarde pour éviter les doublons
-                        nouvelle_sequence = sequence_result['sequence']
-                        if not nouvelle_sequence.reference:
-                            nouvelle_sequence.reference = nouvelle_sequence.generate_reference(ComptageSequence.REFERENCE_PREFIX)
+                        sequence = sequence_result['sequence']
+                        is_sequence_update = sequence_result.get('is_update', False)
+                        ecart = sequence_result['ecart']
                         
-                        # Sauvegarder la séquence
-                        nouvelle_sequence.save()
-                        ecarts_to_update.add(sequence_result['ecart'])
+                        if is_sequence_update:
+                            # MISE À JOUR : Sauvegarder la séquence existante mise à jour
+                            sequence.save(update_fields=['quantity', 'ecart_with_previous', 'updated_at'])
+                            logger.info(f"Séquence {sequence.id} mise à jour pour CountingDetail {counting_detail.id}")
+                            # Pour les mises à jour, on ne met à jour que final_result (pas total_sequences)
+                            if ecart.id not in ecarts_to_update_with_fields:
+                                ecarts_to_update_with_fields[ecart.id] = {
+                                    'ecart': ecart,
+                                    'fields': ['final_result']
+                                }
+                            elif 'final_result' not in ecarts_to_update_with_fields[ecart.id]['fields']:
+                                ecarts_to_update_with_fields[ecart.id]['fields'].append('final_result')
+                        else:
+                            # CRÉATION : Générer la référence avant sauvegarde pour éviter les doublons
+                            if not sequence.reference:
+                                sequence.reference = sequence.generate_reference(ComptageSequence.REFERENCE_PREFIX)
+                            
+                            # Sauvegarder la nouvelle séquence
+                            sequence.save()
+                            logger.info(f"Nouvelle séquence {sequence.id} créée pour CountingDetail {counting_detail.id}")
+                            # Pour les créations, on met à jour total_sequences, stopped_sequence et final_result
+                            if ecart.id not in ecarts_to_update_with_fields:
+                                ecarts_to_update_with_fields[ecart.id] = {
+                                    'ecart': ecart,
+                                    'fields': ['total_sequences', 'stopped_sequence', 'final_result']
+                                }
+                            else:
+                                # Ajouter les champs si pas déjà présents
+                                for field in ['total_sequences', 'stopped_sequence', 'final_result']:
+                                    if field not in ecarts_to_update_with_fields[ecart.id]['fields']:
+                                        ecarts_to_update_with_fields[ecart.id]['fields'].append(field)
                         
                         result = item['result']
                         result['comptage_sequence'] = {
@@ -288,12 +316,23 @@ class CountingDetailService:
                         })
                         raise e
                 
-                # OPTIMISATION 7: Bulk update des écarts
-                if ecarts_to_update:
-                    EcartComptage.objects.bulk_update(
-                        ecarts_to_update,
-                        fields=['total_sequences', 'stopped_sequence', 'final_result']
-                    )
+                # OPTIMISATION 7: Bulk update des écarts avec les champs appropriés
+                if ecarts_to_update_with_fields:
+                    # Grouper par champs à mettre à jour pour optimiser les bulk_update
+                    ecarts_by_fields = {}
+                    for ecart_data in ecarts_to_update_with_fields.values():
+                        fields_key = tuple(sorted(ecart_data['fields']))
+                        if fields_key not in ecarts_by_fields:
+                            ecarts_by_fields[fields_key] = []
+                        ecarts_by_fields[fields_key].append(ecart_data['ecart'])
+                    
+                    # Faire un bulk_update par groupe de champs
+                    for fields_key, ecarts in ecarts_by_fields.items():
+                        EcartComptage.objects.bulk_update(
+                            ecarts,
+                            fields=list(fields_key)
+                        )
+                        logger.info(f"Mis à jour {len(ecarts)} écart(s) avec les champs: {list(fields_key)}")
             
             # Si on arrive ici, tout a réussi
             return {
@@ -444,7 +483,10 @@ class CountingDetailService:
         )
         
         # Grouper par combinaison et conserver toutes les séquences (en ordre croissant)
+        # Ajouter aussi un mapping counting_detail_id -> sequence pour les mises à jour
         cache = {}
+        counting_detail_sequences_map = {}  # counting_detail_id -> ComptageSequence
+        
         for seq in sequences_query:
             key = (
                 seq.counting_detail.product_id, 
@@ -452,17 +494,23 @@ class CountingDetailService:
                 seq.counting_detail.counting.inventory_id
             )
             
+            # Mapper le counting_detail à sa séquence (on garde la dernière si plusieurs)
+            counting_detail_sequences_map[seq.counting_detail_id] = seq
+            
             if key not in cache:
                 cache[key] = {
                     'ecart': seq.ecart_comptage,
                     'last_sequence': seq,
                     'last_sequence_number': seq.sequence_number,
-                    'sequences': [seq]
+                    'sequences': [seq],
+                    'counting_detail_sequences': {seq.counting_detail_id: seq}
                 }
             else:
                 cache[key]['sequences'].append(seq)
                 cache[key]['last_sequence'] = seq
                 cache[key]['last_sequence_number'] = seq.sequence_number
+                # Mapper le counting_detail à sa séquence
+                cache[key].setdefault('counting_detail_sequences', {})[seq.counting_detail_id] = seq
         
         # Charger les écarts résolus pour vérification en une seule requête
         ecart_ids = list({item['ecart'].id for item in cache.values() if item.get('ecart')})
@@ -482,7 +530,8 @@ class CountingDetailService:
                     'ecart': None,
                     'last_sequence': None,
                     'last_sequence_number': 0,
-                    'sequences': []
+                    'sequences': [],
+                    'counting_detail_sequences': {}
                 }
         
         return cache
@@ -546,42 +595,104 @@ class CountingDetailService:
                     'ecart': ecart,
                     'last_sequence': None,
                     'last_sequence_number': 0,
-                    'sequences': []
+                    'sequences': [],
+                    'counting_detail_sequences': {}
                 }
             else:
                 cache_entry['ecart'] = ecart
                 cache_entry['last_sequence'] = None
                 cache_entry['last_sequence_number'] = 0
                 cache_entry.setdefault('sequences', [])
+                cache_entry.setdefault('counting_detail_sequences', {})
         
         cache_entry = ecart_cache.get(key)
         cache_entry.setdefault('sequences', [])
+        cache_entry.setdefault('counting_detail_sequences', {})
         
-        # Calculer le nouveau numéro de séquence
-        nouveau_numero = last_sequence_number + 1
+        # Vérifier si une séquence existe déjà pour ce CountingDetail (cas de mise à jour)
+        existing_sequence = cache_entry['counting_detail_sequences'].get(counting_detail.id)
         
-        # Calculer l'écart avec le précédent
-        ecart_value = None
-        if last_sequence:
-            ecart_value = counting_detail.quantity_inventoried - last_sequence.quantity
-        
-        # Créer la nouvelle séquence (sera sauvegardée après)
-        nouvelle_sequence = ComptageSequence(
-            ecart_comptage=ecart,
-            sequence_number=nouveau_numero,
-            counting_detail=counting_detail,
-            quantity=counting_detail.quantity_inventoried,
-            ecart_with_previous=ecart_value
-        )
-        
-        # Mettre à jour l'écart
-        ecart.total_sequences = nouveau_numero
-        ecart.stopped_sequence = nouveau_numero
-        
-        # Mettre à jour le cache
-        cache_entry['last_sequence'] = nouvelle_sequence
-        cache_entry['last_sequence_number'] = nouveau_numero
-        cache_entry['sequences'].append(nouvelle_sequence)
+        if existing_sequence:
+            # MISE À JOUR : La séquence existe déjà pour ce CountingDetail
+            # On met à jour la séquence existante au lieu d'en créer une nouvelle
+            logger.info(f"Mise à jour de la séquence existante {existing_sequence.id} pour CountingDetail {counting_detail.id}")
+            
+            # Mémoriser l'ancienne quantité pour le calcul de l'écart
+            old_quantity = existing_sequence.quantity
+            
+            # Mettre à jour la quantité
+            existing_sequence.quantity = counting_detail.quantity_inventoried
+            
+            # Recalculer l'écart avec la séquence précédente (pas celle du même CountingDetail)
+            # Trouver la séquence précédente dans la liste (excluant celle qu'on met à jour)
+            sequences_before_update = [s for s in cache_entry['sequences'] if s.id != existing_sequence.id]
+            if sequences_before_update:
+                # Trier par sequence_number pour trouver la vraie séquence précédente
+                sequences_before_update.sort(key=lambda x: x.sequence_number)
+                # Trouver la séquence avec le sequence_number immédiatement inférieur
+                current_seq_number = existing_sequence.sequence_number
+                previous_sequence = None
+                for seq in reversed(sequences_before_update):
+                    if seq.sequence_number < current_seq_number:
+                        previous_sequence = seq
+                        break
+                
+                if previous_sequence:
+                    ecart_value = abs(counting_detail.quantity_inventoried - previous_sequence.quantity)
+                    existing_sequence.ecart_with_previous = ecart_value
+                else:
+                    # Aucune séquence précédente trouvée (c'est la première)
+                    existing_sequence.ecart_with_previous = None
+                    ecart_value = None
+            else:
+                existing_sequence.ecart_with_previous = None
+                ecart_value = None
+            
+            # Mettre à jour la séquence dans le cache
+            # Remplacer l'ancienne séquence par la nouvelle version dans la liste
+            for idx, seq in enumerate(cache_entry['sequences']):
+                if seq.id == existing_sequence.id:
+                    cache_entry['sequences'][idx] = existing_sequence
+                    break
+            
+            # NE PAS incrémenter total_sequences ni stopped_sequence (mise à jour, pas nouvelle séquence)
+            
+            sequence_to_save = existing_sequence
+            is_update = True
+        else:
+            # CRÉATION : Aucune séquence existante, on en crée une nouvelle
+            logger.info(f"Création d'une nouvelle séquence pour CountingDetail {counting_detail.id}")
+            
+            # Calculer le nouveau numéro de séquence
+            nouveau_numero = last_sequence_number + 1
+            
+            # Calculer l'écart avec le précédent
+            ecart_value = None
+            if last_sequence:
+                ecart_value = abs(counting_detail.quantity_inventoried - last_sequence.quantity)
+            
+            # Créer la nouvelle séquence (sera sauvegardée après)
+            nouvelle_sequence = ComptageSequence(
+                ecart_comptage=ecart,
+                sequence_number=nouveau_numero,
+                counting_detail=counting_detail,
+                quantity=counting_detail.quantity_inventoried,
+                ecart_with_previous=ecart_value
+            )
+            
+            # Mettre à jour l'écart (incrémenter seulement si nouvelle séquence)
+            ecart.total_sequences = nouveau_numero
+            ecart.stopped_sequence = nouveau_numero
+            
+            # Mettre à jour le cache
+            cache_entry['last_sequence'] = nouvelle_sequence
+            cache_entry['last_sequence_number'] = nouveau_numero
+            cache_entry['sequences'].append(nouvelle_sequence)
+            cache_entry['counting_detail_sequences'][counting_detail.id] = nouvelle_sequence
+            
+            sequence_to_save = nouvelle_sequence
+            is_update = False
+            ecart_value = ecart_value  # Utiliser la valeur calculée pour les nouvelles séquences
         
         # Mettre à jour le résultat final éventuel (seulement si 2 comptages ou plus)
         final_result = None
@@ -592,10 +703,11 @@ class CountingDetailService:
         
         return {
             "ecart": ecart,
-            "sequence": nouvelle_sequence,
+            "sequence": sequence_to_save,
             "ecart_value": ecart_value,
-            "needs_resolution": ecart_value == 0,
-            "final_result": final_result
+            "needs_resolution": ecart_value == 0 if ecart_value is not None else False,
+            "final_result": final_result,
+            "is_update": is_update  # Indicateur si c'est une mise à jour ou création
         }
     
     def _prefetch_all_related_objects(self, data_list: List[Dict[str, Any]]) -> Dict[str, Any]:

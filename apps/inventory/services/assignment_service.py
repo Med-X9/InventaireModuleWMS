@@ -99,7 +99,7 @@ class AssignmentService(IAssignmentService):
                     current_assignment_status = existing_assignment.status
                     
                     # Statuts à préserver lors d'une réaffectation
-                    preserved_statuses = ['PRET', 'TRANSFERT']
+                    preserved_statuses = ['PRET', 'TRANSFERT', 'ENTAME', 'TERMINE']
                     
                     # Déterminer le statut à utiliser pour l'affectation
                     # Si le job ou l'affectation a un statut à préserver, le conserver
@@ -143,9 +143,9 @@ class AssignmentService(IAssignmentService):
                 
                 if should_update_status:
                     # Statuts à préserver pour le job lors d'une réaffectation
-                    preserved_job_statuses = ['PRET', 'TRANSFERT']
+                    preserved_job_statuses = ['PRET', 'TRANSFERT', 'ENTAME', 'TERMINE']
                     
-                    # Ne pas modifier le statut du job s'il est déjà PRET ou TRANSFERT
+                    # Ne pas modifier le statut du job s'il est déjà PRET, TRANSFERT, ENTAME ou TERMINE
                     if job.status not in preserved_job_statuses:
                         # Mettre à jour le statut des affectations à AFFECTE (sauf celles préservées)
                         self.update_assignments_status_to_affecte(job.id, inventory_id)
@@ -267,7 +267,7 @@ class AssignmentService(IAssignmentService):
     def update_assignments_status_to_affecte(self, job_id: int, inventory_id: int) -> None:
         """
         Met à jour le statut des affectations à 'AFFECTE' pour un job donné
-        Ne modifie pas les affectations avec des statuts à préserver (PRET, TRANSFERT)
+        Ne modifie pas les affectations avec des statuts à préserver (PRET, TRANSFERT, ENTAME, TERMINE)
         
         Args:
             job_id: ID du job
@@ -280,7 +280,7 @@ class AssignmentService(IAssignmentService):
         )
         
         # Statuts à préserver lors de la mise à jour
-        preserved_statuses = ['PRET', 'TRANSFERT']
+        preserved_statuses = ['PRET', 'TRANSFERT', 'ENTAME', 'TERMINE']
         
         # Mettre à jour le statut et la date d'affectation
         current_time = timezone.now()
