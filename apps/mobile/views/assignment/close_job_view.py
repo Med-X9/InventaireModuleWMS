@@ -16,8 +16,13 @@ from apps.mobile.exceptions import (
 
 class CloseJobView(APIView):
     """
-    Vue pour clôturer un job avec son assignment.
-    Vérifie que tous les emplacements sont terminés avant de clôturer.
+    Vue pour clôturer un assignment et potentiellement le job associé.
+    
+    Cette API :
+    1. Marque l'assignment comme TERMINE
+    2. Vérifie si TOUS les assignments du job sont TERMINE
+    3. Vérifie si tous les EcartComptage de l'inventaire ont un final_result non null
+    4. Si les deux conditions précédentes sont remplies, marque le job comme TERMINE
     
     URL: /api/mobile/job/{job_id}/close/{assignment_id}/
     """
@@ -29,13 +34,18 @@ class CloseJobView(APIView):
     
     def post(self, request, job_id, assignment_id):
         """
-        Clôture un job en vérifiant que tous les emplacements sont terminés
-        et en assignant les personnes à l'assignment.
+        Clôture un assignment et vérifie si le job peut être clôturé.
         
         Args:
             job_id: ID du job (depuis l'URL)
             assignment_id: ID de l'assignment (depuis l'URL)
             request.data: Doit contenir {"personnes": [id1, id2]} avec min 1, max 2 personnes
+            
+        Returns:
+            Response avec les informations de clôture incluant :
+            - Le statut de l'assignment (toujours TERMINE)
+            - Le statut du job (TERMINE si toutes les conditions sont remplies)
+            - Les informations sur les conditions de clôture du job
         """
         try:
             # Valider les données d'entrée avec le serializer
@@ -49,16 +59,22 @@ class CloseJobView(APIView):
             # Récupérer les IDs des personnes validés
             personnes_ids = serializer.validated_data['personnes']
             
-            # Clôturer le job avec les personnes
+            # Clôturer l'assignment et vérifier si le job peut être clôturé
             result = self.assignment_service.close_job(
                 job_id=job_id,
                 assignment_id=assignment_id,
                 personnes_ids=personnes_ids
             )
             
+            # Message adapté selon si le job a été clôturé ou non
+            if result.get('job_closure_status', {}).get('job_closed', False):
+                message = "Assignment et job clôturés avec succès"
+            else:
+                message = "Assignment clôturé avec succès. Le job sera clôturé lorsque tous les assignments seront terminés et tous les écarts auront un résultat final."
+            
             return success_response(
                 data=result,
-                message="Job clôturé avec succès"
+                message=message
             )
             
         except JobNotFoundException as e:

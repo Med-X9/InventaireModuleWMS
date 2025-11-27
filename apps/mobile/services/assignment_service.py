@@ -1,7 +1,7 @@
 from typing import Optional, List
 from django.utils import timezone
 from django.db import transaction
-from apps.inventory.models import Assigment, Job, JobDetail, Personne
+from apps.inventory.models import Assigment, Job, JobDetail, Personne, EcartComptage
 from apps.users.models import UserApp
 from apps.mobile.exceptions import (
     AssignmentNotFoundException,
@@ -302,8 +302,13 @@ class AssignmentService:
     @transaction.atomic
     def close_job(self, job_id: int, assignment_id: int, personnes_ids: Optional[List[int]] = None) -> dict:
         """
-        Clôture un job en vérifiant que tous les emplacements sont terminés
-        et en assignant les personnes à l'assignment.
+        Clôture un assignment et vérifie si le job peut être clôturé.
+        
+        Cette méthode :
+        1. Marque l'assignment comme TERMINE
+        2. Vérifie si TOUS les assignments du job sont TERMINE
+        3. Vérifie si tous les EcartComptage de l'inventaire ont un final_result non null
+        4. Si les deux conditions précédentes sont remplies, marque le job comme TERMINE
         
         Args:
             job_id: ID du job
@@ -311,7 +316,9 @@ class AssignmentService:
             personnes_ids: Liste des IDs des personnes (min 1, max 2)
             
         Returns:
-            Dictionnaire avec les informations du job clôturé
+            Dictionnaire avec les informations du job et de l'assignment, incluant :
+            - Le statut de clôture du job (job_closed)
+            - Les informations sur les conditions de clôture (job_closure_status)
             
         Raises:
             JobNotFoundException: Si le job n'existe pas
@@ -374,23 +381,45 @@ class AssignmentService:
         assignment.personne = personne_list[0] if len(personne_list) > 0 else None
         assignment.personne_two = personne_list[1] if len(personne_list) > 1 else None
         
-        # Clôturer le job et l'assignment
+        # Clôturer l'assignment
         now = timezone.now()
-        
-        # Mettre à jour l'assignment
         assignment.status = 'TERMINE'
         assignment.save()
         
+        # Vérifier si tous les assignments du job sont terminés
+        all_assignments = Assigment.objects.filter(job=job)
+        all_assignments_terminated = all_assignments.exclude(status='TERMINE').count() == 0
+        
+        # Vérifier si tous les EcartComptage de l'inventaire ont un final_result non null
+        # Si aucun EcartComptage n'existe, on considère que la condition est remplie
+        ecart_comptages = EcartComptage.objects.filter(inventory=job.inventory)
+        if ecart_comptages.exists():
+            # Si des écarts existent, tous doivent avoir un final_result non null
+            all_ecarts_have_final_result = ecart_comptages.filter(final_result__isnull=True).count() == 0
+        else:
+            # Si aucun écart n'existe, on considère que la condition est remplie
+            all_ecarts_have_final_result = True
+        
+        # Si tous les assignments sont terminés ET tous les écarts ont un résultat final
+        # alors on peut clôturer le job
+        job_closed = False
+        if all_assignments_terminated and all_ecarts_have_final_result:
+            job.status = 'TERMINE'
+            job.termine_date = now
+            job.save()
+            job_closed = True
         
         return {
             'success': True,
-            'message': f'Job {job.reference} et assignment {assignment.reference} clôturés avec succès',
+            'message': f'Assignment {assignment.reference} clôturé avec succès' + 
+                      (f' et job {job.reference} clôturé' if job_closed else ''),
             'job': {
                 'id': job.id,
                 'reference': job.reference,
                 'status': job.status,
                 'termine_date': job.termine_date,
-                'total_emplacements': job_details.count()
+                'total_emplacements': job_details.count(),
+                'closed': job_closed
             },
             'assignment': {
                 'id': assignment.id,
@@ -404,5 +433,10 @@ class AssignmentService:
                     'prenom': p.prenom,
                     'reference': p.reference
                 } for p in personne_list
-            ]
+            ],
+            'job_closure_status': {
+                'all_assignments_terminated': all_assignments_terminated,
+                'all_ecarts_have_final_result': all_ecarts_have_final_result,
+                'job_closed': job_closed
+            }
         }
