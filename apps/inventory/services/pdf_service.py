@@ -21,6 +21,50 @@ class PDFService(PDFServiceInterface):
     def __init__(self):
         self.repository = PDFRepository()
     
+    def _should_show_dlc(self, counting, counting_details=None):
+        """
+        Determine si la colonne DLC doit etre affichee
+        
+        Logique STRICTE:
+        - La colonne DLC s'affiche seulement si counting.dlc == True
+        - ET si au moins un produit dans counting_details a DLC activé (product.dlc == True)
+        - Certains modes de comptage ne supportent pas DLC (ex: 'image de stock')
+        
+        Args:
+            counting: L'objet Counting
+            counting_details: Liste optionnelle de CountingDetail pour verification supplementaire
+            
+        Returns:
+            bool: True si la colonne DLC doit etre affichee, False sinon
+        """
+        # Verifier que counting.dlc existe et est True
+        if not hasattr(counting, 'dlc'):
+            return False
+        if not counting.dlc:
+            return False
+        
+        # Ne pas afficher DLC pour certains modes de comptage
+        count_mode_lower = counting.count_mode.lower()
+        if 'image' in count_mode_lower:
+            return False
+        if 'vrac' in count_mode_lower and 'article' not in count_mode_lower:
+            # Mode vrac pur ne supporte pas DLC
+            return False
+        
+        # LOGIQUE STRICTE: Si counting_details est fourni, verifier si au moins un produit supporte DLC
+        # Si aucun produit n'a DLC activé, ne pas afficher la colonne même si counting.dlc est True
+        if counting_details:
+            has_product_with_dlc = False
+            for detail in counting_details:
+                if detail.product and hasattr(detail.product, 'dlc') and detail.product.dlc:
+                    has_product_with_dlc = True
+                    break
+            # Si aucun produit ne supporte DLC, ne pas afficher la colonne
+            if not has_product_with_dlc:
+                return False
+        
+        return True
+    
     def generate_inventory_jobs_pdf(
         self, 
         inventory_id: int, 
@@ -41,13 +85,20 @@ class PDFService(PDFServiceInterface):
         if not inventory:
             raise ValueError(f"Inventaire avec l'ID {inventory_id} non trouve")
         
-        # Recuperer directement les comptages avec ordre 1 et 2 (requête optimisée)
-        target_countings = self.repository.get_countings_by_inventory_and_orders(inventory, [1, 2])
+        # Recuperer tous les comptages de l'inventaire
+        all_countings = self.repository.get_countings_by_inventory(inventory)
+        
+        if not all_countings:
+            raise ValueError(f"Aucun comptage trouve pour l'inventaire {inventory_id}")
+        
+        # Filtrer uniquement les comptages avec ordre 1 et 2
+        target_countings = [c for c in all_countings if c.order in [1, 2]]
         
         if not target_countings:
             raise ValueError(f"Aucun comptage avec ordre 1 ou 2 trouve pour l'inventaire {inventory_id}")
         
-        # Les countings sont déjà triés par ordre dans la requête
+        # Trier par ordre
+        target_countings.sort(key=lambda x: x.order)
         
         # Si le comptage ordre 1 a le mode "image de stock", ne pas l'afficher
         counting_order_1 = target_countings[0] if target_countings else None
@@ -73,8 +124,7 @@ class PDFService(PDFServiceInterface):
         for counting in countings:
             jobs = self.repository.get_jobs_by_counting(inventory, counting)
             if jobs:
-                # Grouper les jobs par utilisateur en utilisant la session de l'assignment correspondant au counting
-                jobs_by_user = self._group_jobs_by_user(jobs, counting)
+                jobs_by_user = self._group_jobs_by_user(jobs)
                 for user, user_jobs in jobs_by_user.items():
                     for job in user_jobs:
                         all_job_details = self.repository.get_job_details_by_job(job)
@@ -82,17 +132,7 @@ class PDFService(PDFServiceInterface):
                         if job_details:
                             all_table_rows = self._prepare_table_rows(job_details, counting, job)
                             if all_table_rows:
-                                # Limiter à 36 lignes max par job, puis compléter jusqu'à 40
-                                max_rows_per_job = 36
-                                if len(all_table_rows) > max_rows_per_job:
-                                    all_table_rows = all_table_rows[:max_rows_per_job]
-                                
-                                # Compléter jusqu'à 40 lignes avec des lignes vides si nécessaire
-                                lines_per_page = 40
-                                while len(all_table_rows) < lines_per_page:
-                                    empty_row = self._create_empty_row(counting)
-                                    all_table_rows.append(empty_row)
-                                
+                                lines_per_page = 20
                                 total_pages = (len(all_table_rows) + lines_per_page - 1) // lines_per_page
                                 for page_num in range(total_pages):
                                     page_counter += 1
@@ -120,8 +160,8 @@ class PDFService(PDFServiceInterface):
             logger.info(f"Comptage {counting.id} (ordre {counting.order}): {len(jobs)} jobs trouvés")
             
             if jobs:
-                # Grouper les jobs par utilisateur en utilisant la session de l'assignment correspondant au counting
-                jobs_by_user = self._group_jobs_by_user(jobs, counting)
+                # Grouper les jobs par utilisateur
+                jobs_by_user = self._group_jobs_by_user(jobs)
                 logger.info(f"Comptage {counting.id}: {len(jobs_by_user)} utilisateurs distincts")
                 
                 # Pour chaque utilisateur et chaque job
@@ -147,14 +187,14 @@ class PDFService(PDFServiceInterface):
                 f"et des job_details associés pour les comptages d'ordre 1 ou 2."
             )
         
-        # Creer le document PDF avec marges ajustées (0.2cm de chaque côté)
+        # Creer le document PDF avec marges ajustées
         doc = SimpleDocTemplate(
             buffer,
             pagesize=A4,
-            rightMargin=0.2*cm,  # Réduit à 0.2cm
-            leftMargin=0.2*cm,  # Réduit à 0.2cm
+            rightMargin=1.5*cm,
+            leftMargin=1.5*cm,  # Marge normale pour le contenu
             topMargin=1*cm,  # Seulement 1cm en haut
-            bottomMargin=0.3*cm  # Marge très réduite en bas (de 0 à 0.3cm) pour permettre 40 lignes
+            bottomMargin=0*cm  # Pas de marge en bas, footer fixe à y=0
         )
         
         # Stocker les infos de pagination dans le document
@@ -261,22 +301,8 @@ class PDFService(PDFServiceInterface):
             canvas_obj.restoreState()
     
     def _add_page_header_and_footer_with_signatures(self, canvas_obj, doc):
-        """Ajoute le logo en haut à gauche, la pagination en bas à droite et les signatures en bas"""
-        # Ajouter le logo en haut à gauche
-        logo_path = self._get_logo_path()
-        if logo_path:
-            try:
-                canvas_obj.saveState()
-                logo_width = 4*cm
-                logo_height = 2*cm
-                x = 0.02*cm
-                y = doc.pagesize[1] - 0.2*cm - logo_height - 1.5*cm  # Déplacé de 1.5 cm vers le bas
-                canvas_obj.drawImage(logo_path, x, y, width=logo_width, height=logo_height, preserveAspectRatio=True)
-                canvas_obj.restoreState()
-            except Exception as e:
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.warning(f"Impossible de charger le logo: {str(e)}")
+        """Ajoute la pagination en bas à droite et les signatures en bas"""
+        # Logo supprimé - pas de logo affiché
         
         # Ajouter la pagination en bas à droite
         page_num = canvas_obj.getPageNumber()
@@ -345,7 +371,7 @@ class PDFService(PDFServiceInterface):
             canvas_obj.restoreState()
     
     def _build_job_pages(self, job, counting, user, inventory, warehouse_info, account_info):
-        """Construit les pages pour un job avec pagination de 40 lignes par page"""
+        """Construit les pages pour un job avec pagination de 20 lignes par page"""
         elements = []
         
         # Récupérer tous les job details du job pour ce counting
@@ -364,19 +390,8 @@ class PDFService(PDFServiceInterface):
         if not all_table_rows:
             return elements
         
-        # Limiter à 36 lignes max par job, puis compléter jusqu'à 40 lignes avec des lignes vides
-        max_rows_per_job = 36
-        if len(all_table_rows) > max_rows_per_job:
-            all_table_rows = all_table_rows[:max_rows_per_job]
-        
-        # Compléter jusqu'à 40 lignes avec des lignes vides si nécessaire
-        lines_per_page = 40
-        while len(all_table_rows) < lines_per_page:
-            # Créer une ligne vide
-            empty_row = self._create_empty_row(counting)
-            all_table_rows.append(empty_row)
-        
-        # Paginer par groupes de 40 lignes
+        # Paginer par groupes de 20 lignes
+        lines_per_page = 20
         total_pages = (len(all_table_rows) + lines_per_page - 1) // lines_per_page
         
         for page_num in range(total_pages):
@@ -384,17 +399,12 @@ class PDFService(PDFServiceInterface):
             end_idx = min(start_idx + lines_per_page, len(all_table_rows))
             page_rows = all_table_rows[start_idx:end_idx]
             
-            # S'assurer que chaque page a exactement 40 lignes
-            while len(page_rows) < lines_per_page:
-                empty_row = self._create_empty_row(counting)
-                page_rows.append(empty_row)
-            
             # En-tête de page avec infos inventaire + job + user
             elements.extend(self._build_page_header(
                 inventory, job, user, counting, warehouse_info, account_info, page_num + 1, total_pages
             ))
             
-            # Tableau des détails du job (exactement 40 lignes) avec pagination en bas
+            # Tableau des détails du job (max 20 lignes) avec pagination en bas
             elements.extend(self._build_table_from_rows(page_rows, counting, page_num + 1, total_pages))
             
             # Saut de page si ce n'est pas la dernière page de ce job
@@ -407,7 +417,7 @@ class PDFService(PDFServiceInterface):
         return elements
     
     def _prepare_table_rows(self, job_details, counting, job):
-        """Prépare toutes les lignes du tableau avec quantité théorique et physique (sans variantes)"""
+        """Prépare toutes les lignes du tableau avec quantité théorique et physique"""
         rows = []
         
         for job_detail in job_details:
@@ -418,12 +428,8 @@ class PDFService(PDFServiceInterface):
             if 'vrac' not in counting.count_mode.lower():
                 # Mode par article
                 if has_stock_for_location and stocks:
-                    # Une ligne par produit (exclure les variantes)
+                    # Une ligne par produit
                     for stock in stocks:
-                        # Ne pas inclure les variantes
-                        if stock.product and stock.product.Is_Variant:
-                            continue
-                        
                         row = {
                             'location': location.location_reference,
                             'internal_product_code': stock.product.Internal_Product_Code if stock.product and stock.product.Internal_Product_Code else '-',
@@ -433,6 +439,7 @@ class PDFService(PDFServiceInterface):
                             'quantite_physique': '',  # Vide pour saisie manuelle
                             'dlc': stock.product and stock.product.dlc if stock.product else False,
                             'n_lot': stock.product and stock.product.n_lot if stock.product else False,
+                            'is_variant': stock.product and stock.product.Is_Variant if stock.product else False,
                         }
                         rows.append(row)
                 else:
@@ -446,6 +453,7 @@ class PDFService(PDFServiceInterface):
                         'quantite_physique': '',  # Vide pour saisie
                         'dlc': False,
                         'n_lot': False,
+                        'is_variant': False,
                     }
                     rows.append(row)
             else:
@@ -467,37 +475,42 @@ class PDFService(PDFServiceInterface):
         
         return rows
     
-    def _create_empty_row(self, counting):
-        """Crée une ligne vide pour compléter jusqu'à 40 lignes par page"""
-        if 'vrac' not in counting.count_mode.lower():
-            # Mode par article - marquer comme ligne vide avec un flag
-            return {
-                'location': '',
-                'internal_product_code': '',
-                'barcode': '',
-                'designation': '',
-                'quantite_theorique': '',
-                'quantite_physique': '',
-                'dlc': False,
-                'n_lot': False,
-                '_is_empty_row': True,  # Flag pour identifier les lignes vides
-            }
-        else:
-            # Mode vrac - marquer comme ligne vide avec un flag
-            return {
-                'location': '',
-                'quantite_theorique': '',
-                'quantite_physique': '',
-                '_is_empty_row': True,  # Flag pour identifier les lignes vides
-            }
-    
     def _build_table_from_rows(self, rows, counting, page_num, total_pages):
         """Construit le tableau à partir des lignes préparées avec pagination en bas"""
         elements = []
         styles = getSampleStyleSheet()
         
+        # Style pour la désignation avec retour à la ligne automatique
+        designation_style = ParagraphStyle(
+            'DesignationStyle',
+            parent=styles['Normal'],
+            fontSize=7,  # Réduit pour économiser l'espace
+            textColor=colors.black,
+            alignment=0,  # Left align
+            leading=7,  # Espacement réduit entre les lignes pour économiser l'espace vertical
+            spaceBefore=0,
+            spaceAfter=0,
+            wordWrap='CJK',  # Permet le retour à la ligne automatique
+        )
+        
         # Déterminer si on affiche la quantité théorique
         show_theorique = counting.quantity_show or counting.stock_situation
+        
+        # Déterminer si on affiche DLC en utilisant la méthode helper
+        # Vérifier dans les rows si au moins un produit a DLC activé
+        # Extraire les produits des rows pour vérification
+        has_product_with_dlc = False
+        if rows and len(rows) > 0:
+            # Les rows contiennent des dictionnaires avec les données
+            # Vérifier si 'dlc' est présent dans au moins un row (signifie que le produit supporte DLC)
+            for row in rows:
+                if 'dlc' in row:
+                    has_product_with_dlc = True
+                    break
+        
+        # Si aucun produit n'a DLC dans les rows, ne pas afficher la colonne
+        # même si counting.dlc est True
+        show_dlc = self._should_show_dlc(counting) if has_product_with_dlc else False
         
         # Construire les en-têtes selon la configuration
         headers = ['Emplacement']
@@ -512,12 +525,13 @@ class PDFService(PDFServiceInterface):
             if show_theorique:
                 headers.append('Quantité théorique')
             
-            # Colonnes optionnelles (variante exclue)
-            if counting.dlc:
+            # Colonnes optionnelles - Ne pas afficher DLC si show_dlc est False
+            if show_dlc:
                 headers.append('DLC')
             if counting.n_lot:
                 headers.append('N° Lot')
-            # Variante n'est jamais affichée
+            if counting.is_variant:
+                headers.append('Variante')
         else:
             # Mode vrac
             headers.append('Quantité')  # Toujours présent
@@ -525,83 +539,63 @@ class PDFService(PDFServiceInterface):
             if show_theorique:
                 headers.append('Quantité théorique')
         
+        # Trouver l'index de la colonne Désignation
+        designation_index = headers.index('Désignation') if 'Désignation' in headers else None
+        
         # Construire les données
         data = [headers]
         
         for row in rows:
-            # Vérifier si c'est une ligne vide créée pour compléter (flag _is_empty_row)
-            is_empty_row = row.get('_is_empty_row', False)
-            
-            # Pour les lignes vides, utiliser des chaînes vides au lieu de '-'
-            if is_empty_row:
-                table_row = [row.get('location', '')]
-            else:
-                table_row = [row.get('location', '-')]
+            table_row = [row['location']]
             
             if 'vrac' not in counting.count_mode.lower():
                 # Mode par article - toujours afficher Article et Désignation pour le PDF
                 # Article (Internal_Product_Code)
-                if is_empty_row:
-                    table_row.append('')
-                else:
-                    table_row.append(row.get('internal_product_code', '-'))
+                table_row.append(row.get('internal_product_code', '-'))
                 # Code à barre (Barcode)
-                if is_empty_row:
-                    table_row.append('')
-                else:
-                    table_row.append(row.get('barcode', '-'))
-                # Désignation
-                if is_empty_row:
-                    table_row.append('')
-                else:
-                    table_row.append(row.get('designation', '-'))
+                table_row.append(row.get('barcode', '-'))
+                # Désignation - utiliser Paragraph pour permettre le retour à la ligne
+                designation_text = row.get('designation', '-')
+                # Échapper les caractères spéciaux pour XML/HTML
+                designation_text = str(designation_text).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                table_row.append(Paragraph(designation_text, designation_style))
                 
-                # Quantité physique (toujours) - vide pour les lignes vides
+                # Quantité (toujours)
                 table_row.append(row.get('quantite_physique', ''))
                 
                 # Quantité théorique (si configuré)
                 if show_theorique:
-                    if is_empty_row:
-                        table_row.append('')
-                    else:
-                        quantite_theorique = row.get('quantite_theorique', '-')
-                        table_row.append(quantite_theorique if quantite_theorique != '' else '-')
+                    quantite_theorique = row.get('quantite_theorique', '-')
+                    table_row.append(quantite_theorique if quantite_theorique != '' else '-')
                 
-                # Colonnes optionnelles (variante exclue)
-                if counting.dlc:
-                    if is_empty_row:
-                        table_row.append('')
-                    else:
-                        dlc_value = row.get('dlc', '-')
-                        table_row.append(dlc_value if dlc_value and dlc_value != '-' else '-')
+                # Colonnes optionnelles - ajouter seulement si show_dlc est True
+                if show_dlc:
+                    # DLC est déjà formatée comme date ou '-' dans _prepare_table_rows_from_counting_details
+                    table_row.append(row.get('dlc', '-'))
                 if counting.n_lot:
-                    if is_empty_row:
-                        table_row.append('')
-                    else:
-                        n_lot_value = row.get('n_lot', '-')
-                        table_row.append(n_lot_value if n_lot_value and n_lot_value != '-' else '-')
-                # Variante n'est jamais affichée
+                    # n_lot est déjà la valeur ou '-' dans _prepare_table_rows_from_counting_details
+                    table_row.append(row.get('n_lot', '-'))
+                if counting.is_variant:
+                    table_row.append('Oui' if row.get('is_variant', False) else '-')
             else:
                 # Mode vrac
-                # Quantité physique (toujours) - vide pour les lignes vides
+                # Quantité (toujours)
                 table_row.append(row.get('quantite_physique', ''))
                 
                 # Quantité théorique (si configuré)
                 if show_theorique:
-                    if is_empty_row:
-                        table_row.append('')
-                    else:
-                        quantite_theorique = row.get('quantite_theorique', '-')
-                        table_row.append(quantite_theorique if quantite_theorique != '' else '-')
+                    quantite_theorique = row.get('quantite_theorique', '-')
+                    table_row.append(quantite_theorique if quantite_theorique != '' else '-')
             
             data.append(table_row)
         
         if len(data) == 1:  # Seulement les headers
             return elements
         
-        # Créer le tableau
+        # Créer le tableau - pas de répétition de l'en-tête (repeatRows=0)
+        # splitByRow=0 pour empêcher ReportLab de diviser le tableau sur plusieurs pages
         col_widths = self._calculate_merged_column_widths(headers, A4[0])
-        table = Table(data, colWidths=col_widths, repeatRows=1)
+        table = Table(data, colWidths=col_widths, repeatRows=0, splitByRow=0)
         
         # Style du tableau
         table_style = [
@@ -610,28 +604,37 @@ class PDFService(PDFServiceInterface):
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
             ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 9),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+            ('FONTSIZE', (0, 0), (-1, 0), 8),  # Réduit pour économiser l'espace
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 4),  # Réduit pour économiser l'espace
             
             # Corps
             ('BACKGROUND', (0, 1), (-1, -1), colors.white),
             ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
             ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 1), (-1, -1), 7),  # Réduit de 8 à 7 pour permettre 40 lignes
-            ('ALIGN', (0, 1), (-1, -1), 'CENTER'),  # Toutes les valeurs centrées
+            ('FONTSIZE', (0, 1), (-1, -1), 7),  # Réduit pour économiser l'espace
+            ('ALIGN', (0, 1), (-1, -1), 'CENTER'),  # Toutes les valeurs centrées par défaut
         ]
         
+        # Aligner la colonne Désignation à gauche si elle existe
+        if designation_index is not None:
+            table_style.append(('ALIGN', (designation_index, 1), (designation_index, -1), 'LEFT'))
+        
         # Ajouter les lignes de séparation entre toutes les colonnes
-        # Padding réduit en bas pour permettre 40 lignes, augmenté latéralement pour meilleure apparence
+        # Padding minimal pour permettre exactement 40 lignes par page
         table_style.extend([
             ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
             ('LINEBELOW', (0, 0), (-1, 0), 1, colors.black),  # Ligne plus épaisse sous l'en-tête
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('TOPPADDING', (0, 1), (-1, -1), 2),  # Padding haut réduit pour permettre 40 lignes
-            ('BOTTOMPADDING', (0, 1), (-1, -1), 1),  # Padding bas très réduit (de 2 à 1) pour permettre 40 lignes
-            ('LEFTPADDING', (0, 0), (-1, -1), 40),  # Padding latéral augmenté au maximum (30 pixels) pour meilleure apparence
-            ('RIGHTPADDING', (0, 0), (-1, -1), 40),  # Padding latéral augmenté au maximum (30 pixels) pour meilleure apparence
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),  # Alignement vertical en haut pour permettre le retour à la ligne
+            ('TOPPADDING', (0, 1), (-1, -1), 1),  # Très minimal pour économiser l'espace
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 1),  # Très minimal pour économiser l'espace
+            ('LEFTPADDING', (0, 0), (-1, -1), 2),  # Très minimal
+            ('RIGHTPADDING', (0, 0), (-1, -1), 2),  # Très minimal
         ])
+        
+        # Ajuster le padding de la colonne Désignation pour mieux gérer les retours à la ligne
+        if designation_index is not None:
+            table_style.append(('TOPPADDING', (designation_index, 1), (designation_index, -1), 1))
+            table_style.append(('BOTTOMPADDING', (designation_index, 1), (designation_index, -1), 1))
         
         table.setStyle(TableStyle(table_style))
         
@@ -645,14 +648,13 @@ class PDFService(PDFServiceInterface):
         elements = []
         styles = getSampleStyleSheet()
         
-        # Espace réduit en haut pour permettre 40 lignes par page
-        elements.append(Spacer(1, 0.8*cm))  # Réduit de 1.5cm à 0.8cm
+        # Pas d'espace en haut pour maximiser l'espace pour le tableau
         
         # Style pour les labels (en gras)
         label_style = ParagraphStyle(
             'LabelStyle',
             parent=styles['Normal'],
-            fontSize=8,  # Réduit de 9 à 8
+            fontSize=9,
             textColor=colors.HexColor('#000000'),
             spaceAfter=0,
             spaceBefore=0,
@@ -663,27 +665,52 @@ class PDFService(PDFServiceInterface):
         value_style = ParagraphStyle(
             'ValueStyle',
             parent=styles['Normal'],
-            fontSize=8,  # Réduit de 9 à 8
+            fontSize=9,
             textColor=colors.HexColor('#000000'),
             spaceAfter=0,
             spaceBefore=0,
             alignment=0,  # Left
         )
         
-        # Style pour le titre (centré, au même niveau vertical que le logo)
+        # Ajouter le logo et le titre dans un tableau
+        logo_path = self._get_logo_path()
         title_style = ParagraphStyle(
             'HeaderTitle',
             parent=styles['Heading4'],
-            fontSize=12,  # Réduit de 14 à 12
+            fontSize=11,  # Réduit pour économiser l'espace
             textColor=colors.HexColor('#000000'),
-            spaceAfter=4,  # Réduit de 8 à 4
-            spaceBefore=0,  # Pas d'espace avant pour être au même niveau que le logo
+            spaceAfter=1,  # Très réduit pour économiser l'espace
+            spaceBefore=0,
             alignment=1,  # Center - centré
         )
         
-        # Titre centré en haut (au même niveau vertical que le logo)
-        elements.append(Paragraph("<b>FICHE DE COMPTAGE</b>", title_style))
-        elements.append(Spacer(1, 0.3*cm))  # Réduit de 0.5cm à 0.3cm pour permettre 40 lignes
+        if logo_path:
+            try:
+                # Créer un tableau pour placer le logo à gauche et le titre à droite
+                logo_img = Image(logo_path, width=3*cm, height=1.5*cm)
+                logo_table_data = [[logo_img, Paragraph("<b>FICHE DE COMPTAGE</b>", title_style)]]
+                logo_table = Table(logo_table_data, colWidths=[4*cm, 12*cm])
+                logo_table.setStyle(TableStyle([
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                    ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+                    ('ALIGN', (1, 0), (1, -1), 'CENTER'),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                    ('TOPPADDING', (0, 0), (-1, -1), 0),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+                ]))
+                elements.append(logo_table)
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Impossible de charger le logo: {str(e)}")
+                # Si le logo ne peut pas être chargé, afficher juste le titre
+                elements.append(Paragraph("<b>FICHE DE COMPTAGE</b>", title_style))
+        else:
+            # Pas de logo, afficher juste le titre
+            elements.append(Paragraph("<b>FICHE DE COMPTAGE</b>", title_style))
+        
+        elements.append(Spacer(1, 0.1*cm))  # Espace très minimal entre le titre et les informations
         
         # Informations de l'inventaire - Ligne 1: Référence Inventaire | Type | Magasin
         info_row1_data = [
@@ -698,8 +725,8 @@ class PDFService(PDFServiceInterface):
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('LEFTPADDING', (0, 0), (-1, -1), 0),
             ('RIGHTPADDING', (0, 0), (-1, -1), 8),
-            ('TOPPADDING', (0, 0), (-1, -1), 2),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('TOPPADDING', (0, 0), (-1, -1), 0),  # Très réduit pour économiser l'espace
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),  # Très réduit pour économiser l'espace
         ]))
         
         elements.append(info_row1_table)
@@ -717,8 +744,8 @@ class PDFService(PDFServiceInterface):
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('LEFTPADDING', (0, 0), (-1, -1), 0),
             ('RIGHTPADDING', (0, 0), (-1, -1), 8),
-            ('TOPPADDING', (0, 0), (-1, -1), 2),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('TOPPADDING', (0, 0), (-1, -1), 0),  # Très réduit pour économiser l'espace
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),  # Très réduit pour économiser l'espace
         ]))
         
         elements.append(info_row2_table)
@@ -734,12 +761,12 @@ class PDFService(PDFServiceInterface):
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('LEFTPADDING', (0, 0), (-1, -1), 0),
             ('RIGHTPADDING', (0, 0), (-1, -1), 0),
-            ('TOPPADDING', (0, 0), (-1, -1), 2),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('TOPPADDING', (0, 0), (-1, -1), 0),  # Très réduit pour économiser l'espace
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),  # Pas de padding en bas pour supprimer l'espace
         ]))
         
         elements.append(info_row3_table)
-        elements.append(Spacer(1, 0.4*cm))  # Réduit de 1cm à 0.4cm pour permettre 40 lignes
+        # Pas d'espace entre l'en-tête et le tableau
         
         return elements
     
@@ -758,6 +785,7 @@ class PDFService(PDFServiceInterface):
             if counting.show_product:
                 headers.append('Article')
             headers.append('Quantité')
+            # Ne pas afficher DLC si counting.dlc est False
             if counting.dlc:
                 headers.append('DLC')
             if counting.n_lot:
@@ -832,13 +860,13 @@ class PDFService(PDFServiceInterface):
             ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
             ('FONTSIZE', (0, 0), (-1, 0), 9),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 4),  # Réduit de 8 à 4 pour permettre 40 lignes
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
             
             # Corps
             ('BACKGROUND', (0, 1), (-1, -1), colors.white),
             ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
             ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 1), (-1, -1), 7),  # Réduit de 8 à 7 pour permettre 40 lignes
+            ('FONTSIZE', (0, 1), (-1, -1), 8),
             ('ALIGN', (0, 1), (-1, -1), 'LEFT'),
             ('ALIGN', (0, 1), (0, -1), 'CENTER'),  # Emplacement centré
             
@@ -847,8 +875,8 @@ class PDFService(PDFServiceInterface):
             
             ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('TOPPADDING', (0, 1), (-1, -1), 2),  # Padding haut réduit pour permettre 40 lignes
-            ('BOTTOMPADDING', (0, 1), (-1, -1), 1),  # Padding bas très réduit (de 2 à 1) pour permettre 40 lignes
+            ('TOPPADDING', (0, 1), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 4),
         ]))
         
         elements.append(table)
@@ -1230,7 +1258,14 @@ class PDFService(PDFServiceInterface):
                         data.append(row_data)
                 else:
                     # Pas de stock, afficher juste l'emplacement
-                    row_data.extend(['-', '-', '-', '-', '-'])
+                    row_data = [location.location_reference, '-', '-']
+                    # Ne pas afficher DLC si le comptage supporte les variantes
+                    if counting.dlc and not counting.is_variant:
+                        row_data.append('-')
+                    if counting.n_lot:
+                        row_data.append('-')
+                    if counting.is_variant:
+                        row_data.append('-')
                     data.append(row_data)
             else:
                 # Mode vrac: juste la quantite
@@ -1284,91 +1319,58 @@ class PDFService(PDFServiceInterface):
             return [available_width * 0.15, available_width * 0.30, available_width * 0.12,
                    available_width * 0.12, available_width * 0.14, available_width * 0.17]
     
-    def _calculate_merged_column_widths(self, headers, page_width, margins=0.4*cm):
-        """Calcule la largeur des colonnes pour le tableau fusionné avec largeurs optimisées"""
-        # Marges réduites à 0.4cm (0.2cm de chaque côté) pour correspondre aux nouvelles marges du document
+    def _calculate_merged_column_widths(self, headers, page_width, margins=4*cm):
+        """Calcule la largeur des colonnes pour le tableau fusionné"""
         available_width = page_width - margins
         num_headers = len(headers)
         
         if num_headers == 0:
             return []
         
-        # Définir les largeurs spécifiques pour chaque colonne (en pourcentage)
-        # Réduction de la colonne Désignation pour permettre plus de lignes
-        column_widths_map = {
-            'Emplacement': 0.10,  # 10%
-            'Article': 0.12,  # 12%
-            'Code à barre': 0.12,  # 12%
-            'Désignation': 0.40, # 20% (réduit, était plus grand avant)
-            'Quantité': 0.12,  # 12%
-            'Quantité théorique': 0.12,  # 12%
-            'DLC': 0.10,  # 10%
-            'N° Lot': 0.10,  # 10%
+        # Colonnes fixes: Job (18%), Emplacement (20%), Désignation (25% si présente)
+        fixed_widths = {
             'Job': 0.18,
+            'Emplacement': 0.20,
+            'Désignation': 0.25 , # Plus d'espace pour la désignation
+            'quantite_physique': 0.25,
         }
         
         # Calculer les largeurs
         widths = []
         used_percentage = 0
         
-        # Assigner les largeurs définies
+        # Colonnes fixes en premier
         for header in headers:
-            if header in column_widths_map:
-                widths.append(available_width * column_widths_map[header])
-                used_percentage += column_widths_map[header]
+            if header in fixed_widths:
+                widths.append(available_width * fixed_widths[header])
+                used_percentage += fixed_widths[header]
             else:
-                # Pour les colonnes non définies, on calculera après
+                # Pour les colonnes variables, on calculera après
                 widths.append(None)
         
-        # Si toutes les colonnes sont définies, retourner directement
-        if all(w is not None for w in widths):
-            return widths
-        
-        # Répartir l'espace restant pour les colonnes non définies
+        # Répartir l'espace restant pour les colonnes variables
         remaining_percentage = 1.0 - used_percentage
         variable_headers_count = sum(1 for w in widths if w is None)
         
-        if variable_headers_count > 0 and remaining_percentage > 0:
+        if variable_headers_count > 0:
             width_per_variable = remaining_percentage / variable_headers_count
             widths = [w if w is not None else available_width * width_per_variable for w in widths]
-        elif variable_headers_count > 0:
-            # Si pas d'espace restant, utiliser une largeur minimale
-            min_width = available_width * 0.08
-            widths = [w if w is not None else min_width for w in widths]
         
         return widths
     
-    def _group_jobs_by_user(self, jobs, counting=None):
-        """Groupe les jobs par utilisateur en utilisant la session de l'assignment correspondant au counting"""
+    def _group_jobs_by_user(self, jobs):
+        """Groupe les jobs par utilisateur"""
         jobs_by_user = {}
         
         for job in jobs:
             assignments = self.repository.get_assignments_by_job(job)
             user = None
             
-            # Chercher l'utilisateur dans les assignments correspondant au counting spécifique
-            # Un job peut avoir plusieurs assignments (un par counting order)
-            # On prend la session de l'assignment qui correspond au counting en cours
+            # Chercher l'utilisateur dans les assignments
             for assignment in assignments:
-                # Si un counting est spécifié, filtrer par ce counting
-                if counting and assignment.counting_id != counting.id:
-                    continue
-                
-                # L'assignment ne peut pas avoir une session null (selon les règles métier)
-                if assignment.session and assignment.session.username:
+                if assignment.session:
                     user = assignment.session.username
-                    break  # Prendre la première session trouvée pour ce counting
-            
-            # Si pas de session trouvée et qu'on a un counting, essayer sans filtre
-            if not user and counting:
-                for assignment in assignments:
-                    if assignment.session and assignment.session.username:
-                        user = assignment.session.username
-                        break
-            
-            # Si toujours pas de session, utiliser "Non affecté"
-            if not user:
-                user = "Non affecté"
+                    break
             
             if user not in jobs_by_user:
                 jobs_by_user[user] = []
@@ -1424,6 +1426,20 @@ class PDFService(PDFServiceInterface):
         if not counting:
             raise ValueError(f"Comptage non trouve pour l'assignment {assignment_id}")
         
+        # Debug: verifier la valeur de counting.dlc dans la base de donnees
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Counting DLC value (from DB): {counting.dlc}, Counting reference: {counting.reference}, Count mode: {counting.count_mode}")
+        
+        # Si le mode de comptage ne supporte pas DLC, forcer counting.dlc a False
+        # Certains modes de comptage ne devraient pas avoir DLC active
+        if 'image' in counting.count_mode.lower() or 'vrac' in counting.count_mode.lower():
+            if counting.dlc:
+                logger.warning(f"Mode de comptage '{counting.count_mode}' ne devrait pas avoir DLC active. Valeur actuelle: {counting.dlc}")
+                # Ne pas modifier la base de donnees, mais forcer l'affichage a False dans le code
+                # counting.dlc = False  # Decommenter pour forcer la correction en base
+                # counting.save()
+        
         # Recuperer les infos du warehouse et account
         warehouse_info = self._get_warehouse_info(inventory)
         account_info = self._get_account_info(inventory)
@@ -1475,21 +1491,23 @@ class PDFService(PDFServiceInterface):
         
         # Creer le document PDF avec marges ajustees
         # Marge du bas augmentee pour laisser de la place aux signatures (4cm)
-        # Marges latérales réduites à 0.2cm de chaque côté
         doc = SimpleDocTemplate(
             buffer,
             pagesize=A4,
-            rightMargin=0.2*cm,  # Réduit à 0.2cm
-            leftMargin=0.2*cm,  # Réduit à 0.2cm
+            rightMargin=1.5*cm,
+            leftMargin=1.5*cm,
             topMargin=1*cm,
             bottomMargin=4*cm  # Espace pour les signatures
         )
         
-        # Calculer la pagination
+        # Calculer la pagination - limiter à 40 lignes maximum sur une seule page
         page_info_map = {}
         lines_per_page = 40
-        total_rows = len(counting_details)
-        total_pages = (total_rows + lines_per_page - 1) // lines_per_page if total_rows > 0 else 1
+        # Préparer les lignes pour calculer correctement
+        all_table_rows = self._prepare_table_rows_from_counting_details(counting_details, counting)
+        # Limiter à 40 lignes maximum - une seule page
+        total_rows = min(len(all_table_rows), lines_per_page)
+        total_pages = 1  # Toujours une seule page avec maximum 40 lignes
         
         for page_num in range(total_pages):
             page_info_map[page_num + 1] = {
@@ -1526,7 +1544,7 @@ class PDFService(PDFServiceInterface):
         account_info, 
         counting_details
     ):
-        """Construit les pages pour un job avec les counting details (pagination de 40 lignes par page, sans variantes)"""
+        """Construit les pages pour un job avec les counting details (pagination de 40 lignes par page)"""
         elements = []
         
         if not counting_details:
@@ -1538,58 +1556,36 @@ class PDFService(PDFServiceInterface):
         if not all_table_rows:
             return elements
         
-        # Limiter à 36 lignes max par job, puis compléter jusqu'à 40 lignes avec des lignes vides
-        max_rows_per_job = 36
-        if len(all_table_rows) > max_rows_per_job:
-            all_table_rows = all_table_rows[:max_rows_per_job]
-        
-        # Compléter jusqu'à 40 lignes avec des lignes vides si nécessaire
+        # Limiter à exactement 40 lignes pour un seul tableau sur une seule page
         lines_per_page = 40
-        while len(all_table_rows) < lines_per_page:
-            empty_row = self._create_empty_row(counting)
-            all_table_rows.append(empty_row)
+        total_pages = 1  # Un seul tableau = une seule page
         
-        # Paginer par groupes de 40 lignes
-        total_pages = (len(all_table_rows) + lines_per_page - 1) // lines_per_page
+        # Prendre seulement les 40 premières lignes (ignorer le reste)
+        page_rows = all_table_rows[:lines_per_page]
         
-        for page_num in range(total_pages):
-            start_idx = page_num * lines_per_page
-            end_idx = min(start_idx + lines_per_page, len(all_table_rows))
-            page_rows = all_table_rows[start_idx:end_idx]
-            
-            # S'assurer que chaque page a exactement 40 lignes
-            while len(page_rows) < lines_per_page:
-                empty_row = self._create_empty_row(counting)
-                page_rows.append(empty_row)
-            
-            # En-tete de page avec infos inventaire + job + session
-            elements.extend(self._build_page_header(
-                inventory, job, session_nom, counting, warehouse_info, account_info, page_num + 1, total_pages
-            ))
-            
-            # Tableau des details du job (exactement 40 lignes) avec pagination en bas
-            elements.extend(self._build_table_from_rows(page_rows, counting, page_num + 1, total_pages))
-            
-            # Saut de page si ce n'est pas la derniere page
-            if page_num < total_pages - 1:
-                elements.append(PageBreak())
+        # Construire l'en-tête de la page (une seule fois)
+        header_elements = self._build_page_header(
+            inventory, job, session_nom, counting, warehouse_info, account_info, 1, total_pages
+        )
+        
+        # Construire un SEUL tableau avec exactement 40 lignes (ou moins si moins de lignes disponibles)
+        table_elements = self._build_table_from_rows(page_rows, counting, 1, total_pages)
+        
+        # Garder l'en-tête et le tableau ensemble sur une seule page
+        all_elements = header_elements + table_elements
+        elements.append(KeepTogether(all_elements))
         
         return elements
     
     def _prepare_table_rows_from_counting_details(self, counting_details, counting):
-        """Prepare toutes les lignes du tableau a partir des CountingDetail (sans variantes)"""
+        """Prepare toutes les lignes du tableau a partir des CountingDetail"""
         rows = []
         
         if 'vrac' not in counting.count_mode.lower():
-            # Mode par article - une ligne par CountingDetail (exclure les variantes)
+            # Mode par article - une ligne par CountingDetail
             for counting_detail in counting_details:
                 location = counting_detail.location
                 product = counting_detail.product
-                
-                # Ne pas inclure les variantes
-                if product and product.Is_Variant:
-                    continue
-                
                 quantity = counting_detail.quantity_inventoried
                 
                 row = {
@@ -1599,9 +1595,17 @@ class PDFService(PDFServiceInterface):
                     'designation': product.Short_Description if product else '-',
                     'quantite_physique': quantity,
                     'quantite_theorique': '-',  # Pas de quantite theorique dans CountingDetail
-                    'dlc': counting_detail.dlc.strftime('%d/%m/%Y') if counting_detail.dlc else '-',
-                    'n_lot': counting_detail.n_lot if counting_detail.n_lot else '-',
                 }
+                # Ajouter DLC seulement si le comptage le supporte ET si le produit supporte DLC
+                # Passer counting_details pour verification stricte
+                if self._should_show_dlc(counting, counting_details):
+                    row['dlc'] = counting_detail.dlc.strftime('%d/%m/%Y') if counting_detail.dlc else '-'
+                # Ajouter n_lot seulement si le comptage le supporte
+                if counting.n_lot:
+                    row['n_lot'] = counting_detail.n_lot if counting_detail.n_lot else '-'
+                # Ajouter is_variant seulement si le comptage le supporte
+                if counting.is_variant:
+                    row['is_variant'] = product and product.Is_Variant if product else False
                 rows.append(row)
         else:
             # Mode vrac - grouper par location et sommer les quantites
