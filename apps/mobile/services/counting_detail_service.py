@@ -145,10 +145,21 @@ class CountingDetailService:
                 
                 for i, data in enumerate(data_list):
                     # Vérifier si le comptage a une quantité (condition pour upsert)
+                    # Permettre 0 pour les emplacements vides (quantité >= 0)
                     quantity = data.get('quantity_inventoried')
-                    if quantity is None or quantity <= 0:
-                        # Ignorer les éléments sans quantité valide
-                        logger.warning(f"Élément {i} ignoré : pas de quantité valide")
+                    if quantity is None:
+                        # Ignorer les éléments sans quantité (None)
+                        logger.warning(f"Élément {i} ignoré : quantité manquante (None)")
+                        continue
+                    
+                    # Vérifier que c'est un nombre valide (permettre 0)
+                    try:
+                        quantity = int(quantity)
+                        if quantity < 0:
+                            logger.warning(f"Élément {i} ignoré : quantité négative ({quantity})")
+                            continue
+                    except (ValueError, TypeError):
+                        logger.warning(f"Élément {i} ignoré : quantité invalide ({quantity})")
                         continue
                     
                     existing_detail = existing_details_map.get(self._get_detail_key(data))
@@ -869,11 +880,25 @@ class CountingDetailService:
                     results.append(result)
                     continue
                 
-                # Validation quantité
+                # Validation quantité (permettre 0 pour les emplacements vides)
                 quantity = data.get('quantity_inventoried')
-                if not quantity or quantity <= 0:
+                if quantity is None:
                     result['valid'] = False
-                    result['error'] = "La quantité inventoriée doit être positive"
+                    result['error'] = "La quantité inventoriée est obligatoire"
+                    results.append(result)
+                    continue
+                
+                # Vérifier que c'est un nombre valide (permettre 0)
+                try:
+                    quantity = int(quantity)
+                    if quantity < 0:
+                        result['valid'] = False
+                        result['error'] = "La quantité inventoriée ne peut pas être négative"
+                        results.append(result)
+                        continue
+                except (ValueError, TypeError):
+                    result['valid'] = False
+                    result['error'] = "La quantité inventoriée doit être un nombre entier"
                     results.append(result)
                     continue
                 

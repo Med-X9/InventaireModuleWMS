@@ -138,7 +138,13 @@ def datatable_view(view_class: Type[APIView]) -> Type[APIView]:
                 )
                 
                 # Queryset par défaut
-                queryset = self.get_queryset() if hasattr(self, 'get_queryset') else self.model.objects.all()
+                if hasattr(self, 'get_queryset'):
+                    queryset = self.get_queryset()
+                elif hasattr(self, 'model') and self.model is not None:
+                    queryset = self.model.objects.all()
+                else:
+                    from django.db.models import QuerySet
+                    queryset = QuerySet().none()
                 
                 # Processeur DataTable
                 processor = DataTableProcessor(
@@ -393,24 +399,32 @@ class DataTableMixin:
     
     def _get_column_field_mapping_for_querymodel(self) -> Dict[str, str]:
         """
-        Crée un mapping column_field_mapping pour QueryModel depuis order_fields.
+        Crée un mapping column_field_mapping pour QueryModel.
         
-        Utilise order_fields pour créer un mapping col_id -> field_name.
-        Si filter_aliases existe, l'utilise aussi.
+        Priorité :
+        1. column_field_mapping (explicite, recommandé pour QueryModel)
+        2. filter_aliases (compatibilité)
+        3. order_fields (fallback)
+        4. search_fields (fallback)
         """
         mapping = {}
         
-        # Utiliser filter_aliases si disponible (plus précis)
+        # PRIORITÉ 1: Utiliser column_field_mapping si défini explicitement (recommandé pour QueryModel)
+        if hasattr(self, 'column_field_mapping') and self.column_field_mapping:
+            mapping.update(self.column_field_mapping)
+            return mapping  # Retourner immédiatement si défini explicitement
+        
+        # PRIORITÉ 2: Utiliser filter_aliases si disponible (compatibilité)
         if hasattr(self, 'filter_aliases') and self.filter_aliases:
             mapping.update(self.filter_aliases)
         
-        # Ajouter order_fields comme mapping direct (col_id = field_name)
+        # PRIORITÉ 3: Ajouter order_fields comme mapping direct (col_id = field_name)
         if hasattr(self, 'order_fields') and self.order_fields:
             for field in self.order_fields:
                 if field not in mapping:
                     mapping[field] = field
         
-        # Ajouter search_fields aussi
+        # PRIORITÉ 4: Ajouter search_fields aussi
         if hasattr(self, 'search_fields') and self.search_fields:
             for field in self.search_fields:
                 if field not in mapping:
@@ -519,7 +533,13 @@ class DataTableMixin:
             queryset = self.get_datatable_queryset()
             if queryset is None:
                 logger.warning("get_datatable_queryset() returned None; using empty queryset")
-                queryset = self.model.objects.none()
+                # Vérifier que self.model existe avant d'utiliser objects.none()
+                if hasattr(self, 'model') and self.model is not None:
+                    queryset = self.model.objects.none()
+                else:
+                    # Si pas de model, retourner un queryset vide générique
+                    from django.db.models import QuerySet
+                    queryset = QuerySet().none()
             
             # PRIORITÉ 1: Vérifier si c'est une requête QueryModel
             if self._is_query_model_request(request):
@@ -597,7 +617,7 @@ class DataTableMixin:
     
     def get_datatable_queryset(self) -> QuerySet:
         """Queryset DataTable - à surcharger"""
-        if hasattr(self, 'model'):
+        if hasattr(self, 'model') and self.model is not None:
             return self.model.objects.all()
         return QuerySet()
     
@@ -721,6 +741,11 @@ class DataTableMixin:
         Cette méthode applique les mêmes filtres que pour l'affichage DataTable,
         mais retourne TOUTES les lignes (pas de pagination).
         
+        Supporte les formats :
+        - QueryModel (sortModel, filterModel)
+        - DataTable standard (query params)
+        - REST API (query params)
+        
         Args:
             request: Requête HTTP avec paramètres de filtrage
             
@@ -730,8 +755,20 @@ class DataTableMixin:
         # Queryset de base
         queryset = self.get_datatable_queryset()
         if queryset is None:
-            queryset = self.model.objects.none()
+            # Vérifier que self.model existe avant d'utiliser objects.none()
+            if hasattr(self, 'model') and self.model is not None:
+                queryset = self.model.objects.none()
+            else:
+                # Si pas de model, retourner un queryset vide générique
+                from django.db.models import QuerySet
+                queryset = QuerySet().none()
         
+        # PRIORITÉ 1: Vérifier si c'est une requête QueryModel
+        if self._is_query_model_request(request):
+            logger.debug("🔧 Export avec QueryModel - Application des filtres QueryModel")
+            return self._get_export_queryset_for_querymodel(request, queryset, *args, **kwargs)
+        
+        # PRIORITÉ 2: Format DataTable standard ou REST API
         # Appliquer les filtres Django Filter si configuré
         if hasattr(self, 'filterset_class') and self.filterset_class:
             filterset = self.filterset_class(request.GET, queryset=queryset)
@@ -747,6 +784,67 @@ class DataTableMixin:
         queryset = self.apply_ordering_direct(queryset, request)
         
         return queryset
+    
+    def _get_export_queryset_for_querymodel(self, request, queryset: QuerySet, *args, **kwargs) -> QuerySet:
+        """
+        Obtient le queryset pour l'export avec les filtres QueryModel appliqués
+        
+        Cette méthode applique les filtres et tri QueryModel (sortModel, filterModel)
+        mais SANS pagination (retourne toutes les lignes).
+        
+        Args:
+            request: Requête HTTP avec QueryModel
+            queryset: QuerySet de base
+            
+        Returns:
+            QuerySet: Queryset filtré et trié complet (sans pagination)
+        """
+        from apps.core.datatables.models import QueryModel
+        from apps.core.datatables.engines import FilterEngine, SortEngine
+        from django.db.models import Q
+        
+        try:
+            # Parser QueryModel
+            query_model = QueryModel.from_request(request)
+            logger.debug(f"🔧 Export QueryModel: sortModel={len(query_model.sort_model)}, filterModel={len(query_model.filter_model)}")
+            
+            # Gérer la recherche globale
+            search_value = RequestParameterExtractor.get_search_value(request)
+            if search_value and hasattr(self, 'search_fields') and self.search_fields:
+                search_clean = search_value.strip()
+                if search_clean:
+                    search_query = Q()
+                    for field in self.search_fields:
+                        search_query |= Q(**{f"{field}__icontains": search_clean})
+                    queryset = queryset.filter(search_query)
+                    logger.debug(f"🔧 Recherche globale appliquée: '{search_clean}'")
+            
+            # Créer le mapping colonnes -> champs
+            column_mapping = self._get_column_field_mapping_for_querymodel()
+            
+            # Appliquer les filtres avec FilterEngine
+            if query_model.filter_model:
+                filter_engine = FilterEngine(column_mapping)
+                queryset = filter_engine.apply_filters(queryset, query_model.filter_model)
+                logger.debug(f"🔧 Filtres QueryModel appliqués: {queryset.count()} éléments")
+            
+            # Appliquer le tri avec SortEngine
+            if query_model.sort_model:
+                sort_engine = SortEngine(column_mapping)
+                queryset = sort_engine.apply_sorting(queryset, query_model.sort_model)
+                logger.debug(f"🔧 Tri QueryModel appliqué")
+            elif hasattr(self, 'default_order') and self.default_order:
+                # Appliquer le tri par défaut si aucun tri dans QueryModel
+                queryset = queryset.order_by(self.default_order)
+            
+            # PAS DE PAGINATION pour l'export - retourner toutes les lignes
+            logger.info(f"🔧 Export QueryModel: {queryset.count()} éléments à exporter")
+            return queryset
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de la préparation de l'export QueryModel: {str(e)}", exc_info=True)
+            # En cas d'erreur, retourner le queryset de base
+            return queryset
 
 class DataTableAPIView(DataTableMixin, APIView):
     """
@@ -1190,13 +1288,16 @@ class ServerSideDataTableView(DataTableListView):
             if hasattr(self, 'handle_export_request'):
                 return self.handle_export_request(request, export_format, *args, **kwargs)
         
-        # PRIORITÉ 2: Vérifier si c'est une requête DataTable
+        # PRIORITÉ 2: Vérifier si c'est une requête QueryModel (GET avec sortModel/filterModel)
+        if RequestFormatDetector.is_query_model_request(request):
+            return self.handle_datatable_request(request, *args, **kwargs)
+        
+        # PRIORITÉ 3: Vérifier si c'est une requête DataTable standard
         if is_datatable_request(request):
             return self.handle_datatable_request(request, *args, **kwargs)
         
-        # PRIORITÉ 3: Traiter comme requête REST normale
-        else:
-            return self.handle_rest_request(request, *args, **kwargs)
+        # PRIORITÉ 4: Traiter comme requête REST normale
+        return self.handle_rest_request(request, *args, **kwargs)
     
     def post(self, request, *args, **kwargs):
         """

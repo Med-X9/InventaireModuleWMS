@@ -389,6 +389,13 @@ class CountingRepository(ICountingRepository):
         ecart_id_subquery = base_ecart_qs.values('ecart_comptage_id')[:1]
         resolved_subquery = base_ecart_qs.values('ecart_comptage__resolved')[:1]
         
+        # Sous-requête pour récupérer le statut de l'assignment pour ce job et ce comptage
+        from ..models import Assigment
+        assignment_status_subquery = Assigment.objects.filter(
+            job_id=OuterRef('job_id'),
+            counting_id=OuterRef('counting_id')
+        ).values('status')[:1]
+        
         annotated_queryset = queryset.annotate(
             warehouse_id_alias=F('job__warehouse_id'),
             warehouse_reference_alias=F('job__warehouse__reference'),
@@ -401,6 +408,7 @@ class CountingRepository(ICountingRepository):
             product_description_alias=F('product__Short_Description'),
             product_internal_code_alias=F('product__Internal_Product_Code'),
             job_reference_alias=F('job__reference'),
+            assignment_status_alias=Subquery(assignment_status_subquery),
             final_result_alias=Subquery(final_result_subquery),
             ecart_id_alias=Subquery(ecart_id_subquery),
             resolved_alias=Subquery(resolved_subquery),
@@ -420,6 +428,8 @@ class CountingRepository(ICountingRepository):
             'product_description_alias',
             'product_internal_code_alias',
             'job_id',
+            'job_reference_alias',
+            'assignment_status_alias',
             'ecart_id_alias',
             'resolved_alias',
         ).annotate(

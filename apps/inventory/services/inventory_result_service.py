@@ -156,9 +156,11 @@ class InventoryResultService:
                     },
                     "job": {
                         "id": row.get("job_id"),
+                        "reference": row.get("job_reference_alias"),
                     },
                     "product": None,
                     "quantities": {},
+                    "assignment_statuses": {},  # Stocker le statut de l'assignment par ordre de comptage
                     "final_result": None,  # Stocker le final_result depuis EcartComptage
                     "ecart_id": row.get("ecart_id_alias"),
                     "resolved": None,  # Stocker le resolved depuis EcartComptage
@@ -176,6 +178,10 @@ class InventoryResultService:
             order = row["counting_order_alias"]
             quantity = row["total_quantity"] or 0
             entry_data["quantities"][order] = quantity
+            # Stocker le statut de l'assignment pour cet ordre de comptage
+            assignment_status = row.get("assignment_status_alias")
+            if assignment_status:
+                entry_data["assignment_statuses"][order] = assignment_status
             max_order_global = max(max_order_global, order)
             
             # Mettre à jour le final_result si disponible (sera le même pour tous les ordres)
@@ -225,11 +231,18 @@ class InventoryResultService:
 
             previous_order: Optional[int] = None
             previous_quantity: Optional[int] = None
+            assignment_statuses = entry.get("assignment_statuses", {})
 
             for order in range(1, max_order_global + 1):
                 quantity = quantities.get(order)
                 quantity_key = f"{order}er comptage"
                 result_row[quantity_key] = quantity if quantity is not None else None
+                
+                # Ajouter le statut de l'assignment seulement pour les comptages 1 et 2
+                if order in [1, 2]:
+                    assignment_status = assignment_statuses.get(order)
+                    status_key = f"statut_{order}er_comptage"
+                    result_row[status_key] = assignment_status if assignment_status else None
 
                 if previous_order is not None and previous_quantity is not None:
                     ecart_key = f"ecart_{previous_order}_{order}"

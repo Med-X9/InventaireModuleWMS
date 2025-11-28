@@ -90,17 +90,22 @@ class CountingLaunchService:
                     f"Aucun comptage d'ordre 3 n'est défini pour l'inventaire {job.inventory_id}."
                 )
 
-            existing_assignment = self.assignment_repository.get_existing_assignment_for_job_and_counting(
-                job.id,
-                counting_order_three.id,
+            # Vérifier si un JobDetail existe déjà pour ce job, cet emplacement et le comptage d'ordre 3
+            # C'est la bonne façon de déterminer si on lance le comptage 3 ou un comptage supplémentaire
+            existing_job_detail_for_counting_3 = self.job_repository.get_job_detail_by_job_location_and_counting(
+                job,
+                location,
+                counting_order_three,
             )
 
             # Étape 3 : déterminer le comptage cible (3e ou duplication pour 4e, 5e, ...)
             new_counting_created = False
-            if existing_assignment is None:
+            if existing_job_detail_for_counting_3 is None:
+                # Aucun JobDetail n'existe pour cet emplacement et le comptage 3 → C'est le lancement du comptage 3
                 self._ensure_previous_countings_completed(job.id, location.id, target_order=3)
                 target_counting = counting_order_three
             else:
+                # Un JobDetail existe déjà pour cet emplacement et le comptage 3 → C'est un comptage supplémentaire (4, 5, etc.)
                 next_order = self.counting_repository.get_next_order(job.inventory_id)
                 self._ensure_previous_countings_completed(job.id, location.id, target_order=next_order)
                 target_counting = self.counting_repository.duplicate_counting(counting_order_three.id)

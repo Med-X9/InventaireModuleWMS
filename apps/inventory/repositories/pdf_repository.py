@@ -28,6 +28,15 @@ class PDFRepository(PDFRepositoryInterface):
         """Récupère tous les comptages d'un inventaire"""
         return list(Counting.objects.filter(inventory=inventory).order_by('order'))
     
+    def get_countings_by_inventory_and_orders(self, inventory: Inventory, orders: List[int]) -> List[Counting]:
+        """Récupère les comptages d'un inventaire avec les ordres spécifiés (requête optimisée)"""
+        return list(
+            Counting.objects.filter(
+                inventory=inventory,
+                order__in=orders
+            ).order_by('order')
+        )
+    
     def get_all_jobs_by_inventory(self, inventory: Inventory) -> List[Job]:
         """Récupère tous les jobs d'un inventaire avec leurs détails"""
         return list(
