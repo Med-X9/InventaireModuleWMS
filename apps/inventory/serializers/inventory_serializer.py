@@ -383,8 +383,51 @@ class InventoryDetailModeFieldsSerializer(serializers.ModelSerializer):
         return CountingModeFieldsSerializer(countings, many=True).data
     
     def get_equipe(self, obj):
-        pdas = Assigment.objects.filter(job__inventory=obj)
-        return PdaTeamSerializer(pdas, many=True).data
+        """
+        Récupère l'équipe de l'inventaire groupée par session avec le nombre de comptages.
+        Pour chaque session unique, on compte le nombre d'assignments (comptages) affectés.
+        """
+        from collections import defaultdict
+        
+        # Récupérer tous les assignments de l'inventaire avec leurs sessions
+        assignments = Assigment.objects.filter(
+            job__inventory=obj,
+            session__isnull=False
+        ).select_related('session').prefetch_related('counting')
+        
+        # Grouper par session et compter les assignments
+        session_data = defaultdict(lambda: {
+            'reference': None,
+            'user': None,
+            'nombre_comptage': 0
+        })
+        
+        for assignment in assignments:
+            session = assignment.session
+            if session:
+                session_id = session.id
+                if session_data[session_id]['reference'] is None:
+                    # Première fois qu'on rencontre cette session, initialiser les données
+                    session_data[session_id]['reference'] = assignment.reference
+                    session_data[session_id]['user'] = UserAppSerializer(session).data
+                
+                # Compter les assignments pour cette session
+                session_data[session_id]['nombre_comptage'] += 1
+        
+        # Convertir en liste et trier par référence
+        result = [
+            {
+                'reference': data['reference'],
+                'user': data['user'],
+                'nombre_comptage': data['nombre_comptage']
+            }
+            for data in session_data.values()
+        ]
+        
+        # Trier par référence pour avoir un ordre cohérent
+        result.sort(key=lambda x: x['reference'] or '')
+        
+        return result
     
     def get_ressources(self, obj):
         from ..models import InventoryDetailRessource
