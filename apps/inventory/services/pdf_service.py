@@ -301,10 +301,42 @@ class PDFService(PDFServiceInterface):
             canvas_obj.restoreState()
     
     def _add_page_header_and_footer_with_signatures(self, canvas_obj, doc):
-        """Ajoute la pagination en bas à droite et les signatures en bas"""
-        # Logo supprimé - pas de logo affiché
+        """Ajoute le texte Inventaire en haut, la pagination, les infos dans le footer et les signatures"""
+        canvas_obj.saveState()
         
-        # Ajouter la pagination en bas à droite
+        # Ajouter "Inventaire (compte)" en haut à gauche au lieu du logo
+        inventory_info = getattr(doc, 'inventory_info', {})
+        account_name = inventory_info.get('account_name', '-')
+        
+        canvas_obj.setFont("Helvetica-Bold", 12)
+        canvas_obj.setFillColor(colors.black)
+        inventaire_text = f"Inventaire ({account_name})"
+        x_header = doc.leftMargin
+        # Positionner juste en dessous de la marge supérieure
+        y_header = doc.pagesize[1] - doc.topMargin + 0.3*cm
+        canvas_obj.drawString(x_header, y_header, inventaire_text)
+        
+        # Ajouter les informations dans le footer (référence inventaire, compte, type magasin, date)
+        # Positionnées en bas à gauche
+        if inventory_info:
+            canvas_obj.setFont("Helvetica", 8)
+            canvas_obj.setFillColor(colors.HexColor('#666666'))
+            
+            # Positionner les infos en bas à gauche (1.5cm du bas pour laisser place aux signatures)
+            footer_y = 1.5*cm
+            footer_x = doc.leftMargin
+            
+            # Construire le texte du footer
+            reference = inventory_info.get('reference', '-')
+            account = inventory_info.get('account_name', '-')
+            warehouse = inventory_info.get('warehouse_name', '-')
+            inv_type = inventory_info.get('inventory_type', '-')
+            date = inventory_info.get('date', '-')
+            
+            footer_text = f"Réf. Inventaire: {reference} | Compte: {account} | Type Magasin: {inv_type} | Date: {date}"
+            canvas_obj.drawString(footer_x, footer_y, footer_text)
+        
+        # Ajouter la pagination en bas à droite (même hauteur que le footer)
         page_num = canvas_obj.getPageNumber()
         page_info = getattr(doc, 'page_info_map', {}).get(page_num, {})
         
@@ -312,16 +344,14 @@ class PDFService(PDFServiceInterface):
             current = page_info.get('current', 1)
             total = page_info.get('total', 1)
             
-            canvas_obj.saveState()
             canvas_obj.setFont("Helvetica", 9)
             canvas_obj.setFillColor(colors.HexColor('#666666'))
             
             text = f"Page {current}/{total}"
             text_width = canvas_obj.stringWidth(text, "Helvetica", 9)
             x = doc.pagesize[0] - doc.rightMargin - text_width
-            y = 0.5*cm
+            y = 1.5*cm  # Même hauteur que le footer
             canvas_obj.drawString(x, y, text)
-            canvas_obj.restoreState()
         
         # Ajouter les signatures en bas de page
         personne_info = getattr(doc, 'personne_info', {})
@@ -329,46 +359,45 @@ class PDFService(PDFServiceInterface):
         personne_two = personne_info.get('personne_two')
         
         if personne or personne_two:
-            canvas_obj.saveState()
             canvas_obj.setFont("Helvetica", 9)
             canvas_obj.setFillColor(colors.black)
             canvas_obj.setStrokeColor(colors.black)
             canvas_obj.setLineWidth(0.5)
             
-            # Hauteur pour les lignes de signature (1.5cm du bas)
-            line_y = 1.5*cm
-            # Hauteur pour le texte des noms (0.3cm du bas)
-            text_y = 0.3*cm
+            # Hauteur pour les lignes de signature (3.5cm du bas pour laisser place au footer)
+            line_y = 3.5*cm
+            # Hauteur pour le texte des labels (2.3cm du bas)
+            text_y = 2.3*cm
             
             # Si deux personnes, les placer côte à côte
             if personne and personne_two:
-                # Personne 1 à gauche
+                # Signature L'Oréal à gauche
                 x1 = doc.leftMargin
                 line_width = 6*cm
                 canvas_obj.line(x1, line_y, x1 + line_width, line_y)
                 canvas_obj.setFont("Helvetica", 8)
-                canvas_obj.drawString(x1, text_y, f"Signature: {personne}")
+                canvas_obj.drawString(x1, text_y, f"Signature L'Oréal :")
                 
-                # Personne 2 à droite
+                # Signature AGL à droite
                 x2 = doc.pagesize[0] - doc.rightMargin - line_width
                 canvas_obj.line(x2, line_y, x2 + line_width, line_y)
-                canvas_obj.drawString(x2, text_y, f"Signature: {personne_two}")
+                canvas_obj.drawString(x2, text_y, f"Signature AGL :")
             elif personne:
-                # Une seule personne, à gauche
+                # Une seule personne, à gauche (L'Oréal)
                 x = doc.leftMargin
                 line_width = 6*cm
                 canvas_obj.line(x, line_y, x + line_width, line_y)
                 canvas_obj.setFont("Helvetica", 8)
-                canvas_obj.drawString(x, text_y, f"Signature: {personne}")
+                canvas_obj.drawString(x, text_y, f"Signature L'Oréal :")
             elif personne_two:
-                # Une seule personne, à gauche
-                x = doc.leftMargin
+                # Une seule personne, à droite (AGL)
+                x = doc.pagesize[0] - doc.rightMargin - 6*cm
                 line_width = 6*cm
                 canvas_obj.line(x, line_y, x + line_width, line_y)
                 canvas_obj.setFont("Helvetica", 8)
-                canvas_obj.drawString(x, text_y, f"Signature: {personne_two}")
-            
-            canvas_obj.restoreState()
+                canvas_obj.drawString(x, text_y, f"Signature AGL :")
+        
+        canvas_obj.restoreState()
     
     def _build_job_pages(self, job, counting, user, inventory, warehouse_info, account_info):
         """Construit les pages pour un job avec pagination de 20 lignes par page"""
@@ -644,11 +673,23 @@ class PDFService(PDFServiceInterface):
         return elements
     
     def _build_page_header(self, inventory, job, user, counting, warehouse_info, account_info, page_num, total_pages):
-        """Construit l'en-tête de chaque page avec champs côte à côte"""
+        """Construit l'en-tête de chaque page avec seulement référence job, ordre de comptage et équipe affectée"""
         elements = []
         styles = getSampleStyleSheet()
         
-        # Pas d'espace en haut pour maximiser l'espace pour le tableau
+        # Style pour le titre
+        title_style = ParagraphStyle(
+            'HeaderTitle',
+            parent=styles['Heading4'],
+            fontSize=11,
+            textColor=colors.HexColor('#000000'),
+            spaceAfter=0.2*cm,
+            spaceBefore=0,
+            alignment=1,  # Center - centré
+        )
+        
+        # Ajouter le titre "FICHE DE COMPTAGE"
+        elements.append(Paragraph("<b>FICHE DE COMPTAGE</b>", title_style))
         
         # Style pour les labels (en gras)
         label_style = ParagraphStyle(
@@ -661,111 +702,40 @@ class PDFService(PDFServiceInterface):
             alignment=0,  # Left
         )
         
-        # Style pour les valeurs (normal)
-        value_style = ParagraphStyle(
-            'ValueStyle',
-            parent=styles['Normal'],
-            fontSize=9,
-            textColor=colors.HexColor('#000000'),
-            spaceAfter=0,
-            spaceBefore=0,
-            alignment=0,  # Left
-        )
-        
-        # Ajouter le logo et le titre dans un tableau
-        logo_path = self._get_logo_path()
-        title_style = ParagraphStyle(
-            'HeaderTitle',
-            parent=styles['Heading4'],
-            fontSize=11,  # Réduit pour économiser l'espace
-            textColor=colors.HexColor('#000000'),
-            spaceAfter=1,  # Très réduit pour économiser l'espace
-            spaceBefore=0,
-            alignment=1,  # Center - centré
-        )
-        
-        if logo_path:
-            try:
-                # Créer un tableau pour placer le logo à gauche et le titre à droite
-                logo_img = Image(logo_path, width=3*cm, height=1.5*cm)
-                logo_table_data = [[logo_img, Paragraph("<b>FICHE DE COMPTAGE</b>", title_style)]]
-                logo_table = Table(logo_table_data, colWidths=[4*cm, 12*cm])
-                logo_table.setStyle(TableStyle([
-                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                    ('ALIGN', (0, 0), (0, -1), 'LEFT'),
-                    ('ALIGN', (1, 0), (1, -1), 'CENTER'),
-                    ('LEFTPADDING', (0, 0), (-1, -1), 0),
-                    ('RIGHTPADDING', (0, 0), (-1, -1), 0),
-                    ('TOPPADDING', (0, 0), (-1, -1), 0),
-                    ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
-                ]))
-                elements.append(logo_table)
-            except Exception as e:
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.warning(f"Impossible de charger le logo: {str(e)}")
-                # Si le logo ne peut pas être chargé, afficher juste le titre
-                elements.append(Paragraph("<b>FICHE DE COMPTAGE</b>", title_style))
-        else:
-            # Pas de logo, afficher juste le titre
-            elements.append(Paragraph("<b>FICHE DE COMPTAGE</b>", title_style))
-        
-        elements.append(Spacer(1, 0.1*cm))  # Espace très minimal entre le titre et les informations
-        
-        # Informations de l'inventaire - Ligne 1: Référence Inventaire | Type | Magasin
+        # Informations simplifiées - Ligne 1: Référence Job | Ordre de comptage
         info_row1_data = [
-            Paragraph(f"<b>Référence Inventaire:</b> {inventory.reference}", label_style),
-            Paragraph(f"<b>Type:</b> {inventory.inventory_type}", label_style),
-            Paragraph(f"<b>Magasin:</b> {warehouse_info['name']}", label_style),
+            Paragraph(f"<b>Référence Job:</b> {job.reference}", label_style),
+            Paragraph(f"<b>Ordre de comptage:</b> {counting.order}", label_style),
         ]
         
-        info_row1_table = Table([info_row1_data], colWidths=[5.5*cm, 5.5*cm, 5*cm])
+        info_row1_table = Table([info_row1_data], colWidths=[8*cm, 8*cm])
         info_row1_table.setStyle(TableStyle([
             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('LEFTPADDING', (0, 0), (-1, -1), 0),
             ('RIGHTPADDING', (0, 0), (-1, -1), 8),
-            ('TOPPADDING', (0, 0), (-1, -1), 0),  # Très réduit pour économiser l'espace
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),  # Très réduit pour économiser l'espace
+            ('TOPPADDING', (0, 0), (-1, -1), 0),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
         ]))
         
         elements.append(info_row1_table)
         
-        # Informations - Ligne 2: Date Inventaire | Compte | Référence Job
+        # Informations - Ligne 2: Équipe affectée (session)
         info_row2_data = [
-            Paragraph(f"<b>Date Inventaire:</b> {inventory.date.strftime('%d/%m/%Y') if inventory.date else '-'}", label_style),
-            Paragraph(f"<b>Compte:</b> {account_info['name']}", label_style),
-            Paragraph(f"<b>Référence Job:</b> {job.reference}", label_style),
+            Paragraph(f"<b>Équipe affectée:</b> {user if user else 'Non affecté'}", label_style),
         ]
         
-        info_row2_table = Table([info_row2_data], colWidths=[5.5*cm, 5.5*cm, 5*cm])
+        info_row2_table = Table([info_row2_data], colWidths=[16*cm])
         info_row2_table.setStyle(TableStyle([
             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('LEFTPADDING', (0, 0), (-1, -1), 0),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
-            ('TOPPADDING', (0, 0), (-1, -1), 0),  # Très réduit pour économiser l'espace
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),  # Très réduit pour économiser l'espace
+            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+            ('TOPPADDING', (0, 0), (-1, -1), 0),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
         ]))
         
         elements.append(info_row2_table)
-        
-        # Informations - Ligne 3: Utilisateur (équipe affectée dans assignment)
-        info_row3_data = [
-            Paragraph(f"<b>Utilisateur:</b> {user if user else 'Non affecté'}", label_style),
-        ]
-        
-        info_row3_table = Table([info_row3_data], colWidths=[16*cm])
-        info_row3_table.setStyle(TableStyle([
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('LEFTPADDING', (0, 0), (-1, -1), 0),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
-            ('TOPPADDING', (0, 0), (-1, -1), 0),  # Très réduit pour économiser l'espace
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),  # Pas de padding en bas pour supprimer l'espace
-        ]))
-        
-        elements.append(info_row3_table)
         # Pas d'espace entre l'en-tête et le tableau
         
         return elements
@@ -1523,6 +1493,15 @@ class PDFService(PDFServiceInterface):
         doc.personne_info = {
             'personne': f"{personne.nom} {personne.prenom}" if personne else None,
             'personne_two': f"{personne_two.nom} {personne_two.prenom}" if personne_two else None
+        }
+        
+        # Stocker les informations de l'inventaire pour le footer
+        doc.inventory_info = {
+            'reference': inventory.reference,
+            'account_name': account_info['name'],
+            'warehouse_name': warehouse_info['name'],
+            'inventory_type': inventory.inventory_type,
+            'date': inventory.date.strftime('%d/%m/%Y') if inventory.date else '-'
         }
         
         # Construire le PDF avec header (logo) et footer (pagination + signatures) personnalises
