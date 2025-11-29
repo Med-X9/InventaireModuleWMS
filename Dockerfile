@@ -42,8 +42,8 @@ COPY --from=builder /opt/venv /opt/venv
 COPY . .
 
 # Création des dossiers nécessaires
-RUN mkdir -p /app/static /app/media /app/logs \
-    && chmod -R 755 /app/static /app/media \
+RUN mkdir -p /app/static /app/media /app/logs /app/data \
+    && chmod -R 755 /app/static /app/media /app/data \
     && chmod -R 777 /app/logs \
     && useradd -U app_user \
     && chown -R app_user:app_user /app
