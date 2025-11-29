@@ -20,9 +20,14 @@ class CloseJobView(APIView):
     
     Cette API :
     1. Marque l'assignment comme TERMINE
-    2. Vérifie si TOUS les assignments du job sont TERMINE
-    3. Vérifie si tous les EcartComptage de l'inventaire ont un final_result non null
-    4. Si les deux conditions précédentes sont remplies, marque le job comme TERMINE
+    2. Si l'assignment a un counting_order de 1 ou 2, synchronise les CountingDetail :
+       - Vérifie si l'autre assignment (order 2 si order 1, ou order 1 si order 2) est TERMINE
+       - Si oui, compare les CountingDetail des deux countings en batch
+       - Crée les lignes manquantes dans chaque counting avec quantité 0
+       - Les lignes sont comparées par (location_id, product_id, dlc, n_lot)
+    3. Vérifie si TOUS les assignments du job sont TERMINE
+    4. Vérifie si tous les EcartComptage de l'inventaire ont un final_result non null
+    5. Si les deux conditions précédentes sont remplies, marque le job comme TERMINE
     
     URL: /api/mobile/job/{job_id}/close/{assignment_id}/
     """
@@ -46,6 +51,7 @@ class CloseJobView(APIView):
             - Le statut de l'assignment (toujours TERMINE)
             - Le statut du job (TERMINE si toutes les conditions sont remplies)
             - Les informations sur les conditions de clôture du job
+            - Les informations de synchronisation des CountingDetail (si applicable)
         """
         try:
             # Valider les données d'entrée avec le serializer
@@ -106,3 +112,5 @@ class CloseJobView(APIView):
                 message="Une erreur inattendue s'est produite lors de la clôture du job",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+

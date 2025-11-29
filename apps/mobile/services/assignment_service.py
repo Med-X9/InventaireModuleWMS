@@ -1,7 +1,7 @@
-from typing import Optional, List
+from typing import Optional, List, Set, Tuple
 from django.utils import timezone
 from django.db import transaction
-from apps.inventory.models import Assigment, Job, JobDetail, Personne, EcartComptage
+from apps.inventory.models import Assigment, Job, JobDetail, Personne, EcartComptage, CountingDetail, Counting
 from apps.users.models import UserApp
 from apps.mobile.exceptions import (
     AssignmentNotFoundException,
@@ -386,6 +386,9 @@ class AssignmentService:
         assignment.status = 'TERMINE'
         assignment.save()
         
+        # Synchroniser les CountingDetail entre les deux countings si nécessaire
+        sync_result = self._synchronize_counting_details_if_needed(job, assignment)
+        
         # Vérifier si tous les assignments du job sont terminés
         all_assignments = Assigment.objects.filter(job=job)
         all_assignments_terminated = all_assignments.exclude(status='TERMINE').count() == 0
@@ -438,5 +441,172 @@ class AssignmentService:
                 'all_assignments_terminated': all_assignments_terminated,
                 'all_ecarts_have_final_result': all_ecarts_have_final_result,
                 'job_closed': job_closed
+            },
+            'counting_detail_sync': sync_result
+        }
+    
+    def _synchronize_counting_details_if_needed(
+        self, 
+        job: Job, 
+        assignment: Assigment
+    ) -> dict:
+        """
+        Synchronise les CountingDetail entre les deux countings (order 1 et 2) si nécessaire.
+        
+        Cette méthode :
+        1. Vérifie le counting_order de l'assignment (1 ou 2)
+        2. Si order = 1, vérifie si l'assignment order 2 est TERMINE
+        3. Si order = 2, vérifie si l'assignment order 1 est TERMINE
+        4. Si l'autre assignment est TERMINE, synchronise les CountingDetail :
+           - Récupère tous les CountingDetail des deux countings pour ce job
+           - Compare en batch et crée les lignes manquantes avec quantité 0
+        
+        Args:
+            job: Le job concerné
+            assignment: L'assignment qui vient d'être clôturé
+            
+        Returns:
+            Dictionnaire avec les informations de synchronisation
+        """
+        counting_order = assignment.counting.order
+        
+        # Ne synchroniser que si counting_order est 1 ou 2
+        if counting_order not in [1, 2]:
+            return {
+                'synchronized': False,
+                'reason': f'Counting order {counting_order} ne nécessite pas de synchronisation'
             }
+        
+        # Déterminer l'autre counting_order
+        other_counting_order = 2 if counting_order == 1 else 1
+        
+        # Récupérer l'assignment de l'autre counting pour ce job
+        try:
+            other_assignment = Assigment.objects.get(
+                job=job,
+                counting__order=other_counting_order
+            )
+        except Assigment.DoesNotExist:
+            return {
+                'synchronized': False,
+                'reason': f'Assignment avec counting order {other_counting_order} non trouvé pour ce job'
+            }
+        
+        # Vérifier si l'autre assignment est TERMINE
+        if other_assignment.status != 'TERMINE':
+            return {
+                'synchronized': False,
+                'reason': f'Assignment avec counting order {other_counting_order} n\'est pas encore TERMINE'
+            }
+        
+        # Les deux assignments sont TERMINE, on peut synchroniser
+        counting_1 = assignment.counting if counting_order == 1 else other_assignment.counting
+        counting_2 = other_assignment.counting if counting_order == 1 else assignment.counting
+        
+        # Récupérer tous les CountingDetail des deux countings pour ce job
+        counting_details_1 = CountingDetail.objects.filter(
+            job=job,
+            counting=counting_1
+        ).select_related('location', 'product')
+        
+        counting_details_2 = CountingDetail.objects.filter(
+            job=job,
+            counting=counting_2
+        ).select_related('location', 'product')
+        
+        # Créer des sets pour la comparaison rapide
+        # Clé de comparaison : (location_id, product_id, dlc, n_lot)
+        def get_comparison_key(cd: CountingDetail) -> Tuple[int, Optional[int], Optional[str], Optional[str]]:
+            return (
+                cd.location_id,
+                cd.product_id if cd.product else None,
+                cd.dlc.isoformat() if cd.dlc else None,
+                cd.n_lot or None
+            )
+        
+        # Créer des dictionnaires pour accès rapide
+        details_1_dict = {get_comparison_key(cd): cd for cd in counting_details_1}
+        details_2_dict = {get_comparison_key(cd): cd for cd in counting_details_2}
+        
+        # Trouver les lignes manquantes dans counting_2 (présentes dans counting_1 mais pas dans counting_2)
+        missing_in_2 = []
+        for key, cd_1 in details_1_dict.items():
+            if key not in details_2_dict:
+                missing_in_2.append({
+                    'location': cd_1.location,
+                    'product': cd_1.product,
+                    'dlc': cd_1.dlc,
+                    'n_lot': cd_1.n_lot,
+                    'counting': counting_2,
+                    'job': job
+                })
+        
+        # Trouver les lignes manquantes dans counting_1 (présentes dans counting_2 mais pas dans counting_1)
+        missing_in_1 = []
+        for key, cd_2 in details_2_dict.items():
+            if key not in details_1_dict:
+                missing_in_1.append({
+                    'location': cd_2.location,
+                    'product': cd_2.product,
+                    'dlc': cd_2.dlc,
+                    'n_lot': cd_2.n_lot,
+                    'counting': counting_1,
+                    'job': job
+                })
+        
+        # Créer les CountingDetail manquants avec quantité 0
+        created_count = 0
+        counting_details_to_create = []
+        
+        for item in missing_in_2:
+            counting_detail = CountingDetail(
+                quantity_inventoried=0,
+                product=item['product'],
+                dlc=item['dlc'],
+                n_lot=item['n_lot'],
+                location=item['location'],
+                counting=item['counting'],
+                job=item['job'],
+                last_synced_at=timezone.now()
+            )
+            # Générer la référence temporaire
+            counting_detail.reference = counting_detail.generate_reference(CountingDetail.REFERENCE_PREFIX)
+            counting_details_to_create.append(counting_detail)
+            created_count += 1
+        
+        for item in missing_in_1:
+            counting_detail = CountingDetail(
+                quantity_inventoried=0,
+                product=item['product'],
+                dlc=item['dlc'],
+                n_lot=item['n_lot'],
+                location=item['location'],
+                counting=item['counting'],
+                job=item['job'],
+                last_synced_at=timezone.now()
+            )
+            # Générer la référence temporaire
+            counting_detail.reference = counting_detail.generate_reference(CountingDetail.REFERENCE_PREFIX)
+            counting_details_to_create.append(counting_detail)
+            created_count += 1
+        
+        # Bulk create si nécessaire
+        if counting_details_to_create:
+            CountingDetail.objects.bulk_create(counting_details_to_create)
+            
+            # Régénérer les références avec les IDs réels
+            for cd in counting_details_to_create:
+                if cd.id:
+                    cd.reference = cd.generate_reference(CountingDetail.REFERENCE_PREFIX)
+            
+            # Bulk update des références
+            CountingDetail.objects.bulk_update(counting_details_to_create, fields=['reference'])
+        
+        return {
+            'synchronized': True,
+            'counting_order_1': counting_1.order,
+            'counting_order_2': counting_2.order,
+            'created_count': created_count,
+            'missing_in_counting_1': len(missing_in_1),
+            'missing_in_counting_2': len(missing_in_2)
         }

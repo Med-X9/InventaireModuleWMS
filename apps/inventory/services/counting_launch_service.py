@@ -90,26 +90,38 @@ class CountingLaunchService:
                     f"Aucun comptage d'ordre 3 n'est défini pour l'inventaire {job.inventory_id}."
                 )
 
-            # Vérifier si un JobDetail existe déjà pour ce job, cet emplacement et le comptage d'ordre 3
-            # C'est la bonne façon de déterminer si on lance le comptage 3 ou un comptage supplémentaire
-            existing_job_detail_for_counting_3 = self.job_repository.get_job_detail_by_job_location_and_counting(
-                job,
-                location,
-                counting_order_three,
+            # Étape 3 : déterminer le comptage cible en trouvant le plus haut ordre avec JobDetail
+            # Trouver le plus haut ordre de comptage pour lequel un JobDetail existe déjà pour cet emplacement
+            highest_order_with_jobdetail = self._find_highest_counting_order_with_jobdetail(
+                job, location
             )
-
-            # Étape 3 : déterminer le comptage cible (3e ou duplication pour 4e, 5e, ...)
+            
             new_counting_created = False
-            if existing_job_detail_for_counting_3 is None:
-                # Aucun JobDetail n'existe pour cet emplacement et le comptage 3 → C'est le lancement du comptage 3
+            if highest_order_with_jobdetail is None or highest_order_with_jobdetail < 3:
+                # Aucun JobDetail n'existe pour cet emplacement (ou seulement pour comptages 1-2)
+                # → C'est le lancement du comptage 3
                 self._ensure_previous_countings_completed(job.id, location.id, target_order=3)
                 target_counting = counting_order_three
             else:
-                # Un JobDetail existe déjà pour cet emplacement et le comptage 3 → C'est un comptage supplémentaire (4, 5, etc.)
-                next_order = self.counting_repository.get_next_order(job.inventory_id)
-                self._ensure_previous_countings_completed(job.id, location.id, target_order=next_order)
-                target_counting = self.counting_repository.duplicate_counting(counting_order_three.id)
-                new_counting_created = True
+                # Un JobDetail existe déjà pour un comptage >= 3
+                # → C'est un comptage supplémentaire (4, 5, etc.)
+                # Le comptage cible est le suivant après le plus haut trouvé
+                target_order = highest_order_with_jobdetail + 1
+                self._ensure_previous_countings_completed(job.id, location.id, target_order=target_order)
+                
+                # Vérifier si le comptage cible existe déjà (créé par un autre emplacement)
+                existing_target_counting = self.counting_repository.get_by_inventory_and_order(
+                    job.inventory_id,
+                    target_order,
+                )
+                
+                if existing_target_counting:
+                    # Le comptage existe déjà (créé pour un autre emplacement) → l'utiliser
+                    target_counting = existing_target_counting
+                else:
+                    # Le comptage n'existe pas → le créer par duplication du comptage 3
+                    target_counting = self.counting_repository.duplicate_counting(counting_order_three.id)
+                    new_counting_created = True
 
             # Étape 4 : garantir l'existence du job detail pour ce comptage et cet emplacement
             job_detail = self.job_repository.get_job_detail_by_job_location_and_counting(
@@ -184,6 +196,36 @@ class CountingLaunchService:
             raise
         except Exception as exc:
             raise CountingCreationError(f"Erreur lors du lancement du comptage: {exc}") from exc
+
+    def _find_highest_counting_order_with_jobdetail(self, job, location) -> Optional[int]:
+        """
+        Trouve le plus haut ordre de comptage pour lequel un JobDetail existe
+        pour ce job et cet emplacement.
+        
+        Args:
+            job: L'objet Job
+            location: L'objet Location
+            
+        Returns:
+            L'ordre du comptage le plus élevé trouvé, ou None si aucun JobDetail n'existe
+        """
+        from ..models import JobDetail
+        
+        # Récupérer tous les JobDetails pour ce job et cet emplacement
+        job_details = JobDetail.objects.filter(
+            job=job,
+            location=location
+        ).select_related('counting').order_by('-counting__order')
+        
+        if not job_details.exists():
+            return None
+        
+        # Retourner l'ordre du comptage le plus élevé
+        highest_job_detail = job_details.first()
+        if highest_job_detail and highest_job_detail.counting:
+            return highest_job_detail.counting.order
+        
+        return None
 
     def _ensure_previous_countings_completed(self, job_id: int, location_id: int, target_order: int) -> None:
         """
