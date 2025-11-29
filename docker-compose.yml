@@ -31,6 +31,7 @@ services:
       - media_volume:/app/media
       - logs_volume:/app/logs
       - static_dir:/app/static
+      - data_dir:/app/data
       # Volume pour les fichiers d'importation
       # Utilise le chemin absolu pour s'assurer que le dossier existe sur le serveur
       - /tmp/deployment/backend/data:/app/data
@@ -75,3 +76,4 @@ volumes:
   media_volume:
   logs_volume:
   static_dir:
+  data_rir:
