@@ -89,3 +89,6 @@ ENV/
 
 # Docker
 .dockerignore
+
+# Serveur - fichiers de configuration système
+serveur/

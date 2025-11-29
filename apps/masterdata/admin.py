@@ -412,10 +412,7 @@ class ProductResource(resources.ModelResource):
         skip_unchanged = True
         report_skipped = True
         use_transactions = True
-        # Optimisations pour import en production (20k+ lignes)
-        use_bulk = True  # ✅ CRITIQUE : Active le bulk import (×10 plus rapide)
-        batch_size = 1000  # ✅ Optimisé pour 20k lignes (1000 par batch)
-        force_init_instance = False  # Évite les requêtes inutiles
+        batch_size = 500  # Import par lots pour éviter timeout
 
     # Vérifie que toutes les lignes ont un product_family existant
 
@@ -440,44 +437,7 @@ class ProductResource(resources.ModelResource):
             return bool(value)
         return False
 
-    def before_import(self, dataset, using_transactions, dry_run, **kwargs):
-        """
-        Méthode appelée avant l'import complet.
-        Désactive les signaux Django pour améliorer les performances en production.
-        ⚡ Optimisation critique pour les imports de 20k+ lignes.
-        """
-        from django.db.models.signals import post_save, pre_save
-        
-        # Désactiver les signaux pendant l'import pour améliorer les performances
-        # (les signaux seront réactivés après l'import)
-        self._signals_disabled = {
-            'post_save': post_save.receivers[:],
-            'pre_save': pre_save.receivers[:],
-        }
-        post_save.receivers = []
-        pre_save.receivers = []
-        
-        return super().before_import(dataset, using_transactions, dry_run, **kwargs)
-    
-    def after_import(self, dataset, result, using_transactions, dry_run, **kwargs):
-        """
-        Méthode appelée après l'import complet.
-        Réactive les signaux Django.
-        """
-        from django.db.models.signals import post_save, pre_save
-        
-        # Réactiver les signaux après l'import
-        if hasattr(self, '_signals_disabled'):
-            post_save.receivers = self._signals_disabled.get('post_save', [])
-            pre_save.receivers = self._signals_disabled.get('pre_save', [])
-        
-        return super().after_import(dataset, result, using_transactions, dry_run, **kwargs)
-
     def before_import_row(self, row, **kwargs):
-        """
-        Validation de chaque ligne avant import.
-        ✅ Vérifie que la famille existe (validation FK automatique).
-        """
         family_name = row.get('product family')
         if not family_name or not family_name.strip():
             raise exceptions.ImportError(
@@ -500,13 +460,25 @@ class ProductResource(resources.ModelResource):
     def after_import_row(self, row, row_result, **kwargs):
         """
         Appelé après l'import d'une ligne pour s'assurer que les champs booléens ne sont jamais None.
-        ⚠️ Note: Avec use_bulk=True, cette méthode peut ne pas être appelée pour chaque ligne.
-        Les valeurs par défaut sont gérées dans before_import_row.
         """
-        # Avec use_bulk=True, cette méthode peut ne pas être appelée pour chaque ligne
-        # Les valeurs par défaut sont déjà gérées dans before_import_row
-        # Cette méthode est conservée pour compatibilité mais peut être optimisée
-        pass
+        if row_result.instance and row_result.instance.pk:
+            # S'assurer que Is_Variant et les autres booléens ne sont jamais None
+            needs_save = False
+            if row_result.instance.Is_Variant is None:
+                row_result.instance.Is_Variant = False
+                needs_save = True
+            if row_result.instance.n_lot is None:
+                row_result.instance.n_lot = False
+                needs_save = True
+            if row_result.instance.n_serie is None:
+                row_result.instance.n_serie = False
+                needs_save = True
+            if row_result.instance.dlc is None:
+                row_result.instance.dlc = False
+                needs_save = True
+            # Sauvegarder si des modifications ont été apportées
+            if needs_save:
+                row_result.instance.save(update_fields=['Is_Variant', 'n_lot', 'n_serie', 'dlc'])
 
 
     # Surcharge pour gérer les variations de noms de colonne pour internal_product_code
@@ -549,8 +521,6 @@ class ProductResource(resources.ModelResource):
                 f"The following fields are declared in 'import_id_fields' but are not present in the file headers: {', '.join(missing_fields)}. "
                 f"En-têtes disponibles dans le fichier: {available_headers}"
             )
-
-
 
 class UnitOfMeasureResource(resources.ModelResource):
     name = fields.Field(column_name='nom', attribute='name')
@@ -1114,7 +1084,6 @@ class ProductAdmin(ImportExportModelAdmin):
             as_attachment=True,
             filename=f'erreurs_import_{import_task.id}.xlsx'
         )
-
 
 @admin.register(UnitOfMeasure)
 class UnitOfMeasureAdmin(ImportExportModelAdmin):
