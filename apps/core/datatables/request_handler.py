@@ -64,10 +64,21 @@ class RequestFormatDetector:
         if hasattr(request, 'data') and request.data and isinstance(request.data, dict):
             if 'sortModel' in request.data or 'filterModel' in request.data:
                 return True
+            # startRow/endRow dans POST body indique aussi QueryModel
+            if 'startRow' in request.data or 'endRow' in request.data:
+                return True
         
         # Check GET with sortModel or filterModel
         if request.GET.get('sortModel') or request.GET.get('filterModel'):
             return True
+        
+        # Check GET with startRow/endRow (indicateurs QueryModel, même sans sortModel/filterModel)
+        # Mais seulement si pas de paramètres DataTable (draw, start, length)
+        if request.GET.get('startRow') is not None or request.GET.get('endRow') is not None:
+            # Si pas de paramètres DataTable, considérer comme QueryModel
+            datatable_params = ['draw', 'start', 'length', 'order[0][column]', 'order[0][dir]']
+            if not any(param in request.GET for param in datatable_params):
+                return True
         
         return False
     

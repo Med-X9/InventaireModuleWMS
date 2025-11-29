@@ -199,7 +199,12 @@ class QueryModel:
                 return cls.from_dict(request.data)
         
         # Essayer GET params au format AG-Grid
-        if request.GET.get('sortModel') or request.GET.get('filterModel'):
+        # Vérifier si sortModel ou filterModel sont présents
+        has_sort_or_filter = request.GET.get('sortModel') or request.GET.get('filterModel')
+        # Vérifier si startRow/endRow sont présents (indicateurs QueryModel)
+        has_start_end_row = request.GET.get('startRow') is not None or request.GET.get('endRow') is not None
+        
+        if has_sort_or_filter or has_start_end_row:
             # Parser depuis query params (JSON string)
             import json
             data = {}

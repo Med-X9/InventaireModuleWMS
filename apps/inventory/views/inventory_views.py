@@ -1188,23 +1188,54 @@ class InventoryResultByWarehouseView(ServerSideDataTableView):
                 results = self._apply_search_on_list(results, search_term)
             ordering = request.GET.get('ordering', self.default_order)
             results = self._apply_ordering_on_list(results, ordering)
-            try:
-                page = max(1, int(request.GET.get('page', 1)))
-                page_size = min(max(self.min_page_size, int(request.GET.get('page_size', self.page_size))), self.max_page_size)
-            except (ValueError, TypeError):
-                page = 1
-                page_size = self.page_size
-            start = (page - 1) * page_size
-            paginated_results = results[start:start + page_size]
-            serializer = self.serializer_class({"success": True, "data": paginated_results})
-            total_count = len(results)
-            return Response({
-                'count': total_count,
-                'results': serializer.data.get('data', []),
-                'page': page,
-                'page_size': page_size,
-                'total_pages': (total_count + page_size - 1) // page_size
-            })
+            
+            # Support de startRow/endRow (QueryModel style) en plus de page/page_size (REST style)
+            start_row = None
+            end_row = None
+            if request.GET.get('startRow') is not None or request.GET.get('endRow') is not None:
+                # Utiliser startRow/endRow si présents
+                try:
+                    start_row = int(request.GET.get('startRow', 0))
+                    end_row = request.GET.get('endRow')
+                    if end_row is not None:
+                        end_row = int(end_row)
+                    else:
+                        end_row = start_row + self.page_size
+                except (ValueError, TypeError):
+                    start_row = 0
+                    end_row = self.page_size
+            
+            if start_row is not None and end_row is not None:
+                # Pagination avec startRow/endRow
+                total_count = len(results)
+                paginated_results = results[start_row:end_row]
+                serializer = self.serializer_class({"success": True, "data": paginated_results})
+                return Response({
+                    'count': total_count,
+                    'results': serializer.data.get('data', []),
+                    'startRow': start_row,
+                    'endRow': end_row,
+                    'total_pages': (total_count + (end_row - start_row) - 1) // (end_row - start_row) if (end_row - start_row) > 0 else 1
+                })
+            else:
+                # Pagination classique REST API avec page/page_size
+                try:
+                    page = max(1, int(request.GET.get('page', 1)))
+                    page_size = min(max(self.min_page_size, int(request.GET.get('page_size', self.page_size))), self.max_page_size)
+                except (ValueError, TypeError):
+                    page = 1
+                    page_size = self.page_size
+                start = (page - 1) * page_size
+                paginated_results = results[start:start + page_size]
+                serializer = self.serializer_class({"success": True, "data": paginated_results})
+                total_count = len(results)
+                return Response({
+                    'count': total_count,
+                    'results': serializer.data.get('data', []),
+                    'page': page,
+                    'page_size': page_size,
+                    'total_pages': (total_count + page_size - 1) // page_size
+                })
         except InventoryNotFoundError as error:
             return error_response(message=str(error), status_code=status.HTTP_404_NOT_FOUND)
         except InventoryValidationError as error:
