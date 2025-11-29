@@ -76,4 +76,4 @@ volumes:
   media_volume:
   logs_volume:
   static_dir:
-  data_rir:
+  data_dir:
