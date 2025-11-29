@@ -22,6 +22,7 @@ from .inventory import (
 # Vues utilisateur
 from .user import (
     UserProductsView,
+    UserProductsExportView,
     UserLocationsView,
     UserStocksView
 )
@@ -58,6 +59,7 @@ __all__ = [
 
     # User views
     'UserProductsView',
+    'UserProductsExportView',
     'UserLocationsView',
     'UserStocksView',
 

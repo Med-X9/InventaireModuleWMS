@@ -24,6 +24,11 @@ class PDFRepositoryInterface(ABC):
         pass
     
     @abstractmethod
+    def get_countings_by_inventory_and_orders(self, inventory: Any, orders: List[int]) -> List[Any]:
+        """Récupère les comptages d'un inventaire avec les ordres spécifiés"""
+        pass
+    
+    @abstractmethod
     def get_all_jobs_by_inventory(self, inventory: Any) -> List[Any]:
         """Récupère tous les jobs d'un inventaire"""
         pass

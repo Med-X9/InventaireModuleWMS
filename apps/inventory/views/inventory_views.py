@@ -84,7 +84,7 @@ class InventoryListView(ServerSideDataTableView):
         'awi_links__warehouse__warehouse_name'
     ]
     
-    # Mapping frontend -> backend pour le filtrage par colonnes
+    # Mapping frontend -> backend pour le filtrage par colonnes (utilisé par QueryModel)
     filter_aliases = {
         'reference': 'reference',
         'label': 'label',
@@ -96,6 +96,27 @@ class InventoryListView(ServerSideDataTableView):
         'termine_status_date': 'termine_status_date',
         'cloture_status_date': 'cloture_status_date',
         'created_at': 'created_at',
+        'account_name': 'awi_links__account__account_name',
+        'account_reference': 'awi_links__account__reference',
+        'warehouse_name': 'awi_links__warehouse__warehouse_name',
+        'warehouse_references': 'awi_links__warehouse__reference'
+    }
+    
+    # Mapping explicite pour QueryModel (colId -> field_name)
+    # Utilisé par _get_column_field_mapping_for_querymodel() pour le tri et filtrage
+    column_field_mapping = {
+        'id': 'id',
+        'reference': 'reference',
+        'label': 'label',
+        'date': 'date',
+        'status': 'status',
+        'inventory_type': 'inventory_type',
+        'en_preparation_status_date': 'en_preparation_status_date',
+        'en_realisation_status_date': 'en_realisation_status_date',
+        'termine_status_date': 'termine_status_date',
+        'cloture_status_date': 'cloture_status_date',
+        'created_at': 'created_at',
+        'updated_at': 'updated_at',
         'account_name': 'awi_links__account__account_name',
         'account_reference': 'awi_links__account__reference',
         'warehouse_name': 'awi_links__warehouse__warehouse_name',
@@ -690,32 +711,75 @@ class InventoryWarehouseStatsView(APIView):
 class InventoryResultByWarehouseView(ServerSideDataTableView):
     """
     Vue permettant de récupérer les résultats d'un inventaire agrégés par entrepôt.
-    Configuration minimale - Supporte automatiquement DataTable et REST API.
+    Supporte automatiquement :
+    - Format QueryModel (POST JSON ou GET query params)
+    - Format DataTable standard (GET query params)
+    - Format REST API (GET query params)
     """
     
     serializer_class = InventoryWarehouseResultSerializer
+    
+    # Champs de recherche - tous les champs disponibles
     search_fields = [
-        'location', 'product', 'product_description', 'product_internal_code',
-        'job_reference', 'final_result'
+        'location', 'location_id', 'product', 'product_description', 'product_internal_code',
+        'job_id', 'job_reference', 'final_result', 'resolved',
+        # Comptages dynamiques (seront détectés dans les données)
+        '1er comptage', '2er comptage', '3er comptage', '4er comptage', '5er comptage',
+        # Écarts dynamiques
+        'ecart_1_2', 'ecart_2_3', 'ecart_3_4', 'ecart_4_5', 'ecart_1_3', 'ecart_2_4', 'ecart_3_5',
+        # Statuts d'assignment par comptage (seulement 1er et 2ème)
+        'statut_1er_comptage', 'statut_2er_comptage'
     ]
+    
+    # Champs de tri - tous les champs disponibles
     order_fields = [
-        'location', 'location_id', 'product', 'product_description',
-        'job_id', 'job_reference', 'final_result', 'resolved'
+        'location', 'location_id', 'product', 'product_description', 'product_internal_code',
+        'job_id', 'job_reference', 'final_result', 'resolved',
+        # Comptages dynamiques
+        '1er comptage', '2er comptage', '3er comptage', '4er comptage', '5er comptage',
+        # Écarts dynamiques
+        'ecart_1_2', 'ecart_2_3', 'ecart_3_4', 'ecart_4_5', 'ecart_1_3', 'ecart_2_4', 'ecart_3_5',
+        # Statuts d'assignment par comptage (seulement 1er et 2ème)
+        'statut_1er_comptage', 'statut_2er_comptage'
     ]
+    
     default_order = 'location'
     page_size = 20
     
-    # Mapping des colonnes DataTable vers les champs réels
+    # Mapping des colonnes frontend -> backend (utilisé par QueryModel)
     column_field_mapping = {
         'id': 'location_id',
+        'location_id': 'location_id',
         'article': 'product',
+        'product': 'product',
+        'product_description': 'product_description',
+        'product_internal_code': 'product_internal_code',
         'emplacement': 'location',
+        'location': 'location',
+        'job_id': 'job_id',
+        'job_reference': 'job_reference',
+        'job': 'job_reference',  # Alias
         'contage_1': '1er comptage',
         'contage_2': '2er comptage',
         'contage_3': '3er comptage',
+        'contage_4': '4er comptage',
+        'contage_5': '5er comptage',
         'ecart_1_2': 'ecart_1_2',
         'ecart_2_3': 'ecart_2_3',
+        'ecart_3_4': 'ecart_3_4',
+        'ecart_4_5': 'ecart_4_5',
+        'ecart_1_3': 'ecart_1_3',
+        'ecart_2_4': 'ecart_2_4',
+        'ecart_3_5': 'ecart_3_5',
         'resultats': 'final_result',
+        'final_result': 'final_result',
+        'resolved': 'resolved',
+        # Statuts d'assignment par comptage (seulement 1er et 2ème)
+        'statut_1er_comptage': 'statut_1er_comptage',
+        'statut_2er_comptage': 'statut_2er_comptage',
+        # Alias pour compatibilité
+        'statut_comptage_1': 'statut_1er_comptage',
+        'statut_comptage_2': 'statut_2er_comptage',
     }
     
     def __init__(self, *args, **kwargs):
@@ -735,11 +799,19 @@ class InventoryResultByWarehouseView(ServerSideDataTableView):
             return data_list
         filtered = []
         for item in data_list:
+            # Rechercher dans tous les champs de recherche configurés
             for field in self.search_fields:
                 value = item.get(field)
                 if value is not None and search_clean in str(value).lower():
                     filtered.append(item)
                     break
+            else:
+                # Si pas trouvé dans les champs configurés, chercher dans tous les champs de l'item
+                # (pour les champs dynamiques comme les comptages et écarts)
+                for key, value in item.items():
+                    if value is not None and search_clean in str(value).lower():
+                        filtered.append(item)
+                        break
         return filtered
     
     def _get_field_name_from_column(self, column_index: int, request) -> str:
@@ -815,6 +887,185 @@ class InventoryResultByWarehouseView(ServerSideDataTableView):
                 filtered = [item for item in filtered if str(item.get(field_name, '')).strip() == search_value]
         return filtered
     
+    def _apply_querymodel_filters_on_list(self, data_list: list, filter_model: dict) -> list:
+        """Applique les filtres QueryModel sur une liste de dictionnaires."""
+        if not filter_model:
+            return data_list
+        
+        filtered = data_list
+        for col_id, filter_config in filter_model.items():
+            if not isinstance(filter_config, dict):
+                continue
+            
+            # Obtenir le nom du champ réel depuis le mapping
+            field_name = self.column_field_mapping.get(col_id, col_id)
+            
+            # Gérer les différents types de filtres
+            filter_type = filter_config.get('filterType', 'text')
+            
+            if filter_type == 'set':
+                # Filtre SET (valeurs multiples)
+                values = filter_config.get('values', [])
+                if values:
+                    filtered = [item for item in filtered if str(item.get(field_name, '')).strip() in [str(v).strip() for v in values]]
+            
+            elif filter_type == 'text':
+                # Filtres texte
+                filter_value = filter_config.get('filter', '')
+                if not filter_value:
+                    continue
+                
+                filter_op = filter_config.get('type', 'contains')
+                filter_lower = str(filter_value).lower()
+                
+                if filter_op == 'equals':
+                    filtered = [item for item in filtered if str(item.get(field_name, '')).strip() == filter_value]
+                elif filter_op == 'notEqual':
+                    filtered = [item for item in filtered if str(item.get(field_name, '')).strip() != filter_value]
+                elif filter_op == 'contains':
+                    filtered = [item for item in filtered if filter_lower in str(item.get(field_name, '')).lower()]
+                elif filter_op == 'notContains':
+                    filtered = [item for item in filtered if filter_lower not in str(item.get(field_name, '')).lower()]
+                elif filter_op == 'startsWith':
+                    filtered = [item for item in filtered if str(item.get(field_name, '')).lower().startswith(filter_lower)]
+                elif filter_op == 'endsWith':
+                    filtered = [item for item in filtered if str(item.get(field_name, '')).lower().endswith(filter_lower)]
+            
+            elif filter_type == 'number':
+                # Filtres numériques
+                filter_value = filter_config.get('filter')
+                if filter_value is None:
+                    continue
+                
+                try:
+                    filter_num = float(filter_value)
+                except (ValueError, TypeError):
+                    continue
+                
+                filter_op = filter_config.get('type', 'equals')
+                
+                if filter_op == 'equals':
+                    filtered = [item for item in filtered if self._compare_numeric(item.get(field_name), filter_num, '==')]
+                elif filter_op == 'notEqual':
+                    filtered = [item for item in filtered if not self._compare_numeric(item.get(field_name), filter_num, '==')]
+                elif filter_op == 'greaterThan':
+                    filtered = [item for item in filtered if self._compare_numeric(item.get(field_name), filter_num, '>')]
+                elif filter_op == 'greaterThanOrEqual':
+                    filtered = [item for item in filtered if self._compare_numeric(item.get(field_name), filter_num, '>=')]
+                elif filter_op == 'lessThan':
+                    filtered = [item for item in filtered if self._compare_numeric(item.get(field_name), filter_num, '<')]
+                elif filter_op == 'lessThanOrEqual':
+                    filtered = [item for item in filtered if self._compare_numeric(item.get(field_name), filter_num, '<=')]
+                elif filter_op == 'inRange':
+                    filter_to = filter_config.get('filterTo')
+                    if filter_to is not None:
+                        try:
+                            filter_to_num = float(filter_to)
+                            filtered = [item for item in filtered if self._compare_numeric_range(item.get(field_name), filter_num, filter_to_num)]
+                        except (ValueError, TypeError):
+                            pass
+        
+        return filtered
+    
+    def _compare_numeric(self, value, target, operator):
+        """Compare une valeur numérique avec un opérateur."""
+        if value is None:
+            return False
+        try:
+            num_value = float(value)
+            if operator == '==':
+                return num_value == target
+            elif operator == '>':
+                return num_value > target
+            elif operator == '>=':
+                return num_value >= target
+            elif operator == '<':
+                return num_value < target
+            elif operator == '<=':
+                return num_value <= target
+        except (ValueError, TypeError):
+            return False
+        return False
+    
+    def _compare_numeric_range(self, value, min_val, max_val):
+        """Vérifie si une valeur est dans une plage numérique."""
+        if value is None:
+            return False
+        try:
+            num_value = float(value)
+            return min_val <= num_value <= max_val
+        except (ValueError, TypeError):
+            return False
+    
+    def _apply_querymodel_sorting_on_list(self, data_list: list, sort_model: list) -> list:
+        """Applique le tri QueryModel sur une liste de dictionnaires."""
+        if not sort_model:
+            return self._apply_ordering_on_list(data_list, self.default_order)
+        
+        # Construire la clé de tri multi-colonnes
+        def sort_key(item):
+            key_parts = []
+            for sort_item in sort_model:
+                col_id = sort_item.get('colId', '')
+                sort_dir = sort_item.get('sort', 'asc')
+                field_name = self.column_field_mapping.get(col_id, col_id)
+                value = item.get(field_name)
+                
+                # Gérer les valeurs None et les types numériques
+                if value is None:
+                    key_parts.append((float('-inf') if sort_dir == 'asc' else float('inf'),))
+                elif isinstance(value, (int, float)) or (isinstance(value, str) and value.replace('.', '').replace('-', '').isdigit()):
+                    try:
+                        num_value = float(value)
+                        key_parts.append((num_value,))
+                    except (ValueError, TypeError):
+                        key_parts.append((str(value).lower(),))
+                else:
+                    key_parts.append((str(value).lower(),))
+            
+            return tuple(key_parts)
+        
+        # Trier selon toutes les colonnes
+        reverse = False
+        if sort_model and sort_model[0].get('sort') == 'desc':
+            reverse = True
+        
+        return sorted(data_list, key=sort_key, reverse=reverse)
+    
+    def _process_querymodel_list_data(self, results: list, request) -> tuple:
+        """Traite les données de liste avec QueryModel : filtres, recherche, tri, pagination."""
+        from apps.core.datatables.models import QueryModel
+        from apps.core.datatables.request_handler import RequestParameterExtractor
+        
+        # Parser QueryModel
+        query_model = QueryModel.from_request(request)
+        
+        # Recherche globale
+        search_value = RequestParameterExtractor.get_search_value(request)
+        if search_value and search_value.strip():
+            results = self._apply_search_on_list(results, search_value.strip())
+        
+        # Filtres QueryModel
+        if query_model.filter_model:
+            results = self._apply_querymodel_filters_on_list(results, query_model.filter_model)
+        
+        # Tri QueryModel
+        if query_model.sort_model:
+            results = self._apply_querymodel_sorting_on_list(results, query_model.sort_model)
+        else:
+            results = self._apply_ordering_on_list(results, self.default_order)
+        
+        # Pagination QueryModel (startRow/endRow)
+        start_row = query_model.start_row or 0
+        end_row = query_model.end_row
+        if end_row is None:
+            end_row = start_row + self.page_size
+        
+        total_count = len(results)
+        paginated_results = results[start_row:end_row]
+        
+        return paginated_results, total_count
+    
     def _process_list_data(self, results: list, request) -> tuple:
         """Traite les données de liste : filtres, recherche, tri, pagination."""
         # Filtres de colonnes
@@ -852,6 +1103,58 @@ class InventoryResultByWarehouseView(ServerSideDataTableView):
         total_count = len(results)
         paginated_results = results[start:start + length]
         return paginated_results, total_count
+    
+    def _handle_querymodel_request(self, request, inventory_id: int, warehouse_id: int, *args, **kwargs):
+        """Gère les requêtes QueryModel avec traitement sur liste de dictionnaires."""
+        try:
+            results = self._get_results_data(inventory_id, warehouse_id)
+            paginated_results, total_count = self._process_querymodel_list_data(results, request)
+            serializer = self.serializer_class({"success": True, "data": paginated_results})
+            return Response({
+                'draw': int(request.GET.get('draw', 1)) if request.GET.get('draw') else 1,
+                'recordsTotal': total_count,
+                'recordsFiltered': total_count,
+                'data': serializer.data.get('data', [])
+            })
+        except InventoryNotFoundError as error:
+            return error_response(message=str(error), status_code=status.HTTP_404_NOT_FOUND)
+        except InventoryValidationError as error:
+            return error_response(message=str(error), status_code=status.HTTP_400_BAD_REQUEST)
+        except Exception as error:
+            logger.error(f"Erreur lors de la récupération des résultats QueryModel: {str(error)}", exc_info=True)
+            return error_response(
+                message="Une erreur inattendue est survenue",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def handle_datatable_request(self, request, inventory_id: int, warehouse_id: int, *args, **kwargs):
+        """Gère les requêtes DataTable avec traitement sur liste de dictionnaires."""
+        # Vérifier si c'est une requête QueryModel
+        from apps.core.datatables.request_handler import RequestFormatDetector
+        if RequestFormatDetector.is_query_model_request(request):
+            return self._handle_querymodel_request(request, inventory_id, warehouse_id, *args, **kwargs)
+        
+        # Sinon, traiter comme requête DataTable standard
+        try:
+            results = self._get_results_data(inventory_id, warehouse_id)
+            paginated_results, total_count = self._process_list_data(results, request)
+            serializer = self.serializer_class({"success": True, "data": paginated_results})
+            return Response({
+                'draw': int(request.GET.get('draw', 1)),
+                'recordsTotal': total_count,
+                'recordsFiltered': total_count,
+                'data': serializer.data.get('data', [])
+            })
+        except InventoryNotFoundError as error:
+            return error_response(message=str(error), status_code=status.HTTP_404_NOT_FOUND)
+        except InventoryValidationError as error:
+            return error_response(message=str(error), status_code=status.HTTP_400_BAD_REQUEST)
+        except Exception as error:
+            logger.error(f"Erreur lors de la récupération des résultats: {str(error)}", exc_info=True)
+            return error_response(
+                message="Une erreur inattendue est survenue",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
     
     def handle_datatable_request(self, request, inventory_id: int, warehouse_id: int, *args, **kwargs):
         """Gère les requêtes DataTable avec traitement sur liste de dictionnaires."""

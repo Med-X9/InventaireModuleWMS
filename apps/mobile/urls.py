@@ -30,6 +30,12 @@ urlpatterns = [
         views.UserProductsView.as_view(),
         name="mobile_user_products",
     ),
+    # Export optimisé des produits (CSV/Excel streaming)
+    path(
+        "products/export/",
+        views.UserProductsExportView.as_view(),
+        name="mobile_user_products_export",
+    ),
     # Locations du même compte qu'un utilisateur
     path(
         "locations/",
