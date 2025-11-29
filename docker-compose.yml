@@ -22,7 +22,7 @@ services:
     command: >
         sh -c "python manage.py migrate --noinput &&
               python manage.py collectstatic --noinput --clear --verbosity=0 &&
-              exec gunicorn project.wsgi:application -b 0.0.0.0:8000 --workers 2 --threads 4 --timeout 300 --preload --log-level info"
+              exec gunicorn project.wsgi:application -b 0.0.0.0:8000 --workers 2 --threads 4 --timeout 600 --preload --log-level info"
 
 
     # Removed: .:/app volume (don't override production image code)
@@ -31,7 +31,6 @@ services:
       - media_volume:/app/media
       - logs_volume:/app/logs
       - static_dir:/app/static
-      - data_dir:/app/data
       # Volume pour les fichiers d'importation
       # Utilise le chemin absolu pour s'assurer que le dossier existe sur le serveur
       - /tmp/deployment/backend/data:/app/data
@@ -76,4 +75,3 @@ volumes:
   media_volume:
   logs_volume:
   static_dir:
-  data_dir:
