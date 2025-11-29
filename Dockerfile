@@ -48,6 +48,9 @@ RUN mkdir -p /app/static /app/media /app/logs /app/data \
     && useradd -U app_user \
     && chown -R app_user:app_user /app
 
+# Créer le dossier data s'il n'existe pas (pour le cas où il n'est pas dans le repo)
+RUN mkdir -p /app/data && chmod 755 /app/data
+
 # Passage à l'utilisateur non-root
 USER app_user
 

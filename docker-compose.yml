@@ -31,7 +31,9 @@ services:
       - media_volume:/app/media
       - logs_volume:/app/logs
       - static_dir:/app/static
-      - ./data:/app/data  # Volume pour les fichiers d'importation
+      # Volume pour les fichiers d'importation
+      # Utilise le chemin absolu pour s'assurer que le dossier existe sur le serveur
+      - /tmp/deployment/backend/data:/app/data
     ports:
       - "8000:8000"
     env_file: .env
