@@ -1,20 +1,21 @@
 from django.urls import path
-from rest_framework_simplejwt.views import TokenBlacklistView
+from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
+    TokenRefreshView,
+    TokenVerifyView,
+    TokenBlacklistView
+)
 from .views import MobileUserListView
 from .views.csrf_views import CSRFTokenView, csrf_token_simple
-from .views.auth_throttle_views import (
-    ThrottledTokenObtainPairView,
-    ThrottledTokenRefreshView,
-    ThrottledTokenVerifyView
-)
+
 
 app_name = 'users'
 
 urlpatterns = [
-    path('login/', ThrottledTokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('login/refresh/', ThrottledTokenRefreshView.as_view(), name='token_refresh'),
+    path('login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('login/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('logout/', TokenBlacklistView.as_view(), name='auth_logout'),
-    path('verify/', ThrottledTokenVerifyView.as_view(), name='token_verify'),
+    path('verify/', TokenVerifyView.as_view(), name='token_verify'),
     path('mobile-users/', MobileUserListView.as_view(), name='mobile-users-list'),
     path('mobile-users/inventory/<int:inventory_id>/', MobileUserListView.as_view(), name='mobile-users-by-inventory'),
     
