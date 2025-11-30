@@ -21,7 +21,6 @@ class ExcelExportService:
         Le fichier contient :
         - Les informations de l'article (référence, code, description, etc.)
         - La quantité consolidée (somme de toutes les quantités)
-        - Une colonne par emplacement avec la quantité dans cet emplacement
         
         Args:
             inventory_id: ID de l'inventaire
@@ -71,9 +70,6 @@ class ExcelExportService:
         rows = []
         
         for product_data in consolidated_data:
-            # Joindre les emplacements avec une virgule et un espace
-            locations_str = ', '.join(product_data['locations_list']) if product_data['locations_list'] else ''
-            
             row = {
                 'Référence': product_data['product_reference'],
                 'Code Produit': product_data['product_code'],
@@ -82,7 +78,6 @@ class ExcelExportService:
                 'Unité': product_data['product_unit'],
                 'Famille': product_data['product_family'],
                 'Quantité Consolidée': product_data['total_quantity'],
-                'Emplacements': locations_str,
             }
             
             rows.append(row)
