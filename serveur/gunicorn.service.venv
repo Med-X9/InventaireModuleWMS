@@ -1,0 +1,34 @@
+[Unit]
+Description=gunicorn daemon
+Requires=gunicorn.socket
+After=network.target
+
+[Service]
+Type=notify
+
+# Nom d'utilisateur et groupe qui exécutent le processus
+User=www-data
+Group=www-data
+
+# Répertoire de travail (chemin vers votre projet Django)
+WorkingDirectory=/home/ubuntu/IMS/backend
+
+# Environnement virtuel Python
+Environment="PATH=/home/ubuntu/IMS/backend/venv/bin"
+ExecStart=/home/ubuntu/IMS/backend/venv/bin/gunicorn \
+          --access-logfile - \
+          --workers 3 \
+          --threads 2 \
+          --timeout 600 \
+          --bind unix:/run/gunicorn.sock \
+          project.wsgi:application
+
+# Redémarrer automatiquement en cas d'échec
+Restart=on-failure
+
+# Sécurité : empêcher l'accès aux fichiers système
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+

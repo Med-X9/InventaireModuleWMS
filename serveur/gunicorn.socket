@@ -1,0 +1,14 @@
+[Unit]
+Description=gunicorn socket
+
+[Socket]
+ListenStream=/run/gunicorn.sock
+
+# Our service won't need permissions for the socket, since it
+# inherits the file descriptor from systemd.
+SocketUser=www-data
+SocketMode=600
+
+[Install]
+WantedBy=sockets.target
+
