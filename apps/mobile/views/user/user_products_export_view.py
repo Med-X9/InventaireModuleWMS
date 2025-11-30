@@ -139,6 +139,7 @@ class UserProductsExportView(APIView):
             headers = [
                 'web_id',              # Clé primaire pour upsert
                 'product_name',
+                'designation',          # Short_Description
                 'product_code',
                 'internal_product_code',
                 'family_name',
@@ -264,6 +265,7 @@ class UserProductsExportView(APIView):
                 formatted.append({
                     'web_id': product.id,
                     'product_name': product.Short_Description or '',
+                    'designation': product.Short_Description or '',
                     'product_code': product.Product_Code or '',
                     'internal_product_code': product.Internal_Product_Code or '',
                     'family_name': product.Product_Family.Family_Name if product.Product_Family else '',
@@ -308,6 +310,7 @@ class UserProductsExportView(APIView):
         row = [
             escape_csv_value(product.get('web_id', '')),
             escape_csv_value(product.get('product_name', '')),
+            escape_csv_value(product.get('designation', '')),
             escape_csv_value(product.get('product_code', '')),
             escape_csv_value(product.get('internal_product_code', '')),
             escape_csv_value(product.get('family_name', '')),
@@ -347,7 +350,7 @@ class UserProductsExportView(APIView):
             
             # En-têtes
             headers = [
-                'ID', 'Nom du produit', 'Code produit', 'Code produit interne',
+                'ID', 'Nom du produit', 'Désignation', 'Code produit', 'Code produit interne',
                 'Famille', 'Est variante', 'N° Lot', 'N° Série', 'DLC',
                 'Numéros de série', 'Date de création', 'Date de mise à jour'
             ]
@@ -373,16 +376,17 @@ class UserProductsExportView(APIView):
                 for product in products:
                     ws.cell(row=row_num, column=1, value=product.get('web_id'))
                     ws.cell(row=row_num, column=2, value=product.get('product_name'))
-                    ws.cell(row=row_num, column=3, value=product.get('product_code'))
-                    ws.cell(row=row_num, column=4, value=product.get('internal_product_code'))
-                    ws.cell(row=row_num, column=5, value=product.get('family_name'))
-                    ws.cell(row=row_num, column=6, value='Oui' if product.get('is_variant') else 'Non')
-                    ws.cell(row=row_num, column=7, value='Oui' if product.get('n_lot') else 'Non')
-                    ws.cell(row=row_num, column=8, value='Oui' if product.get('n_serie') else 'Non')
-                    ws.cell(row=row_num, column=9, value='Oui' if product.get('dlc') else 'Non')
-                    ws.cell(row=row_num, column=10, value=str(product.get('numeros_serie', '[]')))
-                    ws.cell(row=row_num, column=11, value=product.get('created_at', ''))
-                    ws.cell(row=row_num, column=12, value=product.get('updated_at', ''))
+                    ws.cell(row=row_num, column=3, value=product.get('designation'))
+                    ws.cell(row=row_num, column=4, value=product.get('product_code'))
+                    ws.cell(row=row_num, column=5, value=product.get('internal_product_code'))
+                    ws.cell(row=row_num, column=6, value=product.get('family_name'))
+                    ws.cell(row=row_num, column=7, value='Oui' if product.get('is_variant') else 'Non')
+                    ws.cell(row=row_num, column=8, value='Oui' if product.get('n_lot') else 'Non')
+                    ws.cell(row=row_num, column=9, value='Oui' if product.get('n_serie') else 'Non')
+                    ws.cell(row=row_num, column=10, value='Oui' if product.get('dlc') else 'Non')
+                    ws.cell(row=row_num, column=11, value=str(product.get('numeros_serie', '[]')))
+                    ws.cell(row=row_num, column=12, value=product.get('created_at', ''))
+                    ws.cell(row=row_num, column=13, value=product.get('updated_at', ''))
                     
                     row_num += 1
                     total_processed += 1
@@ -400,9 +404,9 @@ class UserProductsExportView(APIView):
             
             # Ajuster la largeur des colonnes
             column_widths = {
-                'A': 10, 'B': 30, 'C': 20, 'D': 20, 'E': 20,
-                'F': 15, 'G': 10, 'H': 10, 'I': 10, 'J': 40,
-                'K': 20, 'L': 20
+                'A': 10, 'B': 30, 'C': 30, 'D': 20, 'E': 20,
+                'F': 20, 'G': 15, 'H': 10, 'I': 10, 'J': 10,
+                'K': 40, 'L': 20, 'M': 20
             }
             for col, width in column_widths.items():
                 ws.column_dimensions[col].width = width
