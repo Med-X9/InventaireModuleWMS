@@ -215,3 +215,137 @@ class InventoryResultAPIViewTestCase(TestCase):
         if "resolved" in entry_b:
             self.assertIsInstance(entry_b["resolved"], bool)
 
+    def test_pagination_with_startrow_endrow(self) -> None:
+        """
+        Test de pagination avec startRow=20 et endRow=40 (1-indexed).
+        Vérifie que la pagination fonctionne correctement avec l'authentification par login.
+        """
+        # Créer l'utilisateur mohammed avec le mot de passe admin1234
+        User = get_user_model()
+        user_mohammed, created = User.objects.get_or_create(
+            username="mohammed",
+            defaults={
+                "email": "mohammed@test.com",
+                "password": "admin1234",
+                "type": "Web",
+            }
+        )
+        if not created:
+            # Si l'utilisateur existe déjà, mettre à jour le mot de passe
+            user_mohammed.set_password("admin1234")
+            user_mohammed.save()
+        
+        # Authentifier avec l'utilisateur mohammed
+        # Note: Pour APIClient de DRF, force_authenticate() est la méthode recommandée
+        # car login() est conçu pour les sessions Django classiques, pas pour les APIs REST
+        self.client.force_authenticate(user=user_mohammed)
+        
+        # Vérifier que l'utilisateur a bien le bon mot de passe
+        self.assertTrue(user_mohammed.check_password("admin1234"), "Le mot de passe devrait être correct")
+        
+        # Créer plus de données pour tester la pagination (au moins 40 lignes)
+        # On va créer 50 emplacements avec des CountingDetails
+        zone_type = ZoneType.objects.first()
+        zone = Zone.objects.first()
+        sous_zone = SousZone.objects.first()
+        location_type = LocationType.objects.first()
+        
+        # Créer 50 emplacements supplémentaires
+        locations = []
+        jobs = []
+        for i in range(1, 51):  # 50 emplacements
+            location = Location.objects.create(
+                reference=f"LOC-PAG-{i:03d}",
+                location_reference=f"PAG-{i:03d}",
+                sous_zone=sous_zone,
+                location_type=location_type,
+            )
+            locations.append(location)
+            
+            job = Job.objects.create(
+                reference=f"JOB-PAG-{i:03d}",
+                status="EN ATTENTE",
+                warehouse=self.warehouse,
+                inventory=self.inventory,
+            )
+            jobs.append(job)
+            
+            # Créer un CountingDetail pour chaque emplacement
+            CountingDetail.objects.create(
+                reference=f"CD-PAG-{i:03d}",
+                counting=self.countings[1],
+                location=location,
+                job=job,
+                quantity_inventoried=100 + i,  # Quantités différentes pour chaque ligne
+            )
+        
+        # Test de pagination : startRow=20, endRow=40
+        # Cela devrait retourner les lignes 21 à 40 (en 1-indexed)
+        url = reverse(
+            "inventory-warehouse-results",
+            kwargs={
+                "inventory_id": self.inventory.id,
+                "warehouse_id": self.warehouse.id,
+            },
+        )
+        
+        response = self.client.get(
+            url,
+            {
+                "inventory_id": self.inventory.id,
+                "store_id": self.warehouse.id,
+                "startRow": 20,
+                "endRow": 40,
+            }
+        )
+        
+        # Vérifications
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        # Vérifier le format de la réponse
+        if "data" in response.data:
+            # Format QueryModel/DataTable
+            data = response.data.get("data", [])
+            records_total = response.data.get("recordsTotal", 0)
+            records_filtered = response.data.get("recordsFiltered", 0)
+            
+            # On devrait avoir 20 lignes (lignes 21-40)
+            self.assertEqual(len(data), 20, f"Attendu 20 lignes, reçu {len(data)}")
+            
+            # Vérifier que le total est correct (au moins 50 lignes + les 2 existantes = 52)
+            self.assertGreaterEqual(records_total, 52, "Le total devrait être au moins 52")
+            self.assertGreaterEqual(records_filtered, 52, "Le total filtré devrait être au moins 52")
+            
+        elif "results" in response.data:
+            # Format REST API
+            results = response.data.get("results", [])
+            count = response.data.get("count", 0)
+            start_row = response.data.get("startRow", 0)
+            end_row = response.data.get("endRow", 0)
+            
+            # On devrait avoir 20 lignes (lignes 21-40)
+            self.assertEqual(len(results), 20, f"Attendu 20 lignes, reçu {len(results)}")
+            
+            # Vérifier les valeurs de pagination retournées
+            self.assertEqual(start_row, 20, "startRow devrait être 20 (1-indexed)")
+            self.assertEqual(end_row, 40, "endRow devrait être 40 (1-indexed)")
+            
+            # Vérifier que le total est correct
+            self.assertGreaterEqual(count, 52, "Le total devrait être au moins 52")
+        
+        # Vérifier que les données retournées correspondent bien à la pagination
+        # (les lignes 21-40 ne devraient pas inclure les premières lignes)
+        if "data" in response.data:
+            data = response.data.get("data", [])
+        else:
+            data = response.data.get("results", [])
+        
+        # Vérifier qu'on n'a pas les premières lignes (A-01-01 et B-02-03)
+        location_refs = [item.get("location", "") for item in data]
+        self.assertNotIn("A-01-01", location_refs, "La première ligne ne devrait pas être dans cette page")
+        self.assertNotIn("B-02-03", location_refs, "La deuxième ligne ne devrait pas être dans cette page")
+        
+        # Vérifier qu'on a bien des lignes de pagination (PAG-021 à PAG-040)
+        pag_locations = [ref for ref in location_refs if ref.startswith("PAG-")]
+        self.assertGreater(len(pag_locations), 0, "On devrait avoir des lignes PAG- dans cette page")
+

@@ -174,20 +174,20 @@ LANGUAGE_CODE = 'en'
 
 
 # Static files (CSS, JavaScript, Images)
-STATIC_URL = '/static/'
+STATIC_URL = config('DJANGO_STATIC_URL', default='/static/')
 
 # Répertoire où Django collecte les fichiers statiques
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATIC_ROOT = config('DJANGO_STATIC_ROOT', default=os.path.join(BASE_DIR, 'staticfiles'))
 
 # Si vous avez des fichiers statiques personnalisés dans votre projet (ex : CSS ou JS spécifiques)
 STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, 'static'),  # Répertoire contenant tes fichiers statiques personnalisés
+    config('DJANGO_STATICFILES_DIRS', default=os.path.join(BASE_DIR, 'static')),
 ]
 
 
 # Media files
-MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+MEDIA_URL = config('DJANGO_MEDIA_URL', default='/media/')
+MEDIA_ROOT = config('DJANGO_MEDIA_ROOT', default=os.path.join(BASE_DIR, 'media'))
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -486,17 +486,6 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',
     ),
     'DEFAULT_EXCEPTION_HANDLER': 'project.utils.exception_handler.custom_exception_handler',
-    'DEFAULT_THROTTLE_CLASSES': [
-        'rest_framework.throttling.AnonRateThrottle',
-        'rest_framework.throttling.UserRateThrottle'
-    ],
-    'DEFAULT_THROTTLE_RATES': {
-        'anon': '100/hour',  # 100 requêtes par heure pour les utilisateurs anonymes
-        'user': '10000/hour',  # 10000 requêtes par heure pour les utilisateurs authentifiés (augmenté de 1000 à 10000)
-        'login': '10/minute',  # 10 tentatives de login par minute (protection force brute, augmenté de 5 à 10)
-        'refresh': '30/minute',  # 30 rafraîchissements par minute (augmenté de 10 à 30)
-        'verify': '50/minute',  # 50 vérifications par minute (augmenté de 20 à 50)
-    }
 }  
 
 # SimpleJWT settings

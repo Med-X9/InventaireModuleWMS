@@ -1,0 +1,20 @@
+# Ignorer tous les fichiers d'importation dans le dossier data
+# Mais garder le dossier dans Git grâce à .gitkeep et README.md
+
+# Fichiers Excel
+*.xlsx
+*.xls
+
+# Fichiers CSV
+*.csv
+*.tsv
+
+# Fichiers temporaires
+*.tmp
+*.temp
+*~
+
+# Fichiers de sauvegarde
+*.bak
+*.backup
+

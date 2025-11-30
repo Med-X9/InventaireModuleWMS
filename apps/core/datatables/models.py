@@ -1,8 +1,8 @@
 """
-Modèles de données compatibles AG-Grid pour DataTable.
+Modèles de données pour QueryModel.
 
 Ce module fournit les modèles de données nécessaires pour supporter
-les fonctionnalités AG-Grid : sortModel, filterModel, etc.
+les fonctionnalités QueryModel : page, pageSize, search, sort, filters.
 """
 from typing import List, Dict, Any, Optional, Union
 from dataclasses import dataclass, field
@@ -10,13 +10,13 @@ from enum import Enum
 
 
 class SortDirection(str, Enum):
-    """Direction de tri compatible AG-Grid"""
+    """Direction de tri"""
     ASC = "asc"
     DESC = "desc"
 
 
 class FilterType(str, Enum):
-    """Types de filtres compatibles AG-Grid"""
+    """Types de filtres"""
     TEXT = "text"
     NUMBER = "number"
     DATE = "date"
@@ -25,7 +25,7 @@ class FilterType(str, Enum):
 
 
 class FilterOperator(str, Enum):
-    """Opérateurs de filtres compatibles AG-Grid"""
+    """Opérateurs de filtres"""
     EQUALS = "equals"
     NOT_EQUAL = "notEqual"
     LESS_THAN = "lessThan"
@@ -44,9 +44,9 @@ class FilterOperator(str, Enum):
 @dataclass
 class SortModelItem:
     """
-    Modèle de tri compatible AG-Grid (sortModel)
+    Modèle de tri (sort)
     
-    Exemple AG-Grid:
+    Exemple:
     {
         "colId": "age",
         "sort": "asc"
@@ -56,7 +56,7 @@ class SortModelItem:
     sort: SortDirection  # Direction : "asc" ou "desc"
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convertit en dictionnaire compatible AG-Grid"""
+        """Convertit en dictionnaire"""
         return {
             "colId": self.col_id,
             "sort": self.sort.value
@@ -64,7 +64,7 @@ class SortModelItem:
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'SortModelItem':
-        """Crée depuis un dictionnaire AG-Grid"""
+        """Crée depuis un dictionnaire"""
         return cls(
             col_id=data.get("colId", data.get("col_id", "")),
             sort=SortDirection(data.get("sort", "asc"))
@@ -74,9 +74,9 @@ class SortModelItem:
 @dataclass
 class FilterModelItem:
     """
-    Modèle de filtre compatible AG-Grid (filterModel)
+    Modèle de filtre (filters)
     
-    Exemple AG-Grid:
+    Exemple:
     {
         "colId": "age",
         "filterType": "number",
@@ -92,7 +92,7 @@ class FilterModelItem:
     values: Optional[List[Any]] = None  # Pour SET filter
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convertit en dictionnaire compatible AG-Grid"""
+        """Convertit en dictionnaire"""
         result = {
             "colId": self.col_id,
             "filterType": self.filter_type.value,
@@ -112,7 +112,7 @@ class FilterModelItem:
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'FilterModelItem':
-        """Crée depuis un dictionnaire AG-Grid"""
+        """Crée depuis un dictionnaire"""
         return cls(
             col_id=data.get("colId", data.get("col_id", "")),
             filter_type=FilterType(data.get("filterType", data.get("filter_type", "text"))),
@@ -126,111 +126,223 @@ class FilterModelItem:
 @dataclass
 class QueryModel:
     """
-    Modèle de requête complet compatible AG-Grid.
+    Modèle de requête pour le nouveau format.
     
-    Contient sortModel et filterModel comme dans AG-Grid.
-    
-    Exemple:
+    Format de requête :
     {
-        "sortModel": [
-            {"colId": "age", "sort": "asc"},
-            {"colId": "name", "sort": "desc"}
+        "page": 1,
+        "pageSize": 10,
+        "search": "ink",
+        "sort": [
+            {"colId": "category", "sort": "asc"},
+            {"colId": "created_at", "sort": "desc"}
         ],
-        "filterModel": {
-            "age": {"filterType": "number", "type": "greaterThan", "filter": 30},
-            "name": {"filterType": "text", "type": "contains", "filter": "John"}
+        "filters": {
+            "status": ["active", "pending"],  // Format simple (array)
+            "category": {"type": "text", "operator": "contains", "value": "ink"},
+            "price": {"type": "number", "operator": "gte", "value": 10}
+        }
+    }
+    
+    Ou format simple pour le tri :
+    {
+        "page": 2,
+        "pageSize": 10,
+        "search": "ink",
+        "sortBy": "created_at",
+        "sortDir": "desc",
+        "filters": {
+            "status": ["active", "pending"]
         }
     }
     """
-    sort_model: List[SortModelItem] = field(default_factory=list)
-    filter_model: Dict[str, FilterModelItem] = field(default_factory=dict)
-    start_row: int = 0  # Pour infinite scroll
-    end_row: Optional[int] = None  # Pour infinite scroll
+    page: int = 1
+    page_size: int = 10
+    search: Optional[str] = None
+    sort: List[SortModelItem] = field(default_factory=list)  # Tri multiple
+    filters: Dict[str, FilterModelItem] = field(default_factory=dict)  # Filtres
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convertit en dictionnaire compatible AG-Grid"""
+        """Convertit en dictionnaire pour le nouveau format"""
         result = {
-            "sortModel": [item.to_dict() for item in self.sort_model],
-            "filterModel": {
-                col_id: item.to_dict() 
-                for col_id, item in self.filter_model.items()
-            },
-            "startRow": self.start_row,
+            "page": self.page,
+            "pageSize": self.page_size,
         }
         
-        if self.end_row is not None:
-            result["endRow"] = self.end_row
+        if self.search:
+            result["search"] = self.search
+        
+        if self.sort:
+            result["sort"] = [item.to_dict() for item in self.sort]
+        
+        if self.filters:
+            result["filters"] = {
+                col_id: item.to_dict() 
+                for col_id, item in self.filters.items()
+            }
         
         return result
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'QueryModel':
-        """Crée depuis un dictionnaire AG-Grid"""
+        """
+        Crée depuis un dictionnaire (nouveau format uniquement).
+        
+        Format attendu :
+        - page, pageSize, search, sort (ou sortBy/sortDir), filters
+        """
+        # Support de deux formats de tri :
+        # 1. Format simple : sortBy + sortDir
+        # 2. Format multiple : sort (array)
+        sort_list = data.get("sort", [])
+        if not sort_list and data.get("sortBy"):
+            # Format simple : convertir en format multiple
+            sort_list = [{
+                "colId": data.get("sortBy"),
+                "sort": data.get("sortDir", "asc")
+            }]
         sort_model = [
             SortModelItem.from_dict(item) 
-            for item in data.get("sortModel", [])
+            for item in sort_list
         ]
         
-        filter_model = {
-            col_id: FilterModelItem.from_dict(item)
-            for col_id, item in data.get("filterModel", {}).items()
-        }
+        # Convertir nouveau format de filtres vers FilterModelItem
+        filters_dict = data.get("filters", {})
+        filter_model = {}
+        for col_id, filter_data in filters_dict.items():
+            filter_model[col_id] = cls._convert_new_filter_format(col_id, filter_data)
         
         return cls(
-            sort_model=sort_model,
-            filter_model=filter_model,
-            start_row=data.get("startRow", data.get("start_row", 0)),
-            end_row=data.get("endRow", data.get("end_row"))
+            page=data.get("page", 1),
+            page_size=data.get("pageSize", data.get("page_size", 10)),
+            search=data.get("search"),
+            sort=sort_model,
+            filters=filter_model
         )
+    
+    @staticmethod
+    def _convert_new_filter_format(col_id: str, filter_data: Union[Dict[str, Any], List[Any]]) -> FilterModelItem:
+        """
+        Convertit le nouveau format de filtre vers FilterModelItem.
+        
+        Supporte plusieurs formats :
+        - Format simple (array) : ["active", "pending"] -> filtre multi
+        - Format complet (object) :
+          - {"type": "multi", "values": ["active", "pending"]}
+          - {"type": "text", "operator": "contains", "value": "ink"}
+          - {"type": "number", "operator": "gte", "value": 10}
+          - {"type": "boolean", "value": true}
+          - {"type": "date", "operator": "range", "from": "2025-01-01", "to": "2025-11-30"}
+        """
+        # Si c'est une liste, convertir en format multi
+        if isinstance(filter_data, list):
+            return FilterModelItem(
+                col_id=col_id,
+                filter_type=FilterType.SET,
+                operator=FilterOperator.EQUALS,
+                values=filter_data
+            )
+        
+        # Sinon, c'est un dictionnaire
+        filter_type_str = filter_data.get("type", "text")
+        
+        # Mapper les types
+        type_mapping = {
+            "multi": FilterType.SET,
+            "text": FilterType.TEXT,
+            "number": FilterType.NUMBER,
+            "date": FilterType.DATE,
+            "boolean": FilterType.TEXT  # Traiter comme texte pour l'instant
+        }
+        filter_type = type_mapping.get(filter_type_str, FilterType.TEXT)
+        
+        # Mapper les opérateurs
+        operator_mapping = {
+            "contains": FilterOperator.CONTAINS,
+            "gte": FilterOperator.GREATER_THAN_OR_EQUAL,
+            "lte": FilterOperator.LESS_THAN_OR_EQUAL,
+            "gt": FilterOperator.GREATER_THAN,
+            "lt": FilterOperator.LESS_THAN,
+            "eq": FilterOperator.EQUALS,
+            "neq": FilterOperator.NOT_EQUAL,
+            "range": FilterOperator.IN_RANGE,
+            "startsWith": FilterOperator.STARTS_WITH,
+            "endsWith": FilterOperator.ENDS_WITH
+        }
+        operator_str = filter_data.get("operator", "equals")
+        operator = operator_mapping.get(operator_str, FilterOperator.EQUALS)
+        
+        # Extraire les valeurs
+        if filter_type == FilterType.SET:
+            # Filtre multi : {"type": "multi", "values": [...]}
+            values = filter_data.get("values", [])
+            return FilterModelItem(
+                col_id=col_id,
+                filter_type=filter_type,
+                operator=FilterOperator.EQUALS,
+                values=values
+            )
+        elif operator == FilterOperator.IN_RANGE:
+            # Filtre range : {"type": "date", "operator": "range", "from": "...", "to": "..."}
+            filter_value = filter_data.get("from") or filter_data.get("value")
+            filter_to = filter_data.get("to")
+            return FilterModelItem(
+                col_id=col_id,
+                filter_type=filter_type,
+                operator=operator,
+                filter=filter_value,
+                filter_to=filter_to
+            )
+        else:
+            # Filtre standard : {"type": "text", "operator": "contains", "value": "ink"}
+            filter_value = filter_data.get("value")
+            return FilterModelItem(
+                col_id=col_id,
+                filter_type=filter_type,
+                operator=operator,
+                filter=filter_value
+            )
     
     @classmethod
     def from_request(cls, request) -> 'QueryModel':
         """
-        Crée depuis une requête HTTP (format AG-Grid ou DataTable standard)
+        Crée depuis une requête HTTP (nouveau format uniquement).
         
-        Supporte deux formats :
-        1. Format AG-Grid JSON (POST body ou GET params)
-        2. Format DataTable standard (GET params)
+        Supporte :
+        - POST avec JSON body : page, pageSize, search, sort, filters
+        - GET avec query params : page, pageSize, search, sort, filters (ou sortBy/sortDir)
         """
-        # Essayer format AG-Grid (JSON dans body ou GET)
+        # Essayer POST avec JSON body
         if hasattr(request, 'data') and request.data:
-            # POST avec JSON
             if isinstance(request.data, dict):
                 return cls.from_dict(request.data)
         
-        # Essayer GET params au format AG-Grid
-        # Vérifier si sortModel ou filterModel sont présents
-        has_sort_or_filter = request.GET.get('sortModel') or request.GET.get('filterModel')
-        # Vérifier si startRow/endRow sont présents (indicateurs QueryModel)
-        has_start_end_row = request.GET.get('startRow') is not None or request.GET.get('endRow') is not None
+        # GET params - nouveau format uniquement
+        import json
+        data = {
+            "page": int(request.GET.get('page', 1)),
+            "pageSize": int(request.GET.get('pageSize', request.GET.get('page_size', 10))),
+        }
         
-        if has_sort_or_filter or has_start_end_row:
-            # Parser depuis query params (JSON string)
-            import json
-            data = {}
-            if request.GET.get('sortModel'):
-                data['sortModel'] = json.loads(request.GET.get('sortModel'))
-            if request.GET.get('filterModel'):
-                data['filterModel'] = json.loads(request.GET.get('filterModel'))
-            if request.GET.get('startRow'):
-                data['startRow'] = int(request.GET.get('startRow'))
-            if request.GET.get('endRow'):
-                data['endRow'] = int(request.GET.get('endRow'))
-            return cls.from_dict(data)
+        if request.GET.get('search'):
+            data['search'] = request.GET.get('search')
         
-        # Fallback : format DataTable standard
-        sort_model = []
-        order_index = 0
-        while f'order[{order_index}][column]' in request.GET:
-            column_index = int(request.GET.get(f'order[{order_index}][column]', 0))
-            direction = request.GET.get(f'order[{order_index}][dir]', 'asc')
-            # Nécessite mapping column_index -> col_id (à faire dans la vue)
-            order_index += 1
+        # Support de deux formats de tri
+        if request.GET.get('sort'):
+            try:
+                data['sort'] = json.loads(request.GET.get('sort'))
+            except (json.JSONDecodeError, TypeError):
+                data['sort'] = []
+        elif request.GET.get('sortBy'):
+            # Format simple : sortBy + sortDir
+            data['sortBy'] = request.GET.get('sortBy')
+            data['sortDir'] = request.GET.get('sortDir', 'asc')
         
-        return cls(
-            sort_model=sort_model,
-            filter_model={},
-            start_row=int(request.GET.get('start', 0)),
-            end_row=None
-        )
+        if request.GET.get('filters'):
+            try:
+                data['filters'] = json.loads(request.GET.get('filters'))
+            except (json.JSONDecodeError, TypeError):
+                data['filters'] = {}
+        
+        return cls.from_dict(data)
 
