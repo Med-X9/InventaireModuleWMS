@@ -522,8 +522,6 @@ class ProductResource(resources.ModelResource):
                 f"En-têtes disponibles dans le fichier: {available_headers}"
             )
 
-
-
 class UnitOfMeasureResource(resources.ModelResource):
     name = fields.Field(column_name='nom', attribute='name')
     description = fields.Field(column_name='description', attribute='description')
@@ -1086,7 +1084,6 @@ class ProductAdmin(ImportExportModelAdmin):
             as_attachment=True,
             filename=f'erreurs_import_{import_task.id}.xlsx'
         )
-
 
 @admin.register(UnitOfMeasure)
 class UnitOfMeasureAdmin(ImportExportModelAdmin):

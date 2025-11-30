@@ -31,6 +31,11 @@ db.sqlite3-journal
 /staticfiles
 /static
 
+# Data files (keep directory structure but ignore content)
+/data/*
+!/data/.gitkeep
+!/data/README.md
+
 # Environment variables
 .env
 .env.local
@@ -84,3 +89,6 @@ ENV/
 
 # Docker
 .dockerignore
+
+# Serveur - fichiers de configuration système
+serveur/

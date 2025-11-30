@@ -315,13 +315,16 @@ pipeline {
                             ls -la /tmp/backend/docker-compose.yml || echo 'DEBUG: docker-compose.yml introuvable'
 
                             # Create deployment directory on remote server
-                            sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$DEPLOY_HOST" "rm -rf /tmp/deployment/backend && mkdir -p /tmp/deployment/backend/nginx"
+                            sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$DEPLOY_HOST" "rm -rf /tmp/deployment/backend && mkdir -p /tmp/deployment/backend/nginx /tmp/deployment/backend/data"
                             
                             # Upload only essential files
                             sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/docker-compose.yml "$USER@$DEPLOY_HOST:/tmp/deployment/backend/"
                             sshpass -p "$PASS" scp -o StrictHostKeyChecking=no /tmp/backend/Dockerfile "$USER@$DEPLOY_HOST:/tmp/deployment/backend/"
                             sshpass -p "$PASS" scp -r -o StrictHostKeyChecking=no /tmp/backend/nginx/* "$USER@$DEPLOY_HOST:/tmp/deployment/backend/nginx/"
                             sshpass -p "$PASS" scp -o StrictHostKeyChecking=no "/tmp/backend/.env copy" "$USER@$DEPLOY_HOST:/tmp/deployment/backend/.env"
+                            
+                            # Créer le dossier data sur le serveur distant s'il n'existe pas
+                            sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$DEPLOY_HOST" "mkdir -p /tmp/deployment/backend/data && chmod 755 /tmp/deployment/backend/data"
                         '''
                         
                         // Add or update IMAGE_TAG variable in .env file on remote server

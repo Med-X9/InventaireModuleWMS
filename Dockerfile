@@ -42,11 +42,14 @@ COPY --from=builder /opt/venv /opt/venv
 COPY . .
 
 # Création des dossiers nécessaires
-RUN mkdir -p /app/static /app/media /app/logs \
-    && chmod -R 755 /app/static /app/media \
+RUN mkdir -p /app/static /app/media /app/logs /app/data \
+    && chmod -R 755 /app/static /app/media /app/data \
     && chmod -R 777 /app/logs \
     && useradd -U app_user \
     && chown -R app_user:app_user /app
+
+# Créer le dossier data s'il n'existe pas (pour le cas où il n'est pas dans le repo)
+RUN mkdir -p /app/data && chmod 755 /app/data
 
 # Passage à l'utilisateur non-root
 USER app_user
