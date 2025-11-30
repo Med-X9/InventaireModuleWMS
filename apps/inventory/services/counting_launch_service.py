@@ -382,7 +382,9 @@ class CountingLaunchService:
         
         results = {
             'processed_jobs': [],
+            'total_locations_found': 0,
             'total_locations_processed': 0,
+            'total_locations_failed': 0,
             'errors': []
         }
         
@@ -396,9 +398,12 @@ class CountingLaunchService:
                     results['processed_jobs'].append({
                         'job_id': job_id,
                         'locations_processed': 0,
+                        'total_locations': 0,
                         'message': 'Aucun emplacement avec écart trouvé pour ce job'
                     })
                     continue
+                
+                results['total_locations_found'] += len(location_ids)
                 
                 # Pour chaque emplacement avec écart, lancer le comptage
                 job_results = []
@@ -417,6 +422,7 @@ class CountingLaunchService:
                             'success': False,
                             'error': str(e)
                         })
+                        results['total_locations_failed'] += 1
                         results['errors'].append({
                             'job_id': job_id,
                             'location_id': location_id,
@@ -438,6 +444,7 @@ class CountingLaunchService:
                 results['processed_jobs'].append({
                     'job_id': job_id,
                     'locations_processed': 0,
+                    'total_locations': 0,
                     'error': str(e)
                 })
         

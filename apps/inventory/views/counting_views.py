@@ -97,61 +97,14 @@ class CountingLaunchView(APIView):
     def _handle_multiple_jobs(self, job_ids: list, session_id: int) -> Response:
         """
         Gère le nouveau format : plusieurs jobs, recherche automatique des emplacements avec écart.
-        Appelle l'export après le traitement réussi.
+        Appelle l'export seulement si TOUS les emplacements ont été traités avec succès (all or nothing).
         """
         try:
             # Traiter tous les jobs et leurs emplacements avec écart
             result = self.service.launch_counting_for_jobs(job_ids, session_id)
             
-            # Vérifier s'il y a eu des erreurs critiques
-            has_critical_errors = any(
-                'error' in job_result and 'error' not in job_result.get('details', [])
-                for job_result in result['processed_jobs']
-            )
-            
-            # Si au moins un emplacement a été traité avec succès, appeler l'export
-            if result['total_locations_processed'] > 0:
-                # Récupérer l'inventory_id et warehouse_id du premier job (tous les jobs doivent avoir le même)
-                first_job = self.job_repository.get_job_by_id(job_ids[0])
-                if first_job:
-                    try:
-                        # Appeler l'export
-                        excel_buffer = self.export_service.generate_excel_export(
-                            first_job.inventory_id,
-                            first_job.warehouse_id
-                        )
-                        
-                        # Récupérer les informations pour le nom du fichier
-                        from ..models import Inventory
-                        from apps.masterdata.models import Warehouse
-                        inventory = Inventory.objects.get(id=first_job.inventory_id)
-                        warehouse = Warehouse.objects.get(id=first_job.warehouse_id)
-                        inventory_ref = inventory.reference.replace(' ', '_')
-                        warehouse_ref = warehouse.reference.replace(' ', '_')
-                        filename = f"jobs_prets_{inventory_ref}_{warehouse_ref}.xlsx"
-                        
-                        # Créer la réponse HTTP avec le fichier Excel
-                        response = HttpResponse(
-                            excel_buffer.getvalue(),
-                            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                        )
-                        response['Content-Disposition'] = f'attachment; filename="{filename}"'
-                        return response
-                        
-                    except Exception as export_error:
-                        # Si l'export échoue, retourner quand même les résultats du traitement
-                        return Response(
-                            {
-                                'success': True,
-                                'message': 'Comptages lancés avec succès, mais l\'export a échoué.',
-                                'data': result,
-                                'export_error': str(export_error),
-                            },
-                            status=status.HTTP_200_OK,
-                        )
-            
-            # Si aucun emplacement n'a été traité, retourner une erreur
-            if result['total_locations_processed'] == 0:
+            # Vérifier si aucun emplacement avec écart n'a été trouvé
+            if result['total_locations_found'] == 0:
                 return Response(
                     {
                         'success': False,
@@ -161,16 +114,72 @@ class CountingLaunchView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             
-            # Retourner les résultats même s'il y a eu des erreurs partielles
-            status_code = status.HTTP_201_CREATED if result['total_locations_processed'] > 0 else status.HTTP_200_OK
-            return Response(
-                {
-                    'success': True,
-                    'message': f'Comptages lancés pour {result["total_locations_processed"]} emplacement(s).',
-                    'data': result,
-                },
-                status=status_code,
+            # Vérifier si tous les emplacements ont été traités avec succès (all or nothing)
+            all_success = (
+                result['total_locations_found'] > 0 and
+                result['total_locations_processed'] == result['total_locations_found'] and
+                result['total_locations_failed'] == 0 and
+                len(result['errors']) == 0
             )
+            
+            if not all_success:
+                # Certains emplacements ont échoué, retourner une erreur
+                return Response(
+                    {
+                        'success': False,
+                        'message': f'Échec du traitement : {result["total_locations_failed"]} emplacement(s) sur {result["total_locations_found"]} ont échoué. Aucun export effectué.',
+                        'data': result,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            
+            # Tous les emplacements ont été traités avec succès, appeler l'export
+            first_job = self.job_repository.get_job_by_id(job_ids[0])
+            if not first_job:
+                return Response(
+                    {
+                        'success': False,
+                        'message': 'Impossible de récupérer les informations du job pour l\'export.',
+                        'data': result,
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            
+            try:
+                # Appeler l'export
+                excel_buffer = self.export_service.generate_excel_export(
+                    first_job.inventory_id,
+                    first_job.warehouse_id
+                )
+                
+                # Récupérer les informations pour le nom du fichier
+                from ..models import Inventory
+                from apps.masterdata.models import Warehouse
+                inventory = Inventory.objects.get(id=first_job.inventory_id)
+                warehouse = Warehouse.objects.get(id=first_job.warehouse_id)
+                inventory_ref = inventory.reference.replace(' ', '_')
+                warehouse_ref = warehouse.reference.replace(' ', '_')
+                filename = f"jobs_prets_{inventory_ref}_{warehouse_ref}.xlsx"
+                
+                # Créer la réponse HTTP avec le fichier Excel
+                response = HttpResponse(
+                    excel_buffer.getvalue(),
+                    content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                )
+                response['Content-Disposition'] = f'attachment; filename="{filename}"'
+                return response
+                
+            except Exception as export_error:
+                # Si l'export échoue, retourner une erreur
+                return Response(
+                    {
+                        'success': False,
+                        'message': f'Les comptages ont été lancés avec succès, mais l\'export a échoué: {str(export_error)}',
+                        'data': result,
+                        'export_error': str(export_error),
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
             
         except CountingValidationError as exc:
             return Response(

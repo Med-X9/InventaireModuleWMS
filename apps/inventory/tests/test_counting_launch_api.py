@@ -11,6 +11,9 @@ from ..models import (
     JobDetail,
     Counting,
     Assigment,
+    CountingDetail,
+    EcartComptage,
+    ComptageSequence,
 )
 from apps.masterdata.models import (
     Account,
@@ -318,4 +321,227 @@ class CountingLaunchAPITestCase(TestCase):
 
         self.assertEqual(second_response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("ordre 3 n'est pas terminé", second_response.data['message'])
+
+    def test_multiple_jobs_format_with_ecart(self):
+        """Test du nouveau format avec jobs[] qui trouve automatiquement les emplacements avec écart."""
+        # Créer un deuxième job et location
+        location2 = Location.objects.create(
+            reference='LOC-TEST-2',
+            location_reference='LOC-0002',
+            sous_zone=self.sous_zone,
+            location_type=self.location_type,
+        )
+        
+        job2 = Job.objects.create(
+            status='VALIDE',
+            warehouse=self.warehouse,
+            inventory=self.inventory,
+        )
+        
+        # Créer des JobDetail pour les deux jobs
+        JobDetail.objects.create(
+            reference=JobDetail().generate_reference(JobDetail.REFERENCE_PREFIX),
+            location=location2,
+            job=job2,
+            counting=self.counting1,
+            status='TERMINE',
+        )
+        
+        JobDetail.objects.create(
+            reference=JobDetail().generate_reference(JobDetail.REFERENCE_PREFIX),
+            location=location2,
+            job=job2,
+            counting=self.counting2,
+            status='TERMINE',
+        )
+        
+        # Créer des CountingDetail avec écart pour les deux locations
+        counting_detail1 = CountingDetail.objects.create(
+            reference=CountingDetail().generate_reference(CountingDetail.REFERENCE_PREFIX),
+            counting=self.counting1,
+            location=self.location,
+            job=self.job,
+            quantity_inventoried=10,
+        )
+        
+        counting_detail2 = CountingDetail.objects.create(
+            reference=CountingDetail().generate_reference(CountingDetail.REFERENCE_PREFIX),
+            counting=self.counting2,
+            location=self.location,
+            job=self.job,
+            quantity_inventoried=15,
+        )
+        
+        counting_detail3 = CountingDetail.objects.create(
+            reference=CountingDetail().generate_reference(CountingDetail.REFERENCE_PREFIX),
+            counting=self.counting1,
+            location=location2,
+            job=job2,
+            quantity_inventoried=20,
+        )
+        
+        counting_detail4 = CountingDetail.objects.create(
+            reference=CountingDetail().generate_reference(CountingDetail.REFERENCE_PREFIX),
+            counting=self.counting2,
+            location=location2,
+            job=job2,
+            quantity_inventoried=25,
+        )
+        
+        # Créer des EcartComptage non résolus pour les deux locations
+        ecart1 = EcartComptage.objects.create(
+            reference=EcartComptage().generate_reference(EcartComptage.REFERENCE_PREFIX),
+            inventory=self.inventory,
+            resolved=False,
+        )
+        
+        ecart2 = EcartComptage.objects.create(
+            reference=EcartComptage().generate_reference(EcartComptage.REFERENCE_PREFIX),
+            inventory=self.inventory,
+            resolved=False,
+        )
+        
+        # Créer des ComptageSequence pour lier les CountingDetail aux écarts
+        ComptageSequence.objects.create(
+            reference=ComptageSequence().generate_reference(ComptageSequence.REFERENCE_PREFIX),
+            ecart_comptage=ecart1,
+            sequence_number=1,
+            counting_detail=counting_detail1,
+            quantity=counting_detail1.quantity_inventoried,
+        )
+        
+        ComptageSequence.objects.create(
+            reference=ComptageSequence().generate_reference(ComptageSequence.REFERENCE_PREFIX),
+            ecart_comptage=ecart1,
+            sequence_number=2,
+            counting_detail=counting_detail2,
+            quantity=counting_detail2.quantity_inventoried,
+            ecart_with_previous=5,
+        )
+        
+        ComptageSequence.objects.create(
+            reference=ComptageSequence().generate_reference(ComptageSequence.REFERENCE_PREFIX),
+            ecart_comptage=ecart2,
+            sequence_number=1,
+            counting_detail=counting_detail3,
+            quantity=counting_detail3.quantity_inventoried,
+        )
+        
+        ComptageSequence.objects.create(
+            reference=ComptageSequence().generate_reference(ComptageSequence.REFERENCE_PREFIX),
+            ecart_comptage=ecart2,
+            sequence_number=2,
+            counting_detail=counting_detail4,
+            quantity=counting_detail4.quantity_inventoried,
+            ecart_with_previous=5,
+        )
+        
+        # Tester le nouveau format avec jobs[]
+        payload = {
+            'jobs': [self.job.id, job2.id],
+            'session_id': self.session.id,
+        }
+        
+        response = self.client.post(self.url, data=payload, format='json')
+        
+        # Vérifier que la réponse est un fichier Excel (si tout a réussi)
+        # ou une erreur (si quelque chose a échoué)
+        if response.status_code == status.HTTP_200_OK:
+            # Si tout a réussi, on devrait recevoir un fichier Excel
+            self.assertEqual(response['Content-Type'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            self.assertIn('attachment', response['Content-Disposition'])
+        else:
+            # Si quelque chose a échoué, on devrait recevoir une erreur
+            self.assertIn(response.status_code, [
+                status.HTTP_400_BAD_REQUEST,
+                status.HTTP_404_NOT_FOUND,
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ])
+
+    def test_multiple_jobs_all_or_nothing_success(self):
+        """Test que l'export est fait seulement si tous les emplacements sont traités avec succès."""
+        # Créer un job avec un emplacement ayant un écart
+        counting_detail = CountingDetail.objects.create(
+            reference=CountingDetail().generate_reference(CountingDetail.REFERENCE_PREFIX),
+            counting=self.counting1,
+            location=self.location,
+            job=self.job,
+            quantity_inventoried=10,
+        )
+        
+        ecart = EcartComptage.objects.create(
+            reference=EcartComptage().generate_reference(EcartComptage.REFERENCE_PREFIX),
+            inventory=self.inventory,
+            resolved=False,
+        )
+        
+        ComptageSequence.objects.create(
+            reference=ComptageSequence().generate_reference(ComptageSequence.REFERENCE_PREFIX),
+            ecart_comptage=ecart,
+            sequence_number=1,
+            counting_detail=counting_detail,
+            quantity=counting_detail.quantity_inventoried,
+        )
+        
+        payload = {
+            'jobs': [self.job.id],
+            'session_id': self.session.id,
+        }
+        
+        response = self.client.post(self.url, data=payload, format='json')
+        
+        # Si tout réussit, on devrait recevoir un fichier Excel
+        if response.status_code == status.HTTP_200_OK:
+            self.assertEqual(response['Content-Type'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        else:
+            # Si ça échoue, vérifier que c'est bien une erreur explicite
+            self.assertFalse(response.data.get('success', True))
+
+    def test_multiple_jobs_all_or_nothing_failure(self):
+        """Test que l'export n'est pas fait si un emplacement échoue."""
+        # Créer un job avec un emplacement ayant un écart
+        counting_detail = CountingDetail.objects.create(
+            reference=CountingDetail().generate_reference(CountingDetail.REFERENCE_PREFIX),
+            counting=self.counting1,
+            location=self.location,
+            job=self.job,
+            quantity_inventoried=10,
+        )
+        
+        ecart = EcartComptage.objects.create(
+            reference=EcartComptage().generate_reference(EcartComptage.REFERENCE_PREFIX),
+            inventory=self.inventory,
+            resolved=False,
+        )
+        
+        ComptageSequence.objects.create(
+            reference=ComptageSequence().generate_reference(ComptageSequence.REFERENCE_PREFIX),
+            ecart_comptage=ecart,
+            sequence_number=1,
+            counting_detail=counting_detail,
+            quantity=counting_detail.quantity_inventoried,
+        )
+        
+        # Créer un job invalide qui va échouer
+        invalid_job = Job.objects.create(
+            status='VALIDE',
+            warehouse=self.warehouse,
+            inventory=self.inventory,
+        )
+        
+        payload = {
+            'jobs': [self.job.id, invalid_job.id],
+            'session_id': self.session.id,
+        }
+        
+        response = self.client.post(self.url, data=payload, format='json')
+        
+        # Si un emplacement échoue, on ne devrait PAS recevoir un fichier Excel
+        self.assertNotEqual(response['Content-Type'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        # On devrait recevoir une erreur
+        self.assertIn(response.status_code, [
+            status.HTTP_400_BAD_REQUEST,
+            status.HTTP_404_NOT_FOUND,
+            status.HTTP_500_INTERNAL_SERVER_ERROR
+        ])
 

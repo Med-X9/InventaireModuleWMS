@@ -34,17 +34,8 @@ class JobExportView(APIView):
             service = JobExportService()
             excel_buffer = service.generate_excel_export(inventory_id, warehouse_id)
             
-            # Récupérer les informations pour le nom du fichier
-            try:
-                from ..models import Inventory
-                from apps.masterdata.models import Warehouse
-                inventory = Inventory.objects.get(id=inventory_id)
-                warehouse = Warehouse.objects.get(id=warehouse_id)
-                inventory_ref = inventory.reference.replace(' ', '_')
-                warehouse_ref = warehouse.reference.replace(' ', '_')
-                filename = f"jobs_prets_{inventory_ref}_{warehouse_ref}.xlsx"
-            except Exception:
-                filename = f"jobs_prets_{inventory_id}_{warehouse_id}.xlsx"
+            # Nom du fichier : FICHE DE COMPTAGE
+            filename = "FICHE DE COMPTAGE.xlsx"
             
             # Créer la réponse HTTP avec le fichier Excel
             response = HttpResponse(
