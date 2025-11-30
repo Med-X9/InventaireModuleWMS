@@ -71,6 +71,17 @@ from .warehouse_exceptions import (
     WarehouseAccountNotFoundError,
 )
 
+# Import des exceptions de PDF
+from .pdf_exceptions import (
+    PDFGenerationError,
+    PDFValidationError,
+    PDFNotFoundError,
+    PDFEmptyContentError,
+    PDFInvalidContentError,
+    PDFRepositoryError,
+    PDFServiceError,
+)
+
 # Liste des exceptions disponibles
 __all__ = [
     # Assignment exceptions
@@ -125,4 +136,13 @@ __all__ = [
     # Warehouse exceptions
     'WarehouseAccountValidationError',
     'WarehouseAccountNotFoundError',
+    
+    # PDF exceptions
+    'PDFGenerationError',
+    'PDFValidationError',
+    'PDFNotFoundError',
+    'PDFEmptyContentError',
+    'PDFInvalidContentError',
+    'PDFRepositoryError',
+    'PDFServiceError',
 ]

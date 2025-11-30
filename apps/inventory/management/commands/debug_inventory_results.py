@@ -132,3 +132,5 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f'\n✅ Débogage terminé\n'))
 
 
+
+

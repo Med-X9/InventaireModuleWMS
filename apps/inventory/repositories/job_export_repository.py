@@ -15,7 +15,11 @@ class JobExportRepository:
         warehouse_id: int
     ) -> List[Job]:
         """
-        Récupère les jobs avec statut PRET pour un inventaire et un warehouse
+        Récupère les jobs avec assignments PRET ou TRANSFERT pour un inventaire et un warehouse
+        Utilise la même logique que l'API PDF : récupère les jobs via les assignments
+        
+        Filtre par statut des assignments: TRANSFERT, PRET uniquement
+        Filtre par statut des jobs: TRANSFERT, PRET uniquement
         
         Args:
             inventory_id: ID de l'inventaire
@@ -24,11 +28,24 @@ class JobExportRepository:
         Returns:
             Liste des jobs avec leurs relations préchargées
         """
+        # Récupérer les job IDs via Assigment qui ont des assignments PRET ou TRANSFERT
+        # C'est la même logique que l'API PDF
+        job_ids = Assigment.objects.filter(
+            job__inventory_id=inventory_id,
+            job__warehouse_id=warehouse_id,
+            job__status__in=['TRANSFERT', 'PRET'],
+            status__in=['TRANSFERT', 'PRET']  # Filtrer uniquement les assignments PRET ou TRANSFERT (exclure ENTAME)
+        ).values_list('job_id', flat=True).distinct()
+        
+        if not job_ids:
+            return []
+        
         return list(
             Job.objects.filter(
+                id__in=job_ids,
                 inventory_id=inventory_id,
                 warehouse_id=warehouse_id,
-                status='PRET'
+                status__in=['TRANSFERT', 'PRET']
             ).select_related(
                 'warehouse',
                 'inventory'
@@ -39,7 +56,9 @@ class JobExportRepository:
                 ),
                 Prefetch(
                     'assigment_set',
-                    queryset=Assigment.objects.select_related(
+                    queryset=Assigment.objects.filter(
+                        status__in=['TRANSFERT', 'PRET']
+                    ).select_related(
                         'counting',
                         'session'
                     ).order_by('counting__order')

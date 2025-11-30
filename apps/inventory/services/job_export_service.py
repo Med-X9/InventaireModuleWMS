@@ -24,7 +24,8 @@ class JobExportService:
         warehouse_id: int
     ) -> List[Dict[str, Any]]:
         """
-        Exporte les jobs prêts avec leurs détails
+        Exporte les jobs avec assignments PRET ou TRANSFERT avec leurs détails
+        Utilise la même logique que l'API PDF pour la récupération des jobs
         
         Args:
             inventory_id: ID de l'inventaire
@@ -64,65 +65,29 @@ class JobExportService:
             )
             
             if not jobs:
-                # Log pour indiquer qu'il n'y a pas de jobs prêts
-                logger.info(f"Aucun job avec statut PRET trouvé pour inventory_id={inventory_id}, warehouse_id={warehouse_id}")
+                # Log pour indiquer qu'il n'y a pas de jobs avec assignments PRET ou TRANSFERT
+                logger.info(f"Aucun job avec assignments PRET ou TRANSFERT trouvé pour inventory_id={inventory_id}, warehouse_id={warehouse_id}")
                 
-                # Optionnel: Récupérer le nombre total de jobs pour information
-                from ..models import Job
-                total_jobs = Job.objects.filter(
-                    inventory_id=inventory_id,
-                    warehouse_id=warehouse_id
-                ).count()
-                
-                # Retourner une liste vide avec des métadonnées optionnelles
+                # Retourner une liste vide
                 return []
-            
-            # Récupérer les comptages de l'inventaire (1er et 2ème)
-            countings = self.repository.get_countings_by_inventory_ordered(inventory_id)
-            
-            if len(countings) < 2:
-                error_msg = f"L'inventaire doit avoir au moins 2 comptages. Comptages trouvés: {len(countings)}"
-                logger.warning(f"Export échoué - {error_msg} (inventory_id: {inventory_id})")
-                raise JobCreationError(error_msg)
-            
-            counting_1 = countings[0]  # 1er comptage
-            counting_2 = countings[1]  # 2ème comptage
-            
-            # Récupérer tous les CountingDetail pour optimiser les requêtes
-            job_ids = [job.id for job in jobs]
-            counting_details_dict = self.repository.get_counting_details_by_jobs_and_countings(
-                job_ids,
-                [counting_1.id, counting_2.id]
-            )
             
             # Préparer les données d'export
             export_data = []
             
-            # Compteur statique par référence de job
-            job_reference_counter = {}
-            
             for job in jobs:
                 job_reference = job.reference
-                
-                # Initialiser le compteur pour cette référence de job si nécessaire
-                if job_reference not in job_reference_counter:
-                    job_reference_counter[job_reference] = 0
                 
                 # Récupérer les JobDetail pour ce job
                 # Les JobDetail sont déjà triés par location_id et -id dans le prefetch
                 job_details = job.jobdetail_set.all()
                 
-                # Récupérer les assignments pour ce job
-                assignments = job.assigment_set.all()
+                # Récupérer les assignments pour ce job (déjà filtrés PRET/TRANSFERT dans le repository)
+                # Trier les assignments par ordre de comptage pour garantir un ordre cohérent
+                # IMPORTANT: Utiliser sorted() pour forcer le tri même si le prefetch a déjà un ordre
+                assignments_queryset = job.assigment_set.all()
+                assignments = sorted(assignments_queryset, key=lambda a: (a.counting.order if a.counting else 0, a.id))
                 
-                # Créer un mapping des assignments par counting
-                assignment_by_counting = {}
-                for assignment in assignments:
-                    counting_id = assignment.counting_id
-                    if counting_id not in assignment_by_counting:
-                        assignment_by_counting[counting_id] = assignment
-                
-                # Éliminer les doublons d'emplacements pour ce job (double sécurité)
+                # Éliminer les doublons d'emplacements pour ce job
                 # Utiliser un set pour tracker les locations déjà traitées
                 seen_locations = set()
                 unique_job_details = []
@@ -133,36 +98,38 @@ class JobExportService:
                         seen_locations.add(location_id)
                         unique_job_details.append(job_detail)
                 
-                # Pour chaque JobDetail unique (location), créer une ligne d'export
-                for job_detail in unique_job_details:
-                    location = job_detail.location
-                    location_id = location.id
+                # Pour chaque assignment, créer une ligne par emplacement
+                # IMPORTANT: Le compteur de ligne est réinitialisé à 1 pour CHAQUE assignment
+                for assignment in assignments:
+                    counting = assignment.counting
+                    session = assignment.session
                     
-                    # Incrémenter le compteur pour cette référence de job
-                    job_reference_counter[job_reference] += 1
-                    ligne_numero = job_reference_counter[job_reference]
+                    # Compteur de ligne pour cet assignment (RÉINITIALISÉ à 0 pour chaque assignment)
+                    # Il sera incrémenté à 1 pour le premier emplacement, 2 pour le deuxième, etc.
+                    ligne_numero = 0
                     
-                    # Récupérer les assignments pour les deux comptages (pour les sessions)
-                    assignment_1 = assignment_by_counting.get(counting_1.id)
-                    assignment_2 = assignment_by_counting.get(counting_2.id)
-                    
-                    session_1 = assignment_1.session if assignment_1 else None
-                    session_2 = assignment_2.session if assignment_2 else None
-                    
-                    # Préparer les données de la ligne
-                    ligne_data = {
-                        'reference_job': job_reference,
-                        'location': location.location_reference,
-                        'code_article': '',  # Vide comme demandé
-                        'code_barre': '',  # Vide comme demandé
-                        'designation': '',  # Vide comme demandé
-                        'quantite': '',  # Vide comme demandé
-                        'session_1': session_1.username if session_1 else '',
-                        'session_2': session_2.username if session_2 else '',
-                        'ligne_numero': ligne_numero
-                    }
-                    
-                    export_data.append(ligne_data)
+                    # Pour chaque JobDetail unique (location), créer une ligne d'export
+                    # Le numéro de ligne va de 1 jusqu'au nombre d'emplacements pour CET assignment
+                    for job_detail in unique_job_details:
+                        location = job_detail.location
+                        
+                        # Incrémenter le compteur pour cet assignment (1, 2, 3, ..., nombre_emplacements)
+                        ligne_numero += 1
+                        
+                        # Préparer les données de la ligne
+                        ligne_data = {
+                            'reference_job': job_reference,
+                            'location': location.location_reference,
+                            'code_article': '',  # Vide comme demandé
+                            'code_barre': '',  # Vide comme demandé
+                            'designation': '',  # Vide comme demandé
+                            'quantite': '',  # Vide comme demandé
+                            'session': session.username if session else '',
+                            'ordre_comptage': counting.order if counting else '',
+                            'ligne_numero': ligne_numero
+                        }
+                        
+                        export_data.append(ligne_data)
             
             logger.info(f"Export réussi: {len(export_data)} lignes exportées pour inventory_id={inventory_id}, warehouse_id={warehouse_id}")
             return export_data
@@ -183,7 +150,8 @@ class JobExportService:
         warehouse_id: int
     ) -> BytesIO:
         """
-        Génère un fichier Excel pour l'export des jobs prêts
+        Génère un fichier Excel pour l'export des jobs avec assignments PRET ou TRANSFERT
+        Utilise la même logique que l'API PDF pour la récupération des jobs
         
         Args:
             inventory_id: ID de l'inventaire
@@ -230,8 +198,8 @@ class JobExportService:
                 'Code à Barre': row_data['code_barre'],
                 'Désignation': row_data['designation'],
                 'Quantité': row_data['quantite'],
-                'Session 1': row_data['session_1'],
-                'Session 2': row_data['session_2'],
+                'Session': row_data['session'],
+                'Ordre Comptage': row_data['ordre_comptage'],
                 'Ligne N°': row_data['ligne_numero'],
             }
             rows.append(row)

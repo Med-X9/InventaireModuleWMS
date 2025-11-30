@@ -384,6 +384,7 @@ class AssignmentService:
         # Clôturer l'assignment
         now = timezone.now()
         assignment.status = 'TERMINE'
+        assignment.termine_date = now
         assignment.save()
         
         # Synchroniser les CountingDetail entre les deux countings si nécessaire

@@ -582,4 +582,55 @@ class JobRepository(JobRepositoryInterface):
                 k: v for k, v in counting_details_2.items() if k[0] == job.id
             }
         
-        return jobs 
+        return jobs
+    
+    def get_zone_stats_data(
+        self,
+        inventory_id: int,
+        warehouse_id: int
+    ) -> Dict[str, Any]:
+        """
+        Récupère les données nécessaires pour les statistiques par zone.
+        
+        Args:
+            inventory_id: ID de l'inventaire
+            warehouse_id: ID de l'entrepôt
+            
+        Returns:
+            Dictionnaire contenant les zones, jobs, assignments et comptages
+        """
+        from apps.masterdata.models import Zone
+        from django.db.models import Prefetch
+        
+        # Récupérer les zones de l'entrepôt
+        zones = Zone.objects.filter(
+            warehouse_id=warehouse_id
+        ).select_related('warehouse').prefetch_related(
+            'souszone_set__location_set'
+        )
+        
+        # Récupérer les jobs de l'inventaire et de l'entrepôt avec leurs relations
+        jobs = Job.objects.filter(
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id
+        ).select_related(
+            'warehouse',
+            'inventory'
+        ).prefetch_related(
+            'jobdetail_set__location__sous_zone__zone',
+            'assigment_set__counting',
+            'assigment_set__personne',
+            'assigment_set__personne_two',
+            'assigment_set__session'
+        )
+        
+        # Récupérer les comptages de l'inventaire
+        countings = Counting.objects.filter(
+            inventory_id=inventory_id
+        ).order_by('order')
+        
+        return {
+            'zones': list(zones),
+            'jobs': list(jobs),
+            'countings': list(countings)
+        }

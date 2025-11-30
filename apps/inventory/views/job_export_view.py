@@ -11,20 +11,22 @@ logger = logging.getLogger(__name__)
 
 class JobExportView(APIView):
     """
-    Vue pour l'export Excel des jobs prêts
+    Vue pour l'export Excel des jobs avec assignments PRET ou TRANSFERT
     Exporte par défaut un fichier Excel
+    Utilise la même logique que l'API PDF pour la récupération des jobs
     """
     
     def get(self, request, inventory_id, warehouse_id):
         """
-        Exporte les jobs prêts en Excel pour un inventaire et un warehouse
+        Exporte les jobs avec assignments PRET ou TRANSFERT en Excel pour un inventaire et un warehouse
+        Utilise la même logique que l'API PDF : récupère les jobs via les assignments
         
         URL params:
             inventory_id: ID de l'inventaire
             warehouse_id: ID de l'entrepôt
         
         Returns:
-            Fichier Excel avec les jobs prêts
+            Fichier Excel avec les jobs avec assignments PRET ou TRANSFERT
         """
         try:
             # Appeler le service pour exporter les jobs en Excel
