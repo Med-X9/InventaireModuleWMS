@@ -1,7 +1,7 @@
 """
 Service pour le lancement d'un nouveau comptage (3e et suivants) pour un job donné.
 """
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from django.db import transaction
 from django.utils import timezone
@@ -9,7 +9,7 @@ from django.utils import timezone
 from ..repositories.job_repository import JobRepository
 from ..repositories.counting_repository import CountingRepository
 from ..repositories.assignment_repository import AssignmentRepository
-from ..models import JobDetail, Assigment
+from ..models import JobDetail, Assigment, EcartComptage, ComptageSequence
 from ..exceptions.counting_exceptions import (
     CountingValidationError,
     CountingNotFoundError,
@@ -305,4 +305,141 @@ class CountingLaunchService:
                     f"Impossible de lancer le comptage d'ordre {target_order} pour cet emplacement : "
                     f"le comptage d'ordre {order} n'est pas terminé pour cet emplacement (statut actuel: {job_detail.status})."
                 )
+
+    def get_locations_with_discrepancy_for_job(self, job_id: int) -> List[int]:
+        """
+        Récupère la liste des IDs d'emplacements qui ont un écart (EcartComptage non résolu) pour un job donné.
+        
+        Args:
+            job_id: Identifiant du job
+            
+        Returns:
+            Liste des IDs d'emplacements avec écart
+            
+        Raises:
+            CountingNotFoundError: Si le job n'existe pas
+        """
+        job = self.job_repository.get_job_by_id(job_id)
+        if not job:
+            raise CountingNotFoundError(f"Job introuvable pour l'identifiant {job_id}.")
+        
+        # Récupérer tous les JobDetail du job pour obtenir les locations
+        job_details = JobDetail.objects.filter(job=job).select_related('location')
+        location_ids = list(job_details.values_list('location_id', flat=True).distinct())
+        
+        if not location_ids:
+            return []
+        
+        # Trouver les emplacements qui ont un EcartComptage non résolu
+        # Un EcartComptage est lié à un inventory et a des ComptageSequence
+        # qui sont liées à des CountingDetail qui ont des locations
+        # Important : les CountingDetail doivent être liés au job spécifique
+        from ..models import CountingDetail
+        
+        ecarts = EcartComptage.objects.filter(
+            inventory=job.inventory,
+            resolved=False
+        )
+        
+        # Récupérer les CountingDetail liés au job qui ont des écarts
+        counting_details_with_ecart = CountingDetail.objects.filter(
+            job=job,
+            location_id__in=location_ids,
+            counting__inventory=job.inventory
+        ).filter(
+            counting_sequences__ecart_comptage__in=ecarts,
+            counting_sequences__ecart_comptage__resolved=False
+        ).values_list('location_id', flat=True).distinct()
+        
+        return list(counting_details_with_ecart)
+
+    @transaction.atomic
+    def launch_counting_for_jobs(self, job_ids: List[int], session_id: int) -> Dict[str, Any]:
+        """
+        Lance un comptage pour tous les emplacements avec écart des jobs fournis.
+        
+        Args:
+            job_ids: Liste des identifiants des jobs
+            session_id: Identifiant de la session (équipe mobile) à affecter
+            
+        Returns:
+            Dict contenant les résultats du traitement pour chaque job et emplacement
+            
+        Raises:
+            CountingValidationError: Données invalides ou incohérentes
+            CountingNotFoundError: Ressource inexistante
+            CountingCreationError: Erreur inattendue lors du traitement
+        """
+        if not job_ids:
+            raise CountingValidationError("La liste des jobs ne peut pas être vide.")
+        
+        if session_id <= 0:
+            raise CountingValidationError("L'identifiant de l'équipe doit être strictement positif.")
+        
+        session = UserApp.objects.filter(id=session_id, type='Mobile').first()
+        if not session:
+            raise CountingValidationError("La session fournie n'existe pas ou n'est pas de type 'Mobile'.")
+        
+        results = {
+            'processed_jobs': [],
+            'total_locations_processed': 0,
+            'errors': []
+        }
+        
+        # Pour chaque job, trouver les emplacements avec écart et lancer le comptage
+        for job_id in job_ids:
+            try:
+                # Récupérer les emplacements avec écart pour ce job
+                location_ids = self.get_locations_with_discrepancy_for_job(job_id)
+                
+                if not location_ids:
+                    results['processed_jobs'].append({
+                        'job_id': job_id,
+                        'locations_processed': 0,
+                        'message': 'Aucun emplacement avec écart trouvé pour ce job'
+                    })
+                    continue
+                
+                # Pour chaque emplacement avec écart, lancer le comptage
+                job_results = []
+                for location_id in location_ids:
+                    try:
+                        result = self.launch_counting(job_id, location_id, session_id)
+                        job_results.append({
+                            'location_id': location_id,
+                            'success': True,
+                            'result': result
+                        })
+                        results['total_locations_processed'] += 1
+                    except Exception as e:
+                        job_results.append({
+                            'location_id': location_id,
+                            'success': False,
+                            'error': str(e)
+                        })
+                        results['errors'].append({
+                            'job_id': job_id,
+                            'location_id': location_id,
+                            'error': str(e)
+                        })
+                
+                results['processed_jobs'].append({
+                    'job_id': job_id,
+                    'locations_processed': len([r for r in job_results if r['success']]),
+                    'total_locations': len(location_ids),
+                    'details': job_results
+                })
+                
+            except Exception as e:
+                results['errors'].append({
+                    'job_id': job_id,
+                    'error': str(e)
+                })
+                results['processed_jobs'].append({
+                    'job_id': job_id,
+                    'locations_processed': 0,
+                    'error': str(e)
+                })
+        
+        return results
 

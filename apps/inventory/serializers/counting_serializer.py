@@ -60,6 +60,28 @@ class CountingModeFieldsSerializer(serializers.ModelSerializer):
 
 class LaunchCountingRequestSerializer(serializers.Serializer):
     """Serializer pour lancer un nouveau comptage sur un job donné."""
-    job_id = serializers.IntegerField(min_value=1)
-    location_id = serializers.IntegerField(min_value=1)
+    job_id = serializers.IntegerField(min_value=1, required=False)
+    location_id = serializers.IntegerField(min_value=1, required=False)
     session_id = serializers.IntegerField(min_value=1)
+    jobs = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        required=False,
+        allow_empty=False
+    )
+    
+    def validate(self, data):
+        """Valide que soit (job_id, location_id) soit jobs est fourni."""
+        has_old_format = data.get('job_id') and data.get('location_id')
+        has_new_format = data.get('jobs')
+        
+        if not has_old_format and not has_new_format:
+            raise serializers.ValidationError(
+                "Vous devez fournir soit (job_id, location_id) soit jobs[]"
+            )
+        
+        if has_old_format and has_new_format:
+            raise serializers.ValidationError(
+                "Vous ne pouvez pas fournir à la fois (job_id, location_id) et jobs[]"
+            )
+        
+        return data
