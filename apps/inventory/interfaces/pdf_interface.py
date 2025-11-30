@@ -52,19 +52,36 @@ class PDFRepositoryInterface(ABC):
     def get_assignments_by_job(self, job: Any) -> List[Any]:
         """Récupère les assignments d'un job"""
         pass
+    
+    @abstractmethod
+    def get_assignments_by_inventory(self, inventory: Any, job_ids: Optional[List[int]] = None) -> List[Any]:
+        """
+        Récupère tous les assignments d'un inventaire avec counting.order et session
+        
+        Args:
+            inventory: L'inventaire
+            job_ids: Liste optionnelle des IDs de jobs à filtrer (si None, récupère tous les jobs)
+        """
+        pass
 
 
 class PDFServiceInterface(ABC):
     """Interface pour le service PDF (niveau métier)"""
     
     @abstractmethod
-    def generate_inventory_jobs_pdf(self, inventory_id: int, counting_id: Optional[int] = None) -> BytesIO:
+    def generate_inventory_jobs_pdf(
+        self, 
+        inventory_id: int, 
+        counting_id: Optional[int] = None,
+        job_ids: Optional[List[int]] = None
+    ) -> BytesIO:
         """
         Génère un PDF des jobs d'un inventaire
         
         Args:
             inventory_id: ID de l'inventaire
             counting_id: ID du comptage (optionnel)
+            job_ids: Liste optionnelle des IDs de jobs à exporter (si None, exporte tous les jobs avec assignments PRET ou TRANSFERT)
             
         Returns:
             BytesIO: Le contenu du PDF en mémoire

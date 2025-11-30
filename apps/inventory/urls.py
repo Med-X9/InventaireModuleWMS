@@ -20,6 +20,7 @@ from .views.inventory_views import (
     StockImportView,
     InventoryOrderingTestView,
 )
+from .views.monitoring_views import ZoneMonitoringByInventoryAndWarehouseView
 from apps.inventory.views import InventoryWarehousesView, AccountWarehousesView
 
 
@@ -59,6 +60,7 @@ urlpatterns = [
     path('inventory/<int:inventory_id>/warehouse-stats/', InventoryWarehouseStatsView.as_view(), name='inventory-warehouse-stats'),
     path('inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/results/', InventoryResultByWarehouseView.as_view(), name='inventory-warehouse-results'),
     path('inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/results/export/', InventoryResultExportExcelView.as_view(), name='inventory-warehouse-results-export'),
+    path('inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/monitoring/', ZoneMonitoringByInventoryAndWarehouseView.as_view(), name='inventory-warehouse-monitoring'),
     path('inventory/<int:inventory_id>/stocks/import/', StockImportView.as_view(), name='stock-import'),
     path('inventory/planning/<int:inventory_id>/warehouses/', InventoryWarehousesView.as_view(), name='inventory-warehouses'),
     path('inventory/account/<int:account_id>/warehouses/', AccountWarehousesView.as_view(), name='account-warehouses'),

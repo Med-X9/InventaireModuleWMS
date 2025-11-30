@@ -2,9 +2,14 @@
 Repository pour les opérations de données pour la génération PDF
 """
 from typing import List, Optional
+from django.db import DatabaseError
 from ..interfaces.pdf_interface import PDFRepositoryInterface
 from ..models import Inventory, Counting, Job, JobDetail, Assigment, CountingDetail
+from ..exceptions.pdf_exceptions import PDFRepositoryError
 from apps.masterdata.models import Stock
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class PDFRepository(PDFRepositoryInterface):
@@ -15,7 +20,14 @@ class PDFRepository(PDFRepositoryInterface):
         try:
             return Inventory.objects.get(id=inventory_id)
         except Inventory.DoesNotExist:
+            logger.warning(f"Inventaire avec l'ID {inventory_id} non trouvé")
             return None
+        except DatabaseError as e:
+            logger.error(f"Erreur de base de données lors de la récupération de l'inventaire {inventory_id}: {str(e)}")
+            raise PDFRepositoryError(f"Erreur de base de données lors de la récupération de l'inventaire: {str(e)}")
+        except Exception as e:
+            logger.error(f"Erreur inattendue lors de la récupération de l'inventaire {inventory_id}: {str(e)}", exc_info=True)
+            raise PDFRepositoryError(f"Erreur lors de la récupération de l'inventaire: {str(e)}")
     
     def get_counting_by_id(self, counting_id: int) -> Optional[Counting]:
         """Récupère un comptage par ID"""
@@ -73,7 +85,8 @@ class PDFRepository(PDFRepositoryInterface):
     def get_jobs_by_counting(self, inventory: Inventory, counting: Counting) -> List[Job]:
         """
         Récupère les jobs d'un inventaire pour un comptage spécifique
-        Filtre par statut: TRANSFERT, PRET
+        Filtre par statut des assignments: TRANSFERT, PRET uniquement
+        Filtre par statut des jobs: TRANSFERT, PRET uniquement
         Recherche via Assigment.counting (relation principale)
         """
         # Récupérer les job IDs via Assigment qui ont ce comptage
@@ -81,7 +94,8 @@ class PDFRepository(PDFRepositoryInterface):
         job_ids = Assigment.objects.filter(
             job__inventory=inventory,
             counting=counting,
-            job__status__in=['TRANSFERT', 'PRET']
+            job__status__in=['TRANSFERT', 'PRET'],
+            status__in=['TRANSFERT', 'PRET']  # Filtrer uniquement les assignments PRET ou TRANSFERT (exclure ENTAME)
         ).values_list('job_id', flat=True).distinct()
         
         if not job_ids:
@@ -110,6 +124,62 @@ class PDFRepository(PDFRepositoryInterface):
                 'personne_two'
             ).all()
         )
+    
+    def get_assignments_by_inventory(
+        self, 
+        inventory: Inventory, 
+        job_ids: Optional[List[int]] = None
+    ) -> List[Assigment]:
+        """
+        Récupère tous les assignments d'un inventaire avec counting.order et session
+        Filtre par statut des assignments: TRANSFERT, PRET uniquement
+        Filtre par statut des jobs: TRANSFERT, PRET uniquement
+        Récupère tous les ordres de comptage (pas de restriction d'ordre)
+        Si job_ids est fourni, filtre uniquement les assignments de ces jobs
+        
+        Args:
+            inventory: L'inventaire
+            job_ids: Liste optionnelle des IDs de jobs à filtrer (si None, récupère tous les jobs)
+            
+        Returns:
+            Liste des assignments correspondants
+            
+        Raises:
+            PDFRepositoryError: Si une erreur survient lors de la récupération
+        """
+        try:
+            queryset = Assigment.objects.filter(
+                job__inventory=inventory,
+                job__status__in=['TRANSFERT', 'PRET'],
+                status__in=['TRANSFERT', 'PRET']  # Filtrer uniquement les assignments PRET ou TRANSFERT (exclure ENTAME)
+                # Pas de filtre sur counting__order : récupère tous les ordres de comptage
+            )
+            
+            # Si job_ids est fourni, filtrer uniquement ces jobs
+            if job_ids:
+                queryset = queryset.filter(job_id__in=job_ids)
+            
+            assignments = list(
+                queryset.select_related(
+                    'job',
+                    'counting',
+                    'session',
+                    'personne',
+                    'personne_two'
+                ).prefetch_related(
+                    'job__jobdetail_set__location'
+                ).order_by('counting__order', 'job__reference')
+            )
+            
+            logger.info(f"Récupération de {len(assignments)} assignments pour l'inventaire {inventory.id}")
+            return assignments
+            
+        except DatabaseError as e:
+            logger.error(f"Erreur de base de données lors de la récupération des assignments: {str(e)}")
+            raise PDFRepositoryError(f"Erreur de base de données lors de la récupération des assignments: {str(e)}")
+        except Exception as e:
+            logger.error(f"Erreur inattendue lors de la récupération des assignments: {str(e)}", exc_info=True)
+            raise PDFRepositoryError(f"Erreur lors de la récupération des assignments: {str(e)}")
     
     def get_assignment_by_id(self, assignment_id: int) -> Optional[Assigment]:
         """Récupère un assignment par ID"""

@@ -264,6 +264,7 @@ class Assigment(TimeStampedModel, ReferenceMixin):
     pret_date = models.DateTimeField(null=True, blank=True)
     job = models.ForeignKey('Job', on_delete=models.CASCADE)
     date_start = models.DateTimeField(null=True, blank=True)
+    termine_date = models.DateTimeField(null=True, blank=True)
     session = models.ForeignKey('users.UserApp', on_delete=models.CASCADE, null=True, blank=True, limit_choices_to={'type': 'Mobile'})
     personne = models.ForeignKey('Personne', on_delete=models.CASCADE, related_name='primary_job_details',null=True,blank=True)
     personne_two = models.ForeignKey('Personne', on_delete=models.CASCADE, related_name='secondary_job_details',null=True,blank=True)   
