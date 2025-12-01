@@ -155,13 +155,15 @@ class UnassignedLocationsView(ServerSideDataTableView):
         'sous_zone_name': 'sous_zone__sous_zone_name',
     }
 
-    def get_datatable_queryset(self):
+    def get_queryset(self):
         """
         Récupère les emplacements non affectés pour le warehouse, l'account et l'inventaire
         spécifiés avec relations préchargées.
+        Garantit que seuls les emplacements du warehouse spécifié sont retournés.
         """
-        from rest_framework.exceptions import ValidationError
+        from rest_framework.exceptions import ValidationError, NotFound
         from apps.inventory.models import JobDetail
+        from ..models import Warehouse
 
         warehouse_id = self.kwargs.get('warehouse_id')
         account_id = self.kwargs.get('account_id')
@@ -174,19 +176,29 @@ class UnassignedLocationsView(ServerSideDataTableView):
         if not inventory_id:
             raise ValidationError({'inventory_id': "Ce paramètre est obligatoire dans l'URL."})
 
+        # Validation explicite : s'assurer que le warehouse existe
+        try:
+            warehouse = Warehouse.objects.get(id=warehouse_id, is_deleted=False)
+        except Warehouse.DoesNotExist:
+            raise NotFound(f"Entrepôt avec l'ID {warehouse_id} non trouvé")
+
+        # Filtrer uniquement les locations du warehouse spécifié
         queryset = Location.objects.filter(
             is_active=True,
             sous_zone__zone__warehouse_id=warehouse_id,
             regroupement__account_id=account_id,
         )
 
+        # Exclure les locations déjà assignées à cet inventaire
         assigned_location_ids = JobDetail.objects.filter(
             job__inventory_id=inventory_id,
+            job__warehouse_id=warehouse_id,  # S'assurer que les jobs sont aussi du bon warehouse
             location_id__isnull=False,
         ).values_list('location_id', flat=True)
 
         queryset = queryset.exclude(id__in=assigned_location_ids)
 
+        # Optimisations de requête
         queryset = queryset.select_related(
             'sous_zone',
             'sous_zone__zone',
@@ -199,6 +211,13 @@ class UnassignedLocationsView(ServerSideDataTableView):
         )
 
         return queryset
+    
+    def get_datatable_queryset(self):
+        """
+        Alias pour compatibilité avec l'ancien code.
+        Délègue à get_queryset().
+        """
+        return self.get_queryset()
 
 class LocationDetailView(APIView):
     permission_classes = [IsAuthenticated]

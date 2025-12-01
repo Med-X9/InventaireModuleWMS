@@ -1,6 +1,7 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.exceptions import NotFound
 from django.core.exceptions import ValidationError
 from ..serializers import (
     InventoryJobCreateSerializer,
@@ -513,14 +514,35 @@ class WarehouseJobsView(ServerSideDataTableView):
         from ..repositories.job_repository import JobRepository
         self.repository = JobRepository()
 
-    def get_datatable_queryset(self):
+    def get_queryset(self):
         """
         Récupère les jobs via le repository avec relations préchargées.
+        Valide que l'inventaire et l'entrepôt existent avant de retourner les jobs.
+        Garantit que seuls les jobs d'inventaire pour l'entrepôt spécifié sont retournés.
         ⚠️ Règle: La vue ne doit PAS utiliser Job.objects directement.
         """
         inventory_id = self.kwargs.get('inventory_id')
         warehouse_id = self.kwargs.get('warehouse_id')
+        
+        # Validation explicite : s'assurer que l'inventaire existe
+        inventory = self.repository.get_inventory_by_id(inventory_id)
+        if not inventory:
+            raise NotFound(f"Inventaire avec l'ID {inventory_id} non trouvé")
+        
+        # Validation explicite : s'assurer que l'entrepôt existe
+        warehouse = self.repository.get_warehouse_by_id(warehouse_id)
+        if not warehouse:
+            raise NotFound(f"Entrepôt avec l'ID {warehouse_id} non trouvé")
+        
+        # Retourner uniquement les jobs d'inventaire pour l'entrepôt spécifié
         return self.repository.get_jobs_for_inventory_warehouse_datatable(inventory_id, warehouse_id)
+    
+    def get_datatable_queryset(self):
+        """
+        Alias pour compatibilité avec l'ancien code.
+        Délègue à get_queryset().
+        """
+        return self.get_queryset()
 
 
 class JobFullDetailListView(ServerSideDataTableView):
