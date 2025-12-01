@@ -1485,72 +1485,72 @@ class PersonneAdmin(ImportExportModelAdmin):
         super().save_model(request, obj, form, change)
 
 
-@admin.register(ImportTask)
-class ImportTaskAdmin(admin.ModelAdmin):
-    """Admin pour les tâches d'import"""
-    list_display = ('id', 'file_name', 'user', 'status', 'total_rows', 'imported_count', 'error_count', 'created_at')
-    list_filter = ('status', 'created_at')
-    search_fields = ('file_name', 'user__username', 'user__email')
-    readonly_fields = ('file_path', 'file_name', 'user', 'total_rows', 'validated_rows', 'processed_rows', 
-                      'imported_count', 'updated_count', 'error_count', 'status', 'error_message', 
-                      'errors_file_path', 'created_at', 'updated_at')
-    date_hierarchy = 'created_at'
+# @admin.register(ImportTask)
+# class ImportTaskAdmin(admin.ModelAdmin):
+#     """Admin pour les tâches d'import"""
+#     list_display = ('id', 'file_name', 'user', 'status', 'total_rows', 'imported_count', 'error_count', 'created_at')
+#     list_filter = ('status', 'created_at')
+#     search_fields = ('file_name', 'user__username', 'user__email')
+#     readonly_fields = ('file_path', 'file_name', 'user', 'total_rows', 'validated_rows', 'processed_rows', 
+#                       'imported_count', 'updated_count', 'error_count', 'status', 'error_message', 
+#                       'errors_file_path', 'created_at', 'updated_at')
+#     date_hierarchy = 'created_at'
     
-    fieldsets = (
-        ('Informations générales', {
-            'fields': ('file_name', 'user', 'status', 'created_at', 'updated_at')
-        }),
-        ('Progression', {
-            'fields': ('total_rows', 'validated_rows', 'processed_rows')
-        }),
-        ('Résultats', {
-            'fields': ('imported_count', 'updated_count', 'error_count')
-        }),
-        ('Erreurs', {
-            'fields': ('error_message', 'errors_file_path'),
-            'classes': ('collapse',)
-        }),
-        ('Fichier', {
-            'fields': ('file_path',),
-            'classes': ('collapse',)
-        }),
-    )
+#     fieldsets = (
+#         ('Informations générales', {
+#             'fields': ('file_name', 'user', 'status', 'created_at', 'updated_at')
+#         }),
+#         ('Progression', {
+#             'fields': ('total_rows', 'validated_rows', 'processed_rows')
+#         }),
+#         ('Résultats', {
+#             'fields': ('imported_count', 'updated_count', 'error_count')
+#         }),
+#         ('Erreurs', {
+#             'fields': ('error_message', 'errors_file_path'),
+#             'classes': ('collapse',)
+#         }),
+#         ('Fichier', {
+#             'fields': ('file_path',),
+#             'classes': ('collapse',)
+#         }),
+#     )
     
-    def has_add_permission(self, request):
-        return False  # Les tâches sont créées automatiquement
+#     def has_add_permission(self, request):
+#         return False  # Les tâches sont créées automatiquement
     
-    def has_change_permission(self, request, obj=None):
-        return False  # Les tâches ne peuvent pas être modifiées manuellement
+#     def has_change_permission(self, request, obj=None):
+#         return False  # Les tâches ne peuvent pas être modifiées manuellement
 
 
-@admin.register(ImportError)
-class ImportErrorAdmin(admin.ModelAdmin):
-    """Admin pour les erreurs d'import"""
-    list_display = ('row_number', 'import_task', 'error_type', 'field_name', 'error_message', 'created_at')
-    list_filter = ('error_type', 'import_task', 'created_at')
-    search_fields = ('error_message', 'field_name', 'import_task__file_name')
-    readonly_fields = ('import_task', 'row_number', 'error_type', 'error_message', 'field_name', 
-                      'field_value', 'row_data', 'created_at', 'updated_at')
-    date_hierarchy = 'created_at'
+# @admin.register(ImportError)
+# class ImportErrorAdmin(admin.ModelAdmin):
+#     """Admin pour les erreurs d'import"""
+#     list_display = ('row_number', 'import_task', 'error_type', 'field_name', 'error_message', 'created_at')
+#     list_filter = ('error_type', 'import_task', 'created_at')
+#     search_fields = ('error_message', 'field_name', 'import_task__file_name')
+#     readonly_fields = ('import_task', 'row_number', 'error_type', 'error_message', 'field_name', 
+#                       'field_value', 'row_data', 'created_at', 'updated_at')
+#     date_hierarchy = 'created_at'
     
-    fieldsets = (
-        ('Informations', {
-            'fields': ('import_task', 'row_number', 'error_type', 'created_at', 'updated_at')
-        }),
-        ('Détails de l\'erreur', {
-            'fields': ('error_message', 'field_name', 'field_value')
-        }),
-        ('Données de la ligne', {
-            'fields': ('row_data',),
-            'classes': ('collapse',)
-        }),
-    )
+#     fieldsets = (
+#         ('Informations', {
+#             'fields': ('import_task', 'row_number', 'error_type', 'created_at', 'updated_at')
+#         }),
+#         ('Détails de l\'erreur', {
+#             'fields': ('error_message', 'field_name', 'field_value')
+#         }),
+#         ('Données de la ligne', {
+#             'fields': ('row_data',),
+#             'classes': ('collapse',)
+#         }),
+#     )
     
-    def has_add_permission(self, request):
-        return False  # Les erreurs sont créées automatiquement
+#     def has_add_permission(self, request):
+#         return False  # Les erreurs sont créées automatiquement
     
-    def has_change_permission(self, request, obj=None):
-        return False  # Les erreurs ne peuvent pas être modifiées manuellement
+#     def has_change_permission(self, request, obj=None):
+#         return False  # Les erreurs ne peuvent pas être modifiées manuellement
 
 
 
