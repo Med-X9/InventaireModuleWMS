@@ -63,21 +63,24 @@ class JobDiscrepancyService:
             # Récupérer les assignments du job
             assignments = self.job_repository.get_assignments_by_job(job)
             
+            # Filtrer seulement les assignments avec counting_order 1 et 2
+            assignments_filtered = [
+                assignment for assignment in assignments
+                if assignment.counting and assignment.counting.order in [1, 2]
+            ]
+            
             # Calculer les écarts entre le 1er et 2ème comptage
             discrepancy_info = self._calculate_discrepancies(job)
             
-            # Formater les assignments
+            # Formater les assignments (seulement counting_order, status, counting_reference, session_full_name)
             assignments_data = [
                 {
-                    'id': assignment.id,
-                    'reference': assignment.reference,
                     'status': assignment.status,
                     'counting_reference': assignment.counting.reference if assignment.counting else None,
                     'counting_order': assignment.counting.order if assignment.counting else None,
-                    'personne_nom': f"{assignment.personne.nom} {assignment.personne.prenom}" if assignment.personne else None,
-                    'personne_two_nom': f"{assignment.personne_two.nom} {assignment.personne_two.prenom}" if assignment.personne_two else None,
+                    'session_full_name': f"{assignment.session.prenom} {assignment.session.nom}" if assignment.session else None,
                 }
-                for assignment in assignments
+                for assignment in assignments_filtered
             ]
             
             result.append({
