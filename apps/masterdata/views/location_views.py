@@ -147,13 +147,20 @@ class UnassignedLocationsView(ServerSideDataTableView):
     max_page_size = 1000
 
     # Mapping frontend -> backend pour le DataTable « Emplacements disponibles »
-    filter_aliases = {
+    column_field_mapping = {
         'id': 'id',
         'reference': 'reference',
         'location_reference': 'location_reference',
         'zone_name': 'sous_zone__zone__zone_name',
         'sous_zone_name': 'sous_zone__sous_zone_name',
     }
+    
+    def get_column_field_mapping(self):
+        """
+        Retourne le mapping colonnes -> champs Django.
+        Utilise column_field_mapping pour le tri et le filtrage.
+        """
+        return self.column_field_mapping
 
     def get_queryset(self):
         """

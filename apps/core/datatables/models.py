@@ -311,14 +311,26 @@ class QueryModel:
         Supporte :
         - POST avec JSON body : page, pageSize, search, sort, filters
         - GET avec query params : page, pageSize, search, sort, filters (ou sortBy/sortDir)
+        - GET avec format array : sort[0][colId], sort[0][sort]
         """
-        # Essayer POST avec JSON body
+        import json
+        
+        # Essayer POST avec JSON body (ou GET avec body)
         if hasattr(request, 'data') and request.data:
             if isinstance(request.data, dict):
                 return cls.from_dict(request.data)
         
+        # Essayer aussi request.body pour les requêtes avec body JSON
+        if hasattr(request, 'body') and request.body:
+            try:
+                import json
+                body_data = json.loads(request.body)
+                if isinstance(body_data, dict) and ('page' in body_data or 'pageSize' in body_data or 'sort' in body_data):
+                    return cls.from_dict(body_data)
+            except (json.JSONDecodeError, TypeError, ValueError, UnicodeDecodeError):
+                pass
+        
         # GET params - nouveau format uniquement
-        import json
         data = {
             "page": int(request.GET.get('page', 1)),
             "pageSize": int(request.GET.get('pageSize', request.GET.get('page_size', 10))),
@@ -327,12 +339,24 @@ class QueryModel:
         if request.GET.get('search'):
             data['search'] = request.GET.get('search')
         
-        # Support de deux formats de tri
+        # Support de plusieurs formats de tri
+        # 1. Format JSON string : sort=[{"colId":"name","sort":"asc"}]
         if request.GET.get('sort'):
             try:
-                data['sort'] = json.loads(request.GET.get('sort'))
-            except (json.JSONDecodeError, TypeError):
-                data['sort'] = []
+                sort_value = request.GET.get('sort')
+                # Si c'est déjà une liste (depuis POST body), utiliser directement
+                if isinstance(sort_value, list):
+                    data['sort'] = sort_value
+                else:
+                    # Sinon, parser comme JSON string
+                    data['sort'] = json.loads(sort_value)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                # 2. Format array : sort[0][colId], sort[0][sort]
+                sort_list = cls._parse_sort_array_format(request.GET)
+                if sort_list:
+                    data['sort'] = sort_list
+                else:
+                    data['sort'] = []
         elif request.GET.get('sortBy'):
             # Format simple : sortBy + sortDir
             data['sortBy'] = request.GET.get('sortBy')
@@ -340,9 +364,45 @@ class QueryModel:
         
         if request.GET.get('filters'):
             try:
-                data['filters'] = json.loads(request.GET.get('filters'))
-            except (json.JSONDecodeError, TypeError):
+                filter_value = request.GET.get('filters')
+                if isinstance(filter_value, dict):
+                    data['filters'] = filter_value
+                else:
+                    data['filters'] = json.loads(filter_value)
+            except (json.JSONDecodeError, TypeError, ValueError):
                 data['filters'] = {}
         
         return cls.from_dict(data)
+    
+    @staticmethod
+    def _parse_sort_array_format(get_params) -> List[Dict[str, Any]]:
+        """
+        Parse le format array pour sort : sort[0][colId], sort[0][sort], etc.
+        
+        Args:
+            get_params: request.GET (QueryDict)
+            
+        Returns:
+            Liste de dictionnaires [{"colId": "...", "sort": "..."}]
+        """
+        sort_list = []
+        index = 0
+        
+        while True:
+            col_id_key = f'sort[{index}][colId]'
+            sort_key = f'sort[{index}][sort]'
+            
+            col_id = get_params.get(col_id_key)
+            sort_dir = get_params.get(sort_key)
+            
+            if not col_id:
+                break
+            
+            sort_list.append({
+                "colId": col_id,
+                "sort": sort_dir or "asc"
+            })
+            index += 1
+        
+        return sort_list
 

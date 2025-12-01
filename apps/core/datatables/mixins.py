@@ -245,6 +245,11 @@ class QueryModelMixin:
             
             # 6. Appliquer le tri (QuerySet ou liste)
             column_mapping = self.get_column_field_mapping()
+            if not column_mapping:
+                logger.warning(
+                    f"column_field_mapping est vide pour {self.__class__.__name__}. "
+                    "Le tri peut échouer si des colonnes utilisent des relations Django."
+                )
             sort_engine = SortEngine(column_mapping)
             data = sort_engine.apply_sorting(data, query_model.sort)
             
