@@ -9,7 +9,7 @@ from django.utils import timezone
 from ..repositories.job_repository import JobRepository
 from ..repositories.counting_repository import CountingRepository
 from ..repositories.assignment_repository import AssignmentRepository
-from ..models import JobDetail, Assigment, EcartComptage, ComptageSequence
+from ..models import JobDetail, Assigment, EcartComptage, ComptageSequence, CountingDetail
 from ..exceptions.counting_exceptions import (
     CountingValidationError,
     CountingNotFoundError,
@@ -78,6 +78,23 @@ class CountingLaunchService:
             if not job_location_link:
                 raise CountingValidationError(
                     "L'emplacement indiqué n'est pas affecté au job sélectionné."
+                )
+
+            # Vérification métier supplémentaire :
+            # Si un EcartComptage existe pour ce couple (job, emplacement) avec un résultat final
+            # non nul ET marqué comme résolu, alors il est interdit de lancer un nouveau comptage.
+            resolved_ecart_exists = EcartComptage.objects.filter(
+                inventory=job.inventory,
+                final_result__isnull=False,
+                resolved=True,
+                counting_sequences__counting_detail__job=job,
+                counting_sequences__counting_detail__location=location,
+            ).exists()
+
+            if resolved_ecart_exists:
+                raise CountingValidationError(
+                    "Impossible de lancer un nouveau comptage : l'écart pour cet emplacement "
+                    "est déjà résolu avec un résultat final."
                 )
 
             # Étape 2 : récupérer le comptage de référence (ordre 3)
