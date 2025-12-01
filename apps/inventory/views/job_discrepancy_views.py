@@ -175,74 +175,30 @@ class JobDiscrepancyView(ServerSideDataTableView):
                 message="Les paramètres inventory_id et warehouse_id doivent être des nombres entiers",
                 status_code=status.HTTP_400_BAD_REQUEST
             )
+
+    def get_data_source(self):
+        """Retourne la source de données depuis le service (liste de dictionnaires)."""
+        from apps.core.datatables.datasource import DataSourceFactory
+        
+        # Valider les paramètres
+        params, error = self._validate_required_params(self.request)
+        if error:
+            raise ValueError(str(error))
+        
+        inventory_id, warehouse_id = params
+        results = self._get_results_data(inventory_id, warehouse_id)
+        return DataSourceFactory.create(results)
     
-    def handle_datatable_request(self, request, *args, **kwargs):
-        """Gère les requêtes DataTable avec traitement sur liste de dictionnaires."""
-        try:
-            params, error = self._validate_required_params(request)
-            if error:
-                return error
-            inventory_id, warehouse_id = params
-            results = self._get_results_data(inventory_id, warehouse_id)
-            paginated_results, total_count = self._process_list_data(results, request)
-            serializer = self.serializer_class(paginated_results, many=True)
-            return Response({
-                'draw': int(request.GET.get('draw', 1)),
-                'recordsTotal': total_count,
-                'recordsFiltered': total_count,
-                'data': serializer.data
-            })
-        except ValueError as e:
-            return error_response(
-                message=str(e),
-                status_code=status.HTTP_404_NOT_FOUND
-            )
-        except Exception as error:
-            logger.error(f"Erreur lors de la récupération des jobs avec écarts: {str(error)}", exc_info=True)
-            return error_response(
-                message="Une erreur inattendue est survenue",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-    
-    def handle_rest_request(self, request, *args, **kwargs):
-        """Gère les requêtes REST API normales avec pagination simple."""
-        try:
-            params, error = self._validate_required_params(request)
-            if error:
-                return error
-            inventory_id, warehouse_id = params
-            results = self._get_results_data(inventory_id, warehouse_id)
-            search_term = request.GET.get('search', '')
-            if search_term:
-                results = self._apply_search_on_list(results, search_term)
-            ordering = request.GET.get('ordering', self.default_order)
-            results = self._apply_ordering_on_list(results, ordering)
-            try:
-                page = max(1, int(request.GET.get('page', 1)))
-                page_size = min(max(self.min_page_size, int(request.GET.get('page_size', self.page_size))), self.max_page_size)
-            except (ValueError, TypeError):
-                page = 1
-                page_size = self.page_size
-            start = (page - 1) * page_size
-            paginated_results = results[start:start + page_size]
-            serializer = self.serializer_class(paginated_results, many=True)
-            total_count = len(results)
-            return Response({
-                'count': total_count,
-                'results': serializer.data,
-                'page': page,
-                'page_size': page_size,
-                'total_pages': (total_count + page_size - 1) // page_size
-            })
-        except ValueError as e:
-            return error_response(
-                message=str(e),
-                status_code=status.HTTP_404_NOT_FOUND
-            )
-        except Exception as error:
-            logger.error(f"Erreur lors de la récupération des jobs avec écarts: {str(error)}", exc_info=True)
-            return error_response(
-                message="Une erreur inattendue est survenue",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+    def get_column_field_mapping(self):
+        """Mapping des colonnes frontend -> backend."""
+        return {
+            'job_id': 'job_id',
+            'job_reference': 'job_reference',
+            'job_status': 'job_status',
+            'discrepancy_count': 'discrepancy_count',
+            'discrepancy_rate': 'discrepancy_rate',
+            'total_lines_counting_1': 'total_lines_counting_1',
+            'total_lines_counting_2': 'total_lines_counting_2',
+            'common_lines_count': 'common_lines_count',
+        }
 
