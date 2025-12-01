@@ -20,12 +20,18 @@ from .views.inventory_views import (
     StockImportView,
     InventoryOrderingTestView,
 )
-from .views.monitoring_views import ZoneMonitoringByInventoryAndWarehouseView
+from .views.monitoring_views import (
+    ZoneMonitoringByInventoryAndWarehouseView,
+    GlobalMonitoringByInventoryAndWarehouseView,
+)
 from apps.inventory.views import InventoryWarehousesView, AccountWarehousesView
 
 
 from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView, JobBatchAssignmentView, JobTransferView, JobManualEntryView, JobProgressByCountingView, InventoryProgressByCountingView, JobsWithAssignmentsByWarehouseAndCountingView, JobDetailsByJobAndCountingView
 from .views.job_discrepancy_views import JobDiscrepancyView
+from .views.job_unresolved_discrepancy_views import (
+    JobsWithUnresolvedDiscrepanciesByCountingView,
+)
 from .views.ecart_comptage_views import EcartComptageUpdateFinalResultView, EcartComptageResolveView
 from .views.assignment_views import AssignJobsToCountingView, AssignResourcesToInventoryView, InventoryResourcesView, SessionAssignmentsView
 from .views.resource_assignment_views import AssignResourcesToJobsView, JobResourcesView, RemoveResourcesFromJobView
@@ -61,6 +67,7 @@ urlpatterns = [
     path('inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/results/', InventoryResultByWarehouseView.as_view(), name='inventory-warehouse-results'),
     path('inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/results/export/', InventoryResultExportExcelView.as_view(), name='inventory-warehouse-results-export'),
     path('inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/monitoring/', ZoneMonitoringByInventoryAndWarehouseView.as_view(), name='inventory-warehouse-monitoring'),
+    path('inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/global-monitoring/', GlobalMonitoringByInventoryAndWarehouseView.as_view(), name='inventory-warehouse-global-monitoring'),
     path('inventory/<int:inventory_id>/stocks/import/', StockImportView.as_view(), name='stock-import'),
     path('inventory/planning/<int:inventory_id>/warehouses/', InventoryWarehousesView.as_view(), name='inventory-warehouses'),
     path('inventory/account/<int:account_id>/warehouses/', AccountWarehousesView.as_view(), name='account-warehouses'),
@@ -91,8 +98,18 @@ urlpatterns = [
     path('jobs/pending/', JobPendingListView.as_view(), name='jobs-pending'),
     path('warehouse/<int:warehouse_id>/counting/<int:counting_order>/jobs/', JobsWithAssignmentsByWarehouseAndCountingView.as_view(), name='jobs-with-assignments-by-warehouse-counting'),
     path('jobs/<int:job_id>/counting/<int:counting_order>/details/', JobDetailsByJobAndCountingView.as_view(), name='job-details-by-job-and-counting'),
-    # Récupération des jobs avec écarts entre 1er et 2ème comptage (suivie)
-    path('inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/discrepancies/', JobDiscrepancyView.as_view(), name='job-discrepancies'),
+    # Récupération des jobs avec écarts entre 1er et 2ème comptage (suivi agrégé)
+    path(
+        'inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/discrepancies/',
+        JobDiscrepancyView.as_view(),
+        name='job-discrepancies',
+    ),
+    # Récupération des jobs avec écarts de comptage non résolus, groupés par comptage
+    path(
+        'inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/discrepancies-by-counting/',
+        JobsWithUnresolvedDiscrepanciesByCountingView.as_view(),
+        name='jobs-discrepancies-by-counting',
+    ),
     # Export des jobs prêts
     path('inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/export/', JobExportView.as_view(), name='job-export'),
     

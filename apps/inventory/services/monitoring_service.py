@@ -13,7 +13,9 @@ logger = logging.getLogger(__name__)
 class MonitoringService:
     """
     Service pour calculer les statistiques de monitoring par zone
-    Contient la logique métier pour le monitoring
+    et les statistiques globales par inventaire / entrepôt.
+    
+    Contient uniquement la logique métier (pas d'accès HTTP ou de sérialisation).
     """
     
     def __init__(self):
@@ -93,6 +95,17 @@ class MonitoringService:
                 
                 teams_count = len(teams)
                 
+                # Compter le nombre d'emplacements distincts dans cette zone
+                # Un emplacement est identifié par son location_id
+                distinct_locations = set()
+                for job in unique_jobs:
+                    for job_detail in job.jobdetail_set.all():
+                        # Vérifier que le JobDetail appartient à cette zone
+                        if job_detail.location.sous_zone.zone.id == zone.id:
+                            distinct_locations.add(job_detail.location_id)
+                
+                emplacements_count = len(distinct_locations)
+                
                 # Calculer le statut de la zone basé sur les assignments
                 zone_status = self._calculate_zone_status(unique_jobs)
                 
@@ -110,44 +123,26 @@ class MonitoringService:
                         if has_assignment:
                             counting_jobs.append(job)
                     
-                    total_jobs = len(counting_jobs)
+                    nombre_jobs = len(counting_jobs)
                     
-                    # Compter les jobs par statut
-                    jobs_en_attente = sum(
-                        1 for job in counting_jobs 
-                        if job.status == 'TRANSFERT'
-                    )
-                    jobs_en_cours = sum(
-                        1 for job in counting_jobs 
-                        if job.status == 'ENTAME'
-                    )
-                    jobs_termines = sum(
-                        1 for job in counting_jobs 
-                        if job.status == 'TERMINE'
-                    )
+                    # Compter le nombre d'emplacements distincts pour ce comptage dans cette zone
+                    # Un emplacement est identifié par son location_id
+                    distinct_locations_counting = set()
+                    for job in counting_jobs:
+                        # Filtrer les JobDetail qui appartiennent à ce comptage et à cette zone
+                        for job_detail in job.jobdetail_set.filter(counting=counting):
+                            # Vérifier que le JobDetail appartient à cette zone
+                            if job_detail.location.sous_zone.zone.id == zone.id:
+                                distinct_locations_counting.add(job_detail.location_id)
                     
-                    # Calculer les pourcentages
-                    en_attente_percent = (jobs_en_attente / total_jobs * 100) if total_jobs > 0 else 0
-                    en_cours_percent = (jobs_en_cours / total_jobs * 100) if total_jobs > 0 else 0
-                    termines_percent = (jobs_termines / total_jobs * 100) if total_jobs > 0 else 0
+                    emplacements_counting_count = len(distinct_locations_counting)
                     
                     counting_stats.append({
                         'counting_id': counting.id,
                         'counting_reference': counting.reference,
                         'counting_order': counting.order,
-                        'jobs_en_attente': {
-                            'count': jobs_en_attente,
-                            'percent': round(en_attente_percent, 2)
-                        },
-                        'jobs_en_cours': {
-                            'count': jobs_en_cours,
-                            'percent': round(en_cours_percent, 2)
-                        },
-                        'jobs_termines': {
-                            'count': jobs_termines,
-                            'percent': round(termines_percent, 2)
-                        },
-                        'total_jobs': total_jobs
+                        'nombre_jobs': nombre_jobs,
+                        'nombre_emplacements': emplacements_counting_count
                     })
                 
                 zone_stats.append({
@@ -157,6 +152,7 @@ class MonitoringService:
                     'status': zone_status,
                     'nombre_equipes': teams_count,
                     'nombre_jobs': jobs_count,
+                    'nombre_emplacements': emplacements_count,
                     'countings': counting_stats
                 })
             
@@ -167,6 +163,130 @@ class MonitoringService:
         except Exception as e:
             logger.error(f"Erreur lors du calcul du monitoring par zone: {str(e)}")
             raise JobCreationError(f"Erreur lors du calcul du monitoring par zone: {str(e)}")
+
+    def get_global_monitoring_by_inventory_and_warehouse(
+        self,
+        inventory_id: int,
+        warehouse_id: int
+    ) -> Dict[str, Any]:
+        """
+        Récupère les statistiques globales (toutes zones confondues) pour un
+        inventaire et un entrepôt.
+
+        Retourne :
+        - total_equipes : nombre d'équipes distinctes affectées
+        - total_jobs : nombre de jobs affectés
+        - countings : pour les comptages d'ordre 1, 2 et 3 :
+            - counting_id
+            - counting_reference
+            - counting_order
+            - jobs_termines : nombre de jobs terminés pour ce comptage
+            - jobs_termines_percent : pourcentage de jobs terminés par rapport au total_jobs
+        """
+        try:
+            # Récupérer les données communes (jobs, comptages)
+            data = self.repository.get_zone_stats_data(inventory_id, warehouse_id)
+            jobs = data["jobs"]
+            countings = data["countings"]
+
+            if not jobs:
+                # Vérifier si l'inventaire et l'entrepôt existent
+                inventory = self.repository.get_inventory_by_id(inventory_id)
+                warehouse = self.repository.get_warehouse_by_id(warehouse_id)
+                if not inventory:
+                    raise JobCreationError(
+                        f"Inventaire avec l'ID {inventory_id} non trouvé"
+                    )
+                if not warehouse:
+                    raise JobCreationError(
+                        f"Entrepôt avec l'ID {warehouse_id} non trouvé"
+                    )
+
+            # Ne garder que les jobs qui ont au moins un assignment (jobs affectés)
+            assigned_jobs = []
+            seen_job_ids = set()
+            for job in jobs:
+                if job.id in seen_job_ids:
+                    continue
+                if job.assigment_set.exists():
+                    assigned_jobs.append(job)
+                    seen_job_ids.add(job.id)
+
+            total_jobs = len(assigned_jobs)
+
+            # Calcul du nombre d'équipes distinctes (toutes zones confondues)
+            # Une équipe est identifiée par :
+            # - la session si elle existe
+            # - sinon la combinaison (personne, personne_two)
+            teams = set()
+            for job in assigned_jobs:
+                for assignment in job.assigment_set.all():
+                    if assignment.session:
+                        teams.add(("session", assignment.session.id))
+                    elif assignment.personne or assignment.personne_two:
+                        team_key = (
+                            assignment.personne_id if assignment.personne else None,
+                            assignment.personne_two_id
+                            if assignment.personne_two
+                            else None,
+                        )
+                        teams.add(("persons", team_key))
+
+            total_equipes = len(teams)
+
+            # Statistiques par comptage (ordre 1, 2 et 3)
+            counting_orders = {1, 2, 3}
+            counting_stats: List[Dict[str, Any]] = []
+
+            for counting in countings:
+                if counting.order not in counting_orders:
+                    continue
+
+                # Jobs qui ont un assignment pour ce comptage
+                counting_jobs = []
+                for job in assigned_jobs:
+                    has_assignment = any(
+                        a.counting_id == counting.id
+                        for a in job.assigment_set.all()
+                    )
+                    if has_assignment:
+                        counting_jobs.append(job)
+
+                # Jobs terminés pour ce comptage
+                jobs_termines = sum(
+                    1 for job in counting_jobs if job.status == "TERMINE"
+                )
+
+                jobs_termines_percent = (
+                    (jobs_termines / total_jobs * 100) if total_jobs > 0 else 0
+                )
+
+                counting_stats.append(
+                    {
+                        "counting_id": counting.id,
+                        "counting_order": counting.order,
+                        "jobs_termines": jobs_termines,
+                        "jobs_termines_percent": round(
+                            jobs_termines_percent, 2
+                        ),
+                    }
+                )
+
+            return {
+                "total_equipes": total_equipes,
+                "total_jobs": total_jobs,
+                "countings": counting_stats,
+            }
+            
+        except JobCreationError:
+            raise
+        except Exception as e:
+            logger.error(
+                f"Erreur lors du calcul du monitoring global: {str(e)}"
+            )
+            raise JobCreationError(
+                f"Erreur lors du calcul du monitoring global: {str(e)}"
+            )
     
     def _calculate_zone_status(self, jobs: List[Job]) -> str:
         """

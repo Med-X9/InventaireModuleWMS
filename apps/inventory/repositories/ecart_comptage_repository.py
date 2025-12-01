@@ -1,8 +1,9 @@
-from typing import Any
+from typing import Any, List
 
 from django.db import transaction
+from django.db.models import Q
 
-from ..models import EcartComptage
+from ..models import EcartComptage, CountingDetail
 from ..exceptions import InventoryNotFoundError
 
 
@@ -31,4 +32,31 @@ class EcartComptageRepository:
         ecart.save()
         return ecart
 
+    def get_unresolved_counting_details_by_inventory_and_warehouse(
+        self,
+        inventory_id: int,
+        warehouse_id: int,
+    ) -> List[CountingDetail]:
+        """
+        Récupère les CountingDetail liés à des écarts de comptage non résolus
+        pour un couple (inventaire, entrepôt).
+
+        Règle métier :
+        - On exclut les écarts dont le résultat final n'est pas nul ET résolus (= True).
+        - On garde donc les détails liés à des EcartComptage où
+          final_result est NULL ou resolved = False.
+        """
+        return list(
+            CountingDetail.objects.filter(
+                job__inventory_id=inventory_id,
+                job__warehouse_id=warehouse_id,
+                counting_sequences__ecart_comptage__inventory_id=inventory_id,
+            )
+            .filter(
+                Q(counting_sequences__ecart_comptage__final_result__isnull=True)
+                | Q(counting_sequences__ecart_comptage__resolved=False)
+            )
+            .select_related("job", "counting")
+            .distinct()
+        )
 
