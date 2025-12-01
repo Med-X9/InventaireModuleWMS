@@ -27,7 +27,7 @@ UTILISATION RAPIDE:
         }
         
         def get_queryset(self):
-            return MyModel.objects.all()
+                return MyModel.objects.all()
     
     La vue supporte automatiquement:
     - Tri multi-colonnes (sort ou sortBy/sortDir)
@@ -44,10 +44,9 @@ from django.db.models import QuerySet
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework import status
 
 logger = logging.getLogger(__name__)
-
+            
 
 class QueryModelMixin:
     """
@@ -452,7 +451,7 @@ class QueryModelView(QueryModelMixin, APIView):
         - sort: JSON string (array de {colId, sort}) ou sortBy/sortDir pour tri simple
         - filters: JSON string (dict de filtres)
         """
-        return self.process_request(request, *args, **kwargs)
+        return self.process_request(request, *args, **kwargs) 
 
 
 # =============================================================================

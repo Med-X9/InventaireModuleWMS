@@ -56,13 +56,10 @@ from rest_framework import serializers
 
 class AssignmentDiscrepancySerializer(serializers.Serializer):
     """Serializer pour un assignment dans le contexte de discrepancies"""
-    id = serializers.IntegerField()
-    reference = serializers.CharField()
     status = serializers.CharField()
     counting_reference = serializers.CharField(allow_null=True)
     counting_order = serializers.IntegerField(allow_null=True)
-    personne_nom = serializers.CharField(allow_null=True)
-    personne_two_nom = serializers.CharField(allow_null=True)
+    session_full_name = serializers.CharField(allow_null=True)
 
 
 class JobDiscrepancySerializer(serializers.Serializer):
