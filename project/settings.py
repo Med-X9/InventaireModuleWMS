@@ -454,6 +454,10 @@ LOGGING = {
             'format': '{levelname} {asctime} {message}',
             'style': '{',
         },
+        'django.server': {
+            'format': '[{server_time}] {message}',
+            'style': '{',
+        },
     },
     'handlers': {
         'console': {
@@ -474,6 +478,12 @@ LOGGING = {
             'level': 'INFO',
             'propagate': True,
         },
+        'django.server': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+            'formatter': 'django.server',
+        },
     },
 }
 
@@ -490,8 +500,8 @@ REST_FRAMEWORK = {
 
 # SimpleJWT settings
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(days=1),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ACCESS_TOKEN_LIFETIME": timedelta(days=7),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=365),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
     'UPDATE_LAST_LOGIN': True,

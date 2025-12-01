@@ -39,10 +39,11 @@ UTILISATION RAPIDE:
 
 import logging
 from typing import List, Dict, Any, Optional, Union
-from django.http import HttpRequest
+from django.http import HttpRequest, HttpResponse
 from django.db.models import QuerySet
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework import status
 from rest_framework import status
 
 logger = logging.getLogger(__name__)
@@ -164,35 +165,39 @@ class QueryModelMixin:
         Traite une requête complète au format QueryModel.
         
         FLUX:
-        1. Parser QueryModel depuis la requête (page, pageSize, search, sort, filters)
-        2. Récupérer la source de données
-        3. Appliquer la recherche globale (search)
-        4. Appliquer les filtres (FilterEngine)
-        5. Appliquer le tri (SortEngine)
-        6. Paginer (PaginationEngine avec page/pageSize)
-        7. Sérialiser les données
-        8. Retourner ResponseModel
+        1. Vérifier si export demandé (export=excel ou export=csv)
+        2. Parser QueryModel depuis la requête (page, pageSize, search, sort, filters)
+        3. Récupérer la source de données
+        4. Appliquer la recherche globale (search)
+        5. Appliquer les filtres (FilterEngine)
+        6. Appliquer le tri (SortEngine)
+        7. Si export : exporter TOUTES les données (sans pagination) et retourner fichier
+        8. Sinon : Paginer et retourner ResponseModel JSON
         
         Args:
             request: Requête HTTP
             *args, **kwargs: Arguments additionnels
             
         Returns:
-            Response DRF avec format QueryModel
+            Response DRF avec format QueryModel (JSON) ou fichier (Excel/CSV)
         """
         from .models import QueryModel
         from .engines import FilterEngine, SortEngine, PaginationEngine
         from .response import ResponseModel
+        from .exporters import export_manager
         
         try:
-            # 1. Parser QueryModel
+            # 1. Vérifier si export demandé
+            export_format = request.GET.get('export') or (request.data.get('export') if hasattr(request, 'data') and isinstance(request.data, dict) else None)
+            
+            # 2. Parser QueryModel
             query_model = QueryModel.from_request(request)
             
-            # 2. Récupérer la source de données
+            # 3. Récupérer la source de données
             data_source = self.get_data_source()
             data = data_source.get_data()
             
-            # 3. Appliquer la recherche globale si présente (nouveau format)
+            # 4. Appliquer la recherche globale si présente
             if query_model.search:
                 search_clean = query_model.search.strip()
                 if search_clean:
@@ -234,17 +239,40 @@ class QueryModelMixin:
                                         break
                         data = filtered_data
             
-            # 4. Appliquer les filtres (QuerySet ou liste)
+            # 5. Appliquer les filtres (QuerySet ou liste)
             column_mapping = self.get_column_field_mapping()
             filter_engine = FilterEngine(column_mapping)
             data = filter_engine.apply_filters(data, query_model.filters)
             
-            # 5. Appliquer le tri (QuerySet ou liste)
+            # 6. Appliquer le tri (QuerySet ou liste)
             column_mapping = self.get_column_field_mapping()
             sort_engine = SortEngine(column_mapping)
             data = sort_engine.apply_sorting(data, query_model.sort)
             
-            # 6. Paginer (QuerySet ou liste)
+            # 7. Si export demandé : exporter TOUTES les données (sans pagination)
+            if export_format:
+                serializer_class = self.get_serializer_class()
+                filename = getattr(self, 'export_filename', 'export')
+                
+                if isinstance(data, list):
+                    # Pour les listes : sérialiser puis exporter
+                    if serializer_class:
+                        serializer = serializer_class(data, many=True)
+                        serialized_data = [dict(item) for item in serializer.data]
+                    else:
+                        serialized_data = data
+                    
+                    return self._export_from_list(serialized_data, export_format, filename)
+                else:
+                    # QuerySet : utiliser export_manager normalement
+                    return export_manager.export(
+                        format_name=export_format,
+                        queryset=data,
+                        serializer_class=serializer_class,
+                        filename=filename
+                    )
+            
+            # 8. Sinon : Paginer et retourner JSON
             pagination_engine = PaginationEngine(
                 default_page_size=self.default_page_size,
                 max_page_size=self.max_page_size
@@ -257,10 +285,10 @@ class QueryModelMixin:
             paginated_data = pagination_result['queryset']
             total_count = pagination_result['total_count']
             
-            # 7. Sérialiser
+            # 9. Sérialiser
             serialized_data = self.serialize_data(paginated_data)
             
-            # 8. Retourner ResponseModel avec le nouveau format
+            # 10. Retourner ResponseModel avec le nouveau format
             response_model = ResponseModel.from_data(
                 data=serialized_data,
                 total_count=total_count,
@@ -280,6 +308,97 @@ class QueryModelMixin:
                     "rowCount": 0
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def _export_from_list(self, data_list: List[Dict[str, Any]], export_format: str, filename: str) -> HttpResponse:
+        """
+        Exporte depuis une liste de dictionnaires.
+        
+        Args:
+            data_list: Liste de dictionnaires à exporter
+            export_format: Format d'export ('excel' ou 'csv')
+            filename: Nom du fichier
+            
+        Returns:
+            HttpResponse avec le fichier
+        """
+        from django.http import HttpResponse
+        import csv
+        
+        # Import conditionnel pour openpyxl
+        try:
+            from openpyxl import Workbook
+            OPENPYXL_AVAILABLE = True
+        except ImportError:
+            OPENPYXL_AVAILABLE = False
+        
+        try:
+            if export_format.lower() in ['excel', 'xlsx']:
+                # Vérifier que openpyxl est disponible
+                if not OPENPYXL_AVAILABLE:
+                    return HttpResponse(
+                        "openpyxl n'est pas installé. Installez-le avec: pip install openpyxl",
+                        content_type='text/plain',
+                        status=500
+                    )
+                
+                # Export Excel depuis liste
+                wb = Workbook()
+                ws = wb.active
+                
+                if not data_list:
+                    ws.append(["Aucune donnée à exporter"])
+                else:
+                    # En-têtes
+                    headers = list(data_list[0].keys())
+                    ws.append(headers)
+                    
+                    # Données
+                    for row_data in data_list:
+                        row = [row_data.get(header, '') for header in headers]
+                        ws.append(row)
+                
+                response = HttpResponse(
+                    content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                )
+                response['Content-Disposition'] = f'attachment; filename="{filename}.xlsx"'
+                wb.save(response)
+                return response
+                
+            elif export_format.lower() == 'csv':
+                # Export CSV depuis liste
+                response = HttpResponse(content_type='text/csv; charset=utf-8')
+                response['Content-Disposition'] = f'attachment; filename="{filename}.csv"'
+                
+                if not data_list:
+                    writer = csv.writer(response)
+                    writer.writerow(["Aucune donnée à exporter"])
+                else:
+                    headers = list(data_list[0].keys())
+                    writer = csv.DictWriter(response, fieldnames=headers)
+                    writer.writeheader()
+                    writer.writerows(data_list)
+                
+                return response
+            else:
+                return HttpResponse(
+                    f"Format d'export non supporté: {export_format}",
+                    content_type='text/plain',
+                    status=400
+                )
+        except ImportError as e:
+            logger.error(f"Module manquant pour export {export_format}: {str(e)}", exc_info=True)
+            return HttpResponse(
+                f"Module manquant pour l'export {export_format}. Installez openpyxl pour Excel.",
+                content_type='text/plain',
+                status=500
+            )
+        except Exception as e:
+            logger.error(f"Erreur export depuis liste: {str(e)}", exc_info=True)
+            return HttpResponse(
+                f"Erreur lors de l'export: {str(e)}",
+                content_type='text/plain',
+                status=500
             )
 
 
