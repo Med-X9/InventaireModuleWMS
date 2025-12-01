@@ -2,8 +2,10 @@
 Service pour calculer les écarts entre le 1er et le 2ème comptage d'un job.
 """
 from typing import Dict, Any, List, Optional
+from collections import defaultdict
+from django.db.models import Q
 from ..repositories.job_repository import JobRepository
-from ..models import Job, Assigment, CountingDetail
+from ..models import Job, Assigment, CountingDetail, EcartComptage
 import logging
 
 logger = logging.getLogger(__name__)
@@ -153,4 +155,107 @@ class JobDiscrepancyService:
             'total_lines_counting_2': total_lines_counting_2,
             'common_lines_count': common_lines_count,
         }
+    
+    def get_jobs_with_unresolved_discrepancies_grouped_by_counting(
+        self,
+        inventory_id: int,
+        warehouse_id: int
+    ) -> List[Dict[str, Any]]:
+        """
+        Récupère les jobs ayant au moins un écart de comptage non résolu,
+        regroupés par comptage (counting.order) pour un inventaire et un entrepôt.
+        
+        Un écart est considéré comme non résolu si :
+        - resolved = False OU
+        - final_result est NULL
+        
+        Args:
+            inventory_id: ID de l'inventaire
+            warehouse_id: ID de l'entrepôt
+            
+        Returns:
+            Liste de dictionnaires avec le format :
+            [
+                {
+                    "counting_order": 3,
+                    "jobs": [
+                        {"job_id": 1, "job_reference": "job-1"},
+                        {"job_id": 2, "job_reference": "job-2"},
+                    ],
+                },
+                {
+                    "counting_order": 4,
+                    "jobs": [
+                        {"job_id": 6, "job_reference": "job-6"},
+                    ],
+                },
+            ]
+            
+        Raises:
+            ValueError: Si l'inventaire ou le warehouse n'existe pas
+        """
+        # Vérifier que l'inventaire existe
+        inventory = self.job_repository.get_inventory_by_id(inventory_id)
+        if not inventory:
+            raise ValueError(f"Inventaire avec l'ID {inventory_id} non trouvé")
+        
+        # Vérifier que le warehouse existe
+        warehouse = self.job_repository.get_warehouse_by_id(warehouse_id)
+        if not warehouse:
+            raise ValueError(f"Warehouse avec l'ID {warehouse_id} non trouvé")
+        
+        # Récupérer les écarts non résolus pour cet inventaire
+        # Un écart est non résolu si resolved=False OU final_result est NULL
+        unresolved_ecarts = EcartComptage.objects.filter(
+            inventory_id=inventory_id
+        ).filter(
+            Q(resolved=False) | Q(final_result__isnull=True)
+        )
+        
+        # Récupérer les CountingDetail liés à ces écarts via ComptageSequence
+        # et qui appartiennent aux jobs de l'entrepôt spécifié
+        # Grouper directement par counting.order et job pour éviter les doublons
+        from django.db.models import Count
+        
+        counting_details = CountingDetail.objects.filter(
+            job__inventory_id=inventory_id,
+            job__warehouse_id=warehouse_id,
+            counting__order__gte=3,  # Ne garder que les comptages à partir de l'ordre 3
+            counting_sequences__ecart_comptage__in=unresolved_ecarts
+        ).select_related('job', 'counting').values(
+            'counting__order',
+            'job__id',
+            'job__reference'
+        ).distinct().order_by('counting__order', 'job__id')
+        
+        # Grouper par counting_order
+        jobs_by_counting = defaultdict(list)
+        
+        for detail in counting_details:
+            counting_order = detail['counting__order']
+            job_id = detail['job__id']
+            job_reference = detail['job__reference']
+            
+            # Vérifier que le job n'est pas déjà dans la liste pour ce counting_order
+            if not any(j['job_id'] == job_id for j in jobs_by_counting[counting_order]):
+                jobs_by_counting[counting_order].append({
+                    'job_id': job_id,
+                    'job_reference': job_reference
+                })
+        
+        # Formater le résultat trié par counting_order
+        result = []
+        for counting_order in sorted(jobs_by_counting.keys()):
+            # Trier les jobs par job_id pour avoir un ordre cohérent
+            jobs_list = sorted(
+                jobs_by_counting[counting_order],
+                key=lambda x: x['job_id']
+            )
+            
+            result.append({
+                'counting_order': counting_order,
+                'jobs': jobs_list
+            })
+        
+        return result
 
