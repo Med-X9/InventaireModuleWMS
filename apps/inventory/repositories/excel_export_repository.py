@@ -70,6 +70,8 @@ class ExcelExportRepository:
         Récupère les données consolidées par article pour un inventaire.
         Récupère TOUS les CountingDetail de l'inventaire (tous les comptages) pour la consolidation.
         
+        Exclut les articles avec le code produit '1111111111111' de la consolidation.
+        
         Retourne une liste de dictionnaires avec :
         - Les informations de l'article
         - La quantité consolidée (somme de toutes les quantités)
@@ -82,11 +84,14 @@ class ExcelExportRepository:
             Liste de dictionnaires avec les données consolidées
         """
         # Récupérer TOUS les CountingDetail de l'inventaire (tous les comptages)
-        # Exclure uniquement les enregistrements supprimés (soft delete) et ceux sans produit
+        # Exclure uniquement les enregistrements supprimés (soft delete), ceux sans produit
+        # et les articles avec le code produit 1111111111111
         counting_details = CountingDetail.objects.filter(
             job__inventory_id=inventory_id,
             product__isnull=False,
             is_deleted=False
+        ).exclude(
+            product__Internal_Product_Code='1111111111111'
         ).select_related(
             'product',
             'product__Product_Family',

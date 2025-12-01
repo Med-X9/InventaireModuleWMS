@@ -9,7 +9,7 @@ import os
 
 # Register your models here.
 from django.contrib import admin
-from import_export.admin import ImportExportModelAdmin
+from import_export.admin import ImportExportModelAdmin, ImportExportMixin
 from import_export import resources, fields, widgets
 from import_export.formats.base_formats import XLSX, CSV, XLS
 from import_export.widgets import ForeignKeyWidget
@@ -625,19 +625,261 @@ class PersonneResource(resources.ModelResource):
         import_id_fields = ('nom', 'prenom')
 
 
+class OptionalAccountWidget(widgets.ForeignKeyWidget):
+    """Widget personnalisé pour gérer les comptes optionnels"""
+    
+    def clean(self, value, row=None, *args, **kwargs):
+        if not value or str(value).strip() == '':
+            return None
+        return super().clean(value, row, *args, **kwargs)
+
+
+class PasswordWidget(widgets.Widget):
+    """
+    Widget personnalisé pour gérer les mots de passe lors de l'import
+    Le mot de passe n'est pas exporté (sécurité) mais peut être importé et hashé
+    """
+    
+    def clean(self, value, row=None, *args, **kwargs):
+        """Retourne le mot de passe en clair pour le hashage ultérieur"""
+        if not value:
+            return None
+        return str(value).strip()
+    
+    def render(self, value, obj=None):
+        """Ne pas exporter le mot de passe pour des raisons de sécurité"""
+        return ""  # Toujours retourner une chaîne vide à l'export
+
+
+class UserAppResource(resources.ModelResource):
+    """
+    Resource pour l'import/export des utilisateurs
+    """
+    username = fields.Field(column_name='Nom d\'utilisateur', attribute='username')
+    email = fields.Field(column_name='Email', attribute='email')
+    nom = fields.Field(column_name='Nom', attribute='nom')
+    prenom = fields.Field(column_name='Prénom', attribute='prenom')
+    type = fields.Field(column_name='Type', attribute='type')
+    compte = fields.Field(
+        column_name='Compte',
+        attribute='compte',
+        widget=OptionalAccountWidget(Account, 'account_name')
+    )
+    is_active = fields.Field(column_name='Actif', attribute='is_active')
+    is_staff = fields.Field(column_name='Administrateur', attribute='is_staff')
+    # Le champ password n'est pas dans les fields pour éviter l'assignation directe
+    # Il est géré manuellement via before_import_row et after_save_instance
+    
+    class Meta:
+        model = UserApp
+        fields = ('username', 'email', 'nom', 'prenom', 'type', 'compte', 'is_active', 'is_staff')
+        import_id_fields = ('username',)
+        skip_unchanged = True
+        report_skipped = False
+    
+    def before_import_row(self, row, **kwargs):
+        """
+        Méthode appelée avant l'import de chaque ligne
+        Permet de valider et transformer les données
+        """
+        # Convertir les valeurs booléennes depuis les colonnes Excel
+        if 'Actif' in row:
+            actif_value = str(row['Actif']).strip().lower()
+            row['Actif'] = actif_value in ['oui', 'yes', 'true', '1', 'o', 'vrai']
+        
+        if 'Administrateur' in row:
+            admin_value = str(row['Administrateur']).strip().lower()
+            row['Administrateur'] = admin_value in ['oui', 'yes', 'true', '1', 'o', 'vrai']
+        
+        # Récupérer le mot de passe et sa confirmation
+        password = None
+        confirm_password = None
+        
+        # Chercher le mot de passe dans différentes colonnes possibles
+        password_keys = ['Mot de passe', 'mot de passe', 'password', 'Password', 'MOT DE PASSE']
+        for key in password_keys:
+            if key in row and row.get(key):
+                password = str(row[key]).strip()
+                break
+        
+        # Chercher la confirmation du mot de passe
+        confirm_keys = ['Confirme mot de passe', 'confirme mot de passe', 'Confirme Mot de passe',
+                       'confirm password', 'Confirm password', 'CONFIRME MOT DE PASSE',
+                       'confirme_password', 'confirm_password']
+        for key in confirm_keys:
+            if key in row and row.get(key):
+                confirm_password = str(row[key]).strip()
+                break
+        
+        # Valider que les mots de passe correspondent si les deux sont fournis
+        if password and confirm_password:
+            if password != confirm_password:
+                from import_export import exceptions
+                # Récupérer le nom d'utilisateur depuis différentes colonnes possibles
+                username = (row.get('Nom d\'utilisateur') or 
+                           row.get('nom d\'utilisateur') or 
+                           row.get('username') or 
+                           row.get('Username') or
+                           'N/A')
+                raise exceptions.ImportError(
+                    f"Les mots de passe ne correspondent pas pour l'utilisateur '{username}'"
+                )
+        
+        # Stocker le password dans la row pour le récupérer dans import_obj
+        # On utilise le password (ou confirm_password s'il n'y a pas de password mais qu'il y a confirm_password)
+        if password:
+            row['_temp_password'] = password
+        elif confirm_password:
+            # Si seulement confirm_password est fourni, l'utiliser
+            row['_temp_password'] = confirm_password
+        
+        return super().before_import_row(row, **kwargs)
+    
+    def after_save_instance(self, instance, row, **kwargs):
+        """
+        Méthode appelée après la sauvegarde de l'instance
+        Gère le hashage du mot de passe si fourni dans les données originales
+        
+        Args:
+            instance: L'instance sauvegardée
+            row: Les données de la ligne importée (peut être un dict ou un objet)
+            **kwargs: Arguments supplémentaires (peut contenir 'file_name', 'dry_run', etc.)
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Récupérer dry_run depuis kwargs
+        dry_run = kwargs.get('dry_run', False)
+        
+        # Récupérer le mot de passe depuis plusieurs sources possibles
+        password = None
+        
+        # Convertir row en dict si ce n'est pas déjà le cas
+        row_dict = row
+        if row and not isinstance(row, dict):
+            try:
+                row_dict = dict(row) if hasattr(row, '__iter__') else {}
+            except:
+                row_dict = {}
+        
+        # 1. Depuis l'attribut temporaire de l'instance (stocké dans import_obj)
+        if hasattr(instance, '_temp_password') and instance._temp_password:
+            password = str(instance._temp_password).strip()
+            logger.debug(f"Password récupéré depuis instance._temp_password pour {instance.username}")
+        # 2. Depuis row['_temp_password'] (stocké dans before_import_row)
+        elif row_dict and '_temp_password' in row_dict and row_dict.get('_temp_password'):
+            password = str(row_dict['_temp_password']).strip()
+            logger.debug(f"Password récupéré depuis row['_temp_password'] pour {instance.username}")
+        # 3. Depuis les colonnes directes du fichier Excel
+        else:
+            password_keys = ['Mot de passe', 'mot de passe', 'password', 'Password', 'MOT DE PASSE']
+            for key in password_keys:
+                if row_dict and key in row_dict and row_dict.get(key):
+                    password = str(row_dict[key]).strip()
+                    logger.debug(f"Password récupéré depuis colonne '{key}' pour {instance.username}")
+                    break
+        
+        # Hasher le mot de passe si présent et si ce n'est pas un dry_run
+        if password and password != '' and not dry_run:
+            try:
+                instance.set_password(password)
+                instance.save(update_fields=['password'])
+                logger.info(f"Mot de passe hashé et sauvegardé pour l'utilisateur {instance.username}")
+            except Exception as e:
+                logger.error(f"Erreur lors du hashage du mot de passe pour {instance.username}: {str(e)}")
+                raise
+        
+        # Nettoyer l'attribut temporaire s'il existe
+        if hasattr(instance, '_temp_password'):
+            delattr(instance, '_temp_password')
+        
+        # Appeler la méthode parente en passant tous les arguments
+        return super().after_save_instance(instance, row, **kwargs)
+    
+    def import_obj(self, obj, data, dry_run, **kwargs):
+        """
+        Méthode appelée lors de l'import d'un objet
+        Gère le stockage temporaire du mot de passe pour le hashage ultérieur
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Extraire le mot de passe depuis _temp_password stocké dans before_import_row
+        # ou directement depuis les colonnes du fichier
+        password = None
+        confirm_password = None
+        
+        # 1. D'abord chercher dans _temp_password (stocké dans before_import_row)
+        if '_temp_password' in data and data.get('_temp_password'):
+            password = str(data['_temp_password']).strip()
+            logger.debug(f"Password trouvé dans _temp_password pour {data.get('Nom d\'utilisateur', 'N/A')}")
+        
+        # 2. Sinon chercher directement dans les colonnes du fichier Excel
+        if not password:
+            password_keys = ['Mot de passe', 'mot de passe', 'password', 'Password', 'MOT DE PASSE']
+            for key in password_keys:
+                if key in data and data.get(key):
+                    password = str(data[key]).strip()
+                    logger.debug(f"Password trouvé dans colonne '{key}' pour {data.get('Nom d\'utilisateur', 'N/A')}")
+                    break
+        
+        # Chercher la confirmation du mot de passe
+        confirm_keys = ['Confirme mot de passe', 'confirme mot de passe', 'Confirme Mot de passe',
+                       'confirm password', 'Confirm password', 'CONFIRME MOT DE PASSE',
+                       'confirme_password', 'confirm_password']
+        for key in confirm_keys:
+            if key in data and data.get(key):
+                confirm_password = str(data[key]).strip()
+                logger.debug(f"Confirmation password trouvée dans colonne '{key}' pour {data.get('Nom d\'utilisateur', 'N/A')}")
+                break
+        
+        # Valider que les mots de passe correspondent si les deux sont fournis
+        if password and confirm_password:
+            if password != confirm_password:
+                from import_export import exceptions
+                username = data.get('Nom d\'utilisateur') or data.get('username', 'N/A')
+                raise exceptions.ImportError(
+                    f"Les mots de passe ne correspondent pas pour l'utilisateur '{username}'"
+                )
+        
+        # Utiliser le mot de passe (ou confirm_password si seul celui-ci est fourni)
+        final_password = password or confirm_password
+        
+        # Stocker le mot de passe temporairement sur l'objet pour le hasher après la sauvegarde
+        if final_password and final_password != '':
+            obj._temp_password = final_password
+            logger.info(f"Password stocké sur l'instance pour {data.get('Nom d\'utilisateur', 'N/A')}")
+            # Retirer password des données pour éviter l'assignation directe
+            if '_temp_password' in data:
+                del data['_temp_password']
+            for key in password_keys + confirm_keys:
+                if key in data:
+                    del data[key]
+        else:
+            logger.warning(f"Aucun password trouvé pour {data.get('Nom d\'utilisateur', 'N/A')}. Colonnes disponibles: {list(data.keys())}")
+        
+        # Appeler la méthode parente pour créer/mettre à jour l'objet
+        result = super().import_obj(obj, data, dry_run, **kwargs)
+        
+        return result
+
+
 # ---------------- Admins ---------------- #
 
 
 
 @admin.register(UserApp)
-class UserAppAdmin(UserAdmin):
+class UserAppAdmin(ImportExportMixin, UserAdmin):
+    """
+    Admin pour les utilisateurs avec support d'import/export
+    Utilise ImportExportMixin pour éviter les conflits avec UserAdmin
+    """
+    resource_class = UserAppResource
     list_display = ('nom', 'prenom', 'username', 'email', 'type','is_staff', 'is_active','compte')
     list_filter = ('type','is_staff', 'is_active','compte')
-    search_fields = ('username', 'email', 'nom', 'prenom','compte')
+    search_fields = ('username', 'email', 'nom', 'prenom', 'compte__account_name')
     ordering = ('username',)
-
     
-
     filter_horizontal = ('groups', 'user_permissions')
 
     # Champs à afficher dans le formulaire d'édition

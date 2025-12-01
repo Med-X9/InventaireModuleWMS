@@ -180,9 +180,19 @@ STATIC_URL = config('DJANGO_STATIC_URL', default='/static/')
 STATIC_ROOT = config('DJANGO_STATIC_ROOT', default=os.path.join(BASE_DIR, 'staticfiles'))
 
 # Si vous avez des fichiers statiques personnalisés dans votre projet (ex : CSS ou JS spécifiques)
-STATICFILES_DIRS = [
-    config('DJANGO_STATICFILES_DIRS', default=os.path.join(BASE_DIR, 'static')),
-]
+# Ne pas inclure STATIC_ROOT dans STATICFILES_DIRS
+staticfiles_dirs_default = os.path.join(BASE_DIR, 'static')
+staticfiles_dirs_from_env = config('DJANGO_STATICFILES_DIRS', default=staticfiles_dirs_default)
+
+# Convertir en Path pour normaliser les chemins et comparer
+STATIC_ROOT_PATH = Path(STATIC_ROOT).resolve()
+STATICFILES_DIRS_PATH = Path(staticfiles_dirs_from_env).resolve()
+
+# Vérifier que STATICFILES_DIRS ne contient pas STATIC_ROOT
+# et que le répertoire existe
+STATICFILES_DIRS = []
+if STATICFILES_DIRS_PATH != STATIC_ROOT_PATH and STATICFILES_DIRS_PATH.exists():
+    STATICFILES_DIRS = [str(STATICFILES_DIRS_PATH)]
 
 
 # Media files

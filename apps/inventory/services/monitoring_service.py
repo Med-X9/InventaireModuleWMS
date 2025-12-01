@@ -115,11 +115,11 @@ class MonitoringService:
                     # Compter les jobs par statut
                     jobs_en_attente = sum(
                         1 for job in counting_jobs 
-                        if job.status == 'EN ATTENTE'
+                        if job.status == 'TRANSFERT'
                     )
                     jobs_en_cours = sum(
                         1 for job in counting_jobs 
-                        if job.status in ['AFFECTE', 'PRET', 'TRANSFERT', 'ENTAME']
+                        if job.status == 'ENTAME'
                     )
                     jobs_termines = sum(
                         1 for job in counting_jobs 
