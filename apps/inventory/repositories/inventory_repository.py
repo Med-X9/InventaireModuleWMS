@@ -443,7 +443,7 @@ class InventoryRepository(IInventoryRepository):
             is_deleted=False
         ).order_by('-created_at')[:limit]
 
-    def get_with_counting_tracking_data(self, inventory_id: int, counting_order: int) -> Any:
+    def get_with_counting_tracking_data(self, inventory_id: int, counting_order: int, assigment_id: Optional[int] = None) -> Any:
         """
         Récupère un inventaire avec toutes les données nécessaires pour le suivi de comptage.
         Précharge les relations : countings, jobs (filtrés par assignment), jobdetails, locations, zones, sous-zones.
@@ -451,6 +451,7 @@ class InventoryRepository(IInventoryRepository):
         Args:
             inventory_id: ID de l'inventaire à récupérer
             counting_order: Ordre du comptage à filtrer (requis). Ne retourne que le comptage avec cet ordre.
+            assigment_id: ID de l'assignment à filtrer (optionnel). Si fourni, ne retourne que les jobs de cet assignment.
             
         Returns:
             Inventory: Inventaire avec toutes les relations préchargées
@@ -468,10 +469,16 @@ class InventoryRepository(IInventoryRepository):
             
             # Récupérer les IDs des jobs qui ont un assignment pour ce counting
             if counting:
-                job_ids_with_assignment = Assigment.objects.filter(
+                assignment_filter = Assigment.objects.filter(
                     counting=counting,
                     job__inventory_id=inventory_id
-                ).values_list('job_id', flat=True).distinct()
+                )
+                
+                # Si assigment_id est fourni, filtrer par cet assignment
+                if assigment_id is not None:
+                    assignment_filter = assignment_filter.filter(id=assigment_id)
+                
+                job_ids_with_assignment = assignment_filter.values_list('job_id', flat=True).distinct()
             else:
                 job_ids_with_assignment = []
             
@@ -484,6 +491,11 @@ class InventoryRepository(IInventoryRepository):
             
             # Construire le Prefetch pour les jobs filtrés par assignment
             if counting and job_ids_with_assignment:
+                # Construire le filtre pour les assignments dans le Prefetch
+                assignment_filter = Assigment.objects.filter(counting=counting)
+                if assigment_id is not None:
+                    assignment_filter = assignment_filter.filter(id=assigment_id)
+                
                 job_prefetch = Prefetch(
                     'job_set',
                     queryset=Job.objects.filter(
@@ -494,7 +506,7 @@ class InventoryRepository(IInventoryRepository):
                         'jobdetail_set__location__sous_zone',
                         Prefetch(
                             'assigment_set',
-                            queryset=Assigment.objects.filter(counting=counting).select_related(
+                            queryset=assignment_filter.select_related(
                                 'counting', 'session', 'personne', 'personne_two'
                             )
                         )

@@ -126,6 +126,7 @@ class InventoryListView(ServerSideDataTableView):
     # Optionnel : seulement si vous voulez personnaliser
     default_order = '-created_at'
     page_size = 20
+    export_filename = 'inventaires'
 
     def get_datatable_queryset(self):
         """Optimisation automatique des requêtes"""
@@ -150,6 +151,7 @@ class SimpleInventoryListView(ServerSideDataTableView):
     serializer_class = InventoryDetailSerializer
     search_fields = ['label', 'reference']
     order_fields = ['id', 'label', 'created_at']
+    export_filename = 'inventaires_simples'
 
 class AdvancedInventoryListView(ServerSideDataTableView):
     """
@@ -166,6 +168,7 @@ class AdvancedInventoryListView(ServerSideDataTableView):
     filter_fields = ['status', 'inventory_type']
     date_fields = ['date', 'created_at']
     status_fields = ['status']
+    export_filename = 'inventaires_avances'
 
 class CustomInventoryListView(ServerSideDataTableView):
     """
@@ -186,6 +189,8 @@ class CustomInventoryListView(ServerSideDataTableView):
         config = super().get_datatable_config()
         # Personnaliser la configuration si nécessaire
         return config
+    
+    export_filename = 'inventaires_personnalises'
 
 class InventoryOrderingTestView(APIView):
     """Vue de test pour vérifier le tri"""
@@ -723,6 +728,7 @@ class InventoryResultByWarehouseView(ServerSideDataTableView):
     # Configuration de pagination
     default_page_size = 20
     max_page_size = 1000
+    export_filename = 'resultats_inventaire_par_warehouse'
     
     # Champs pour la recherche globale
     search_fields = [

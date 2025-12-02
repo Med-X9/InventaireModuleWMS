@@ -129,7 +129,6 @@ class UnassignedLocationsView(ServerSideDataTableView):
     """
     model = Location
     serializer_class = UnassignedLocationSerializer
-    filterset_class = UnassignedLocationFilter
     search_fields = [
         'reference', 'location_reference', 'description',
         'sous_zone__reference', 'sous_zone__sous_zone_name',
@@ -145,6 +144,7 @@ class UnassignedLocationsView(ServerSideDataTableView):
     page_size = 20
     min_page_size = 1
     max_page_size = 1000
+    export_filename = 'emplacements_non_affectes'
 
     # Mapping frontend -> backend pour le DataTable « Emplacements disponibles »
     column_field_mapping = {
@@ -225,6 +225,8 @@ class UnassignedLocationsView(ServerSideDataTableView):
         Délègue à get_queryset().
         """
         return self.get_queryset()
+
+
 
 class LocationDetailView(APIView):
     permission_classes = [IsAuthenticated]

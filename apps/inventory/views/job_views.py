@@ -380,6 +380,7 @@ class PendingJobsReferencesView(ServerSideDataTableView):
     page_size = 20
     min_page_size = 1
     max_page_size = 1000
+    export_filename = 'jobs_en_attente'
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -438,6 +439,7 @@ class JobListWithLocationsView(ServerSideDataTableView):
     page_size = 20
     min_page_size = 1
     max_page_size = 1000
+    export_filename = 'jobs_avec_emplacements'
     
     # Mapping frontend -> backend pour les filtres (vue générique Jobs / JobManagement)
     filter_aliases = {
@@ -493,6 +495,7 @@ class WarehouseJobsView(ServerSideDataTableView):
     page_size = 20
     min_page_size = 1
     max_page_size = 1000
+    export_filename = 'jobs_par_warehouse'
 
     # Mapping frontend -> backend pour le DataTable « Jobs créés »
     filter_aliases = {
@@ -597,6 +600,7 @@ class JobFullDetailListView(ServerSideDataTableView):
     page_size = 20
     min_page_size = 1
     max_page_size = 1000
+    export_filename = 'jobs_details_complets'
     
     # Champs de filtrage automatique
     filter_fields = [
@@ -692,6 +696,7 @@ class JobPendingListView(ServerSideDataTableView):
     page_size = 20
     min_page_size = 1
     max_page_size = 1000
+    export_filename = 'jobs_en_attente_liste'
     
     # Mapping pour les filtres
     filter_aliases = {
@@ -1020,6 +1025,7 @@ class JobsWithAssignmentsByWarehouseAndCountingView(ServerSideDataTableView):
     page_size = 20
     min_page_size = 1
     max_page_size = 1000
+    export_filename = 'jobs_avec_assignments'
     
     # Mapping frontend -> backend pour le filtrage par colonnes
     filter_aliases = {
@@ -1125,6 +1131,7 @@ class JobDetailsByJobAndCountingView(ServerSideDataTableView):
     # Configuration par défaut
     default_order = 'location__location_reference'
     page_size = 20
+    export_filename = 'job_details_par_comptage'
     
     # Champs de date pour filtrage automatique
     date_fields = ['en_attente_date', 'termine_date', 'location__created_at', 'location__updated_at']

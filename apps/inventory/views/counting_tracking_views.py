@@ -30,6 +30,7 @@ class InventoryCountingTrackingView(APIView):
         
         Paramètres de requête:
             counting_order (requis): Ordre du comptage à filtrer (ex: ?counting_order=1)
+            assigment_id (optionnel): ID de l'assignment à filtrer (ex: ?assigment_id=123)
         
         Args:
             inventory_id: ID de l'inventaire à suivre
@@ -68,9 +69,31 @@ class InventoryCountingTrackingView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
+            # Extraire le paramètre de filtre par assignment_id (optionnel)
+            assigment_id = request.query_params.get('assigment_id')
+            if assigment_id is not None:
+                try:
+                    assigment_id = int(assigment_id)
+                    if assigment_id <= 0:
+                        return Response(
+                            {'error': 'Le paramètre assigment_id doit être un nombre entier positif'},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                except (ValueError, TypeError):
+                    return Response(
+                        {'error': 'Le paramètre assigment_id doit être un nombre entier valide'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            else:
+                assigment_id = None
+            
             # Initialiser le service et récupérer l'inventaire avec toutes ses relations
             counting_tracking_service = CountingTrackingService()
-            inventory = counting_tracking_service.get_inventory_counting_tracking(inventory_id, counting_order)
+            inventory = counting_tracking_service.get_inventory_counting_tracking(
+                inventory_id, 
+                counting_order, 
+                assigment_id=assigment_id
+            )
             
             # Sérialiser les données
             serializer = InventoryCountingTrackingSerializer(inventory)
@@ -108,6 +131,7 @@ class JobDetailTrackingView(ServerSideDataTableView):
     ]
     default_order = 'job_reference'
     page_size = 20
+    export_filename = 'suivi_job_details'
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

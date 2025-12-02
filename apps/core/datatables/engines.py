@@ -96,10 +96,17 @@ class FilterEngine:
         
         # Combiner tous les filtres avec AND
         if q_objects:
-            combined_q = q_objects[0]
-            for q_obj in q_objects[1:]:
-                combined_q &= q_obj
-            data = data.filter(combined_q)
+            try:
+                combined_q = q_objects[0]
+                for q_obj in q_objects[1:]:
+                    combined_q &= q_obj
+                data = data.filter(combined_q)
+            except Exception as e:
+                logger.error(
+                    f"Erreur lors de l'application des filtres: {str(e)}. "
+                    f"Les filtres seront ignorés."
+                )
+                # Retourner le queryset sans filtres en cas d'erreur
         
         return data
     
@@ -269,24 +276,38 @@ class SortEngine:
         order_by = []
         
         for sort_item in sort_model:
-            # Obtenir le nom du champ Django depuis le mapping
-            col_id = sort_item.col_id
-            field_name = self.column_field_mapping.get(col_id, col_id)
-            
-            # Log pour déboguer
-            if col_id != field_name:
-                logger.debug(f"Tri: {col_id} -> {field_name} (via column_field_mapping)")
-            else:
-                logger.debug(f"Tri: {col_id} (pas de mapping, utilisation directe)")
-            
-            # Ajouter le préfixe "-" pour DESC
-            if sort_item.sort.value == "desc":
-                field_name = f"-{field_name}"
-            
-            order_by.append(field_name)
+            try:
+                # Obtenir le nom du champ Django depuis le mapping
+                col_id = sort_item.col_id
+                field_name = self.column_field_mapping.get(col_id, col_id)
+                
+                # Log pour déboguer
+                if col_id != field_name:
+                    logger.debug(f"Tri: {col_id} -> {field_name} (via column_field_mapping)")
+                else:
+                    logger.debug(f"Tri: {col_id} (pas de mapping, utilisation directe)")
+                
+                # Ajouter le préfixe "-" pour DESC
+                if sort_item.sort.value == "desc":
+                    field_name = f"-{field_name}"
+                
+                order_by.append(field_name)
+            except Exception as e:
+                logger.warning(
+                    f"Erreur lors de la préparation du tri pour {col_id}: {str(e)}. "
+                    f"Le tri sur cette colonne sera ignoré."
+                )
+                continue
         
         if order_by:
-            data = data.order_by(*order_by)
+            try:
+                data = data.order_by(*order_by)
+            except Exception as e:
+                logger.error(
+                    f"Erreur lors de l'application du tri sur les champs {order_by}: {str(e)}. "
+                    f"Le queryset sera retourné sans tri."
+                )
+                # Retourner le queryset sans tri en cas d'erreur
         
         return data
     

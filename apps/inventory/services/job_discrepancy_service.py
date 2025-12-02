@@ -77,6 +77,7 @@ class JobDiscrepancyService:
             # Formater les assignments (seulement counting_order, status, counting_reference, session_full_name)
             assignments_data = [
                 {
+                    'assignment_id': assignment.id,
                     'status': assignment.status,
                     'counting_reference': assignment.counting.reference if assignment.counting else None,
                     'counting_order': assignment.counting.order if assignment.counting else None,

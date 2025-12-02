@@ -5,6 +5,8 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from django.http import HttpResponse
 import io
+import csv
+import json
 from datetime import datetime
 
 from apps.mobile.services.user_service import UserService
@@ -20,23 +22,25 @@ from apps.mobile.exceptions import (
 
 class UserProductsView(APIView):
     """
-    API pour exporter les produits du même compte qu'un utilisateur en format Excel.
+    API pour exporter les produits du même compte qu'un utilisateur en format CSV ou Excel.
     
     Permet d'exporter la liste des produits appartenant au même compte
-    de l'utilisateur connecté sous forme de fichier Excel (.xlsx).
+    de l'utilisateur connecté sous forme de fichier CSV (par défaut) ou Excel (.xlsx).
     Utile pour la gestion des inventaires et l'export des produits disponibles.
     
     URL: /mobile/api/products/
+    Paramètres GET:
+    - format: 'csv' (défaut) ou 'excel' pour choisir le format d'export
     
     Fonctionnalités:
-    - Export des produits du même compte en format Excel
+    - Export des produits du même compte en format CSV (par défaut) ou Excel
     - L'utilisateur est récupéré automatiquement depuis le token d'authentification
     - Filtrage par compte associé à l'utilisateur connecté
-    - Génération d'un fichier Excel avec formatage et en-têtes stylisés
+    - Génération d'un fichier avec en-têtes
     - Gestion des erreurs spécifiques et cas d'absence de produits
     
     Réponses:
-    - 200: Fichier Excel généré avec succès
+    - 200: Fichier CSV ou Excel généré avec succès
     - 400: Erreur de validation
     - 401: Non authentifié
     - 404: Utilisateur ou compte non trouvé
@@ -45,16 +49,32 @@ class UserProductsView(APIView):
     permission_classes = [IsAuthenticated]
     
     @swagger_auto_schema(
-        operation_summary="Export Excel des produits utilisateur mobile",
-        operation_description="Exporte la liste des produits appartenant au même compte de l'utilisateur connecté en format Excel (.xlsx)",
+        operation_summary="Export CSV/Excel des produits utilisateur mobile",
+        operation_description="Exporte la liste des produits appartenant au même compte de l'utilisateur connecté en format CSV (par défaut) ou Excel (.xlsx). Utilisez ?format=excel pour Excel.",
+        manual_parameters=[
+            openapi.Parameter(
+                'format',
+                openapi.IN_QUERY,
+                description="Format d'export: 'csv' (défaut) ou 'excel'",
+                type=openapi.TYPE_STRING,
+                enum=['csv', 'excel'],
+                default='csv'
+            )
+        ],
         responses={
             200: openapi.Response(
-                description="Fichier Excel généré avec succès",
+                description="Fichier CSV ou Excel généré avec succès",
                 content={
+                    'text/csv': {
+                        'schema': openapi.Schema(
+                            type=openapi.TYPE_FILE,
+                            description="Fichier CSV contenant les produits (format par défaut)"
+                        )
+                    },
                     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': {
                         'schema': openapi.Schema(
                             type=openapi.TYPE_FILE,
-                            description="Fichier Excel contenant les produits"
+                            description="Fichier Excel contenant les produits (si format=excel)"
                         )
                     }
                 }
@@ -107,19 +127,23 @@ class UserProductsView(APIView):
     )
     def get(self, request):
         """
-        Exporte les produits du même compte de l'utilisateur connecté en fichier Excel.
+        Exporte les produits du même compte de l'utilisateur connecté en fichier CSV.
         
         Args:
             request: Requête GET
             - L'utilisateur est récupéré automatiquement depuis le token d'authentification
+            - format: Paramètre optionnel 'excel' pour exporter en Excel (défaut: 'csv')
             
         Returns:
-            HttpResponse: Fichier Excel contenant les produits
+            HttpResponse: Fichier CSV ou Excel contenant les produits
         """
         try:
             # Récupérer l'utilisateur depuis le token d'authentification
             user_id = request.user.id
             print(f"user_id depuis token: {user_id}")
+            
+            # Vérifier le format demandé (csv par défaut)
+            export_format = request.GET.get('format', 'csv').lower()
             
             user_service = UserService()
             
@@ -144,19 +168,32 @@ class UserProductsView(APIView):
                         'updated_at': product.get('updated_at')
                     })
             
-            # Générer le fichier Excel
-            excel_buffer = self._generate_excel(products)
-            
             # Définir le nom du fichier avec timestamp
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f"produits_utilisateur_{user_id}_{timestamp}.xlsx"
             
-            # Créer la réponse HTTP avec le fichier Excel
-            response = HttpResponse(
-                excel_buffer.getvalue(),
-                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            )
-            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            # Générer le fichier selon le format demandé
+            if export_format == 'excel':
+                # Générer le fichier Excel
+                excel_buffer = self._generate_excel(products)
+                filename = f"produits_utilisateur_{user_id}_{timestamp}.xlsx"
+                
+                # Créer la réponse HTTP avec le fichier Excel
+                response = HttpResponse(
+                    excel_buffer.getvalue(),
+                    content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                )
+                response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            else:
+                # Générer le fichier CSV (par défaut)
+                csv_buffer = self._generate_csv(products)
+                filename = f"produits_utilisateur_{user_id}_{timestamp}.csv"
+                
+                # Créer la réponse HTTP avec le fichier CSV
+                response = HttpResponse(
+                    csv_buffer.getvalue(),
+                    content_type='text/csv; charset=utf-8'
+                )
+                response['Content-Disposition'] = f'attachment; filename="{filename}"'
             
             return response
             
@@ -173,14 +210,25 @@ class UserProductsView(APIView):
                 error_type='ACCOUNT_NOT_FOUND'
             )
         except ProductNotFoundException as e:
-            # Générer un fichier Excel vide avec seulement les en-têtes
-            excel_buffer = self._generate_excel([])
+            # Générer un fichier vide avec seulement les en-têtes
+            export_format = request.GET.get('format', 'csv').lower()
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f"produits_utilisateur_{request.user.id}_{timestamp}.xlsx"
-            response = HttpResponse(
-                excel_buffer.getvalue(),
-                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            )
+            
+            if export_format == 'excel':
+                excel_buffer = self._generate_excel([])
+                filename = f"produits_utilisateur_{request.user.id}_{timestamp}.xlsx"
+                response = HttpResponse(
+                    excel_buffer.getvalue(),
+                    content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                )
+            else:
+                csv_buffer = self._generate_csv([])
+                filename = f"produits_utilisateur_{request.user.id}_{timestamp}.csv"
+                response = HttpResponse(
+                    csv_buffer.getvalue(),
+                    content_type='text/csv; charset=utf-8'
+                )
+            
             response['Content-Disposition'] = f'attachment; filename="{filename}"'
             return response
         except DataValidationException as e:
@@ -275,15 +323,15 @@ class UserProductsView(APIView):
         
         # Écrire les données
         for row_num, product in enumerate(products, 2):
-            # Convertir les valeurs booléennes en texte
-            is_variant = "Oui" if product.get('is_variant') else "Non"
-            n_lot = "Oui" if product.get('n_lot') else "Non"
-            n_serie = "Oui" if product.get('n_serie') else "Non"
-            dlc = "Oui" if product.get('dlc') else "Non"
+            # Garder les valeurs booléennes telles quelles (True/False)
+            is_variant = product.get('is_variant', False)
+            n_lot = product.get('n_lot', False)
+            n_serie = product.get('n_serie', False)
+            dlc = product.get('dlc', False)
             
-            # Convertir la liste des numéros de série en chaîne
+            # Convertir la liste des numéros de série en JSON
             numeros_serie = product.get('numeros_serie', [])
-            numeros_serie_str = ', '.join([str(ns) for ns in numeros_serie]) if numeros_serie else ''
+            numeros_serie_json = json.dumps(numeros_serie, ensure_ascii=False) if numeros_serie else '[]'
             
             # Formater les dates
             created_at = product.get('created_at', '')
@@ -310,7 +358,7 @@ class UserProductsView(APIView):
             ws.cell(row=row_num, column=7, value=n_lot)
             ws.cell(row=row_num, column=8, value=n_serie)
             ws.cell(row=row_num, column=9, value=dlc)
-            ws.cell(row=row_num, column=10, value=numeros_serie_str)
+            ws.cell(row=row_num, column=10, value=numeros_serie_json)
             ws.cell(row=row_num, column=11, value=created_at)
             ws.cell(row=row_num, column=12, value=updated_at)
         
@@ -339,3 +387,88 @@ class UserProductsView(APIView):
         excel_buffer.seek(0)
         
         return excel_buffer
+    
+    def _generate_csv(self, products: list) -> io.StringIO:
+        """
+        Génère un fichier CSV à partir de la liste des produits.
+        
+        Args:
+            products: Liste des produits à exporter
+            
+        Returns:
+            StringIO: Buffer contenant le fichier CSV
+        """
+        # Définir les en-têtes (snake_case)
+        headers = [
+            'web_id',
+            'product_name',
+            'product_code',
+            'internal_product_code',
+            'family_name',
+            'is_variant',
+            'n_lot',
+            'n_serie',
+            'dlc',
+            'numeros_serie',
+            'created_at',
+            'updated_at'
+        ]
+        
+        # Créer un buffer pour le CSV
+        csv_buffer = io.StringIO()
+        writer = csv.writer(csv_buffer, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        
+        # Écrire les en-têtes
+        writer.writerow(headers)
+        
+        # Écrire les données
+        for product in products:
+            # Garder les valeurs booléennes telles quelles (True/False)
+            is_variant = product.get('is_variant', False)
+            n_lot = product.get('n_lot', False)
+            n_serie = product.get('n_serie', False)
+            dlc = product.get('dlc', False)
+            
+            # Convertir la liste des numéros de série en JSON
+            numeros_serie = product.get('numeros_serie', [])
+            numeros_serie_json = json.dumps(numeros_serie, ensure_ascii=False) if numeros_serie else '[]'
+            
+            # Formater les dates
+            created_at = product.get('created_at', '')
+            updated_at = product.get('updated_at', '')
+            if created_at:
+                try:
+                    if isinstance(created_at, str):
+                        created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    pass
+            if updated_at:
+                try:
+                    if isinstance(updated_at, str):
+                        updated_at = datetime.fromisoformat(updated_at.replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    pass
+            
+            # Écrire la ligne
+            writer.writerow([
+                product.get('web_id', ''),
+                product.get('product_name', ''),
+                product.get('product_code', ''),
+                product.get('internal_product_code', ''),
+                product.get('family_name', ''),
+                is_variant,
+                n_lot,
+                n_serie,
+                dlc,
+                numeros_serie_json,
+                created_at,
+                updated_at
+            ])
+        
+        # Retourner le buffer en BytesIO pour la réponse HTTP
+        csv_buffer.seek(0)
+        csv_bytes = io.BytesIO()
+        csv_bytes.write(csv_buffer.getvalue().encode('utf-8-sig'))  # BOM UTF-8 pour Excel
+        csv_bytes.seek(0)
+        
+        return csv_bytes
