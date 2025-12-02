@@ -269,11 +269,15 @@ class SortEngine:
         order_by = []
         
         for sort_item in sort_model:
-            # Obtenir le nom du champ Django
-            field_name = self.column_field_mapping.get(
-                sort_item.col_id,
-                sort_item.col_id
-            )
+            # Obtenir le nom du champ Django depuis le mapping
+            col_id = sort_item.col_id
+            field_name = self.column_field_mapping.get(col_id, col_id)
+            
+            # Log pour déboguer
+            if col_id != field_name:
+                logger.debug(f"Tri: {col_id} -> {field_name} (via column_field_mapping)")
+            else:
+                logger.debug(f"Tri: {col_id} (pas de mapping, utilisation directe)")
             
             # Ajouter le préfixe "-" pour DESC
             if sort_item.sort.value == "desc":
