@@ -547,7 +547,7 @@ class PDFService(PDFServiceInterface):
             x1 = doc.leftMargin + signature_margin
             canvas_obj.setFont("Helvetica", 10)
             personne_nom_text = str(personne_loreal).strip() if personne_loreal else ''
-            if personne_nom_text.startswith("L'Oréal ") or personne_nom_text.startswith("L'Oreal "):
+            if personne_nom_text.startswith("LOREAL ") or personne_nom_text.startswith("L'Oreal "):
                 personne_nom_text = personne_nom_text.split(" ", 1)[1] if " " in personne_nom_text else personne_nom_text
             elif personne_nom_text.startswith("L'Oréal-") or personne_nom_text.startswith("L'Oreal-"):
                 personne_nom_text = personne_nom_text.split("-", 1)[1] if "-" in personne_nom_text else personne_nom_text

@@ -582,14 +582,6 @@ class RegroupementEmplacementResource(resources.ModelResource):
         fields = ('nom', 'account')
 
 
-class PersonneResource(resources.ModelResource):
-    nom = fields.Field(column_name='nom', attribute='nom')
-    prenom = fields.Field(column_name='prenom', attribute='prenom')
-    
-    class Meta:
-        model = Personne
-        fields = ('nom', 'prenom')
-        import_id_fields = ('nom', 'prenom')
 class NSerieResource(resources.ModelResource):
     """
     Resource pour l'import/export des numéros de série
@@ -623,6 +615,63 @@ class PersonneResource(resources.ModelResource):
         model = Personne
         fields = ('nom', 'prenom')
         import_id_fields = ('nom', 'prenom')
+    
+    def before_save_instance(self, instance, row, **kwargs):
+        """
+        Génère automatiquement la référence si elle est vide avant la sauvegarde.
+        Cela évite les violations de contrainte unique lors de l'import.
+        
+        Args:
+            instance: L'instance à sauvegarder
+            row: Les données de la ligne importée (dict)
+            **kwargs: Arguments supplémentaires (peut contenir 'file_name', 'dry_run', etc.)
+        """
+        # S'assurer que la référence est toujours générée et unique
+        if not instance.reference or instance.reference.strip() == '':
+            import time
+            max_attempts = 20
+            attempt = 0
+            prefix = instance.REFERENCE_PREFIX  # 'PER'
+            prefix_len = len(prefix)  # 3
+            
+            # Calculer l'espace disponible pour le reste (20 - prefix - 1 pour le tiret = 16)
+            available_chars = 20 - prefix_len - 1  # 16 caractères disponibles
+            
+            while attempt < max_attempts:
+                # Générer une référence unique avec timestamp et UUID
+                # Format: PER-{timestamp}{uuid} (max 20 caractères)
+                timestamp_short = str(int(time.time() * 1000))[-6:]  # 6 derniers chiffres du timestamp en ms
+                unique_suffix = str(uuid.uuid4()).replace('-', '')[:available_chars - 6].upper()  # 10 caractères
+                reference = f"{prefix}-{timestamp_short}{unique_suffix}"
+                
+                # S'assurer que la référence ne dépasse pas 20 caractères
+                if len(reference) > 20:
+                    reference = reference[:20]
+                
+                # Vérifier si la référence existe déjà dans la base de données
+                if not Personne.objects.filter(reference=reference).exists():
+                    instance.reference = reference
+                    break
+                
+                attempt += 1
+                # Petite pause pour éviter les collisions si plusieurs tentatives
+                time.sleep(0.0001)
+            
+            # Si après toutes les tentatives on n'a pas trouvé de référence unique,
+            # utiliser une combinaison avec plus de caractères aléatoires
+            if not instance.reference or instance.reference.strip() == '':
+                timestamp_short = str(int(time.time() * 1000000))[-8:]  # 8 derniers chiffres
+                unique_suffix = str(uuid.uuid4()).replace('-', '')[:available_chars - 8].upper()  # 8 caractères
+                reference = f"{prefix}-{timestamp_short}{unique_suffix}"
+                # S'assurer que la référence ne dépasse pas 20 caractères
+                if len(reference) > 20:
+                    reference = reference[:20]
+                instance.reference = reference
+        
+        # Appeler la méthode parente si elle existe
+        if hasattr(super(), 'before_save_instance'):
+            return super().before_save_instance(instance, row, **kwargs)
+        return instance
 
 
 class OptionalAccountWidget(widgets.ForeignKeyWidget):
