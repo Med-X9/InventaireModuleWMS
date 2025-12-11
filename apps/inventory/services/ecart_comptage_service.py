@@ -34,14 +34,14 @@ class EcartComptageService:
 
         # Sécurité : on s'appuie sur total_sequences, mais on recalcule si besoin
         sequences_count = ecart.total_sequences or 0
-        if sequences_count < 2:
-            # Double check via la relation si jamais total_sequences n'est pas à jour
-            sequences_count = ecart.counting_sequences.count()
+        # if sequences_count < 2:
+        #     # Double check via la relation si jamais total_sequences n'est pas à jour
+        #     sequences_count = ecart.counting_sequences.count()
 
-        if sequences_count < 2:
-            raise InventoryValidationError(
-                "Il faut au moins deux comptages enregistrés pour modifier le résultat final."
-            )
+        # if sequences_count < 2:
+        #     raise InventoryValidationError(
+        #         "Il faut au moins deux comptages enregistrés pour modifier le résultat final."
+        #     )
 
         ecart.final_result = final_result
 

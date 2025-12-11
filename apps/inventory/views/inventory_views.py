@@ -733,7 +733,7 @@ class InventoryResultByWarehouseView(ServerSideDataTableView):
     # Champs pour la recherche globale
     search_fields = [
         'location', 'location_id', 'product', 'product_description', 'product_internal_code',
-        'job_id', 'job_reference', 'final_result', 'resolved',
+        'job_id', 'job_reference', 'final_result', 'resolved', 'result_id', 'ecart_comptage_id',
         # Comptages dynamiques
         '1er comptage', '2er comptage', '3er comptage', '4er comptage', '5er comptage',
         # Écarts dynamiques
@@ -770,6 +770,8 @@ class InventoryResultByWarehouseView(ServerSideDataTableView):
         'resultats': 'final_result',
         'final_result': 'final_result',
         'resolved': 'resolved',
+        'result_id': 'result_id',
+        'ecart_comptage_id': 'ecart_comptage_id',
         # Statuts d'assignment par comptage (seulement 1er et 2ème)
         'statut_1er_comptage': 'statut_1er_comptage',
         'statut_2er_comptage': 'statut_2er_comptage',

@@ -12,6 +12,7 @@ class CountingMonitoringSerializer(serializers.Serializer):
     counting_reference = serializers.CharField()
     counting_order = serializers.IntegerField()
     nombre_jobs = serializers.IntegerField()
+    jobs_termines = serializers.IntegerField()
     nombre_emplacements = serializers.IntegerField()
 
 

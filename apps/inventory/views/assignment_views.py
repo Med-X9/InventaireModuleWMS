@@ -49,6 +49,11 @@ class AssignJobsToCountingView(APIView):
         "session_id": 5,
         "date_start": "2024-01-15T10:00:00Z"
     }
+    
+    Comportement :
+    - Si l'assignment existe déjà et est au statut ENTAME, il sera mis en TRANSFERT lors de l'affectation
+    - Les autres statuts (PRET, TRANSFERT, TERMINE, etc.) restent inchangés
+    - La session et la date_start sont mises à jour
     """
     permission_classes = [IsAuthenticated]
     

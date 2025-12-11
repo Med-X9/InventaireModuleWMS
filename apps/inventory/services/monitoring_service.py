@@ -105,12 +105,21 @@ class MonitoringService:
                 # Calculer les statistiques par comptage avec requêtes SQL optimisées
                 counting_stats = []
                 for counting in countings:
-                    # Compter les jobs de cette zone qui ont un assignment pour ce comptage
+                    # Compter les jobs de cette zone pour ce comptage (via JobDetail, pas assignments)
                     nombre_jobs = Job.objects.filter(
                         inventory_id=inventory_id,
                         warehouse_id=warehouse_id,
                         jobdetail__location__sous_zone__zone_id=zone.id,
-                        assigment__counting_id=counting.id
+                        jobdetail__counting_id=counting.id
+                    ).distinct().count()
+                    
+                    # Compter les jobs terminés pour ce comptage dans cette zone (basé sur statut du job)
+                    jobs_termines = Job.objects.filter(
+                        inventory_id=inventory_id,
+                        warehouse_id=warehouse_id,
+                        jobdetail__location__sous_zone__zone_id=zone.id,
+                        jobdetail__counting_id=counting.id,
+                        status='TERMINE'
                     ).distinct().count()
                     
                     # Compter les emplacements distincts pour ce comptage dans cette zone
@@ -126,6 +135,7 @@ class MonitoringService:
                         'counting_reference': counting.reference,
                         'counting_order': counting.order,
                         'nombre_jobs': nombre_jobs,
+                        'jobs_termines': jobs_termines,
                         'nombre_emplacements': emplacements_counting_count
                     })
                 
@@ -279,12 +289,12 @@ class MonitoringService:
         zone_id: int
     ) -> str:
         """
-        Calcule le statut d'une zone basé sur les statuts des assignments des jobs (version optimisée).
+        Calcule le statut d'une zone basé sur les statuts des jobs (version optimisée).
         
         Règles :
-        - Si tous les assignments ont le statut "TRANSFERT", alors le statut est "EN ATTENTE"
-        - Si au moins un assignment a le statut "ENTAME", alors le statut est "EN COURS"
-        - Si tous les assignments ont le statut "TERMINE", alors le statut est "TERMINE"
+        - Si tous les jobs ont le statut "TRANSFERT", alors le statut est "EN ATTENTE"
+        - Si au moins un job a le statut "ENTAME", alors le statut est "EN COURS"
+        - Si tous les jobs ont le statut "TERMINE", alors le statut est "TERMINE"
         - Sinon, le statut est "EN COURS" (par défaut)
         
         Args:
@@ -297,30 +307,30 @@ class MonitoringService:
         """
         from django.db.models import Count, Q
         
-        # Compter les assignments par statut dans cette zone
-        assignments_stats = Assigment.objects.filter(
-            job__inventory_id=inventory_id,
-            job__warehouse_id=warehouse_id,
-            job__jobdetail__location__sous_zone__zone_id=zone_id
-        ).values('status').annotate(count=Count('id'))
+        # Compter les jobs par statut dans cette zone
+        jobs_stats = Job.objects.filter(
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id,
+            jobdetail__location__sous_zone__zone_id=zone_id
+        ).values('status').annotate(count=Count('id', distinct=True))
         
-        if not assignments_stats.exists():
+        if not jobs_stats.exists():
             return "EN ATTENTE"
         
         # Créer un dictionnaire des comptages par statut
-        status_counts = {stat['status']: stat['count'] for stat in assignments_stats}
-        total_assignments = sum(status_counts.values())
+        status_counts = {stat['status']: stat['count'] for stat in jobs_stats}
+        total_jobs = sum(status_counts.values())
         
-        # Vérifier si tous les assignments sont terminés
-        if status_counts.get('TERMINE', 0) == total_assignments:
+        # Vérifier si tous les jobs sont terminés
+        if status_counts.get('TERMINE', 0) == total_jobs:
             return "TERMINE"
         
-        # Vérifier si au moins un assignment est entamé
+        # Vérifier si au moins un job est entamé
         if status_counts.get('ENTAME', 0) > 0:
             return "EN COURS"
         
-        # Vérifier si tous les assignments sont en transfert
-        if status_counts.get('TRANSFERT', 0) == total_assignments:
+        # Vérifier si tous les jobs sont en transfert
+        if status_counts.get('TRANSFERT', 0) == total_jobs:
             return "EN ATTENTE"
         
         # Par défaut, si aucun des cas ci-dessus n'est vrai, on considère que c'est en cours

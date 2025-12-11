@@ -574,6 +574,31 @@ class JobFullDetailListView(ServerSideDataTableView):
     model = Job
     serializer_class = JobFullDetailSerializer
     
+    # Mapping colonnes frontend -> champs Django pour le tri QueryModel
+    # ⚠️ Important : sans ce mapping, colId="job" ne peut pas être traduit en champ ORM
+    column_field_mapping = {
+        # Identifiants / références de job
+        'id': 'id',
+        'job': 'reference',          # colId=job -> tri sur Job.reference
+        'reference': 'reference',
+        
+        # Statut du job
+        'status': 'status',
+        
+        # Informations entrepôt / inventaire
+        'warehouse_name': 'warehouse__warehouse_name',
+        'warehouse_reference': 'warehouse__reference',
+        'inventory_reference': 'inventory__reference',
+        'inventory_label': 'inventory__label',
+        
+        # Affectations / comptages
+        'counting_order': 'assigment__counting__order',
+        'assignment_status': 'assigment__status',
+        
+        # Dates
+        'created_at': 'created_at',
+    }
+    
     # Champs de recherche et tri - tous les champs disponibles
     search_fields = [
         'reference', 'status', 'created_at',
@@ -649,6 +674,8 @@ class JobFullDetailListView(ServerSideDataTableView):
         warehouse_id = self.kwargs.get('warehouse_id')
         inventory_id = self.kwargs.get('inventory_id')
         return self.repository.get_validated_jobs_datatable(warehouse_id, inventory_id)
+
+
 
 class JobPendingListView(ServerSideDataTableView):
     """
