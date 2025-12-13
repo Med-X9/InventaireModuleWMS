@@ -72,7 +72,7 @@ urlpatterns = [
     path('inventory/planning/<int:inventory_id>/warehouses/', InventoryWarehousesView.as_view(), name='inventory-warehouses'),
     path('inventory/account/<int:account_id>/warehouses/', AccountWarehousesView.as_view(), name='account-warehouses'),
     
-    # ========================================
+    # ========================================434
     # URLs POUR LES JOBS
     # ========================================
     
