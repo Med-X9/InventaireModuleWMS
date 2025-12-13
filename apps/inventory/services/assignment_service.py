@@ -94,13 +94,16 @@ class AssignmentService(IAssignmentService):
                 existing_assignment = self.repository.get_existing_assignment_for_job_and_counting(job.id, counting.id)
                 
                 if existing_assignment:
-                    # Réaffectation : préserver le statut existant, modifier uniquement la session
-                    # Ne pas modifier le statut de l'assignment lors d'une réaffectation
-                    # Seulement mettre à jour la session et la date_start
+                    # Réaffectation : modifier la session et la date_start
+                    # Si l'assignment est ENTAME, le mettre en TRANSFERT lors de l'affectation
                     existing_assignment.date_start = date_start or timezone.now()
                     existing_assignment.session = session
-                    # Le statut reste inchangé lors d'une réaffectation
-                    # existing_assignment.status reste tel quel
+                    
+                    # Si l'assignment est ENTAME, le mettre en TRANSFERT
+                    if existing_assignment.status == 'ENTAME':
+                        existing_assignment.status = 'TRANSFERT'
+                        existing_assignment.transfert_date = timezone.now()
+                    # Les autres statuts (PRET, TRANSFERT, TERMINE, etc.) restent inchangés
                     
                     existing_assignment.save()
                     assignments_updated += 1

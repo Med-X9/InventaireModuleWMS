@@ -126,6 +126,7 @@ class InventoryListView(ServerSideDataTableView):
     # Optionnel : seulement si vous voulez personnaliser
     default_order = '-created_at'
     page_size = 20
+    export_filename = 'inventaires'
 
     def get_datatable_queryset(self):
         """Optimisation automatique des requêtes"""
@@ -150,6 +151,7 @@ class SimpleInventoryListView(ServerSideDataTableView):
     serializer_class = InventoryDetailSerializer
     search_fields = ['label', 'reference']
     order_fields = ['id', 'label', 'created_at']
+    export_filename = 'inventaires_simples'
 
 class AdvancedInventoryListView(ServerSideDataTableView):
     """
@@ -166,6 +168,7 @@ class AdvancedInventoryListView(ServerSideDataTableView):
     filter_fields = ['status', 'inventory_type']
     date_fields = ['date', 'created_at']
     status_fields = ['status']
+    export_filename = 'inventaires_avances'
 
 class CustomInventoryListView(ServerSideDataTableView):
     """
@@ -186,6 +189,8 @@ class CustomInventoryListView(ServerSideDataTableView):
         config = super().get_datatable_config()
         # Personnaliser la configuration si nécessaire
         return config
+    
+    export_filename = 'inventaires_personnalises'
 
 class InventoryOrderingTestView(APIView):
     """Vue de test pour vérifier le tri"""
@@ -723,11 +728,12 @@ class InventoryResultByWarehouseView(ServerSideDataTableView):
     # Configuration de pagination
     default_page_size = 20
     max_page_size = 1000
+    export_filename = 'resultats_inventaire_par_warehouse'
     
     # Champs pour la recherche globale
     search_fields = [
         'location', 'location_id', 'product', 'product_description', 'product_internal_code',
-        'job_id', 'job_reference', 'final_result', 'resolved',
+        'job_id', 'job_reference', 'final_result', 'resolved', 'result_id', 'ecart_comptage_id',
         # Comptages dynamiques
         '1er comptage', '2er comptage', '3er comptage', '4er comptage', '5er comptage',
         # Écarts dynamiques
@@ -764,6 +770,8 @@ class InventoryResultByWarehouseView(ServerSideDataTableView):
         'resultats': 'final_result',
         'final_result': 'final_result',
         'resolved': 'resolved',
+        'result_id': 'result_id',
+        'ecart_comptage_id': 'ecart_comptage_id',
         # Statuts d'assignment par comptage (seulement 1er et 2ème)
         'statut_1er_comptage': 'statut_1er_comptage',
         'statut_2er_comptage': 'statut_2er_comptage',

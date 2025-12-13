@@ -44,7 +44,9 @@ class LocationSerializer(serializers.ModelSerializer):
 
 class UnassignedLocationSerializer(serializers.ModelSerializer):
     sous_zone = SousZoneSerializer(read_only=True)
+    sous_zone_name = serializers.CharField(source='sous_zone.sous_zone_name', read_only=True)
     zone = serializers.SerializerMethodField()
+    zone_name = serializers.CharField(source='sous_zone.zone.zone_name', read_only=True)
     warehouse = serializers.SerializerMethodField()
     families = serializers.SerializerMethodField()
 
@@ -56,7 +58,9 @@ class UnassignedLocationSerializer(serializers.ModelSerializer):
             'location_reference',
             'description',
             'sous_zone',
+            'sous_zone_name',
             'zone',
+            'zone_name',
             'warehouse',
             'families'
         ]

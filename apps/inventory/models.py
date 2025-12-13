@@ -171,22 +171,22 @@ class Job(TimeStampedModel):
 
     def generate_sequential_reference(self):
         """
-        Génère une référence séquentielle au format job-1, job-2, etc.
-        La séquence est basée sur l'inventaire : chaque inventaire redémarre à job-1.
+        Génère une référence séquentielle au format JOB-0001, JOB-0002, etc.
+        La séquence est basée sur l'inventaire : chaque inventaire redémarre à JOB-0001.
         """
         if not self.inventory_id:
             raise ValueError("L'inventaire doit être défini avant de générer la référence")
         
         # Compter le nombre de Job existants pour cet inventaire
         count = Job.objects.filter(inventory=self.inventory).count()
-        # Le prochain numéro sera count + 1
+        # Le prochain numéro sera count + 1, formaté avec 4 chiffres (0001, 0002, etc.)
         next_number = count + 1
-        return f"job-{next_number}"
+        return f"JOB-{next_number:04d}"
 
     def save(self, *args, **kwargs):
         """
         Surcharge de la méthode save pour générer une référence séquentielle
-        au format job-1, job-2, etc. par inventaire.
+        au format JOB-0001, JOB-0002, etc. par inventaire.
         """
         if not self.reference:
             # Générer une référence séquentielle basée sur l'inventaire
@@ -198,12 +198,19 @@ class Job(TimeStampedModel):
             ).exclude(pk=self.pk if self.pk else None).exists():
                 # Extraire le numéro actuel et l'incrémenter
                 try:
-                    current_num = int(self.reference.split('-')[1])
-                    self.reference = f"job-{current_num + 1}"
+                    # Supporte les formats JOB-0001 et job-1 (pour compatibilité)
+                    parts = self.reference.upper().split('-')
+                    if len(parts) == 2:
+                        current_num = int(parts[1])
+                        self.reference = f"JOB-{current_num + 1:04d}"
+                    else:
+                        # Si le parsing échoue, utiliser le count
+                        count = Job.objects.filter(inventory=self.inventory).count()
+                        self.reference = f"JOB-{count + 1:04d}"
                 except (IndexError, ValueError):
                     # En cas d'erreur, utiliser le compteur pour cet inventaire
                     count = Job.objects.filter(inventory=self.inventory).count()
-                    self.reference = f"job-{count + 1}"
+                    self.reference = f"JOB-{count + 1:04d}"
         super().save(*args, **kwargs)
 
     def __str__(self):

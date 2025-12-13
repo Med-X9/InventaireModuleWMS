@@ -27,13 +27,14 @@ class CountingTrackingService:
         """
         self.inventory_repository = inventory_repository or InventoryRepository()
     
-    def get_inventory_counting_tracking(self, inventory_id: int, counting_order: int) -> Inventory:
+    def get_inventory_counting_tracking(self, inventory_id: int, counting_order: int, assigment_id: Optional[int] = None) -> Inventory:
         """
         Récupère un inventaire avec tous ses comptages, jobs et emplacements.
         
         Args:
             inventory_id: ID de l'inventaire à suivre
             counting_order: Ordre du comptage à filtrer (requis). Ne retourne que le comptage avec cet ordre.
+            assigment_id: ID de l'assignment à filtrer (optionnel). Si fourni, ne retourne que les jobs de cet assignment.
             
         Returns:
             Inventory: Inventaire avec toutes les relations préchargées
@@ -42,8 +43,16 @@ class CountingTrackingService:
             InventoryNotFoundError: Si l'inventaire n'existe pas ou est supprimé
         """
         try:
-            inventory = self.inventory_repository.get_with_counting_tracking_data(inventory_id, counting_order)
-            logger.debug(f"Inventaire {inventory_id} récupéré avec succès pour le suivi de comptage (filtre par ordre: {counting_order})")
+            inventory = self.inventory_repository.get_with_counting_tracking_data(
+                inventory_id, 
+                counting_order, 
+                assigment_id=assigment_id
+            )
+            log_msg = f"Inventaire {inventory_id} récupéré avec succès pour le suivi de comptage (filtre par ordre: {counting_order}"
+            if assigment_id:
+                log_msg += f", filtre par assignment: {assigment_id}"
+            log_msg += ")"
+            logger.debug(log_msg)
             return inventory
         except InventoryNotFoundError:
             logger.error(f"Inventaire {inventory_id} non trouvé pour le suivi de comptage")

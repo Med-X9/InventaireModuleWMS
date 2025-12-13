@@ -380,6 +380,7 @@ class PendingJobsReferencesView(ServerSideDataTableView):
     page_size = 20
     min_page_size = 1
     max_page_size = 1000
+    export_filename = 'jobs_en_attente'
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -438,6 +439,7 @@ class JobListWithLocationsView(ServerSideDataTableView):
     page_size = 20
     min_page_size = 1
     max_page_size = 1000
+    export_filename = 'jobs_avec_emplacements'
     
     # Mapping frontend -> backend pour les filtres (vue générique Jobs / JobManagement)
     filter_aliases = {
@@ -493,6 +495,7 @@ class WarehouseJobsView(ServerSideDataTableView):
     page_size = 20
     min_page_size = 1
     max_page_size = 1000
+    export_filename = 'jobs_par_warehouse'
 
     # Mapping frontend -> backend pour le DataTable « Jobs créés »
     filter_aliases = {
@@ -571,6 +574,31 @@ class JobFullDetailListView(ServerSideDataTableView):
     model = Job
     serializer_class = JobFullDetailSerializer
     
+    # Mapping colonnes frontend -> champs Django pour le tri QueryModel
+    # ⚠️ Important : sans ce mapping, colId="job" ne peut pas être traduit en champ ORM
+    column_field_mapping = {
+        # Identifiants / références de job
+        'id': 'id',
+        'job': 'reference',          # colId=job -> tri sur Job.reference
+        'reference': 'reference',
+        
+        # Statut du job
+        'status': 'status',
+        
+        # Informations entrepôt / inventaire
+        'warehouse_name': 'warehouse__warehouse_name',
+        'warehouse_reference': 'warehouse__reference',
+        'inventory_reference': 'inventory__reference',
+        'inventory_label': 'inventory__label',
+        
+        # Affectations / comptages
+        'counting_order': 'assigment__counting__order',
+        'assignment_status': 'assigment__status',
+        
+        # Dates
+        'created_at': 'created_at',
+    }
+    
     # Champs de recherche et tri - tous les champs disponibles
     search_fields = [
         'reference', 'status', 'created_at',
@@ -597,6 +625,7 @@ class JobFullDetailListView(ServerSideDataTableView):
     page_size = 20
     min_page_size = 1
     max_page_size = 1000
+    export_filename = 'jobs_details_complets'
     
     # Champs de filtrage automatique
     filter_fields = [
@@ -646,6 +675,8 @@ class JobFullDetailListView(ServerSideDataTableView):
         inventory_id = self.kwargs.get('inventory_id')
         return self.repository.get_validated_jobs_datatable(warehouse_id, inventory_id)
 
+
+
 class JobPendingListView(ServerSideDataTableView):
     """
     Liste tous les jobs en attente avec leurs détails - Support DataTable.
@@ -692,6 +723,7 @@ class JobPendingListView(ServerSideDataTableView):
     page_size = 20
     min_page_size = 1
     max_page_size = 1000
+    export_filename = 'jobs_en_attente_liste'
     
     # Mapping pour les filtres
     filter_aliases = {
@@ -1020,6 +1052,7 @@ class JobsWithAssignmentsByWarehouseAndCountingView(ServerSideDataTableView):
     page_size = 20
     min_page_size = 1
     max_page_size = 1000
+    export_filename = 'jobs_avec_assignments'
     
     # Mapping frontend -> backend pour le filtrage par colonnes
     filter_aliases = {
@@ -1125,6 +1158,7 @@ class JobDetailsByJobAndCountingView(ServerSideDataTableView):
     # Configuration par défaut
     default_order = 'location__location_reference'
     page_size = 20
+    export_filename = 'job_details_par_comptage'
     
     # Champs de date pour filtrage automatique
     date_fields = ['en_attente_date', 'termine_date', 'location__created_at', 'location__updated_at']

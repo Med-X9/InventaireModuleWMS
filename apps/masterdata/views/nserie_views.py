@@ -35,6 +35,7 @@ class NSerieListView(ServerSideDataTableView):
     page_size = 20
     min_page_size = 1
     max_page_size = 1000
+    export_filename = 'numeros_serie'
 
 class NSerieDetailView(RetrieveAPIView):
     """
@@ -168,6 +169,7 @@ class NSerieByProductView(ServerSideDataTableView):
     page_size = 20
     min_page_size = 1
     max_page_size = 1000
+    export_filename = 'numeros_serie_par_produit'
     
     def get_datatable_queryset(self):
         product_id = self.kwargs.get('product_id')
@@ -187,6 +189,7 @@ class NSerieByLocationView(ServerSideDataTableView):
     page_size = 20
     min_page_size = 1
     max_page_size = 1000
+    export_filename = 'numeros_serie_par_emplacement'
     
     def get_datatable_queryset(self):
         # Cette vue n'est pas disponible car NSerie n'a pas de champ location
@@ -204,6 +207,7 @@ class NSerieByStatusView(ServerSideDataTableView):
     page_size = 20
     min_page_size = 1
     max_page_size = 1000
+    export_filename = 'numeros_serie_par_statut'
     
     def get_datatable_queryset(self):
         status = self.kwargs.get('status')
@@ -222,6 +226,7 @@ class NSerieExpiredView(ServerSideDataTableView):
     page_size = 20
     min_page_size = 1
     max_page_size = 1000
+    export_filename = 'numeros_serie_expires'
     
     def get_datatable_queryset(self):
         nserie_service = NSerieService()
@@ -239,6 +244,7 @@ class NSerieExpiringView(ServerSideDataTableView):
     page_size = 20
     min_page_size = 1
     max_page_size = 1000
+    export_filename = 'numeros_serie_expirant'
     
     def get_datatable_queryset(self):
         days = self.request.query_params.get('days', 30)

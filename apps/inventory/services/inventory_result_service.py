@@ -265,8 +265,12 @@ class InventoryResultService:
             # Ajouter l'identifiant d'EcartComptage si disponible
             if entry.get("ecart_id") is not None:
                 result_row["ecart_comptage_id"] = entry["ecart_id"]
+                result_row["result_id"] = entry["ecart_id"]  # Alias pour result_id
                 # Ajouter le statut resolved depuis EcartComptage (booléen, peut être False ou None)
                 result_row["resolved"] = entry.get("resolved")
+            else:
+                # Si pas d'ecart_id, result_id est None
+                result_row["result_id"] = None
 
             formatted_results.append(result_row)
 

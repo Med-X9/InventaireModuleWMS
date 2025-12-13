@@ -80,6 +80,24 @@ class CountingLaunchService:
                     "L'emplacement indiqué n'est pas affecté au job sélectionné."
                 )
 
+            # Vérification CRITIQUE : s'assurer que cet emplacement a vraiment un écart non résolu
+            # Un écart est non résolu si resolved=False OU final_result est NULL
+            from django.db.models import Q
+            unresolved_ecarts_for_location = EcartComptage.objects.filter(
+                inventory=job.inventory
+            ).filter(
+                Q(resolved=False) | Q(final_result__isnull=True)
+            ).filter(
+                counting_sequences__counting_detail__job=job,
+                counting_sequences__counting_detail__location=location,
+            ).exists()
+
+            if not unresolved_ecarts_for_location:
+                raise CountingValidationError(
+                    f"L'emplacement {location.location_reference} n'a pas d'écart non résolu. "
+                    "Seuls les emplacements avec écart peuvent avoir un nouveau comptage lancé."
+                )
+
             # Vérification métier supplémentaire :
             # Si un EcartComptage existe pour ce couple (job, emplacement) avec un résultat final
             # non nul ET marqué comme résolu, alors il est interdit de lancer un nouveau comptage.
@@ -336,39 +354,49 @@ class CountingLaunchService:
         Raises:
             CountingNotFoundError: Si le job n'existe pas
         """
+        from django.db.models import Q
+        from ..models import CountingDetail
+        import logging
+        
+        logger_debug = logging.getLogger(__name__)
+        
         job = self.job_repository.get_job_by_id(job_id)
         if not job:
             raise CountingNotFoundError(f"Job introuvable pour l'identifiant {job_id}.")
         
-        # Récupérer tous les JobDetail du job pour obtenir les locations
-        job_details = JobDetail.objects.filter(job=job).select_related('location')
-        location_ids = list(job_details.values_list('location_id', flat=True).distinct())
+        # DEBUG: Compter tous les JobDetail du job
+        all_job_details = JobDetail.objects.filter(job=job).count()
+        logger_debug.info(f"[DEBUG] Job {job.reference} (ID: {job_id}): {all_job_details} JobDetail(s) au total")
         
-        if not location_ids:
-            return []
-        
-        # Trouver les emplacements qui ont un EcartComptage non résolu
-        # Un EcartComptage est lié à un inventory et a des ComptageSequence
-        # qui sont liées à des CountingDetail qui ont des locations
-        # Important : les CountingDetail doivent être liés au job spécifique
-        from ..models import CountingDetail
-        
-        ecarts = EcartComptage.objects.filter(
-            inventory=job.inventory,
-            resolved=False
+        # Récupérer les écarts non résolus pour cet inventaire
+        # Un écart est non résolu si resolved=False OU final_result est NULL
+        unresolved_ecarts = EcartComptage.objects.filter(
+            inventory=job.inventory
+        ).filter(
+            Q(resolved=False) | Q(final_result__isnull=True)
         )
         
-        # Récupérer les CountingDetail liés au job qui ont des écarts
+        unresolved_ecarts_count = unresolved_ecarts.count()
+        logger_debug.info(f"[DEBUG] Job {job.reference}: {unresolved_ecarts_count} écart(s) non résolu(s) pour l'inventaire {job.inventory_id}")
+        
+        if not unresolved_ecarts.exists():
+            logger_debug.info(f"[DEBUG] Job {job.reference}: Aucun écart non résolu trouvé")
+            return []
+        
+        # Récupérer directement les CountingDetail liés au job qui ont des écarts non résolus
+        # via ComptageSequence. Cette approche est plus stricte et garantit qu'on ne récupère
+        # que les emplacements qui ont vraiment un écart.
         counting_details_with_ecart = CountingDetail.objects.filter(
             job=job,
-            location_id__in=location_ids,
-            counting__inventory=job.inventory
-        ).filter(
-            counting_sequences__ecart_comptage__in=ecarts,
-            counting_sequences__ecart_comptage__resolved=False
+            counting__inventory=job.inventory,
+            counting_sequences__ecart_comptage__in=unresolved_ecarts
         ).values_list('location_id', flat=True).distinct()
         
-        return list(counting_details_with_ecart)
+        location_ids = list(counting_details_with_ecart)
+        logger_debug.info(f"[DEBUG] Job {job.reference}: {len(location_ids)} emplacement(s) avec écart trouvé(s)")
+        logger_debug.info(f"[DEBUG] Job {job.reference}: Location IDs avec écart: {location_ids}")
+        
+        return location_ids
 
     @transaction.atomic
     def launch_counting_for_jobs(self, job_ids: List[int], session_id: int) -> Dict[str, Any]:
@@ -422,11 +450,19 @@ class CountingLaunchService:
                 
                 results['total_locations_found'] += len(location_ids)
                 
+                # DEBUG: Logger les emplacements qui seront traités
+                import logging
+                logger_debug = logging.getLogger(__name__)
+                logger_debug.info(f"[DEBUG] Job ID {job_id}: Traitement de {len(location_ids)} emplacement(s) avec écart")
+                logger_debug.info(f"[DEBUG] Job ID {job_id}: Location IDs à traiter: {location_ids}")
+                
                 # Pour chaque emplacement avec écart, lancer le comptage
                 job_results = []
                 for location_id in location_ids:
                     try:
+                        logger_debug.info(f"[DEBUG] Traitement location ID {location_id} pour job ID {job_id}")
                         result = self.launch_counting(job_id, location_id, session_id)
+                        logger_debug.info(f"[DEBUG] ✅ Location ID {location_id} traité avec succès")
                         job_results.append({
                             'location_id': location_id,
                             'success': True,
@@ -434,6 +470,7 @@ class CountingLaunchService:
                         })
                         results['total_locations_processed'] += 1
                     except Exception as e:
+                        logger_debug.error(f"[DEBUG] ❌ Erreur pour location ID {location_id}: {str(e)}")
                         job_results.append({
                             'location_id': location_id,
                             'success': False,
