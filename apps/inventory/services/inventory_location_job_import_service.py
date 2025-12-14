@@ -9,7 +9,7 @@ from typing import Dict, List, Any, Optional
 from django.db import transaction
 from django.utils import timezone
 from apps.inventory.models import Inventory, Setting, Job, JobDetail, Counting
-from apps.masterdata.models import Warehouse, Location, InventoryLocationJob
+from apps.masterdata.models import Warehouse, Location, InventoryLocationJob, ImportTask, ImportError
 from apps.inventory.repositories.inventory_location_job_repository import InventoryLocationJobRepository
 from apps.masterdata.repositories.warehouse_repository import WarehouseRepository
 from apps.masterdata.repositories.location_repository import LocationRepository
@@ -35,35 +35,215 @@ class InventoryLocationJobImportService:
         self,
         inventory_id: int,
         file_path: str,
+        user_id: Optional[int] = None,
         callback: Optional[callable] = None
-    ) -> None:
+    ) -> ImportTask:
         """
         Lance l'import de manière asynchrone dans un thread séparé
         
         Args:
             inventory_id: ID de l'inventaire
             file_path: Chemin vers le fichier Excel
+            user_id: ID de l'utilisateur (optionnel, pour créer ImportTask)
             callback: Fonction de callback appelée avec le résultat (optionnel)
+            
+        Returns:
+            ImportTask: La tâche d'import créée
         """
-        def import_task():
+        import os
+        from apps.users.models import UserApp
+        
+        # Créer une ImportTask pour suivre le traitement
+        file_name = os.path.basename(file_path)
+        import_task = ImportTask.objects.create(
+            user_id=user_id or 1,  # Utiliser l'utilisateur par défaut si non fourni
+            file_path=file_path,
+            file_name=file_name,
+            status='PENDING',
+            total_rows=0
+        )
+        
+        def import_task_thread():
+            from django.db import connections
+            import_task_id = import_task.id  # Capturer l'ID avant le thread
             try:
-                result = self.import_from_excel(inventory_id, file_path)
+                # Log immédiat pour confirmer que le thread démarre
+                print(f"[THREAD] Thread d'import démarré pour ImportTask {import_task_id}")
+                logger.info(f"Thread d'import démarré pour ImportTask {import_task_id}")
+                
+                # Récupérer l'objet ImportTask dans le thread (important pour les threads)
+                task = ImportTask.objects.get(id=import_task_id)
+                print(f"[THREAD] ImportTask {import_task_id} récupéré, statut actuel: {task.status}")
+                
+                task.status = 'VALIDATING'
+                task.save()
+                print(f"[THREAD] Statut mis à VALIDATING pour ImportTask {import_task_id}")
+                logger.info(f"Début de l'import pour ImportTask {import_task_id}")
+                
+                print(f"[THREAD] Appel de import_from_excel pour ImportTask {import_task_id}")
+                result = self.import_from_excel(inventory_id, file_path, task)
+                print(f"[THREAD] import_from_excel terminé pour ImportTask {import_task_id}, success={result.get('success') if isinstance(result, dict) else 'N/A'}")
+                
+                # Recharger l'objet task depuis la base de données
+                task.refresh_from_db()
+                
+                # Vérifier que le résultat est valide
+                if not isinstance(result, dict) or 'success' not in result:
+                    logger.error(f"Résultat invalide de import_from_excel pour ImportTask {task.id}: {result}")
+                    result = {
+                        'success': False,
+                        'message': 'Erreur: résultat invalide de l\'import',
+                        'errors': []
+                    }
+                
+                logger.info(f"Résultat de l'import pour ImportTask {task.id}: success={result.get('success')}, errors={len(result.get('errors', []))}")
+                
+                # Mettre à jour l'ImportTask avec les résultats
+                if result.get('success', False):
+                    task.status = 'COMPLETED'
+                    task.imported_count = result.get('imported_count', 0)
+                    task.updated_count = result.get('imported_updated', 0)
+                    task.validated_rows = result.get('imported_count', 0)
+                    task.processed_rows = result.get('imported_count', 0)
+                    task.error_count = 0
+                    task.error_message = None
+                else:
+                    task.status = 'CANCELLED'
+                    errors_list = result.get('errors', [])
+                    task.error_count = len(errors_list)
+                    task.error_message = result.get('message', 'Erreurs détectées')
+                    
+                    # Stocker les erreurs dans ImportError
+                    logger.info(f"Enregistrement de {len(errors_list)} erreur(s) dans ImportError")
+                    for error in errors_list:
+                        # S'assurer que row_number n'est jamais None (0 pour les erreurs globales)
+                        row_number = error.get('row_number')
+                        if row_number is None:
+                            row_number = 0
+                        
+                        try:
+                            ImportError.objects.create(
+                                import_task=task,
+                                row_number=row_number,
+                                error_type=error.get('field', 'validation'),
+                                error_message=error.get('message', 'Erreur inconnue'),
+                                field_name=error.get('field'),
+                                field_value=str(error.get('value', '')),
+                                row_data=error
+                            )
+                        except Exception as e:
+                            logger.error(f"Erreur lors de l'enregistrement d'une erreur d'import: {str(e)}", exc_info=True)
+                
+                task.save()
+                logger.info(f"ImportTask {task.id} mis à jour: status={task.status}, errors={task.error_count}")
+                
                 if callback:
                     callback(result)
+                
+                # Fermer les connexions à la base de données
+                connections.close_all()
+                logger.info(f"Thread d'import terminé pour ImportTask {task.id}")
+                    
+            except InventoryLocationJobValidationError as e:
+                # Capturer spécifiquement les erreurs de validation
+                logger.error(f"Erreur de validation lors de l'import asynchrone: {str(e)}", exc_info=True)
+                try:
+                    task = ImportTask.objects.get(id=import_task_id)
+                    task.status = 'CANCELLED'
+                    task.error_message = f"Erreur de validation: {str(e)}"
+                    task.error_count = 1
+                    
+                    # Enregistrer l'erreur dans ImportError
+                    try:
+                        ImportError.objects.create(
+                            import_task=task,
+                            row_number=0,
+                            error_type='validation',
+                            error_message=str(e),
+                            field_name=None,
+                            field_value='',
+                            row_data={'exception': str(e)}
+                        )
+                    except Exception as err:
+                        logger.error(f"Erreur lors de l'enregistrement de l'erreur de validation: {str(err)}", exc_info=True)
+                    
+                    task.save()
+                except Exception as db_err:
+                    logger.error(f"Erreur lors de la mise à jour de ImportTask: {str(db_err)}", exc_info=True)
+                
+                if callback:
+                    callback({
+                        'success': False,
+                        'message': f"Erreur de validation: {str(e)}",
+                        'errors': [{
+                            'row_number': 0,
+                            'field': 'validation',
+                            'value': '',
+                            'message': str(e)
+                        }]
+                    })
+                
+                # Fermer les connexions à la base de données
+                connections.close_all()
+                logger.info(f"Thread d'import terminé avec erreur de validation pour ImportTask {import_task_id}")
             except Exception as e:
                 logger.error(f"Erreur lors de l'import asynchrone: {str(e)}", exc_info=True)
+                import traceback
+                traceback_str = traceback.format_exc()
+                logger.error(f"Traceback complet: {traceback_str}")
+                
+                try:
+                    task = ImportTask.objects.get(id=import_task_id)
+                    task.status = 'FAILED'
+                    task.error_message = f"Erreur lors de l'import: {str(e)}"
+                    task.error_count = 1
+                    
+                    # Enregistrer l'erreur dans ImportError
+                    try:
+                        ImportError.objects.create(
+                            import_task=task,
+                            row_number=0,
+                            error_type='system',
+                            error_message=str(e),
+                            field_name=None,
+                            field_value='',
+                            row_data={'exception': str(e), 'traceback': traceback_str}
+                        )
+                    except Exception as err:
+                        logger.error(f"Erreur lors de l'enregistrement de l'erreur système: {str(err)}", exc_info=True)
+                    
+                    task.save()
+                except Exception as db_err:
+                    logger.error(f"Erreur lors de la mise à jour de ImportTask: {str(db_err)}", exc_info=True)
+                
                 if callback:
                     callback({
                         'success': False,
                         'message': f"Erreur lors de l'import: {str(e)}",
-                        'errors': []
+                        'errors': [{
+                            'row_number': 0,
+                            'field': 'system',
+                            'value': '',
+                            'message': str(e)
+                        }]
                     })
+                
+                # Fermer les connexions à la base de données
+                connections.close_all()
+                logger.error(f"Thread d'import terminé avec erreur système pour ImportTask {import_task_id}: {str(e)}")
         
-        thread = threading.Thread(target=import_task, daemon=True)
+        # Utiliser daemon=False pour que le thread continue même si le processus principal se termine
+        # Mais attention : cela peut empêcher le serveur de s'arrêter proprement
+        thread = threading.Thread(target=import_task_thread, daemon=False)
+        print(f"[MAIN] Lancement du thread d'import pour l'inventaire {inventory_id}, ImportTask ID: {import_task.id}")
+        logger.info(f"Lancement du thread d'import pour l'inventaire {inventory_id}, ImportTask ID: {import_task.id}")
         thread.start()
-        logger.info(f"Import asynchrone lancé pour l'inventaire {inventory_id}")
+        print(f"[MAIN] Thread d'import démarré avec succès pour ImportTask ID: {import_task.id}")
+        logger.info(f"Thread d'import démarré avec succès pour ImportTask ID: {import_task.id}")
+        
+        return import_task
     
-    def import_from_excel(self, inventory_id: int, file_path: str) -> Dict[str, Any]:
+    def import_from_excel(self, inventory_id: int, file_path: str, import_task: Optional[ImportTask] = None) -> Dict[str, Any]:
         """
         Importe les données depuis un fichier Excel avec validation complète
         
@@ -82,20 +262,51 @@ class InventoryLocationJobImportService:
             inventory = self.inventory_repo.get_by_id(inventory_id)
             
             # Lire le fichier Excel
+            print(f"[IMPORT] Lecture du fichier Excel: {file_path}")
             logger.info(f"Lecture du fichier Excel: {file_path}")
             df = pd.read_excel(file_path, engine='openpyxl')
+            print(f"[IMPORT] Fichier Excel lu: {len(df)} lignes")
+            
+            # Mettre à jour le nombre total de lignes dans ImportTask
+            if import_task:
+                import_task.total_rows = len(df)
+                import_task.status = 'PROCESSING'
+                import_task.save()
+                print(f"[IMPORT] Statut mis à PROCESSING, {len(df)} lignes à traiter")
             
             # Normaliser les noms de colonnes (minuscules, sans espaces)
             df.columns = df.columns.str.strip().str.lower()
+            print(f"[IMPORT] Colonnes normalisées: {list(df.columns)}")
             
             # Valider la structure du fichier
-            self._validate_excel_structure(df)
+            try:
+                print(f"[IMPORT] Validation de la structure du fichier...")
+                self._validate_excel_structure(df)
+                print(f"[IMPORT] Structure validée avec succès")
+            except InventoryLocationJobValidationError as e:
+                # Convertir l'exception en erreur de validation
+                logger.warning(f"Erreur de structure du fichier: {str(e)}")
+                return {
+                    'success': False,
+                    'message': str(e),
+                    'errors': [{
+                        'row_number': 0,
+                        'field': 'structure',
+                        'value': '',
+                        'message': str(e)
+                    }],
+                    'imported_count': 0
+                }
             
             # Valider toutes les lignes AVANT toute insertion
+            print(f"[IMPORT] Début de la validation des {len(df)} lignes...")
             validation_errors = []
             validated_data = []
             
             for index, row in df.iterrows():
+                # Log de progression tous les 1000 lignes
+                if (index + 1) % 1000 == 0:
+                    print(f"[IMPORT] Validation en cours: {index + 1}/{len(df)} lignes traitées...")
                 row_number = index + 2  # +2 car ligne 1 = header, index 0-based
                 row_dict = row.to_dict()
                 
@@ -110,11 +321,17 @@ class InventoryLocationJobImportService:
                     validation_errors.extend(errors)
                 else:
                     # Extraire le numéro du job pour la validation d'incrémentation
-                    job_value = str(row_dict.get('job', '')).strip()
+                    job_value_raw = row_dict.get('job', '')
+                    # Normaliser les valeurs NaN/pandas en chaîne vide
+                    if pd.isna(job_value_raw) or str(job_value_raw).lower() in ('nan', 'none', 'null', ''):
+                        job_value = ''
+                    else:
+                        job_value = str(job_value_raw).strip()
+                    
                     job_number = None
                     if job_value:
-                        job_pattern = r'^job-(\d+)$'
-                        match = re.match(job_pattern, job_value, re.IGNORECASE)
+                        job_pattern = r'^JOB-(\d{4})$'
+                        match = re.match(job_pattern, job_value)
                         if match:
                             job_number = int(match.group(1))
                     
@@ -129,12 +346,15 @@ class InventoryLocationJobImportService:
                         'job_number': job_number,  # Pour la validation d'incrémentation
                         'is_active': is_active,  # Pour la validation d'incrémentation
                         'active_excel': is_active,  # Pour la synchronisation avec Location.is_active
-                        'session_1': str(row_dict.get('session_1', '')).strip() if pd.notna(row_dict.get('session_1')) and str(row_dict.get('session_1', '')).strip() else None,
-                        'session_2': str(row_dict.get('session_2', '')).strip() if pd.notna(row_dict.get('session_2')) and str(row_dict.get('session_2', '')).strip() else None,
+                        'session_1': self._normalize_excel_value(row_dict.get('session_1')),
+                        'session_2': self._normalize_excel_value(row_dict.get('session_2')),
                     })
+            
+            print(f"[IMPORT] Validation terminée: {len(validation_errors)} erreur(s), {len(validated_data)} ligne(s) valide(s)")
             
             # Si des erreurs de validation, ne rien insérer
             if validation_errors:
+                print(f"[IMPORT] Import annulé: {len(validation_errors)} erreur(s) détectée(s)")
                 logger.warning(f"Import annulé: {len(validation_errors)} erreur(s) détectée(s)")
                 return {
                     'success': False,
@@ -162,18 +382,15 @@ class InventoryLocationJobImportService:
                 sync_result = self._sync_location_active_status(validated_data)
                 logger.info(f"Synchronisation des emplacements: {sync_result['updated_count']} emplacement(s) mis à jour")
                 
-                # 7. Ensuite, insérer dans InventoryLocationJob
-                # Supprimer les anciens enregistrements pour cet inventaire
-                self.repository.delete_by_inventory_id(inventory_id)
-                
-                # Préparer les données pour l'insertion
-                # Champs à insérer : inventaire, emplacement, job, session_1, session_2
+                # 7. Ensuite, insérer/mettre à jour dans InventoryLocationJob (UPSERT)
+                # Utiliser upsert au lieu de supprimer puis créer
+                # Champs à insérer/mettre à jour : inventaire, emplacement, job, session_1, session_2
                 # Champs à EXCLURE : 
                 #   - active_excel (utilisé uniquement pour la synchronisation de Location.is_active)
                 #   - job_number (utilisé uniquement pour la validation d'incrémentation)
                 #   - is_active (utilisé uniquement pour la validation conditionnelle)
                 #   - warehouse_id (le warehouse sert uniquement à la validation, pas à l'insertion)
-                data_to_insert = [
+                data_to_upsert = [
                     {
                         'inventaire_id': data['inventaire_id'],
                         'emplacement_id': data['emplacement_id'],
@@ -184,10 +401,10 @@ class InventoryLocationJobImportService:
                     for data in validated_data
                 ]
                 
-                # Créer les nouveaux enregistrements dans InventoryLocationJob
-                created_objects = self.repository.bulk_create(data_to_insert)
+                # Effectuer l'upsert (update or insert) en masse
+                upsert_result = self.repository.bulk_upsert(data_to_upsert, inventory_id)
                 
-                logger.info(f"Import réussi: {len(created_objects)} enregistrement(s) créé(s) dans InventoryLocationJob")
+                logger.info(f"Import réussi: {upsert_result['created']} enregistrement(s) créé(s), {upsert_result['updated']} enregistrement(s) mis à jour dans InventoryLocationJob")
                 
                 # 9. Créer automatiquement les Jobs et JobDetails à partir des données importées
                 # Cette étape s'exécute uniquement si toutes les étapes précédentes sont réussies
@@ -203,9 +420,11 @@ class InventoryLocationJobImportService:
                 
                 return {
                     'success': True,
-                    'message': f"Import réussi: {len(created_objects)} enregistrement(s) créé(s), {sync_result['updated_count']} emplacement(s) synchronisé(s), {jobs_result['jobs_created']} job(s) créé(s)",
+                    'message': f"Import réussi: {upsert_result['created']} enregistrement(s) créé(s), {upsert_result['updated']} enregistrement(s) mis à jour, {sync_result['updated_count']} emplacement(s) synchronisé(s), {jobs_result['jobs_created']} job(s) créé(s)",
                     'errors': [],
-                    'imported_count': len(created_objects),
+                    'imported_count': upsert_result['created'] + upsert_result['updated'],
+                    'imported_created': upsert_result['created'],
+                    'imported_updated': upsert_result['updated'],
                     'locations_updated': sync_result['updated_count'],
                     'unconsumed_locations': unconsumed_locations,
                     'unconsumed_locations_count': len(unconsumed_locations),
@@ -213,9 +432,36 @@ class InventoryLocationJobImportService:
                     'job_details_created': jobs_result['job_details_created']
                 }
                 
+        except InventoryLocationJobValidationError as e:
+            # Si c'est déjà une erreur de validation, la retourner directement
+            logger.error(f"Erreur de validation lors de l'import: {str(e)}", exc_info=True)
+            return {
+                'success': False,
+                'message': str(e),
+                'errors': [{
+                    'row_number': 0,
+                    'field': 'validation',
+                    'value': '',
+                    'message': str(e)
+                }],
+                'imported_count': 0
+            }
         except Exception as e:
+            # Pour toute autre exception, la convertir en erreur de validation
             logger.error(f"Erreur lors de l'import: {str(e)}", exc_info=True)
-            raise InventoryLocationJobValidationError(f"Erreur lors de l'import: {str(e)}")
+            import traceback
+            traceback_str = traceback.format_exc()
+            return {
+                'success': False,
+                'message': f"Erreur lors de l'import: {str(e)}",
+                'errors': [{
+                    'row_number': 0,
+                    'field': 'system',
+                    'value': '',
+                    'message': f"Erreur système: {str(e)}"
+                }],
+                'imported_count': 0
+            }
     
     def _validate_excel_structure(self, df: pd.DataFrame) -> None:
         """
@@ -269,15 +515,15 @@ class InventoryLocationJobImportService:
                 'message': 'Le champ warehouse est obligatoire'
             })
         else:
-            # Vérifier que le warehouse existe
+            # Vérifier que le warehouse existe par son nom (warehouse_name)
             try:
-                warehouse = self.warehouse_repo.get_by_reference(warehouse_value)
-            except Exception:
+                warehouse = self.warehouse_repo.get_by_name(warehouse_value)
+            except Exception as e:
                 errors.append({
                     'row_number': row_number,
                     'field': 'warehouse',
                     'value': warehouse_value,
-                    'message': f"Le warehouse '{warehouse_value}' n'existe pas"
+                    'message': f"Le warehouse '{warehouse_value}' n'existe pas: {str(e)}"
                 })
                 return errors  # Pas besoin de continuer si le warehouse n'existe pas
             
@@ -337,8 +583,14 @@ class InventoryLocationJobImportService:
                     'message': f"L'emplacement '{emplacement_value}' n'est pas lié au warehouse '{warehouse_value}'"
                 })
         
-        # 3. Validation du job (format job-XX) - Obligatoire seulement si active = true
-        job_value = str(row_dict.get('job', '')).strip()
+        # 3. Validation du job (format JOB-XXXX) - Obligatoire seulement si active = true
+        job_value_raw = row_dict.get('job', '')
+        # Normaliser les valeurs NaN/pandas en chaîne vide
+        if pd.isna(job_value_raw) or str(job_value_raw).lower() in ('nan', 'none', 'null', ''):
+            job_value = ''
+        else:
+            job_value = str(job_value_raw).strip()
+        
         if is_active:
             # Si active = true, job est obligatoire
             if not job_value:
@@ -349,15 +601,15 @@ class InventoryLocationJobImportService:
                     'message': 'Le champ job est obligatoire lorsque active est true'
                 })
             else:
-                # Vérifier le format job-XX
-                job_pattern = r'^job-(\d+)$'
-                match = re.match(job_pattern, job_value, re.IGNORECASE)
+                # Vérifier le format JOB-XXXX (4 chiffres)
+                job_pattern = r'^JOB-(\d{4})$'
+                match = re.match(job_pattern, job_value)
                 if not match:
                     errors.append({
                         'row_number': row_number,
                         'field': 'job',
                         'value': job_value,
-                        'message': f"Le format du job '{job_value}' est invalide. Format attendu: job-XX (ex: job-01, job-02)"
+                        'message': f"Le format du job '{job_value}' est invalide. Format attendu: JOB-XXXX (ex: JOB-0001, JOB-0002)"
                     })
                 else:
                     # Stocker le numéro du job pour la validation d'incrémentation
@@ -365,8 +617,8 @@ class InventoryLocationJobImportService:
         else:
             # Si active = false, job n'est pas obligatoire mais on peut quand même le valider s'il est présent
             if job_value:
-                job_pattern = r'^job-(\d+)$'
-                match = re.match(job_pattern, job_value, re.IGNORECASE)
+                job_pattern = r'^JOB-(\d{4})$'
+                match = re.match(job_pattern, job_value)
                 if match:
                     # Stocker le numéro du job même si active = false (pour la validation d'incrémentation)
                     row_dict['job_number'] = int(match.group(1))
@@ -375,11 +627,11 @@ class InventoryLocationJobImportService:
                         'row_number': row_number,
                         'field': 'job',
                         'value': job_value,
-                        'message': f"Le format du job '{job_value}' est invalide. Format attendu: job-XX (ex: job-01, job-02)"
+                        'message': f"Le format du job '{job_value}' est invalide. Format attendu: JOB-XXXX (ex: JOB-0001, JOB-0002)"
                     })
         
         # 4. Validation de session_1 (equipe-1000 à equipe-1999) - Obligatoire seulement si active = true
-        session_1_value = str(row_dict.get('session_1', '')).strip() if pd.notna(row_dict.get('session_1')) else ''
+        session_1_value = self._normalize_excel_value(row_dict.get('session_1'))
         if is_active:
             # Si active = true, session_1 est obligatoire
             if not session_1_value:
@@ -431,7 +683,7 @@ class InventoryLocationJobImportService:
                         })
         
         # 5. Validation de session_2 (equipe-2000 à equipe-2999) - Obligatoire seulement si active = true
-        session_2_value = str(row_dict.get('session_2', '')).strip() if pd.notna(row_dict.get('session_2')) else ''
+        session_2_value = self._normalize_excel_value(row_dict.get('session_2'))
         if is_active:
             # Si active = true, session_2 est obligatoire
             if not session_2_value:
@@ -487,6 +739,36 @@ class InventoryLocationJobImportService:
         
         return errors
     
+    def _normalize_excel_value(self, value) -> str:
+        """
+        Normalise une valeur Excel (gère NaN, None, etc.) en chaîne vide
+        
+        Args:
+            value: Valeur à normaliser (peut être NaN, None, 'nan', etc.)
+            
+        Returns:
+            str: Chaîne vide si valeur invalide, sinon la valeur normalisée
+        """
+        # Vérifier d'abord si c'est NaN pandas/numpy
+        try:
+            if pd.isna(value):
+                return ''
+        except (TypeError, ValueError):
+            pass
+        
+        # Vérifier None
+        if value is None:
+            return ''
+        
+        # Convertir en string et nettoyer
+        value_str = str(value).strip()
+        
+        # Vérifier les valeurs vides ou invalides
+        if not value_str or value_str.lower() in ('nan', 'none', 'null', 'nat', '<na>', 'n/a', 'na'):
+            return ''
+        
+        return value_str
+    
     def _normalize_boolean(self, value) -> bool:
         """
         Normalise une valeur en booléen
@@ -524,12 +806,12 @@ class InventoryLocationJobImportService:
         """
         errors = []
         
-        # Extraire les numéros de jobs uniquement pour les lignes actives et les trier
-        job_numbers = sorted([
+        # Extraire les numéros de jobs uniquement pour les lignes actives, supprimer les doublons et trier
+        job_numbers = sorted(set([
             data['job_number'] 
             for data in validated_data 
             if data.get('is_active', False) and 'job_number' in data and data['job_number'] is not None
-        ])
+        ]))
         
         if not job_numbers:
             return errors
@@ -537,10 +819,10 @@ class InventoryLocationJobImportService:
         # Vérifier l'incrémentation (doit commencer à 1 et être continue)
         if job_numbers[0] != 1:
             errors.append({
-                'row_number': None,  # Erreur globale
+                'row_number': 0,  # Erreur globale (0 = pas de ligne spécifique)
                 'field': 'job',
-                'value': f'job-{job_numbers[0]:02d}',
-                'message': f"Les jobs doivent commencer à job-01. Premier job trouvé: job-{job_numbers[0]:02d}"
+                'value': f'JOB-{job_numbers[0]:04d}',
+                'message': f"Les jobs doivent commencer à JOB-0001. Premier job trouvé: JOB-{job_numbers[0]:04d}"
             })
             return errors
         
@@ -548,11 +830,12 @@ class InventoryLocationJobImportService:
         expected_number = 1
         for job_number in job_numbers:
             if job_number != expected_number:
+                missing_jobs = [f'JOB-{i:04d}' for i in range(expected_number, job_number)]
                 errors.append({
-                    'row_number': None,  # Erreur globale
+                    'row_number': 0,  # Erreur globale (0 = pas de ligne spécifique)
                     'field': 'job',
-                    'value': f'job-{job_number:02d}',
-                    'message': f"Rupture d'incrémentation détectée. Job attendu: job-{expected_number:02d}, Job trouvé: job-{job_number:02d}. Jobs manquants: {', '.join([f'job-{i:02d}' for i in range(expected_number, job_number)])}"
+                    'value': f'JOB-{job_number:04d}',
+                    'message': f"Rupture d'incrémentation détectée. Job attendu: JOB-{expected_number:04d}, Job trouvé: JOB-{job_number:04d}. Jobs manquants: {', '.join(missing_jobs) if missing_jobs else 'aucun'}"
                 })
                 break
             expected_number += 1
@@ -774,9 +1057,9 @@ class InventoryLocationJobImportService:
             
             # Trier les jobs par ordre croissant (extraire le numéro du job)
             def get_job_number(job_ref):
-                """Extrait le numéro du job (ex: job-01 -> 1)"""
+                """Extrait le numéro du job (ex: JOB-0001 -> 1)"""
                 import re
-                match = re.match(r'^job-(\d+)$', job_ref, re.IGNORECASE)
+                match = re.match(r'^JOB-(\d{4})$', job_ref)
                 return int(match.group(1)) if match else 0
             
             sorted_jobs = sorted(jobs_by_warehouse.keys(), key=lambda x: get_job_number(x[1]))
@@ -859,7 +1142,7 @@ class InventoryLocationJobImportService:
                     
                     # Créer le Job avec la référence du fichier Excel
                     job = Job.objects.create(
-                        reference=job_reference,  # Utiliser la référence du fichier Excel (ex: job-01)
+                        reference=job_reference,  # Utiliser la référence du fichier Excel (ex: JOB-0001)
                         status='EN ATTENTE',
                         en_attente_date=timezone.now(),
                         warehouse=warehouse,
@@ -897,33 +1180,61 @@ class InventoryLocationJobImportService:
         counting2: Counting
     ) -> int:
         """
-        Crée les JobDetails pour un job selon la logique des comptages
+        Crée ou met à jour les JobDetails pour un job selon la logique des comptages (UPSERT)
+        Clé unique : (job_id, location_id, counting_id)
         
         Args:
-            job: Le job pour lequel créer les JobDetails
+            job: Le job pour lequel créer/mettre à jour les JobDetails
             locations: Liste des emplacements (déjà triés)
             counting1: Premier comptage
             counting2: Deuxième comptage
             
         Returns:
-            int: Nombre de JobDetails créés
+            int: Nombre de JobDetails créés/mis à jour
         """
         details_count = 0
         
+        # Récupérer les JobDetails existants pour ce job
+        location_ids = [loc.id for loc in locations]
+        existing_job_details = JobDetail.objects.filter(
+            job=job,
+            location_id__in=location_ids
+        ).select_related('counting')
+        
+        # Créer un dictionnaire pour un accès rapide : (location_id, counting_id) -> JobDetail
+        existing_map = {
+            (jd.location_id, jd.counting_id): jd
+            for jd in existing_job_details
+        }
+        
+        # Préparer les objets à créer et à mettre à jour
+        objects_to_create = []
+        objects_to_update = []
+        
         if counting1.count_mode == "image de stock":
             # Cas 1: 1er comptage = image de stock
-            # Créer les emplacements seulement pour le 2ème comptage
+            # Créer/mettre à jour les emplacements seulement pour le 2ème comptage
             logger.debug(f"Configuration 'image de stock' détectée pour le job {job.reference}")
             
             for location in locations:
-                JobDetail.objects.create(
-                    reference=JobDetail().generate_reference(JobDetail.REFERENCE_PREFIX),
-                    location=location,
-                    job=job,
-                    counting=counting2,  # Assigner au 2ème comptage
-                    status='EN ATTENTE',
-                    en_attente_date=timezone.now()
-                )
+                key = (location.id, counting2.id)
+                existing_jd = existing_map.get(key)
+                
+                if existing_jd:
+                    # Mettre à jour l'existant
+                    existing_jd.status = 'EN ATTENTE'
+                    existing_jd.en_attente_date = timezone.now()
+                    objects_to_update.append(existing_jd)
+                else:
+                    # Créer un nouveau
+                    objects_to_create.append(JobDetail(
+                        reference=JobDetail().generate_reference(JobDetail.REFERENCE_PREFIX),
+                        location=location,
+                        job=job,
+                        counting=counting2,  # Assigner au 2ème comptage
+                        status='EN ATTENTE',
+                        en_attente_date=timezone.now()
+                    ))
                 details_count += 1
         else:
             # Cas 2: 1er comptage différent de "image de stock"
@@ -931,27 +1242,118 @@ class InventoryLocationJobImportService:
             logger.debug(f"Configuration normale détectée pour le job {job.reference}")
             
             for location in locations:
-                # Créer un JobDetail pour le 1er comptage
-                JobDetail.objects.create(
-                    reference=JobDetail().generate_reference(JobDetail.REFERENCE_PREFIX),
-                    location=location,
-                    job=job,
-                    counting=counting1,
-                    status='EN ATTENTE',
-                    en_attente_date=timezone.now()
-                )
+                # JobDetail pour le 1er comptage
+                key1 = (location.id, counting1.id)
+                existing_jd1 = existing_map.get(key1)
+                
+                if existing_jd1:
+                    existing_jd1.status = 'EN ATTENTE'
+                    existing_jd1.en_attente_date = timezone.now()
+                    objects_to_update.append(existing_jd1)
+                else:
+                    objects_to_create.append(JobDetail(
+                        reference=JobDetail().generate_reference(JobDetail.REFERENCE_PREFIX),
+                        location=location,
+                        job=job,
+                        counting=counting1,
+                        status='EN ATTENTE',
+                        en_attente_date=timezone.now()
+                    ))
                 details_count += 1
                 
-                # Créer un JobDetail pour le 2ème comptage
-                JobDetail.objects.create(
-                    reference=JobDetail().generate_reference(JobDetail.REFERENCE_PREFIX),
-                    location=location,
-                    job=job,
-                    counting=counting2,
-                    status='EN ATTENTE',
-                    en_attente_date=timezone.now()
-                )
+                # JobDetail pour le 2ème comptage
+                key2 = (location.id, counting2.id)
+                existing_jd2 = existing_map.get(key2)
+                
+                if existing_jd2:
+                    existing_jd2.status = 'EN ATTENTE'
+                    existing_jd2.en_attente_date = timezone.now()
+                    objects_to_update.append(existing_jd2)
+                else:
+                    objects_to_create.append(JobDetail(
+                        reference=JobDetail().generate_reference(JobDetail.REFERENCE_PREFIX),
+                        location=location,
+                        job=job,
+                        counting=counting2,
+                        status='EN ATTENTE',
+                        en_attente_date=timezone.now()
+                    ))
                 details_count += 1
+        
+        # Effectuer les opérations en masse
+        if objects_to_create:
+            # Générer les références et vérifier les doublons
+            existing_references = set(
+                JobDetail.objects.filter(
+                    reference__in=[obj.reference for obj in objects_to_create if obj.reference]
+                ).values_list('reference', flat=True)
+            )
+            
+            # Régénérer les références pour les objets qui ont des doublons
+            for obj in objects_to_create:
+                if obj.reference and obj.reference in existing_references:
+                    # Régénérer la référence jusqu'à ce qu'elle soit unique
+                    max_attempts = 10
+                    attempt = 0
+                    while attempt < max_attempts:
+                        new_reference = JobDetail().generate_reference(JobDetail.REFERENCE_PREFIX)
+                        if not JobDetail.objects.filter(reference=new_reference).exists():
+                            obj.reference = new_reference
+                            existing_references.add(new_reference)
+                            break
+                        attempt += 1
+                    else:
+                        # Si on n'a pas réussi après 10 tentatives, utiliser un UUID complet
+                        import uuid
+                        obj.reference = f"{JobDetail.REFERENCE_PREFIX}-{uuid.uuid4().hex[:16].upper()}"
+            
+            # Créer les objets en gérant les doublons
+            # Utiliser get_or_create pour éviter les erreurs de doublons de référence
+            created_count = 0
+            for obj in objects_to_create:
+                try:
+                    # Vérifier si un JobDetail existe déjà avec cette référence
+                    existing = JobDetail.objects.filter(reference=obj.reference).first()
+                    if existing:
+                        logger.warning(f"JobDetail avec référence {obj.reference} existe déjà, ignoré")
+                        continue
+                    
+                    # Vérifier si un JobDetail existe déjà avec cette combinaison (job, location, counting)
+                    existing_by_key = JobDetail.objects.filter(
+                        job=obj.job,
+                        location=obj.location,
+                        counting=obj.counting
+                    ).first()
+                    
+                    if existing_by_key:
+                        # Mettre à jour l'existant au lieu de créer un nouveau
+                        existing_by_key.status = obj.status
+                        existing_by_key.en_attente_date = obj.en_attente_date
+                        existing_by_key.save(update_fields=['status', 'en_attente_date', 'updated_at'])
+                        logger.debug(f"JobDetail existant mis à jour pour job={obj.job.reference}, location={obj.location.location_reference}, counting={obj.counting.reference}")
+                    else:
+                        # Créer un nouveau JobDetail
+                        obj.save()
+                        created_count += 1
+                except Exception as create_error:
+                    logger.error(f"Erreur lors de la création d'un JobDetail: {str(create_error)}", exc_info=True)
+                    # Continuer avec le suivant même en cas d'erreur
+                    continue
+        
+        if objects_to_update:
+            try:
+                JobDetail.objects.bulk_update(
+                    objects_to_update,
+                    ['status', 'en_attente_date', 'updated_at']
+                )
+            except Exception as e:
+                logger.error(f"Erreur lors de bulk_update des JobDetail: {str(e)}", exc_info=True)
+                # En cas d'erreur, mettre à jour les objets un par un
+                for obj in objects_to_update:
+                    try:
+                        obj.save(update_fields=['status', 'en_attente_date', 'updated_at'])
+                    except Exception as update_error:
+                        logger.error(f"Erreur lors de la mise à jour d'un JobDetail: {str(update_error)}", exc_info=True)
         
         return details_count
 

@@ -11,6 +11,7 @@ from apps.inventory.services.inventory_location_job_import_service import Invent
 from apps.inventory.serializers.inventory_location_job_import_serializer import InventoryLocationJobImportSerializer
 from apps.masterdata.exceptions import InventoryLocationJobValidationError
 from apps.inventory.exceptions import InventoryNotFoundError
+from apps.masterdata.models import ImportTask, ImportError
 
 logger = logging.getLogger(__name__)
 
@@ -36,10 +37,10 @@ class InventoryLocationJobImportView(APIView):
             
         Format attendu du fichier Excel:
         - Colonnes requises: warehouse, emplacement, active, job, session_1, session_2
-        - warehouse: Référence du warehouse
+        - warehouse: Nom du warehouse (warehouse_name)
         - emplacement: Référence de l'emplacement
         - active: (utilisé pour synchroniser Location.is_active)
-        - job: Format job-XX (ex: job-01, job-02, ...)
+        - job: Format JOB-XXXX (ex: JOB-0001, JOB-0002, ...)
         - session_1: Format equipe-XXXX (plage: 1000-1999)
         - session_2: Format equipe-XXXX (plage: 2000-2999)
         """
@@ -76,10 +77,14 @@ class InventoryLocationJobImportView(APIView):
                     
                     logger.info(f"Import terminé pour l'inventaire {inventory_id}: {result.get('message', '')}")
                 
-                # Lancer l'import asynchrone
-                self.service.import_from_excel_async(
+                # Récupérer l'ID de l'utilisateur connecté
+                user_id = request.user.id if hasattr(request, 'user') and request.user.is_authenticated else None
+                
+                # Lancer l'import asynchrone et récupérer l'ImportTask
+                import_task = self.service.import_from_excel_async(
                     inventory_id=inventory_id,
                     file_path=file_path,
+                    user_id=user_id,
                     callback=import_callback
                 )
                 
@@ -88,7 +93,8 @@ class InventoryLocationJobImportView(APIView):
                     data={
                         'status': 'processing',
                         'message': 'Import en cours de traitement. Le traitement est effectué en arrière-plan.',
-                        'inventory_id': inventory_id
+                        'inventory_id': inventory_id,
+                        'import_task_id': import_task.id
                     },
                     status_code=status.HTTP_202_ACCEPTED
                 )
@@ -245,3 +251,85 @@ class InventoryLocationJobImportSyncView(APIView):
         }
         return Response(response_data, status=status_code)
 
+
+class InventoryLocationJobImportStatusView(APIView):
+    """
+    Vue pour récupérer le statut et les erreurs d'un import
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, import_task_id, *args, **kwargs):
+        """
+        Récupère le statut et les erreurs d'un import
+        
+        Args:
+            import_task_id: ID de la tâche d'import (ImportTask)
+        """
+        try:
+            import_task = ImportTask.objects.get(id=import_task_id)
+            
+            # Récupérer les erreurs associées
+            errors = ImportError.objects.filter(import_task=import_task).order_by('row_number')
+            errors_data = [
+                {
+                    'row_number': error.row_number,
+                    'error_type': error.error_type,
+                    'error_message': error.error_message,
+                    'field_name': error.field_name,
+                    'field_value': error.field_value,
+                    'row_data': error.row_data
+                }
+                for error in errors
+            ]
+            
+            return self._success_response(
+                data={
+                    'import_task_id': import_task.id,
+                    'status': import_task.status,
+                    'file_name': import_task.file_name,
+                    'total_rows': import_task.total_rows,
+                    'validated_rows': import_task.validated_rows,
+                    'processed_rows': import_task.processed_rows,
+                    'imported_count': import_task.imported_count,
+                    'updated_count': import_task.updated_count,
+                    'error_count': import_task.error_count,
+                    'error_message': import_task.error_message,
+                    'errors': errors_data,
+                    'created_at': import_task.created_at,
+                    'updated_at': import_task.updated_at
+                },
+                message=f"Statut de l'import: {import_task.get_status_display()}",
+                status_code=status.HTTP_200_OK
+            )
+            
+        except ImportTask.DoesNotExist:
+            return self._error_response(
+                message=f"Tâche d'import {import_task_id} non trouvée",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération du statut: {str(e)}", exc_info=True)
+            return self._error_response(
+                message=f"Erreur lors de la récupération du statut: {str(e)}",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def _success_response(self, data, message=None, status_code=status.HTTP_200_OK):
+        """Helper pour créer une réponse de succès"""
+        from rest_framework.response import Response
+        response_data = {
+            'success': True,
+            'message': message or 'Opération réussie',
+            'data': data
+        }
+        return Response(response_data, status=status_code)
+    
+    def _error_response(self, message, errors=None, status_code=status.HTTP_400_BAD_REQUEST):
+        """Helper pour créer une réponse d'erreur"""
+        from rest_framework.response import Response
+        response_data = {
+            'success': False,
+            'message': message,
+            'errors': errors or []
+        }
+        return Response(response_data, status=status_code)

@@ -23,4 +23,9 @@ class IInventoryLocationJobRepository(ABC):
     def delete_by_inventory_id(self, inventory_id: int) -> int:
         """Supprime tous les InventoryLocationJob pour un inventaire"""
         pass
+    
+    @abstractmethod
+    def bulk_upsert(self, data_list: List[Dict[str, Any]], inventory_id: int) -> Dict[str, int]:
+        """Effectue un upsert (update or insert) en masse pour InventoryLocationJob"""
+        pass
 
