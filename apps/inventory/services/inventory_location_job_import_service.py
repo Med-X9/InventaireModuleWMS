@@ -376,7 +376,17 @@ class InventoryLocationJobImportService:
             
             # Si toutes les validations passent, procéder à la synchronisation puis à l'insertion
             with transaction.atomic():
-                # 6. D'abord, synchroniser le champ active du fichier Excel avec Location.is_active
+                # 5bis. D'abord, purger toutes les données liées aux jobs de cet inventaire
+                # (InventoryLocationJob, JobDetail, Job) pour repartir sur une base propre
+                clear_stats = self._clear_inventory_jobs(inventory_id)
+                logger.info(
+                    f"Nettoyage initial de l'inventaire {inventory_id}: "
+                    f"{clear_stats['deleted_job_details']} JobDetail supprimé(s), "
+                    f"{clear_stats['deleted_location_jobs']} InventoryLocationJob supprimé(s), "
+                    f"{clear_stats['deleted_jobs']} job(s) supprimé(s)"
+                )
+
+                # 6. Ensuite, synchroniser le champ active du fichier Excel avec Location.is_active
                 # Cette étape s'exécute AVANT l'insertion dans InventoryLocationJob
                 # Le champ active du fichier Excel sert uniquement à la synchronisation, pas à l'insertion
                 sync_result = self._sync_location_active_status(validated_data)
@@ -412,11 +422,19 @@ class InventoryLocationJobImportService:
                 jobs_result = self._create_jobs_and_details(inventory_id, validated_data)
                 logger.info(f"Jobs créés: {jobs_result['jobs_created']} job(s), {jobs_result['job_details_created']} job detail(s)")
                 
-                # 8. Identifier les emplacements non consommés (information uniquement, non bloquant)
-                # Cette étape est informative et ne doit pas bloquer le traitement
-                # Elle est exécutée après la transaction pour ne pas ralentir le traitement
+                # 8. Identifier les emplacements non consommés (présents en base mais absents du fichier Excel)
                 unconsumed_locations = self._get_unconsumed_locations(inventory_id, validated_data)
                 logger.info(f"Emplacements non consommés identifiés: {len(unconsumed_locations)} emplacement(s)")
+                
+                # 9. Supprimer/Nettoyer les données associées à ces emplacements non consommés
+                # (JobDetail + liens InventoryLocationJob, et éventuellement jobs devenus vides)
+                cleanup_stats = self._delete_unconsumed_locations(inventory_id, unconsumed_locations)
+                logger.info(
+                    "Nettoyage des emplacements non consommés: "
+                    f"{cleanup_stats['deleted_job_details']} JobDetail supprimé(s), "
+                    f"{cleanup_stats['deleted_location_jobs']} InventoryLocationJob supprimé(s), "
+                    f"{cleanup_stats['deleted_jobs']} job(s) supprimé(s)"
+                )
                 
                 return {
                     'success': True,
@@ -428,6 +446,7 @@ class InventoryLocationJobImportService:
                     'locations_updated': sync_result['updated_count'],
                     'unconsumed_locations': unconsumed_locations,
                     'unconsumed_locations_count': len(unconsumed_locations),
+                    'unconsumed_cleanup': cleanup_stats,
                     'jobs_created': jobs_result['jobs_created'],
                     'job_details_created': jobs_result['job_details_created']
                 }
@@ -734,6 +753,36 @@ class InventoryLocationJobImportService:
                             'message': f"La session_2 '{session_2_value}' est hors plage. Plage attendue: equipe-2000 à equipe-2999"
                         })
         
+        # 6. Règle métier supplémentaire :
+        #    Si active = false, alors job, session_1 et session_2 doivent être vides.
+        #    Sinon, retourner une erreur de validation claire.
+        if not is_active:
+            if job_value or session_1_value or session_2_value:
+                # Erreur pour job si non vide
+                if job_value:
+                    errors.append({
+                        'row_number': row_number,
+                        'field': 'job',
+                        'value': job_value,
+                        'message': "Lorsque le champ 'active' est false, le champ 'job' doit être vide"
+                    })
+                # Erreur pour session_1 si non vide
+                if session_1_value:
+                    errors.append({
+                        'row_number': row_number,
+                        'field': 'session_1',
+                        'value': session_1_value,
+                        'message': "Lorsque le champ 'active' est false, le champ 'session_1' doit être vide"
+                    })
+                # Erreur pour session_2 si non vide
+                if session_2_value:
+                    errors.append({
+                        'row_number': row_number,
+                        'field': 'session_2',
+                        'value': session_2_value,
+                        'message': "Lorsque le champ 'active' est false, le champ 'session_2' doit être vide"
+                    })
+        
         # Stocker is_active dans row_dict pour utilisation ultérieure
         row_dict['is_active'] = is_active
         
@@ -997,7 +1046,116 @@ class InventoryLocationJobImportService:
             # En cas d'erreur, ne pas bloquer le traitement, juste logger l'erreur
             logger.warning(f"Erreur lors de l'identification des emplacements non consommés: {str(e)}")
             return []  # Retourner une liste vide pour ne pas bloquer le traitement
-    
+
+    def _delete_unconsumed_locations(
+        self,
+        inventory_id: int,
+        unconsumed_locations: List[Dict[str, Any]]
+    ) -> Dict[str, int]:
+        """
+        Supprime les données (JobDetail, InventoryLocationJob, jobs vides) pour les emplacements
+        qui n'apparaissent plus dans le fichier Excel pour un inventaire donné.
+
+        Args:
+            inventory_id: ID de l'inventaire
+            unconsumed_locations: Liste de dicts retournés par _get_unconsumed_locations
+
+        Returns:
+            Dict avec les statistiques de suppression.
+        """
+        from apps.inventory.models import JobDetail, Job
+        from apps.masterdata.models import InventoryLocationJob
+
+        if not unconsumed_locations:
+            logger.info(
+                f"Aucun emplacement non consommé à supprimer pour l'inventaire {inventory_id}"
+            )
+            return {
+                'deleted_job_details': 0,
+                'deleted_location_jobs': 0,
+                'deleted_jobs': 0,
+            }
+
+        location_ids = [
+            loc.get('id') for loc in unconsumed_locations
+            if loc.get('id') is not None
+        ]
+
+        if not location_ids:
+            logger.info(
+                f"Aucun ID d'emplacement valide dans la liste des emplacements non consommés "
+                f"pour l'inventaire {inventory_id}"
+            )
+            return {
+                'deleted_job_details': 0,
+                'deleted_location_jobs': 0,
+                'deleted_jobs': 0,
+            }
+
+        # 1) Supprimer les JobDetail liés à ces emplacements pour cet inventaire
+        jd_qs = JobDetail.objects.filter(
+            job__inventory_id=inventory_id,
+            location_id__in=location_ids,
+        )
+        deleted_job_details, _ = jd_qs.delete()
+
+        # 2) Supprimer les liens InventoryLocationJob pour ces emplacements
+        ilj_qs = InventoryLocationJob.objects.filter(
+            inventaire_id=inventory_id,
+            emplacement_id__in=location_ids,
+        )
+        deleted_location_jobs, _ = ilj_qs.delete()
+
+        # 3) Supprimer les jobs devenus orphelins (sans aucun JobDetail)
+        #    pour cet inventaire
+        empty_jobs_qs = Job.objects.filter(
+            inventory_id=inventory_id
+        ).filter(
+            jobdetail__isnull=True
+        )
+        deleted_jobs, _ = empty_jobs_qs.delete()
+
+        logger.info(
+            f"Suppression des emplacements non consommés pour l'inventaire {inventory_id}: "
+            f"{deleted_job_details} JobDetail supprimé(s), "
+            f"{deleted_location_jobs} InventoryLocationJob supprimé(s), "
+            f"{deleted_jobs} job(s) supprimé(s)"
+        )
+
+        return {
+            'deleted_job_details': deleted_job_details,
+            'deleted_location_jobs': deleted_location_jobs,
+            'deleted_jobs': deleted_jobs,
+        }
+
+    def _clear_inventory_jobs(self, inventory_id: int) -> Dict[str, int]:
+        """
+        Supprime toutes les données de jobs pour un inventaire donné :
+        - tous les JobDetail liés aux jobs de cet inventaire
+        - tous les InventoryLocationJob de cet inventaire
+        - tous les Job de cet inventaire
+        """
+        from apps.inventory.models import JobDetail, Job
+        from apps.masterdata.models import InventoryLocationJob
+
+        # 1) Supprimer tous les JobDetail des jobs de cet inventaire
+        jd_qs = JobDetail.objects.filter(job__inventory_id=inventory_id)
+        deleted_job_details, _ = jd_qs.delete()
+
+        # 2) Supprimer tous les InventoryLocationJob de cet inventaire
+        ilj_qs = InventoryLocationJob.objects.filter(inventaire_id=inventory_id)
+        deleted_location_jobs, _ = ilj_qs.delete()
+
+        # 3) Supprimer tous les Jobs de cet inventaire
+        jobs_qs = Job.objects.filter(inventory_id=inventory_id)
+        deleted_jobs, _ = jobs_qs.delete()
+
+        return {
+            'deleted_job_details': deleted_job_details,
+            'deleted_location_jobs': deleted_location_jobs,
+            'deleted_jobs': deleted_jobs,
+        }
+
     def _create_jobs_and_details(
         self,
         inventory_id: int,
@@ -1069,7 +1227,6 @@ class InventoryLocationJobImportService:
             
             # Créer les Jobs et JobDetails pour chaque combinaison warehouse/job
             for warehouse_id, job_reference in sorted_jobs:
-                try:
                     # Récupérer le warehouse
                     warehouse = Warehouse.objects.get(id=warehouse_id)
                     
@@ -1126,7 +1283,9 @@ class InventoryLocationJobImportService:
                         logger.warning(f"Certains emplacements n'appartiennent pas au warehouse {warehouse.warehouse_name}")
                         continue
                     
-                    # Vérifier qu'aucun emplacement n'est déjà affecté à un autre job pour cet inventaire
+                    # Vérifier qu'aucun emplacement n'est déjà affecté à un autre job pour cet inventaire.
+                    # Si c'est le cas, on considère que c'est une erreur de validation bloquante
+                    # (on ne doit PAS ignorer silencieusement cette situation !).
                     existing_job_details = JobDetail.objects.filter(
                         location_id__in=emplacement_ids,
                         job__inventory=inventory
@@ -1137,8 +1296,15 @@ class InventoryLocationJobImportService:
                             jd.location.location_reference
                             for jd in existing_job_details.select_related('location', 'job')
                         ]
-                        logger.warning(f"Certains emplacements sont déjà affectés à d'autres jobs: {', '.join(conflicting_locations)}")
-                        continue
+                        message = (
+                            "Certains emplacements sont déjà affectés à d'autres jobs pour cet inventaire. "
+                            f"Job demandé: {job_reference}, Warehouse: {warehouse.warehouse_name}. "
+                            f"Emplacements en conflit: {', '.join(conflicting_locations)}"
+                        )
+                        logger.error(message)
+                        # On lève une erreur de validation pour annuler TOUT l'import
+                        # et remonter une information claire à l'utilisateur.
+                        raise InventoryLocationJobValidationError(message)
                     
                     # Créer le Job avec la référence du fichier Excel
                     job = Job.objects.create(
@@ -1151,26 +1317,29 @@ class InventoryLocationJobImportService:
                     jobs_created += 1
                     logger.info(f"Job {job.reference} créé pour l'inventaire {inventory.reference} et le warehouse {warehouse.warehouse_name}")
                     
-                    # Créer les JobDetails selon la logique des comptages
+                    # Créer les JobDetails selon la logique des comptages.
+                    # IMPORTANT : en cas d'erreur dans la création des JobDetails,
+                    # _create_job_details_for_job lèvera une InventoryLocationJobValidationError,
+                    # ce qui fera échouer toute la transaction (comportement "tout ou rien").
                     details_count = self._create_job_details_for_job(
                         job, locations, counting1, counting2
                     )
                     job_details_created += details_count
-                    
-                except Exception as e:
-                    logger.error(f"Erreur lors de la création du job {job_reference}: {str(e)}", exc_info=True)
-                    # Continuer avec le job suivant même en cas d'erreur
-                    continue
             
             return {
                 'jobs_created': jobs_created,
                 'job_details_created': job_details_created
             }
             
+        except InventoryLocationJobValidationError:
+            # Laisser remonter l'erreur de validation pour qu'elle annule l'import complet
+            raise
         except Exception as e:
+            # Toute autre erreur technique est convertie en erreur de validation
             logger.error(f"Erreur lors de la création des jobs et job details: {str(e)}", exc_info=True)
-            # Ne pas bloquer le traitement, retourner 0
-            return {'jobs_created': 0, 'job_details_created': 0}
+            raise InventoryLocationJobValidationError(
+                f"Erreur lors de la création des jobs et job details: {str(e)}"
+            )
     
     def _create_job_details_for_job(
         self,
@@ -1226,9 +1395,8 @@ class InventoryLocationJobImportService:
                     existing_jd.en_attente_date = timezone.now()
                     objects_to_update.append(existing_jd)
                 else:
-                    # Créer un nouveau
+                    # Créer un nouveau (la référence sera auto‑générée par le modèle)
                     objects_to_create.append(JobDetail(
-                        reference=JobDetail().generate_reference(JobDetail.REFERENCE_PREFIX),
                         location=location,
                         job=job,
                         counting=counting2,  # Assigner au 2ème comptage
@@ -1252,7 +1420,6 @@ class InventoryLocationJobImportService:
                     objects_to_update.append(existing_jd1)
                 else:
                     objects_to_create.append(JobDetail(
-                        reference=JobDetail().generate_reference(JobDetail.REFERENCE_PREFIX),
                         location=location,
                         job=job,
                         counting=counting1,
@@ -1271,7 +1438,6 @@ class InventoryLocationJobImportService:
                     objects_to_update.append(existing_jd2)
                 else:
                     objects_to_create.append(JobDetail(
-                        reference=JobDetail().generate_reference(JobDetail.REFERENCE_PREFIX),
                         location=location,
                         job=job,
                         counting=counting2,
@@ -1281,43 +1447,37 @@ class InventoryLocationJobImportService:
                 details_count += 1
         
         # Effectuer les opérations en masse
-        if objects_to_create:
-            # Générer les références et vérifier les doublons
-            existing_references = set(
-                JobDetail.objects.filter(
-                    reference__in=[obj.reference for obj in objects_to_create if obj.reference]
-                ).values_list('reference', flat=True)
-            )
-            
-            # Régénérer les références pour les objets qui ont des doublons
-            for obj in objects_to_create:
-                if obj.reference and obj.reference in existing_references:
-                    # Régénérer la référence jusqu'à ce qu'elle soit unique
-                    max_attempts = 10
-                    attempt = 0
-                    while attempt < max_attempts:
-                        new_reference = JobDetail().generate_reference(JobDetail.REFERENCE_PREFIX)
-                        if not JobDetail.objects.filter(reference=new_reference).exists():
-                            obj.reference = new_reference
-                            existing_references.add(new_reference)
-                            break
-                        attempt += 1
-                    else:
-                        # Si on n'a pas réussi après 10 tentatives, utiliser un UUID complet
-                        import uuid
-                        obj.reference = f"{JobDetail.REFERENCE_PREFIX}-{uuid.uuid4().hex[:16].upper()}"
-            
-            # Créer les objets en gérant les doublons
-            # Utiliser get_or_create pour éviter les erreurs de doublons de référence
-            created_count = 0
-            for obj in objects_to_create:
-                try:
-                    # Vérifier si un JobDetail existe déjà avec cette référence
-                    existing = JobDetail.objects.filter(reference=obj.reference).first()
-                    if existing:
-                        logger.warning(f"JobDetail avec référence {obj.reference} existe déjà, ignoré")
-                        continue
-                    
+        try:
+            if objects_to_create:
+                # Générer les références et vérifier les doublons
+                existing_references = set(
+                    JobDetail.objects.filter(
+                        reference__in=[obj.reference for obj in objects_to_create if obj.reference]
+                    ).values_list('reference', flat=True)
+                )
+                
+                # Régénérer les références pour les objets qui ont des doublons
+                for obj in objects_to_create:
+                    if obj.reference and obj.reference in existing_references:
+                        # Régénérer la référence jusqu'à ce qu'elle soit unique
+                        max_attempts = 10
+                        attempt = 0
+                        while attempt < max_attempts:
+                            new_reference = JobDetail().generate_reference(JobDetail.REFERENCE_PREFIX)
+                            if not JobDetail.objects.filter(reference=new_reference).exists():
+                                obj.reference = new_reference
+                                existing_references.add(new_reference)
+                                break
+                            attempt += 1
+                        else:
+                            # Si on n'a pas réussi après 10 tentatives, utiliser un UUID complet
+                            import uuid
+                            obj.reference = f"{JobDetail.REFERENCE_PREFIX}-{uuid.uuid4().hex[:16].upper()}"
+                
+                # Créer / mettre à jour les objets un par un.
+                # En cas d'erreur sur un seul JobDetail, on lève une erreur de validation
+                # pour forcer le rollback de toute la transaction (comportement tout ou rien).
+                for obj in objects_to_create:
                     # Vérifier si un JobDetail existe déjà avec cette combinaison (job, location, counting)
                     existing_by_key = JobDetail.objects.filter(
                         job=obj.job,
@@ -1330,30 +1490,42 @@ class InventoryLocationJobImportService:
                         existing_by_key.status = obj.status
                         existing_by_key.en_attente_date = obj.en_attente_date
                         existing_by_key.save(update_fields=['status', 'en_attente_date', 'updated_at'])
-                        logger.debug(f"JobDetail existant mis à jour pour job={obj.job.reference}, location={obj.location.location_reference}, counting={obj.counting.reference}")
+                        logger.debug(
+                            f"JobDetail existant mis à jour pour job={obj.job.reference}, "
+                            f"location={obj.location.location_reference}, counting={obj.counting.reference}"
+                        )
                     else:
-                        # Créer un nouveau JobDetail
+                        # Générer une référence unique si elle est absente / vide
+                        if not getattr(obj, 'reference', None):
+                            max_attempts = 10
+                            for attempt in range(max_attempts):
+                                new_ref = JobDetail().generate_reference(JobDetail.REFERENCE_PREFIX)
+                                if not JobDetail.objects.filter(reference=new_ref).exists():
+                                    obj.reference = new_ref
+                                    break
+                            else:
+                                raise InventoryLocationJobValidationError(
+                                    "Impossible de générer une référence unique pour un JobDetail"
+                                )
                         obj.save()
-                        created_count += 1
-                except Exception as create_error:
-                    logger.error(f"Erreur lors de la création d'un JobDetail: {str(create_error)}", exc_info=True)
-                    # Continuer avec le suivant même en cas d'erreur
-                    continue
-        
-        if objects_to_update:
-            try:
+                    # Chaque création/mise à jour compte pour 1 détail
+                    # (on a déjà incrémenté details_count plus haut)
+            
+            if objects_to_update:
                 JobDetail.objects.bulk_update(
                     objects_to_update,
                     ['status', 'en_attente_date', 'updated_at']
                 )
-            except Exception as e:
-                logger.error(f"Erreur lors de bulk_update des JobDetail: {str(e)}", exc_info=True)
-                # En cas d'erreur, mettre à jour les objets un par un
-                for obj in objects_to_update:
-                    try:
-                        obj.save(update_fields=['status', 'en_attente_date', 'updated_at'])
-                    except Exception as update_error:
-                        logger.error(f"Erreur lors de la mise à jour d'un JobDetail: {str(update_error)}", exc_info=True)
+        
+        except Exception as e:
+            logger.error(
+                f"Erreur lors de la création ou mise à jour des JobDetail pour le job {job.reference}: {str(e)}",
+                exc_info=True
+            )
+            # Faire échouer l'import complet
+            raise InventoryLocationJobValidationError(
+                f"Erreur lors de la création ou mise à jour des JobDetail pour le job {job.reference}: {str(e)}"
+            )
         
         return details_count
 
