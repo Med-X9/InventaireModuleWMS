@@ -44,6 +44,7 @@ from django.db.models import QuerySet
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from .optimizations import optimize_queryset
 
 logger = logging.getLogger(__name__)
             
@@ -103,9 +104,76 @@ class QueryModelMixin:
         
         Par défaut, utilise get_queryset(). Peut être surchargé pour
         utiliser une liste de dictionnaires ou une fonction callable.
+        
+        OPTIMISATION AUTOMATIQUE:
+        - Si la vue définit explicitement select_related_fields, prefetch_related_fields, etc., ils sont utilisés
+        - Sinon, détection automatique depuis le modèle et le serializer
         """
         from .datasource import DataSourceFactory
+        from .optimizations import auto_detect_optimizations
+        
         queryset = self.get_queryset()
+
+        # Vérifier si la vue a défini explicitement des optimisations
+        has_explicit_optimizations = (
+            hasattr(self, 'select_related_fields') or
+            hasattr(self, 'prefetch_related_fields') or
+            hasattr(self, 'only_fields') or
+            hasattr(self, 'defer_fields')
+        )
+        
+        if has_explicit_optimizations:
+            # Utiliser les optimisations explicites
+            queryset = optimize_queryset(
+                queryset,
+                select_related=getattr(self, 'select_related_fields', None),
+                prefetch_related=getattr(self, 'prefetch_related_fields', None),
+                only=getattr(self, 'only_fields', None),
+                defer=getattr(self, 'defer_fields', None),
+            )
+        else:
+            # Détection automatique intelligente
+            # Vérifier si le queryset a déjà des optimisations appliquées
+            has_existing_optimizations = (
+                hasattr(queryset.query, 'select_related') and queryset.query.select_related
+            ) or (
+                hasattr(queryset.query, 'prefetch_related') and queryset.query.prefetch_related
+            )
+            
+            if not has_existing_optimizations:
+                # Seulement appliquer les optimisations automatiques si le queryset n'est pas déjà optimisé
+                model = getattr(self, 'model', None)
+                serializer_class = getattr(self, 'serializer_class', None)
+                column_field_mapping = self.get_column_field_mapping()
+                
+                if model:
+                    auto_optimizations = auto_detect_optimizations(
+                        model=model,
+                        serializer_class=serializer_class,
+                        column_field_mapping=column_field_mapping
+                    )
+                    
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"🔍 Optimisations automatiques détectées pour {self.__class__.__name__}: "
+                            f"select_related={auto_optimizations['select_related']}, "
+                            f"prefetch_related={auto_optimizations['prefetch_related']}"
+                        )
+                    
+                    queryset = optimize_queryset(
+                        queryset,
+                        select_related=auto_optimizations['select_related'] or None,
+                        prefetch_related=auto_optimizations['prefetch_related'] or None,
+                        only=auto_optimizations['only_fields'],
+                        defer=auto_optimizations['defer_fields'],
+                    )
+            else:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"⏭️ Queryset déjà optimisé pour {self.__class__.__name__}, "
+                        "ignorant les optimisations automatiques"
+                    )
+
         return DataSourceFactory.create(queryset)
     
     def get_column_field_mapping(self) -> Dict[str, str]:

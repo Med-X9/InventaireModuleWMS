@@ -507,4 +507,76 @@ class InventoryDetailWithWarehouseSerializer(serializers.ModelSerializer):
                 'start_date': obj.en_preparation_status_date,
                 'end_date': obj.cloture_status_date
             }
-        return None 
+        return None
+
+
+# ========================================
+# Serializers séparés pour les endpoints décomposés
+# Ces serializers ne font que du formatage, la logique métier est dans le service
+# ========================================
+
+class InventoryBasicInfoSerializer(serializers.Serializer):
+    """
+    Serializer pour les informations de base d'un inventaire.
+    Ne fait que du formatage, les données viennent du service.
+    """
+    reference = serializers.CharField()
+    label = serializers.CharField()
+    date = serializers.DateField()
+    status = serializers.CharField()
+    inventory_type = serializers.CharField()
+    en_preparation_status_date = serializers.DateTimeField(allow_null=True)
+    en_realisation_status_date = serializers.DateTimeField(allow_null=True)
+    termine_status_date = serializers.DateTimeField(allow_null=True)
+    cloture_status_date = serializers.DateTimeField(allow_null=True)
+
+
+class InventoryAccountSerializer(serializers.Serializer):
+    """
+    Serializer pour les informations du compte d'un inventaire.
+    Ne fait que du formatage, les données viennent du service.
+    """
+    account_name = serializers.CharField(allow_null=True)
+    account_reference = serializers.CharField(allow_null=True)
+
+
+class InventoryWarehousesSerializer(serializers.Serializer):
+    """
+    Serializer pour la liste des magasins d'un inventaire.
+    Ne fait que du formatage, les données viennent du service.
+    """
+    magasins = serializers.ListField(
+        child=serializers.DictField(
+            child=serializers.CharField()
+        )
+    )
+
+
+class InventoryCountingsSerializer(serializers.Serializer):
+    """
+    Serializer pour la liste des comptages d'un inventaire.
+    Ne fait que du formatage, les données viennent du service.
+    """
+    comptages = serializers.ListField(
+        child=serializers.DictField()
+    )
+
+
+class InventoryTeamDetailSerializer(serializers.Serializer):
+    """
+    Serializer pour l'équipe d'un inventaire.
+    Ne fait que du formatage, les données viennent du service.
+    """
+    equipe = serializers.ListField(
+        child=serializers.DictField()
+    )
+
+
+class InventoryResourcesDetailSerializer(serializers.Serializer):
+    """
+    Serializer pour les ressources d'un inventaire.
+    Ne fait que du formatage, les données viennent du service.
+    """
+    ressources = serializers.ListField(
+        child=serializers.DictField()
+    )

@@ -67,6 +67,13 @@ from .request_handler import (
     RequestParameterExtractor # Extracteur de paramètres
 )
 
+# Optimizations - Optimisations de performance
+from .optimizations import (
+    OptimizedQuerySetMixin,    # Mixin pour optimiser automatiquement les QuerySets
+    PaginationCacheMixin,     # Mixin pour cache de pagination
+    optimize_queryset          # Fonction utilitaire pour optimiser un QuerySet
+)
+
 # =============================================================================
 # EXPORT PUBLIC - Toutes les classes et fonctions disponibles
 # =============================================================================
@@ -96,6 +103,10 @@ __all__ = [
     'ServerSideDataTableView',       # Alias de compatibilité
     'RequestFormatDetector',         # Détecteur de format QueryModel
     'RequestParameterExtractor',     # Extracteur de paramètres
+    # Optimizations
+    'OptimizedQuerySetMixin',        # Mixin pour optimiser les QuerySets
+    'PaginationCacheMixin',          # Mixin pour cache de pagination
+    'optimize_queryset',             # Fonction utilitaire d'optimisation
 ]
 
 # =============================================================================

@@ -20,12 +20,19 @@ from ..serializers.inventory_serializer import (
     InventoryUpdateSerializer,
     InventoryDetailModeFieldsSerializer,
     InventoryDetailWithWarehouseSerializer,
+    InventoryBasicInfoSerializer,
+    InventoryAccountSerializer,
+    InventoryWarehousesSerializer,
+    InventoryCountingsSerializer,
+    InventoryTeamDetailSerializer,
+    InventoryResourcesDetailSerializer,
 )
 from ..serializers import InventoryWarehouseResultSerializer, InventoryWarehouseResultEntrySerializer
 from ..exceptions import InventoryValidationError, InventoryNotFoundError, StockValidationError
 from ..filters import InventoryFilter
 from ..repositories import InventoryRepository
 from ..interfaces import IInventoryRepository
+from ..services.inventory_detail_service import InventoryDetailService
 from ..utils.response_utils import success_response, error_response, validation_error_response
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -658,6 +665,226 @@ class InventoryTeamView(APIView):
             logger.error(f"Erreur lors de la récupération des détails de l'inventaire: {str(e)}", exc_info=True)
             return error_response(
                 message="Une erreur inattendue s'est produite lors de la récupération des détails de l'inventaire",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+# ========================================
+# Vues séparées pour les endpoints décomposés
+# ========================================
+
+class InventoryBasicInfoView(APIView):
+    """
+    Vue pour récupérer les informations de base d'un inventaire.
+    Respecte l'architecture : View -> Service -> Repository
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.service = InventoryDetailService()
+
+    def get(self, request, pk, *args, **kwargs):
+        """
+        Récupère les informations de base d'un inventaire.
+        """
+        try:
+            # Appel du service pour récupérer les données
+            data = self.service.get_basic_info(pk)
+            # Formatage via le serializer
+            serializer = InventoryBasicInfoSerializer(data)
+            return success_response(
+                data=serializer.data,
+                message="Informations de base de l'inventaire récupérées avec succès"
+            )
+        except InventoryNotFoundError as e:
+            logger.warning(f"Inventaire non trouvé: {str(e)}")
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des informations de base: {str(e)}", exc_info=True)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la récupération des informations de base",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class InventoryAccountView(APIView):
+    """
+    Vue pour récupérer les informations du compte d'un inventaire.
+    Respecte l'architecture : View -> Service -> Repository
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.service = InventoryDetailService()
+
+    def get(self, request, pk, *args, **kwargs):
+        """
+        Récupère les informations du compte d'un inventaire.
+        """
+        try:
+            # Appel du service pour récupérer les données
+            data = self.service.get_account_info(pk)
+            # Formatage via le serializer
+            serializer = InventoryAccountSerializer(data)
+            return success_response(
+                data=serializer.data,
+                message="Informations du compte récupérées avec succès"
+            )
+        except InventoryNotFoundError as e:
+            logger.warning(f"Inventaire non trouvé: {str(e)}")
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des informations du compte: {str(e)}", exc_info=True)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la récupération des informations du compte",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class InventoryWarehousesDetailView(APIView):
+    """
+    Vue pour récupérer la liste des magasins d'un inventaire.
+    Respecte l'architecture : View -> Service -> Repository
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.service = InventoryDetailService()
+
+    def get(self, request, pk, *args, **kwargs):
+        """
+        Récupère la liste des magasins d'un inventaire.
+        """
+        try:
+            # Appel du service pour récupérer les données
+            magasins = self.service.get_warehouses(pk)
+            # Formatage via le serializer
+            serializer = InventoryWarehousesSerializer({'magasins': magasins})
+            return success_response(
+                data=serializer.data,
+                message="Liste des magasins récupérée avec succès"
+            )
+        except InventoryNotFoundError as e:
+            logger.warning(f"Inventaire non trouvé: {str(e)}")
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des magasins: {str(e)}", exc_info=True)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la récupération des magasins",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class InventoryCountingsView(APIView):
+    """
+    Vue pour récupérer la liste des comptages d'un inventaire.
+    Respecte l'architecture : View -> Service -> Repository
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.service = InventoryDetailService()
+
+    def get(self, request, pk, *args, **kwargs):
+        """
+        Récupère la liste des comptages d'un inventaire.
+        """
+        try:
+            # Appel du service pour récupérer les données
+            comptages = self.service.get_countings(pk)
+            # Formatage via le serializer
+            serializer = InventoryCountingsSerializer({'comptages': comptages})
+            return success_response(
+                data=serializer.data,
+                message="Liste des comptages récupérée avec succès"
+            )
+        except InventoryNotFoundError as e:
+            logger.warning(f"Inventaire non trouvé: {str(e)}")
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des comptages: {str(e)}", exc_info=True)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la récupération des comptages",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class InventoryTeamDetailView(APIView):
+    """
+    Vue pour récupérer l'équipe d'un inventaire.
+    Respecte l'architecture : View -> Service -> Repository
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.service = InventoryDetailService()
+
+    def get(self, request, pk, *args, **kwargs):
+        """
+        Récupère l'équipe d'un inventaire.
+        """
+        try:
+            # Appel du service pour récupérer les données
+            equipe = self.service.get_team(pk)
+            # Formatage via le serializer
+            serializer = InventoryTeamDetailSerializer({'equipe': equipe})
+            return success_response(
+                data=serializer.data,
+                message="Équipe de l'inventaire récupérée avec succès"
+            )
+        except InventoryNotFoundError as e:
+            logger.warning(f"Inventaire non trouvé: {str(e)}")
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération de l'équipe: {str(e)}", exc_info=True)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la récupération de l'équipe",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class InventoryResourcesDetailView(APIView):
+    """
+    Vue pour récupérer les ressources d'un inventaire.
+    Respecte l'architecture : View -> Service -> Repository
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.service = InventoryDetailService()
+
+    def get(self, request, pk, *args, **kwargs):
+        """
+        Récupère les ressources d'un inventaire.
+        """
+        try:
+            # Appel du service pour récupérer les données
+            ressources = self.service.get_resources(pk)
+            # Formatage via le serializer
+            serializer = InventoryResourcesDetailSerializer({'ressources': ressources})
+            return success_response(
+                data=serializer.data,
+                message="Ressources de l'inventaire récupérées avec succès"
+            )
+        except InventoryNotFoundError as e:
+            logger.warning(f"Inventaire non trouvé: {str(e)}")
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des ressources: {str(e)}", exc_info=True)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la récupération des ressources",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 

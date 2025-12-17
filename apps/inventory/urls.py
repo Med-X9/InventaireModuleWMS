@@ -19,6 +19,12 @@ from .views.inventory_views import (
     InventoryImportView,
     StockImportView,
     InventoryOrderingTestView,
+    InventoryBasicInfoView,
+    InventoryAccountView,
+    InventoryWarehousesDetailView,
+    InventoryCountingsView,
+    InventoryTeamDetailView,
+    InventoryResourcesDetailView,
 )
 from .views.monitoring_views import (
     ZoneMonitoringByInventoryAndWarehouseView,
@@ -61,6 +67,14 @@ urlpatterns = [
     path('inventory/<int:pk>/complete/', InventoryCompleteView.as_view(), name='inventory-complete'),
     path('inventory/<int:pk>/close/', InventoryCloseView.as_view(), name='inventory-close'),
     path('inventory/<int:pk>/detail/', InventoryTeamView.as_view(), name='inventory-detail'),
+    
+    # Endpoints séparés pour les détails d'inventaire
+    path('inventory/<int:pk>/basic/', InventoryBasicInfoView.as_view(), name='inventory-basic'),
+    path('inventory/<int:pk>/account/', InventoryAccountView.as_view(), name='inventory-account'),
+    path('inventory/<int:pk>/warehouses/', InventoryWarehousesDetailView.as_view(), name='inventory-warehouses-list'),
+    path('inventory/<int:pk>/countings/', InventoryCountingsView.as_view(), name='inventory-countings'),
+    path('inventory/<int:pk>/team/', InventoryTeamDetailView.as_view(), name='inventory-team-detail'),
+    path('inventory/<int:pk>/resources/', InventoryResourcesDetailView.as_view(), name='inventory-resources-detail'),
     
     # Statistiques et données des inventaires
     path('inventory/<int:inventory_id>/warehouse-stats/', InventoryWarehouseStatsView.as_view(), name='inventory-warehouse-stats'),
