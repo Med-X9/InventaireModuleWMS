@@ -378,12 +378,19 @@ class DataTableProcessor(IDataTableProcessor):
     - Protection contre les injections SQL
     - Gestion des erreurs avec try/catch
     - Logs de sécurité
+    
+    PERFORMANCE:
+    - Cache du count pour la pagination
+    - Logs conditionnels pour éviter les opérations coûteuses
+    - Optimisations de requête intégrées
     """
     
     def __init__(self, 
                  config: IDataTableConfig,
                  filter_handler: IDataTableFilter = None,
-                 serializer_handler: IDataTableSerializer = None):
+                 serializer_handler: IDataTableSerializer = None,
+                 enable_pagination_cache: bool = True,
+                 pagination_cache_timeout: int = 300):
         """
         Initialise le processeur DataTable
         
@@ -391,10 +398,14 @@ class DataTableProcessor(IDataTableProcessor):
             config (IDataTableConfig): Configuration DataTable
             filter_handler (IDataTableFilter, optional): Gestionnaire de filtres
             serializer_handler (IDataTableSerializer, optional): Gestionnaire de sérialisation
+            enable_pagination_cache (bool): Activer le cache pour la pagination
+            pagination_cache_timeout (int): Timeout du cache en secondes (défaut: 300)
         """
         self.config = config
         self.filter_handler = filter_handler or DataTableFilter()
         self.serializer_handler = serializer_handler or DataTableSerializer()
+        self.enable_pagination_cache = enable_pagination_cache
+        self.pagination_cache_timeout = pagination_cache_timeout
     
     def process(self, request: HttpRequest, queryset: QuerySet) -> JsonResponse:
         """
@@ -420,7 +431,8 @@ class DataTableProcessor(IDataTableProcessor):
         try:
             # ÉTAPE 1: Extraction des paramètres DataTable
             params = self._extract_params(request)
-            logger.debug(f"Paramètres extraits: {params}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Paramètres extraits: {params}")
             
             # ÉTAPE 2: Vérifier si le queryset est déjà filtré (pour éviter double filtrage)
             is_pre_filtered = hasattr(queryset, 'queryset')  # PreFilteredQueryset
@@ -428,30 +440,37 @@ class DataTableProcessor(IDataTableProcessor):
             # ÉTAPE 3: Appliquer les filtres personnalisés seulement si pas déjà filtré
             if not is_pre_filtered:
                 queryset = self.filter_handler.apply_filters(request, queryset)
-                logger.debug(f"Filtres appliqués, queryset count: {queryset.count()}")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Filtres appliqués")
             
             # ÉTAPE 4: Recherche globale
             queryset = self._apply_search(request, queryset)
-            logger.debug(f"Recherche appliquée, queryset count: {queryset.count()}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Recherche appliquée")
             
             # ÉTAPE 5: Tri
             queryset = self._apply_ordering(request, queryset)
-            logger.debug(f"Tri appliqué")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Tri appliqué")
             
             # ÉTAPE 6: Pagination
             paginated_data = self._apply_pagination(request, queryset)
-            logger.debug(f"Pagination appliquée: {paginated_data['pagination']}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Pagination appliquée: {paginated_data['pagination']}")
             
             # ÉTAPE 7: Sérialisation
             data = self.serializer_handler.serialize(paginated_data['queryset'])
-            logger.debug(f"Sérialisation terminée, {len(data)} éléments")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Sérialisation terminée, {len(data)} éléments")
             
             # ÉTAPE 8: Détecter le format de réponse attendu
             if self._is_datatable_request(request):
-                logger.debug("Format de réponse: DataTable")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Format de réponse: DataTable")
                 return self._datatable_response(params, paginated_data, data)
             else:
-                logger.debug("Format de réponse: REST API")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Format de réponse: REST API")
                 return self._rest_response(paginated_data, data)
             
         except Exception as e:
@@ -602,7 +621,8 @@ class DataTableProcessor(IDataTableProcessor):
             for field in search_fields:
                 search_filters |= Q(**{f'{field}__icontains': search_value})
             queryset = queryset.filter(search_filters)
-            logger.debug(f"Recherche appliquée: '{search_value}' dans {search_fields}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Recherche appliquée: '{search_value}' dans {search_fields}")
         
         return queryset
     
@@ -632,9 +652,9 @@ class DataTableProcessor(IDataTableProcessor):
         order_column = request.GET.get('order[0][column]')
         order_dir = request.GET.get('order[0][dir]', 'asc')
         
-        logger.debug(f"Tri DataTable - order_column: {order_column}, order_dir: {order_dir}")
-        logger.debug(f"Champs de tri autorisés: {order_fields}")
-        logger.debug(f"Tous les paramètres GET: {dict(request.GET)}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Tri DataTable - order_column: {order_column}, order_dir: {order_dir}")
+            logger.debug(f"Champs de tri autorisés: {order_fields}")
         
         if order_column and order_fields:
             try:
@@ -643,7 +663,8 @@ class DataTableProcessor(IDataTableProcessor):
                     field = order_fields[column_index]
                     if order_dir == 'desc':
                         field = f'-{field}'
-                    logger.debug(f"Application du tri DataTable: {field}")
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(f"Application du tri DataTable: {field}")
                     return queryset.order_by(field)
                 else:
                     logger.warning(f"Index de colonne invalide: {column_index}, max: {len(order_fields)-1}")
@@ -652,30 +673,34 @@ class DataTableProcessor(IDataTableProcessor):
         
         # Gestion du tri REST API (ordering parameter)
         ordering = request.GET.get('ordering')
-        logger.debug(f"Tri REST API - ordering: {ordering}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Tri REST API - ordering: {ordering}")
         
         if ordering and order_fields:
             # Vérifier si le champ de tri est autorisé
             clean_ordering = ordering.lstrip('-')
             if clean_ordering in order_fields:
-                logger.debug(f"Application du tri REST: {ordering}")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Application du tri REST: {ordering}")
                 return queryset.order_by(ordering)
             else:
                 logger.warning(f"Champ de tri non autorisé: {ordering}")
         
         # Tri par défaut si aucun tri spécifié
         default_order = self.config.get_default_order()
-        logger.debug(f"Application du tri par défaut: {default_order}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Application du tri par défaut: {default_order}")
         return queryset.order_by(default_order)
     
     def _apply_pagination(self, request: HttpRequest, queryset: QuerySet) -> Dict[str, Any]:
         """
-        Applique la pagination
+        Applique la pagination avec optimisation du count et cache
         
         Utilise Django Paginator pour une pagination robuste avec :
         - Gestion des limites min/max
         - Calcul automatique du nombre de pages
         - Informations de navigation (next/previous)
+        - Cache du count pour améliorer les performances
         
         Args:
             request (HttpRequest): Requête HTTP avec paramètres de pagination
@@ -684,12 +709,17 @@ class DataTableProcessor(IDataTableProcessor):
         Returns:
             Dict[str, Any]: Données de pagination avec informations complètes
         """
+        from django.core.cache import cache
+        import hashlib
+        
         params = self._extract_params(request)
         start = params['start']
         length = params['length']
         page_size = params['page_size']
         
-        total = queryset.count()
+        # Optimisation : utiliser le cache pour le count si activé
+        total = self._get_total_count_with_cache(request, queryset)
+        
         paginator = Paginator(queryset, length)
         page_number = (start // length) + 1
         page_obj = paginator.get_page(page_number)
@@ -705,6 +735,72 @@ class DataTableProcessor(IDataTableProcessor):
                 'page_size': page_size,  # Ajouter page_size à la réponse
             }
         }
+    
+    def _get_pagination_cache_key(self, request: HttpRequest, queryset: QuerySet) -> str:
+        """
+        Génère une clé de cache unique pour la pagination
+        
+        Args:
+            request: Requête HTTP
+            queryset: QuerySet à paginer
+            
+        Returns:
+            Clé de cache unique
+        """
+        import hashlib
+        
+        # Créer un hash basé sur les paramètres de requête et le queryset
+        query_params = dict(request.GET.items())
+        # Exclure les paramètres de pagination qui changent
+        query_params.pop('start', None)
+        query_params.pop('length', None)
+        query_params.pop('page', None)
+        query_params.pop('page_size', None)
+        query_params.pop('draw', None)  # Paramètre DataTable qui change à chaque requête
+        
+        query_str = str(sorted(query_params.items()))
+        queryset_str = str(queryset.query)
+        
+        cache_data = f"{query_str}_{queryset_str}"
+        cache_hash = hashlib.md5(cache_data.encode()).hexdigest()
+        
+        return f"datatable_count_{cache_hash}"
+    
+    def _get_total_count_with_cache(self, request: HttpRequest, queryset: QuerySet) -> int:
+        """
+        Récupère le count total avec cache si activé
+        
+        Args:
+            request: Requête HTTP
+            queryset: QuerySet à compter
+            
+        Returns:
+            Nombre total d'éléments
+        """
+        from django.core.cache import cache
+        
+        if not self.enable_pagination_cache:
+            return queryset.count()
+        
+        cache_key = self._get_pagination_cache_key(request, queryset)
+        
+        # Essayer de récupérer depuis le cache
+        cached_count = cache.get(cache_key)
+        if cached_count is not None:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Count récupéré depuis le cache: {cached_count}")
+            return cached_count
+        
+        # Calculer le count
+        count = queryset.count()
+        
+        # Mettre en cache
+        cache.set(cache_key, count, self.pagination_cache_timeout)
+        
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Count calculé et mis en cache: {count} (timeout: {self.pagination_cache_timeout}s)")
+        
+        return count
     
     def _error_response(self, error_message: str) -> JsonResponse:
         """

@@ -211,7 +211,8 @@ class ExcelExporter(IDataTableExporter):
                  sheet_name: str = 'Data',
                  header_style: bool = True,
                  auto_width: bool = True,
-                 flatten_nested: bool = True):
+                 flatten_nested: bool = True,
+                 batch_size: int = 1000):
         """
         Initialise l'exporter Excel
         
@@ -220,6 +221,7 @@ class ExcelExporter(IDataTableExporter):
             header_style: Appliquer un style aux en-têtes
             auto_width: Ajuster automatiquement la largeur des colonnes
             flatten_nested: Aplatir les objets imbriqués en colonnes séparées
+            batch_size: Taille du batch pour le traitement (défaut: 1000)
         """
         if not OPENPYXL_AVAILABLE:
             raise ImportError(
@@ -231,6 +233,7 @@ class ExcelExporter(IDataTableExporter):
         self.header_style = header_style
         self.auto_width = auto_width
         self.flatten_nested = flatten_nested
+        self.batch_size = batch_size
     
     def export(self, queryset: QuerySet, serializer_class: Optional[type] = None, 
                filename: str = 'export') -> HttpResponse:
@@ -248,87 +251,103 @@ class ExcelExporter(IDataTableExporter):
         Version améliorée avec gestion d'erreurs robuste
         """
         try:
-            logger.info(f"Début export Excel: {filename}.xlsx - {queryset.count()} items")
+            # Ne pas compter si c'est un grand queryset (optimisation)
+            total_count = None
+            if logger.isEnabledFor(logging.INFO):
+                try:
+                    total_count = queryset.count()
+                    logger.info(f"Début export Excel: {filename}.xlsx - {total_count} items")
+                except:
+                    logger.info(f"Début export Excel: {filename}.xlsx")
             
             # Créer le workbook
             wb = Workbook()
             ws = wb.active
             ws.title = self.sheet_name
             
-            # Sérialiser les données avec gestion d'erreurs
-            try:
-                if serializer_class:
-                    logger.debug(f"Sérialisation avec {serializer_class.__name__}")
-                    serializer = serializer_class(queryset, many=True)
-                    data = serializer.data
-                    # Convertir OrderedDict en dict Python standard
-                    data = [dict(item) for item in data]
-                else:
-                    logger.debug("Sérialisation avec values()")
-                    data = list(queryset.values())
-            except Exception as e:
-                logger.error(f"Erreur sérialisation: {str(e)}", exc_info=True)
-                # Fallback: utiliser values() simple
-                data = list(queryset.values())
+            # Déterminer les headers en traitant le premier élément
+            headers = None
+            first_batch_processed = False
+            rows_written = 0
             
-            if not data:
-                logger.warning("Aucune donnée à exporter")
-                # Créer un fichier vide avec message
-                ws.append(["Aucune donnée à exporter"])
-            else:
-                # Aplatir les objets imbriqués si activé
-                if self.flatten_nested:
-                    try:
-                        logger.debug(f"Aplatissement de {len(data)} lignes...")
-                        data = flatten_nested_objects(data)
-                        logger.info(f"Objets imbriqués aplatis: {len(data)} lignes traitées")
-                    except Exception as e:
-                        logger.error(f"Erreur aplatissement: {str(e)}", exc_info=True)
-                        # Continuer sans aplatissement
-                        pass
+            # Traiter par batch avec iterator() pour éviter de charger tout en mémoire
+            try:
+                # Utiliser iterator() pour traiter par batch
+                queryset_iterator = queryset.iterator(chunk_size=self.batch_size)
                 
-                # Extraire les en-têtes
-                try:
-                    headers = list(data[0].keys())
-                    # Nettoyer les noms de colonnes
-                    headers = [str(h).replace('\x00', '').replace('\r', '').replace('\n', ' ')[:255] for h in headers]
-                except Exception as e:
-                    logger.error(f"Erreur extraction en-têtes: {str(e)}")
-                    headers = ['data']
-                
-                # Écrire les en-têtes
-                try:
-                    ws.append(headers)
+                for obj in queryset_iterator:
+                    # Sérialiser l'objet individuellement
+                    if serializer_class:
+                        serializer = serializer_class(obj)
+                        row_data = dict(serializer.data)
+                    else:
+                        # Utiliser model_to_dict ou values() pour un objet
+                        from django.forms.models import model_to_dict
+                        try:
+                            row_data = model_to_dict(obj)
+                        except:
+                            # Fallback: utiliser les attributs du modèle
+                            row_data = {f.name: getattr(obj, f.name) for f in obj._meta.fields}
                     
-                    # Appliquer le style aux en-têtes
-                    if self.header_style:
-                        self._apply_header_style(ws, len(headers))
-                except Exception as e:
-                    logger.error(f"Erreur écriture en-têtes: {str(e)}")
-                
-                # Écrire les données ligne par ligne avec gestion d'erreurs
-                rows_written = 0
-                for row_index, row_data in enumerate(data):
+                    # Aplatir les objets imbriqués si activé
+                    if self.flatten_nested:
+                        row_data = self._flatten_single_object(row_data)
+                    
+                    # Déterminer les headers depuis le premier objet
+                    if headers is None:
+                        headers = list(row_data.keys())
+                        # Nettoyer les noms de colonnes
+                        headers = [str(h).replace('\x00', '').replace('\r', '').replace('\n', ' ')[:255] for h in headers]
+                        
+                        # Écrire les en-têtes
+                        try:
+                            ws.append(headers)
+                            if self.header_style:
+                                self._apply_header_style(ws, len(headers))
+                        except Exception as e:
+                            logger.error(f"Erreur écriture en-têtes: {str(e)}")
+                            headers = ['data']
+                    
+                    # Écrire la ligne
                     try:
                         row = [self._format_value(row_data.get(header)) for header in headers]
                         ws.append(row)
                         rows_written += 1
                     except Exception as e:
-                        logger.warning(f"Erreur écriture ligne {row_index}: {str(e)}")
-                        # Écrire une ligne avec des valeurs par défaut
+                        logger.warning(f"Erreur écriture ligne {rows_written}: {str(e)}")
                         try:
                             ws.append(["Erreur"] * len(headers))
                         except:
                             pass
+                    
+                    # Log progress pour grandes exports
+                    if rows_written % 10000 == 0:
+                        logger.info(f"Export progress: {rows_written} rows écrites")
+                    
+                    first_batch_processed = True
                 
-                logger.info(f"{rows_written}/{len(data)} lignes écrites")
+                if not first_batch_processed:
+                    logger.warning("Aucune donnée à exporter")
+                    if headers is None:
+                        headers = ['data']
+                    ws.append(["Aucune donnée à exporter"])
                 
-                # Ajuster la largeur des colonnes
-                if self.auto_width:
+                logger.info(f"{rows_written} lignes écrites")
+                
+                # Ajuster la largeur des colonnes (échantillonner pour performance)
+                if self.auto_width and headers:
                     try:
-                        self._auto_size_columns(ws, headers, data)
+                        # Échantillonner seulement les 100 premières lignes pour l'auto-width
+                        self._auto_size_columns_sampled(ws, headers, rows_written)
                     except Exception as e:
                         logger.warning(f"Erreur auto-width: {str(e)}")
+                        
+            except Exception as e:
+                logger.error(f"Erreur traitement batch: {str(e)}", exc_info=True)
+                # Fallback: méthode ancienne si iterator() échoue
+                if headers is None:
+                    headers = ['data']
+                ws.append(["Erreur lors de l'export"])
             
             # Créer la réponse HTTP
             response = HttpResponse(
@@ -376,20 +395,77 @@ class ExcelExporter(IDataTableExporter):
             cell.fill = header_fill
             cell.alignment = header_alignment
     
-    def _auto_size_columns(self, ws, headers: List[str], data: List[Dict]):
-        """Ajuste automatiquement la largeur des colonnes"""
+    def _auto_size_columns_sampled(self, ws, headers: List[str], total_rows: int):
+        """Ajuste automatiquement la largeur des colonnes (version optimisée)"""
         for idx, header in enumerate(headers, 1):
             # Largeur basée sur le header
             max_length = len(str(header))
             
-            # Vérifier les 100 premières lignes pour optimiser
-            for row_data in data[:100]:
-                value = str(row_data.get(header, ''))
-                max_length = max(max_length, len(value))
-            
             # Limiter la largeur max à 50 caractères
             adjusted_width = min(max_length + 2, 50)
             ws.column_dimensions[ws.cell(row=1, column=idx).column_letter].width = adjusted_width
+    
+    def _flatten_single_object(self, obj_data: Dict) -> Dict:
+        """
+        Aplatit un seul objet (version optimisée pour le batch processing)
+        
+        Args:
+            obj_data: Dictionnaire d'un objet à aplatir
+            
+        Returns:
+            Dictionnaire aplati
+        """
+        flattened = {}
+        
+        for key, value in obj_data.items():
+            try:
+                if isinstance(value, dict):
+                    # Aplatir le dictionnaire
+                    for nested_key, nested_value in value.items():
+                        new_key = f"{key}_{nested_key}"
+                        new_key = new_key.replace(' ', '_').replace('/', '_').replace('\\', '_')
+                        flattened[new_key] = nested_value
+                elif isinstance(value, list):
+                    # Traiter les listes
+                    if len(value) > 0 and isinstance(value[0], dict):
+                        # Liste de dictionnaires - aplatir seulement le premier
+                        for nested_key, nested_value in value[0].items():
+                            new_key = f"{key}_0_{nested_key}"
+                            new_key = new_key.replace(' ', '_').replace('/', '_').replace('\\', '_')
+                            flattened[new_key] = nested_value
+                    else:
+                        # Liste simple
+                        if len(value) <= 5:
+                            flattened[key] = ", ".join(str(v) for v in value if v is not None)
+                        else:
+                            flattened[key] = f"{len(value)} éléments"
+                elif _is_json_string(value):
+                    # Traiter les strings JSON
+                    try:
+                        import json
+                        json_data = json.loads(value)
+                        if isinstance(json_data, dict):
+                            for json_key, json_value in json_data.items():
+                                new_key = f"{key}_{json_key}"
+                                new_key = new_key.replace(' ', '_').replace('/', '_').replace('\\', '_')
+                                flattened[new_key] = json_value
+                        elif isinstance(json_data, list):
+                            if len(json_data) <= 5:
+                                flattened[key] = ", ".join(str(v) for v in json_data)
+                            else:
+                                flattened[key] = f"{len(json_data)} éléments"
+                        else:
+                            flattened[key] = value
+                    except (json.JSONDecodeError, TypeError):
+                        flattened[key] = value
+                else:
+                    # Valeur simple
+                    flattened[key] = value
+            except Exception as e:
+                logger.warning(f"Erreur aplatissement {key}: {str(e)}")
+                flattened[key] = str(value)[:100] if value is not None else ""
+        
+        return flattened
     
     def _format_value(self, value: Any) -> Any:
         """
@@ -457,7 +533,8 @@ class CSVExporter(IDataTableExporter):
     def __init__(self, 
                  delimiter: str = ',',
                  encoding: str = 'utf-8-sig',  # utf-8-sig pour Excel
-                 flatten_nested: bool = True):
+                 flatten_nested: bool = True,
+                 batch_size: int = 1000):
         """
         Initialise l'exporter CSV
         
@@ -465,10 +542,12 @@ class CSVExporter(IDataTableExporter):
             delimiter: Délimiteur CSV (virgule par défaut)
             encoding: Encodage du fichier (utf-8-sig pour Excel)
             flatten_nested: Aplatir les objets imbriqués en colonnes séparées
+            batch_size: Taille du batch pour le traitement (défaut: 1000)
         """
         self.delimiter = delimiter
         self.encoding = encoding
         self.flatten_nested = flatten_nested
+        self.batch_size = batch_size
     
     def export(self, queryset: QuerySet, serializer_class: Optional[type] = None, 
                filename: str = 'export') -> HttpResponse:
@@ -486,85 +565,95 @@ class CSVExporter(IDataTableExporter):
         Version améliorée avec gestion d'erreurs robuste
         """
         try:
-            logger.info(f"Début export CSV: {filename}.csv - {queryset.count()} items")
-            
-            # Sérialiser les données avec gestion d'erreurs
-            try:
-                if serializer_class:
-                    logger.debug(f"Sérialisation avec {serializer_class.__name__}")
-                    serializer = serializer_class(queryset, many=True)
-                    data = serializer.data
-                    # Convertir OrderedDict en dict Python standard
-                    data = [dict(item) for item in data]
-                else:
-                    logger.debug("Sérialisation avec values()")
-                    data = list(queryset.values())
-            except Exception as e:
-                logger.error(f"Erreur sérialisation: {str(e)}", exc_info=True)
-                # Fallback: utiliser values() simple
-                data = list(queryset.values())
-            
-            # Aplatir les objets imbriqués si activé
-            if self.flatten_nested:
+            # Ne pas compter si c'est un grand queryset (optimisation)
+            if logger.isEnabledFor(logging.INFO):
                 try:
-                    logger.debug(f"Aplatissement de {len(data)} lignes...")
-                    data = flatten_nested_objects(data)
-                    logger.info(f"Objets imbriqués aplatis: {len(data)} lignes traitées")
-                except Exception as e:
-                    logger.error(f"Erreur aplatissement: {str(e)}", exc_info=True)
-                    # Continuer sans aplatissement
-                    pass
+                    total_count = queryset.count()
+                    logger.info(f"Début export CSV: {filename}.csv - {total_count} items")
+                except:
+                    logger.info(f"Début export CSV: {filename}.csv")
             
-            # Créer la réponse HTTP
+            # Créer la réponse HTTP (streaming)
             response = HttpResponse(content_type='text/csv; charset=utf-8')
             response['Content-Disposition'] = f'attachment; filename="{filename}.csv"'
             
-            if not data:
-                logger.warning("Aucune donnée à exporter")
-                writer = csv.writer(response, delimiter=self.delimiter)
-                writer.writerow(["Aucune donnée à exporter"])
-            else:
-                try:
-                    # Extraire les en-têtes
-                    headers = list(data[0].keys())
-                    # Nettoyer les noms de colonnes
-                    headers = [str(h).replace('\x00', '').replace('\r', '').replace('\n', ' ')[:255] for h in headers]
-                    
-                    # Créer le writer CSV
-                    writer = csv.DictWriter(response, fieldnames=headers, delimiter=self.delimiter, 
-                                          extrasaction='ignore')  # Ignore les clés supplémentaires
-                    
-                    # Écrire les en-têtes
-                    writer.writeheader()
-                    
-                    # Écrire les données ligne par ligne
-                    rows_written = 0
-                    for row_index, row_data in enumerate(data):
+            # Déterminer les headers en traitant le premier élément
+            headers = None
+            first_batch_processed = False
+            rows_written = 0
+            
+            # Traiter par batch avec iterator() pour éviter de charger tout en mémoire
+            try:
+                queryset_iterator = queryset.iterator(chunk_size=self.batch_size)
+                
+                for obj in queryset_iterator:
+                    # Sérialiser l'objet individuellement
+                    if serializer_class:
+                        serializer = serializer_class(obj)
+                        row_data = dict(serializer.data)
+                    else:
+                        # Utiliser model_to_dict ou values() pour un objet
+                        from django.forms.models import model_to_dict
                         try:
-                            # Formater les valeurs
-                            formatted_row = {
-                                key: self._format_value(value) 
-                                for key, value in row_data.items()
-                                if key in headers  # Seulement les colonnes valides
-                            }
-                            writer.writerow(formatted_row)
-                            rows_written += 1
-                        except Exception as e:
-                            logger.warning(f"Erreur écriture ligne CSV {row_index}: {str(e)}")
-                            # Écrire une ligne avec des valeurs par défaut
-                            try:
-                                writer.writerow({h: "Erreur" for h in headers})
-                            except:
-                                pass
+                            row_data = model_to_dict(obj)
+                        except:
+                            # Fallback: utiliser les attributs du modèle
+                            row_data = {f.name: getattr(obj, f.name) for f in obj._meta.fields}
                     
-                    logger.info(f"{rows_written}/{len(data)} lignes CSV écrites")
+                    # Aplatir les objets imbriqués si activé
+                    if self.flatten_nested:
+                        # Utiliser la méthode d'aplatissement optimisée
+                        row_data = self._flatten_single_object(row_data)
                     
-                except Exception as e:
-                    logger.error(f"Erreur structure CSV: {str(e)}", exc_info=True)
-                    # Écrire au moins un message
+                    # Déterminer les headers depuis le premier objet
+                    if headers is None:
+                        headers = list(row_data.keys())
+                        # Nettoyer les noms de colonnes
+                        headers = [str(h).replace('\x00', '').replace('\r', '').replace('\n', ' ')[:255] for h in headers]
+                        
+                        # Créer le writer CSV
+                        writer = csv.DictWriter(response, fieldnames=headers, delimiter=self.delimiter, 
+                                              extrasaction='ignore')
+                        writer.writeheader()
+                    
+                    # Écrire la ligne
+                    try:
+                        formatted_row = {
+                            key: self._format_value(value) 
+                            for key, value in row_data.items()
+                            if key in headers
+                        }
+                        writer.writerow(formatted_row)
+                        rows_written += 1
+                    except Exception as e:
+                        logger.warning(f"Erreur écriture ligne CSV {rows_written}: {str(e)}")
+                        try:
+                            writer.writerow({h: "Erreur" for h in headers})
+                        except:
+                            pass
+                    
+                    # Log progress pour grandes exports
+                    if rows_written % 10000 == 0:
+                        logger.info(f"Export CSV progress: {rows_written} rows écrites")
+                    
+                    first_batch_processed = True
+                
+                if not first_batch_processed:
+                    logger.warning("Aucune donnée à exporter")
+                    writer = csv.writer(response, delimiter=self.delimiter)
+                    writer.writerow(["Aucune donnée à exporter"])
+                
+                logger.info(f"{rows_written} lignes CSV écrites")
+                    
+            except Exception as e:
+                logger.error(f"Erreur structure CSV: {str(e)}", exc_info=True)
+                # Écrire au moins un message
+                try:
                     writer = csv.writer(response, delimiter=self.delimiter)
                     writer.writerow(["Erreur lors de la génération du CSV"])
                     writer.writerow([str(e)])
+                except:
+                    pass
             
             logger.info(f"Export CSV réussi: {filename}.csv")
             return response
@@ -599,6 +688,68 @@ class CSVExporter(IDataTableExporter):
             return str(value)
         else:
             return str(value)
+    
+    def _flatten_single_object(self, obj_data: Dict) -> Dict:
+        """
+        Aplatit un seul objet (version optimisée pour le batch processing)
+        
+        Args:
+            obj_data: Dictionnaire d'un objet à aplatir
+            
+        Returns:
+            Dictionnaire aplati
+        """
+        flattened = {}
+        
+        for key, value in obj_data.items():
+            try:
+                if isinstance(value, dict):
+                    # Aplatir le dictionnaire
+                    for nested_key, nested_value in value.items():
+                        new_key = f"{key}_{nested_key}"
+                        new_key = new_key.replace(' ', '_').replace('/', '_').replace('\\', '_')
+                        flattened[new_key] = nested_value
+                elif isinstance(value, list):
+                    # Traiter les listes
+                    if len(value) > 0 and isinstance(value[0], dict):
+                        # Liste de dictionnaires - aplatir seulement le premier
+                        for nested_key, nested_value in value[0].items():
+                            new_key = f"{key}_0_{nested_key}"
+                            new_key = new_key.replace(' ', '_').replace('/', '_').replace('\\', '_')
+                            flattened[new_key] = nested_value
+                    else:
+                        # Liste simple
+                        if len(value) <= 5:
+                            flattened[key] = ", ".join(str(v) for v in value if v is not None)
+                        else:
+                            flattened[key] = f"{len(value)} éléments"
+                elif _is_json_string(value):
+                    # Traiter les strings JSON
+                    try:
+                        import json
+                        json_data = json.loads(value)
+                        if isinstance(json_data, dict):
+                            for json_key, json_value in json_data.items():
+                                new_key = f"{key}_{json_key}"
+                                new_key = new_key.replace(' ', '_').replace('/', '_').replace('\\', '_')
+                                flattened[new_key] = json_value
+                        elif isinstance(json_data, list):
+                            if len(json_data) <= 5:
+                                flattened[key] = ", ".join(str(v) for v in json_data)
+                            else:
+                                flattened[key] = f"{len(json_data)} éléments"
+                        else:
+                            flattened[key] = value
+                    except (json.JSONDecodeError, TypeError):
+                        flattened[key] = value
+                else:
+                    # Valeur simple
+                    flattened[key] = value
+            except Exception as e:
+                logger.warning(f"Erreur aplatissement {key}: {str(e)}")
+                flattened[key] = str(value)[:100] if value is not None else ""
+        
+        return flattened
 
 
 # =============================================================================
@@ -619,12 +770,12 @@ class ExportManager:
         """Initialise le gestionnaire avec les exporters par défaut"""
         self._exporters: Dict[str, IDataTableExporter] = {}
         
-        # Enregistrer les exporters par défaut avec aplatissement activé
+        # Enregistrer les exporters par défaut avec aplatissement activé et batch processing
         if OPENPYXL_AVAILABLE:
-            self.register_exporter('excel', ExcelExporter(flatten_nested=True))
-            self.register_exporter('xlsx', ExcelExporter(flatten_nested=True))
+            self.register_exporter('excel', ExcelExporter(flatten_nested=True, batch_size=1000))
+            self.register_exporter('xlsx', ExcelExporter(flatten_nested=True, batch_size=1000))
         
-        self.register_exporter('csv', CSVExporter(flatten_nested=True))
+        self.register_exporter('csv', CSVExporter(flatten_nested=True, batch_size=1000))
     
     def register_exporter(self, format_name: str, exporter: IDataTableExporter):
         """

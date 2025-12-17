@@ -12,7 +12,7 @@ urlpatterns = [
         "auth/refresh/", views.RefreshTokenView.as_view(), name="mobile_refresh_token"
     ),
     # Synchronisation unifiée - Bonne pratique
-    path(
+    path(  
         "sync/data/",
         views.SyncDataView.as_view(),
         name="mobile_sync_data",
