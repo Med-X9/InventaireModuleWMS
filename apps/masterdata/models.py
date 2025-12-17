@@ -501,3 +501,36 @@ class ImportError(TimeStampedModel):
     
     def __str__(self):
         return f"Ligne {self.row_number}: {self.error_message}"
+
+
+class InventoryLocationJob(TimeStampedModel):
+    """
+    Modèle pour lier un inventaire, un emplacement, un job et des sessions
+    """
+    inventaire = models.ForeignKey(
+        'inventory.Inventory',
+        on_delete=models.CASCADE,
+        verbose_name=_('Inventaire'),
+        related_name='location_jobs'
+    )
+    emplacement = models.ForeignKey(
+        Location,
+        on_delete=models.CASCADE,
+        verbose_name=_('Emplacement'),
+        related_name='inventory_jobs'
+    )
+    job = models.CharField(_('Job'), max_length=255, blank=True, null=True)
+    session_1 = models.CharField(_('Session 1'), max_length=255, blank=True, null=True)
+    session_2 = models.CharField(_('Session 2'), max_length=255, blank=True, null=True)
+    history = HistoricalRecords()
+    
+    class Meta:
+        verbose_name = _('Job d\'inventaire par emplacement')
+        verbose_name_plural = _('Jobs d\'inventaire par emplacement')
+        indexes = [
+            models.Index(fields=['inventaire', 'emplacement']),
+            models.Index(fields=['job']),
+        ]
+    
+    def __str__(self):
+        return f"{self.inventaire} - {self.emplacement} - {self.job}"

@@ -23,4 +23,8 @@ class LocationError(Exception):
 
 class UserNotFoundError(Exception):
     """Exception levée quand un utilisateur n'est pas trouvé"""
+    pass
+
+class InventoryLocationJobValidationError(Exception):
+    """Exception levée lors d'une erreur de validation pour InventoryLocationJob"""
     pass 
