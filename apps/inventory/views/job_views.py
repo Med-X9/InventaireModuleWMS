@@ -28,13 +28,15 @@ from ..serializers.job_serializer import (
     JobProgressByCountingSerializer,
     JobWithAssignmentsSerializer,
     AssignmentFlatSerializer,
-    JobDetailSimpleSerializer
+    JobDetailSimpleSerializer,
+    JobCancelRequestSerializer
 )
 from ..serializers.job_assignment_batch_serializer import JobBatchAssignmentRequestSerializer
 from ..usecases.job_batch_assignment import JobBatchAssignmentUseCase
 from ..exceptions import JobCreationError
 import logging
 from datetime import datetime
+from django.utils import timezone
 from ..models import Job, Warehouse, Assigment, JobDetail
 from rest_framework.generics import ListAPIView
 from django_filters.rest_framework import DjangoFilterBackend
@@ -868,7 +870,83 @@ class JobManualEntryView(APIView):
             return error_response(
                 message="Une erreur inattendue s'est produite lors de la mise en saisie manuelle",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-            ) 
+            )
+
+
+class JobCancelView(APIView):
+    """
+    Vue pour annuler des jobs avec leurs jobdetails et assignments.
+    
+    Règles métier :
+    - Seuls les jobs avec les statuts suivants peuvent être annulés : EN ATTENTE, VALIDE, AFFECTE, PRET
+    - Si un job n'est pas dans un de ces statuts, il sera exclu avec un message d'erreur
+    - Met le job au statut ANNULE avec annule_date
+    - Met tous les JobDetails associés au statut ANNULE avec annule_date
+    - Met tous les Assigments associés au statut ANNULE avec annule_date
+    """
+    
+    def post(self, request):
+        """
+        Annule des jobs avec leurs jobdetails et assignments.
+        
+        Body attendu:
+        {
+            "job_ids": [1, 2, 3]
+        }
+        """
+        serializer = JobCancelRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            error_messages = []
+            for field, errors in serializer.errors.items():
+                if isinstance(errors, list):
+                    error_messages.append(f"{field}: {', '.join(str(e) for e in errors)}")
+                else:
+                    error_messages.append(f"{field}: {str(errors)}")
+            
+            return Response({
+                'success': False,
+                'message': 'Erreur de validation',
+                'errors': ' | '.join(error_messages)
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        job_ids = serializer.validated_data['job_ids']
+        
+        try:
+            # Utiliser le use case pour la logique métier
+            from ..usecases.job_cancel import JobCancelUseCase
+            use_case = JobCancelUseCase()
+            result = use_case.execute(job_ids)
+            
+            # Construire le message de retour
+            message = (
+                f"{result['total_jobs_cancelled']} job(s), "
+                f"{result['jobdetails_cancelled']} jobdetail(s) et "
+                f"{result['assignments_cancelled']} assignment(s) annulé(s) avec succès"
+            )
+            
+            # Si des warnings existent, modifier le message
+            if 'validation_warnings' in result:
+                message = (
+                    f"{result['total_jobs_cancelled']} job(s) annulé(s) avec succès. "
+                    f"Certains jobs n'ont pas pu être annulés."
+                )
+            
+            return success_response(
+                data=result,
+                message=message
+            )
+                
+        except JobCreationError as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Erreur inattendue lors de l'annulation des jobs : {str(e)}", exc_info=True)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de l'annulation des jobs",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class JobBatchAssignmentView(APIView):

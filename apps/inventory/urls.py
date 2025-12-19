@@ -33,7 +33,7 @@ from .views.monitoring_views import (
 from apps.inventory.views import InventoryWarehousesView, AccountWarehousesView
 
 
-from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView, JobBatchAssignmentView, JobTransferView, JobManualEntryView, JobProgressByCountingView, InventoryProgressByCountingView, JobsWithAssignmentsByWarehouseAndCountingView, JobDetailsByJobAndCountingView
+from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView, JobBatchAssignmentView, JobTransferView, JobManualEntryView, JobCancelView, JobProgressByCountingView, InventoryProgressByCountingView, JobsWithAssignmentsByWarehouseAndCountingView, JobDetailsByJobAndCountingView
 from .views.inventory_location_job_import_views import InventoryLocationJobImportView, InventoryLocationJobImportSyncView, InventoryLocationJobImportStatusView
 from .views.job_discrepancy_views import JobDiscrepancyView
 from .views.job_unresolved_discrepancy_views import (
@@ -103,6 +103,7 @@ urlpatterns = [
     path('jobs/validate/', JobValidateView.as_view(), name='jobs-validate'),
     path('jobs/delete/', JobDeleteView.as_view(), name='job-delete'),
     path('jobs/ready/', JobReadyView.as_view(), name='jobs-ready'),
+    path('jobs/cancel/', JobCancelView.as_view(), name='jobs-cancel'),
     path('jobs/reset-assignments/', JobResetAssignmentsView.as_view(), name='job-reset-assignments'),
     path('jobs/launch-counting/', CountingLaunchView.as_view(), name='job-launch-counting'),
     

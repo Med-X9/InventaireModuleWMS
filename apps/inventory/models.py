@@ -152,11 +152,14 @@ class Job(TimeStampedModel):
         ('VALIDE', 'VALIDE'),
         ('TERMINE', 'TERMINE'),
         ('SAISIE MANUELLE', 'SAISIE MANUELLE'),
+        ('ANNULE', 'ANNULE'),
     )
 
     
     reference = models.CharField(max_length=20,null=False)
     status = models.CharField(max_length=30, choices=STATUS_CHOICES)
+    termine_manuelle = models.BooleanField(default=False)
+    termine_manuelle_date = models.DateTimeField(null=True, blank=True)
     en_attente_date = models.DateTimeField(null=True, blank=True)
     affecte_date = models.DateTimeField(null=True, blank=True)
     pret_date = models.DateTimeField(null=True, blank=True)
@@ -165,6 +168,7 @@ class Job(TimeStampedModel):
     valide_date = models.DateTimeField(null=True, blank=True)
     termine_date = models.DateTimeField(null=True, blank=True)
     saisie_manuelle_date = models.DateTimeField(null=True, blank=True)
+    annule_date = models.DateTimeField(null=True, blank=True)
     warehouse = models.ForeignKey('masterdata.Warehouse', on_delete=models.CASCADE)
     inventory = models.ForeignKey(Inventory, on_delete=models.CASCADE)
     history = HistoricalRecords()
@@ -236,15 +240,19 @@ class JobDetail(TimeStampedModel, ReferenceMixin):
     STATUS_CHOICES = (
         ('EN ATTENTE', 'EN ATTENTE'),
         ('TERMINE', 'TERMINE'),
+        ('ANNULE', 'ANNULE'),
     )
     REFERENCE_PREFIX = 'JBD' 
     reference = models.CharField(unique=True, max_length=20, null=False)
     location = models.ForeignKey('masterdata.Location', on_delete=models.CASCADE)
     job = models.ForeignKey('Job', on_delete=models.CASCADE)  
     counting = models.ForeignKey('Counting', on_delete=models.CASCADE, null=True, blank=True)
-    status = models.CharField(max_length=50, choices=STATUS_CHOICES, default='EN ATTENTE') 
+    status = models.CharField(max_length=50, choices=STATUS_CHOICES, default='EN ATTENTE')
+    termine_manuelle = models.BooleanField(default=False)
+    termine_manuelle_date = models.DateTimeField(null=True, blank=True)
     en_attente_date = models.DateTimeField(null=True, blank=True)
     termine_date = models.DateTimeField(null=True, blank=True)
+    annule_date = models.DateTimeField(null=True, blank=True)
     history = HistoricalRecords()
 
     def __str__(self):
@@ -261,14 +269,18 @@ class Assigment(TimeStampedModel, ReferenceMixin):
         ('TRANSFERT', 'TRANSFERT'), 
         ('ENTAME', 'ENTAME'),
         ('TERMINE', 'TERMINE'),
+        ('ANNULE', 'ANNULE'),
     )
     REFERENCE_PREFIX = 'ASS'
     reference = models.CharField(unique=True, max_length=20, null=False)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES)
+    termine_manuelle = models.BooleanField(default=False)
+    termine_manuelle_date = models.DateTimeField(null=True, blank=True)
     transfert_date = models.DateTimeField(null=True, blank=True)
     entame_date = models.DateTimeField(null=True, blank=True)
     affecte_date = models.DateTimeField(null=True, blank=True)
     pret_date = models.DateTimeField(null=True, blank=True)
+    annule_date = models.DateTimeField(null=True, blank=True)
     job = models.ForeignKey('Job', on_delete=models.CASCADE)
     date_start = models.DateTimeField(null=True, blank=True)
     termine_date = models.DateTimeField(null=True, blank=True)

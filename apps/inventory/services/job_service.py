@@ -1352,4 +1352,95 @@ class JobService(JobServiceInterface):
         return self.repository.get_assignments_by_warehouse_and_counting_queryset(
             warehouse_id=warehouse_id,
             counting_order=counting_order
-        ) 
+        )
+    
+    @transaction.atomic
+    def cancel_jobs(self, job_ids: List[int]) -> Dict[str, Any]:
+        """
+        Annule des jobs avec leurs jobdetails et assignments.
+        
+        Règles métier :
+        - Seuls les jobs avec les statuts suivants peuvent être annulés : EN ATTENTE, VALIDE, AFFECTE, PRET
+        - Met le job au statut ANNULE avec annule_date
+        - Met tous les JobDetails associés au statut ANNULE avec annule_date
+        - Met tous les Assigments associés au statut ANNULE avec annule_date
+        
+        Args:
+            job_ids: Liste des IDs des jobs à annuler
+            
+        Returns:
+            Dict[str, Any]: Résultat du traitement avec les statistiques
+            
+        Raises:
+            JobCreationError: Si une erreur survient
+        """
+        # Statuts autorisés pour l'annulation
+        allowed_statuses = ['EN ATTENTE', 'VALIDE', 'AFFECTE', 'PRET']
+        
+        # Vérifier que tous les jobs existent
+        jobs = Job.objects.filter(id__in=job_ids)
+        found_job_ids = set(job.id for job in jobs)
+        requested_job_ids = set(job_ids)
+        
+        # Identifier les jobs qui n'existent pas
+        missing_job_ids = requested_job_ids - found_job_ids
+        if missing_job_ids:
+            missing_jobs_str = ', '.join(map(str, sorted(missing_job_ids)))
+            raise JobCreationError(f"Jobs non trouvés avec les IDs : {missing_jobs_str}")
+        
+        jobs_to_cancel = []
+        validation_errors = []
+        
+        # Première étape : vérifier que tous les jobs peuvent être annulés
+        for job in jobs:
+            if job.status not in allowed_statuses:
+                validation_errors.append(
+                    f"Job {job.reference} (ID: {job.id}) ne peut pas être annulé. "
+                    f"Statut actuel : {job.status} (statuts autorisés : {', '.join(allowed_statuses)})"
+                )
+            else:
+                jobs_to_cancel.append(job)
+        
+        # Si tous les jobs sont interdits, retourner une erreur
+        if validation_errors and not jobs_to_cancel:
+            error_message = "Aucun job ne peut être annulé. Vérifications échouées."
+            raise JobCreationError(f"{error_message}\nErreurs:\n" + "\n".join(validation_errors))
+        
+        # Deuxième étape : annuler les jobs valides
+        now = timezone.now()
+        jobs_cancelled = []
+        jobdetails_cancelled = 0
+        assignments_cancelled = 0
+        
+        for job in jobs_to_cancel:
+            # Annuler le job
+            self.repository.update_job_status(job, 'ANNULE', annule_date=now)
+            jobs_cancelled.append({
+                'id': job.id,
+                'reference': job.reference
+            })
+            
+            # Annuler tous les JobDetails associés
+            updated_job_details = self.repository.update_job_details_status(
+                job, 'ANNULE', 'annule_date'
+            )
+            jobdetails_cancelled += updated_job_details
+            
+            # Annuler tous les Assigments associés
+            updated_assignments = self.repository.update_assignments_status(
+                job, 'ANNULE', 'annule_date'
+            )
+            assignments_cancelled += updated_assignments
+        
+        response_data = {
+            'jobs_cancelled': jobs_cancelled,
+            'jobdetails_cancelled': jobdetails_cancelled,
+            'assignments_cancelled': assignments_cancelled,
+            'total_jobs_cancelled': len(jobs_cancelled)
+        }
+        
+        # Inclure les erreurs de validation s'il y en a (mais certains jobs ont été annulés)
+        if validation_errors:
+            response_data['validation_warnings'] = validation_errors
+        
+        return response_data
