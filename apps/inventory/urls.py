@@ -33,14 +33,14 @@ from .views.monitoring_views import (
 from apps.inventory.views import InventoryWarehousesView, AccountWarehousesView
 
 
-from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView, JobBatchAssignmentView, JobTransferView, JobManualEntryView, JobCancelView, JobProgressByCountingView, InventoryProgressByCountingView, JobsWithAssignmentsByWarehouseAndCountingView, JobDetailsByJobAndCountingView
+from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView, JobBatchAssignmentView, JobTransferView, JobTransferAllView, JobManualEntryView, JobCancelView, JobProgressByCountingView, InventoryProgressByCountingView, JobsWithAssignmentsByWarehouseAndCountingView, JobDetailsByJobAndCountingView
 from .views.inventory_location_job_import_views import InventoryLocationJobImportView, InventoryLocationJobImportSyncView, InventoryLocationJobImportStatusView
 from .views.job_discrepancy_views import JobDiscrepancyView
 from .views.job_unresolved_discrepancy_views import (
     JobsWithUnresolvedDiscrepanciesByCountingView,
 )
 from .views.ecart_comptage_views import EcartComptageUpdateFinalResultView, EcartComptageResolveView
-from .views.assignment_views import AssignJobsToCountingView, AssignResourcesToInventoryView, InventoryResourcesView, SessionAssignmentsView, AssignJobsToBothCountingsView
+from .views.assignment_views import AssignJobsToCountingView, AssignResourcesToInventoryView, InventoryResourcesView, SessionAssignmentsView, AssignJobsToBothCountingsView, AutoAssignJobsFromInventoryLocationJobView
 from .views.resource_assignment_views import AssignResourcesToJobsView, JobResourcesView, RemoveResourcesFromJobView
 from .views.counting_tracking_views import InventoryCountingTrackingView, JobDetailTrackingView
 from .views.counting_views import CountingLaunchView
@@ -137,11 +137,14 @@ urlpatterns = [
     # ========================================
     
     path('inventory/<int:inventory_id>/assign-jobs/', AssignJobsToCountingView.as_view(), name='assign-jobs-to-counting'),
+    path('inventory/<int:inventory_id>/auto-assign-jobs-from-location-jobs/', AutoAssignJobsFromInventoryLocationJobView.as_view(), name='auto-assign-jobs-from-location-jobs'),
     path('inventory/session/<int:session_id>/assignments/', SessionAssignmentsView.as_view(), name='session-assignments'),
     path('inventory/assign-jobs-both-countings/', AssignJobsToBothCountingsView.as_view(), name='assign-jobs-both-countings'),
     path('inventory/assign-jobs-manual/', JobBatchAssignmentView.as_view(), name='assign-jobs-manual'),
     # URL pour transférer les jobs par comptage
     path('jobs/transfer/', JobTransferView.as_view(), name='job-transfer'),
+    # URL pour transférer tous les jobs de tous les comptages
+    path('jobs/transfer-all/', JobTransferAllView.as_view(), name='job-transfer-all'),
     # URL pour mettre les jobs en saisie manuelle
     path('jobs/manual-entry/', JobManualEntryView.as_view(), name='job-manual-entry'),
     

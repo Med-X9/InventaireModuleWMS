@@ -875,7 +875,121 @@ class JobService(JobServiceInterface):
             'transfer_date': current_time,
             'counting_orders': counting_orders,
             'total_transferred': len(transferred_assignments)
-        } 
+        }
+    
+    @transaction.atomic
+    def transfer_all_assignments_by_jobs(self, job_ids: list):
+        """
+        Transfère tous les assignments qui sont au statut PRET vers le statut TRANSFERT 
+        pour tous les counting_order des jobs spécifiés.
+        
+        Récupère automatiquement tous les assignments PRET de tous les counting_order pour les jobs donnés.
+        
+        Règles métier :
+        - Le job doit être au statut PRET, TRANSFERT ou ENTAME
+        - Seuls les assignments au statut PRET peuvent être transférés (pas ceux déjà en TRANSFERT ou ENTAME)
+        - Tous les assignments PRET de tous les counting_order sont transférés
+        - Si le job est ENTAME, il reste ENTAME même après le transfert (ne change pas en TRANSFERT)
+        - Si un assignment n'est pas au statut PRET, un message d'erreur est retourné avec la référence du job et la raison
+        
+        Args:
+            job_ids: Liste des IDs des jobs pour lesquels transférer tous les assignments PRET
+            
+        Returns:
+            Dict contenant les informations sur les assignments transférés
+            
+        Raises:
+            JobCreationError: Si des erreurs de validation sont détectées
+        """
+        from ..models import Assigment
+        
+        current_time = timezone.now()
+        transferred_assignments = []
+        errors = []
+        
+        # Récupérer tous les jobs avec leurs assignments PRET
+        jobs = Job.objects.filter(id__in=job_ids).prefetch_related(
+            'assigment_set__counting'
+        )
+        
+        # Dictionnaire pour suivre les jobs qui ont au moins un assignment transféré
+        jobs_to_transfer = {}
+        
+        # Traiter chaque job
+        for job in jobs:
+            job_reference = job.reference if job else f"ID {job.id}"
+            
+            # Vérifier que le job est au statut PRET, TRANSFERT ou ENTAME
+            if job.status not in ['PRET', 'TRANSFERT', 'ENTAME']:
+                errors.append(
+                    f"Job {job_reference} : statut actuel '{job.status}' (attendu: 'PRET', 'TRANSFERT' ou 'ENTAME')"
+                )
+                continue
+            
+            # Récupérer tous les assignments PRET de ce job (tous les counting_order)
+            job_assignments = list(
+                job.assigment_set.filter(status='PRET')
+            )
+            
+            # Si aucun assignment PRET trouvé pour ce job
+            if not job_assignments:
+                errors.append(
+                    f"Job {job_reference} : Aucun assignment PRET trouvé pour ce job"
+                )
+                continue
+            
+            # Transférer tous les assignments PRET
+            for assignment in job_assignments:
+                # Si toutes les validations passent, procéder au transfert
+                assignment.status = 'TRANSFERT'
+                assignment.transfert_date = current_time
+                assignment.save()
+                
+                # Marquer le job pour transfert (si au moins un assignment est transféré)
+                if job.id not in jobs_to_transfer:
+                    jobs_to_transfer[job.id] = job
+                
+                transferred_assignments.append({
+                    'assignment_id': assignment.id,
+                    'assignment_reference': assignment.reference,
+                    'job_reference': job_reference,
+                    'job_id': job.id,
+                    'counting_order': assignment.counting.order,
+                    'counting_reference': assignment.counting.reference
+                })
+        
+        # Vérifier les jobs qui n'existent pas
+        found_job_ids = set(jobs.values_list('id', flat=True))
+        missing_job_ids = set(job_ids) - found_job_ids
+        if missing_job_ids:
+            for job_id in missing_job_ids:
+                errors.append(f"Job avec l'ID {job_id} non trouvé")
+        
+        # Mettre à jour le statut des jobs qui ont au moins un assignment transféré
+        # Si le job est déjà ENTAME, il reste ENTAME (ne pas le changer en TRANSFERT)
+        for job_id, job in jobs_to_transfer.items():
+            # Ne changer le statut que si le job n'est pas déjà ENTAME
+            if job.status != 'ENTAME':
+                job.status = 'TRANSFERT'
+                job.transfert_date = current_time
+            job.save()
+        
+        # Si des erreurs ont été collectées, les lever
+        if errors:
+            error_message = " | ".join(errors)
+            raise JobCreationError(f"Erreurs lors du transfert : {error_message}")
+        
+        # Récupérer tous les counting_order transférés pour la réponse
+        counting_orders = list(set([
+            ass['counting_order'] for ass in transferred_assignments
+        ]))
+        
+        return {
+            'transferred_assignments': transferred_assignments,
+            'transfer_date': current_time,
+            'counting_orders': counting_orders,
+            'total_transferred': len(transferred_assignments)
+        }
     
     @transaction.atomic
     def set_manual_entry_status_by_jobs_and_counting_orders(self, job_ids: list, counting_orders: list):

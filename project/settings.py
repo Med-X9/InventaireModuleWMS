@@ -65,6 +65,7 @@ MIDDLEWARE = [
     'django.middleware.locale.LocaleMiddleware',
     'project.middleware.security_headers.SecurityHeadersMiddleware',  # Headers de sécurité
     'project.middleware.ActionLoggingMiddleware',
+    'apps.masterdata.middleware.CreateTeamsButtonMiddleware',  # Middleware pour le bouton "Créer des équipes"
 ]
 
 

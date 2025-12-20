@@ -24,6 +24,7 @@ from ..serializers.job_serializer import (
     JobResetAssignmentsRequestSerializer,
     PendingJobReferenceSerializer,
     JobTransferRequestSerializer,
+    JobTransferAllRequestSerializer,
     JobManualEntryRequestSerializer,
     JobProgressByCountingSerializer,
     JobWithAssignmentsSerializer,
@@ -813,6 +814,46 @@ class JobTransferView(APIView):
         try:
             job_service = JobService()
             result = job_service.transfer_assignments_by_jobs_and_counting_orders(job_ids, counting_orders)
+            return success_response(
+                data=result,
+                message=f'{result["total_transferred"]} assignment(s) transféré(s) avec succès'
+            )
+        except JobCreationError as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Erreur inattendue lors du transfert : {str(e)}", exc_info=True)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors du transfert",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class JobTransferAllView(APIView):
+    """
+    Vue pour transférer tous les assignments de tous les comptages qui sont au statut PRET.
+    
+    Règles métier :
+    - Seuls les assignments au statut PRET peuvent être transférés
+    - Transfère tous les assignments PRET de tous les counting_order pour les jobs spécifiés
+    - Si un assignment n'est pas PRET, retourne un message d'erreur avec la référence du job et la raison
+    """
+    def post(self, request):
+        serializer = JobTransferAllRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({
+                'success': False,
+                'message': 'Erreur de validation',
+                'errors': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        job_ids = serializer.validated_data['job_ids']
+        
+        try:
+            job_service = JobService()
+            result = job_service.transfer_all_assignments_by_jobs(job_ids)
             return success_response(
                 data=result,
                 message=f'{result["total_transferred"]} assignment(s) transféré(s) avec succès'
