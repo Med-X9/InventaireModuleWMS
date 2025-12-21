@@ -917,6 +917,37 @@ class UserAppResource(resources.ModelResource):
 
 
 
+class CreateTeamsForm(forms.Form):
+    """Formulaire pour créer des équipes"""
+    ORDRE_CHOICES = [
+        (1, 'Ordre 1 (1000-1999)'),
+        (2, 'Ordre 2 (2000-2999)'),
+    ]
+    
+    ordre_comptage = forms.ChoiceField(
+        label='Ordre de comptage',
+        choices=ORDRE_CHOICES,
+        required=True,
+        help_text='Ordre 1: équipes de 1000 à 1999 | Ordre 2: équipes de 2000 à 2999'
+    )
+    nombre_equipes = forms.IntegerField(
+        label='Nombre d\'équipes',
+        required=True,
+        min_value=1,
+        help_text='Nombre d\'équipes à créer'
+    )
+    compte = forms.ModelChoiceField(
+        label='Compte',
+        queryset=None,  # Sera défini dans __init__
+        required=True,
+        help_text='Compte associé aux équipes'
+    )
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['compte'].queryset = Account.objects.all()
+
+
 @admin.register(UserApp)
 class UserAppAdmin(ImportExportMixin, UserAdmin):
     """
@@ -924,12 +955,15 @@ class UserAppAdmin(ImportExportMixin, UserAdmin):
     Utilise ImportExportMixin pour éviter les conflits avec UserAdmin
     """
     resource_class = UserAppResource
-    list_display = ('nom', 'prenom', 'username', 'email', 'type','is_staff', 'is_active','compte')
+    list_display = ('username','type','is_staff', 'is_active','compte')
     list_filter = ('type','is_staff', 'is_active','compte')
-    search_fields = ('username', 'email', 'nom', 'prenom', 'compte__account_name')
+    search_fields = ('username','compte__account_name')
     ordering = ('username',)
     
     filter_horizontal = ('groups', 'user_permissions')
+    
+    # Spécifier explicitement le template pour le changelist
+    change_list_template = 'admin/users/userapp/change_list.html'
 
     # Champs à afficher dans le formulaire d'édition
     fieldsets = (
@@ -946,6 +980,281 @@ class UserAppAdmin(ImportExportMixin, UserAdmin):
             'fields': ('username', 'email', 'nom', 'prenom', 'type', 'compte', 'password1', 'password2', 'is_staff', 'is_superuser', 'groups')}
         ),
     )
+
+    def get_urls(self):
+        """Ajouter les URLs personnalisées pour la création d'équipes"""
+        urls = super().get_urls()
+        from django.urls import path
+        custom_urls = [
+            path(
+                'create-teams/',
+                self.admin_site.admin_view(self.create_teams_view),
+                name='users_userapp_create_teams',
+            ),
+        ]
+        return custom_urls + urls
+
+    def create_teams_view(self, request):
+        """Vue pour créer des équipes"""
+        from django.contrib import messages
+        from django.shortcuts import redirect
+        from django.template.response import TemplateResponse
+        from django.urls import reverse
+        
+        if request.method == 'POST':
+            form = CreateTeamsForm(request.POST)
+            if form.is_valid():
+                ordre = int(form.cleaned_data['ordre_comptage'])
+                nombre_equipes = form.cleaned_data['nombre_equipes']
+                compte = form.cleaned_data['compte']
+                
+                # Déterminer la plage de numéros
+                if ordre == 1:
+                    range_start = 1000
+                    range_end = 1999
+                else:  # ordre == 2
+                    range_start = 2000
+                    range_end = 2999
+                
+                # Optimisation : Trouver le prochain numéro disponible de manière efficace
+                from django.contrib.auth.hashers import make_password
+                from django.db import connection
+                
+                # Méthode optimisée : trouver le prochain numéro disponible
+                # On utilise une requête qui cherche directement le premier numéro manquant
+                next_available_num = None
+                
+                try:
+                    # Essayer d'abord avec une requête SQL optimisée (PostgreSQL)
+                    db_vendor = connection.vendor
+                    if db_vendor == 'postgresql':
+                        with connection.cursor() as cursor:
+                            cursor.execute("""
+                                SELECT MIN(t.num) as next_num
+                                FROM (
+                                    SELECT generate_series(%s, %s) as num
+                                ) t
+                                WHERE NOT EXISTS (
+                                    SELECT 1 FROM users_userapp 
+                                    WHERE username = 'equipe-' || t.num::text
+                                )
+                                LIMIT 1
+                            """, [range_start, range_end])
+                            
+                            result = cursor.fetchone()
+                            next_available_num = result[0] if result and result[0] else None
+                except Exception:
+                    # Si la requête SQL échoue, utiliser la méthode Django
+                    pass
+                
+                # Fallback : méthode Django optimisée
+                if next_available_num is None:
+                    # Récupérer uniquement les usernames dans la plage avec une requête optimisée
+                    # Utiliser une requête qui extrait directement les numéros
+                    existing_usernames = UserApp.objects.filter(
+                        username__startswith='equipe-'
+                    ).values_list('username', flat=True)
+                    
+                    # Extraire rapidement les numéros existants dans la plage
+                    existing_nums_set = set()
+                    for username in existing_usernames:
+                        try:
+                            num_str = username.replace('equipe-', '')
+                            if num_str.isdigit():
+                                num = int(num_str)
+                                if range_start <= num <= range_end:
+                                    existing_nums_set.add(num)
+                        except (ValueError, AttributeError):
+                            continue
+                    
+                    # Trouver le prochain numéro disponible
+                    for num in range(range_start, range_end + 1):
+                        if num not in existing_nums_set:
+                            next_available_num = num
+                            break
+                
+                if next_available_num is None:
+                    messages.error(
+                        request,
+                        f'Aucun numéro disponible dans la plage {range_start}-{range_end} pour l\'ordre {ordre}. '
+                        f'Toutes les équipes de cette plage ont déjà été créées.'
+                    )
+                    form = CreateTeamsForm(request.POST)
+                else:
+                    # Vérifier qu'on peut créer le nombre d'équipes demandé
+                    end_num = next_available_num + nombre_equipes - 1
+                    if end_num > range_end:
+                        available_slots = range_end - next_available_num + 1
+                        messages.error(
+                            request,
+                            f'Il ne reste que {available_slots} emplacement(s) disponible(s) dans la plage {range_start}-{range_end}. '
+                            f'Vous pouvez créer au maximum {available_slots} équipe(s) à partir de {next_available_num}.'
+                        )
+                        form = CreateTeamsForm(request.POST)
+                    else:
+                        # Créer les équipes en masse avec bulk_create pour de meilleures performances
+                        password = 'user1234'
+                        # Hasher le mot de passe une seule fois au lieu de 1000 fois
+                        hashed_password = make_password(password)
+                        
+                        # Créer toutes les équipes en une seule transaction avec bulk_create
+                        try:
+                            with transaction.atomic():
+                                # Vérifier rapidement quelles équipes existent déjà dans la plage exacte à créer
+                                # Générer la liste exacte des usernames à vérifier
+                                usernames_to_check = [
+                                    f'equipe-{next_available_num + i}' 
+                                    for i in range(nombre_equipes)
+                                ]
+                                
+                                # Requête optimisée : vérifier seulement les équipes dans la plage à créer
+                                already_existing_set = set(
+                                    UserApp.objects.filter(
+                                        username__in=usernames_to_check
+                                    ).values_list('username', flat=True)
+                                )
+                                
+                                # Préparer tous les objets UserApp en mémoire avec le mot de passe déjà hashé
+                                users_to_create = []
+                                for i in range(nombre_equipes):
+                                    team_num = next_available_num + i
+                                    username = f'equipe-{team_num}'
+                                    
+                                    # Exclure ceux qui existent déjà
+                                    if username not in already_existing_set:
+                                        user = UserApp(
+                                            username=username,
+                                            type='Mobile',
+                                            compte=compte,
+                                            is_active=True,
+                                            is_staff=False,
+                                            password=hashed_password  # Utiliser le hash pré-calculé
+                                        )
+                                        users_to_create.append(user)
+                                
+                                if not users_to_create:
+                                    messages.warning(
+                                        request,
+                                        f'Toutes les équipes demandées existent déjà dans la plage {next_available_num} à {next_available_num + nombre_equipes - 1}.'
+                                    )
+                                    return redirect('admin:users_userapp_changelist')
+                                
+                                # Utiliser bulk_create avec batch_size pour optimiser les grandes insertions
+                                # ignore_conflicts=True pour éviter les erreurs si un doublon apparaît entre temps
+                                created_users = UserApp.objects.bulk_create(
+                                    users_to_create,
+                                    batch_size=1000,  # Augmenter le batch_size pour de meilleures performances
+                                    ignore_conflicts=True  # Ignorer les conflits silencieusement
+                                )
+                                
+                                created_count = len(created_users)
+                                
+                                if created_count > 0:
+                                    first_team = next_available_num
+                                    last_team = next_available_num + created_count - 1
+                                    messages.success(
+                                        request,
+                                        f'{created_count} équipe(s) créée(s) avec succès (ordre {ordre}, de equipe-{first_team} à equipe-{last_team})'
+                                    )
+                                
+                                # Si certaines équipes n'ont pas pu être créées
+                                skipped = len(users_to_create) - created_count
+                                if skipped > 0:
+                                    messages.warning(
+                                        request,
+                                        f'{skipped} équipe(s) n\'ont pas pu être créées (probablement créées entre temps par un autre processus). '
+                                        f'Les équipes disponibles ont été créées avec succès.'
+                                    )
+                                
+                                return redirect('admin:users_userapp_changelist')
+                                
+                        except Exception as e:
+                            # En cas d'erreur, essayer de créer les équipes une par une pour identifier le problème
+                            messages.error(
+                                request,
+                                f'Erreur lors de la création en masse : {str(e)}. '
+                                f'Tentative de création individuelle...'
+                            )
+                            
+                            # Fallback : création individuelle pour identifier les problèmes
+                            created_count = 0
+                            errors = []
+                            created_teams = []
+                            
+                            for i in range(nombre_equipes):
+                                team_num = next_available_num + i
+                                username = f'equipe-{team_num}'
+                                
+                                if team_num not in existing_nums:
+                                    try:
+                                        user = UserApp.objects.create_user(
+                                            username=username,
+                                            type='Mobile',
+                                            password=password,
+                                            compte=compte,
+                                            is_active=True,
+                                            is_staff=False
+                                        )
+                                        created_count += 1
+                                        created_teams.append(team_num)
+                                    except Exception as ex:
+                                        errors.append(f'Erreur lors de la création de {username}: {str(ex)}')
+                            
+                            if created_count > 0:
+                                first_team = created_teams[0]
+                                last_team = created_teams[-1]
+                                messages.success(
+                                    request,
+                                    f'{created_count} équipe(s) créée(s) avec succès (ordre {ordre}, de equipe-{first_team} à equipe-{last_team})'
+                                )
+                            
+                            if errors and len(errors) <= 50:
+                                for error in errors:
+                                    messages.warning(request, error)
+                            elif errors:
+                                messages.warning(
+                                    request,
+                                    f'{len(errors)} équipe(s) n\'ont pas pu être créées. '
+                                    f'Les équipes disponibles ont été créées avec succès.'
+                                )
+                            
+                            return redirect('admin:users_userapp_changelist')
+        else:
+            form = CreateTeamsForm()
+        
+        # Préparer le contexte
+        opts = self.model._meta
+        context = {
+            **self.admin_site.each_context(request),
+            'opts': opts,
+            'form': form,
+            'title': 'Créer des équipes',
+            'has_view_permission': self.has_view_permission(request),
+            'has_add_permission': self.has_add_permission(request),
+        }
+        
+        return TemplateResponse(
+            request,
+            'admin/users/userapp/create_teams.html',
+            context
+        )
+
+    def changelist_view(self, request, extra_context=None):
+        """Ajouter le bouton de création d'équipes dans le changelist"""
+        extra_context = extra_context or {}
+        from django.urls import reverse
+        
+        try:
+            create_teams_url = reverse('admin:users_userapp_create_teams')
+        except Exception as e:
+            create_teams_url = '/admin/users/userapp/create-teams/'
+        
+        extra_context['create_teams_url'] = create_teams_url
+        
+        # Obtenir la réponse normale
+        response = super().changelist_view(request, extra_context)
+        
+        return response
 
     
 

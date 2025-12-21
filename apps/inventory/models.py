@@ -8,6 +8,8 @@ import random
 import string
 import uuid
 from django.utils.translation import gettext_lazy as _
+from django.core.exceptions import ValidationError
+from django.core.exceptions import ValidationError
 
 # Create your models here.
 
@@ -152,11 +154,18 @@ class Job(TimeStampedModel):
         ('VALIDE', 'VALIDE'),
         ('TERMINE', 'TERMINE'),
         ('SAISIE MANUELLE', 'SAISIE MANUELLE'),
+        ('ANNULE', 'ANNULE'),
     )
 
-    
+    TERMINE_ETAT_CHOICES = (
+        ('automatique', 'AUTOMATIQUE'),
+        ('manuelle', 'MANUELLE'),
+        ('mixte', 'MIXE'),
+    )
     reference = models.CharField(max_length=20,null=False)
     status = models.CharField(max_length=30, choices=STATUS_CHOICES)
+    termine_etat = models.CharField(max_length=50, choices=TERMINE_ETAT_CHOICES, default='automatique')
+    termine_etat_date = models.DateTimeField(null=True, blank=True)
     en_attente_date = models.DateTimeField(null=True, blank=True)
     affecte_date = models.DateTimeField(null=True, blank=True)
     pret_date = models.DateTimeField(null=True, blank=True)
@@ -165,6 +174,7 @@ class Job(TimeStampedModel):
     valide_date = models.DateTimeField(null=True, blank=True)
     termine_date = models.DateTimeField(null=True, blank=True)
     saisie_manuelle_date = models.DateTimeField(null=True, blank=True)
+    annule_date = models.DateTimeField(null=True, blank=True)
     warehouse = models.ForeignKey('masterdata.Warehouse', on_delete=models.CASCADE)
     inventory = models.ForeignKey(Inventory, on_delete=models.CASCADE)
     history = HistoricalRecords()
@@ -221,11 +231,57 @@ class Job(TimeStampedModel):
 
 
     
+def validate_numero_format(value):
+    """
+    Valide le format du numéro selon l'ordre :
+    - Ordre 1: 0x - commence par 0, suivi d'au moins un chiffre (ex: 01, 02, 010, 011, etc.)
+    - Ordre 2: 00x - commence par 00, suivi d'au moins un chiffre (ex: 001, 002, 0010, 0011, etc.)
+    - Ordre 3: 000x - commence par 000, suivi d'au moins un chiffre (ex: 0001, 0002, 00010, 00011, etc.)
+    """
+    if value is None or value == '':
+        return
+    
+    # Convertir en string si ce n'est pas déjà le cas
+    numero_str = str(value).strip()
+    
+    # Vérifier les formats possibles
+    # Format 0x (ordre 1): commence par 0, suivi d'au moins un chiffre
+    # Format 00x (ordre 2): commence par 00, suivi d'au moins un chiffre
+    # Format 000x (ordre 3): commence par 000, suivi d'au moins un chiffre
+    
+    is_valid = False
+    
+    if numero_str.startswith('000'):
+        # Format 000x: commence par 000, suivi d'au moins un chiffre
+        suffix = numero_str[3:]
+        if suffix.isdigit() and len(suffix) > 0:
+            is_valid = True
+    elif numero_str.startswith('00'):
+        # Format 00x: commence par 00, suivi d'au moins un chiffre
+        suffix = numero_str[2:]
+        if suffix.isdigit() and len(suffix) > 0:
+            is_valid = True
+    elif numero_str.startswith('0'):
+        # Format 0x: commence par 0, suivi d'au moins un chiffre
+        suffix = numero_str[1:]
+        if suffix.isdigit() and len(suffix) > 0:
+            is_valid = True
+    
+    if not is_valid:
+        raise ValidationError(
+            _('Le numéro doit respecter l\'un des formats suivants : '
+              '0x pour l\'ordre 1 (ex: 01, 02, 010, 011, etc.), '
+              '00x pour l\'ordre 2 (ex: 001, 002, 0010, 0011, etc.), '
+              '000x pour l\'ordre 3 (ex: 0001, 0002, 00010, 00011, etc.)')
+        )
+
+
 class Personne(TimeStampedModel, ReferenceMixin):
     REFERENCE_PREFIX = 'PER'
     reference = models.CharField(unique=True, max_length=20, null=False)
-    nom = models.CharField(max_length=200)
-    prenom = models.CharField(max_length=200)
+    nom = models.CharField(max_length=200,null=True,blank=True)
+    prenom = models.CharField(max_length=200,null=True,blank=True)
+    numero = models.CharField(max_length=20, validators=[validate_numero_format])
     history = HistoricalRecords()    
     def __str__(self):
         return f"{self.nom} - {self.prenom}"
@@ -236,15 +292,19 @@ class JobDetail(TimeStampedModel, ReferenceMixin):
     STATUS_CHOICES = (
         ('EN ATTENTE', 'EN ATTENTE'),
         ('TERMINE', 'TERMINE'),
+        ('ANNULE', 'ANNULE'),
     )
     REFERENCE_PREFIX = 'JBD' 
     reference = models.CharField(unique=True, max_length=20, null=False)
     location = models.ForeignKey('masterdata.Location', on_delete=models.CASCADE)
     job = models.ForeignKey('Job', on_delete=models.CASCADE)  
     counting = models.ForeignKey('Counting', on_delete=models.CASCADE, null=True, blank=True)
-    status = models.CharField(max_length=50, choices=STATUS_CHOICES, default='EN ATTENTE') 
+    status = models.CharField(max_length=50, choices=STATUS_CHOICES, default='EN ATTENTE')
+    termine_manuelle = models.BooleanField(default=False)
+    termine_manuelle_date = models.DateTimeField(null=True, blank=True)
     en_attente_date = models.DateTimeField(null=True, blank=True)
     termine_date = models.DateTimeField(null=True, blank=True)
+    annule_date = models.DateTimeField(null=True, blank=True)
     history = HistoricalRecords()
 
     def __str__(self):
@@ -261,14 +321,18 @@ class Assigment(TimeStampedModel, ReferenceMixin):
         ('TRANSFERT', 'TRANSFERT'), 
         ('ENTAME', 'ENTAME'),
         ('TERMINE', 'TERMINE'),
+        ('ANNULE', 'ANNULE'),
     )
     REFERENCE_PREFIX = 'ASS'
     reference = models.CharField(unique=True, max_length=20, null=False)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES)
+    termine_manuelle = models.BooleanField(default=False)
+    termine_manuelle_date = models.DateTimeField(null=True, blank=True)
     transfert_date = models.DateTimeField(null=True, blank=True)
     entame_date = models.DateTimeField(null=True, blank=True)
     affecte_date = models.DateTimeField(null=True, blank=True)
     pret_date = models.DateTimeField(null=True, blank=True)
+    annule_date = models.DateTimeField(null=True, blank=True)
     job = models.ForeignKey('Job', on_delete=models.CASCADE)
     date_start = models.DateTimeField(null=True, blank=True)
     termine_date = models.DateTimeField(null=True, blank=True)

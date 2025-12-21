@@ -211,6 +211,42 @@ class JobRepository(JobRepositoryInterface):
             setattr(job, key, value)
         job.save()
     
+    def update_job_details_status(self, job: Job, status: str, date_field: str = None) -> int:
+        """
+        Met à jour le statut de tous les JobDetails d'un job (qui ne sont pas déjà au statut spécifié)
+        
+        Args:
+            job: Le job concerné
+            status: Le nouveau statut
+            date_field: Le champ de date à mettre à jour (optionnel)
+            
+        Returns:
+            int: Nombre de JobDetails mis à jour
+        """
+        queryset = JobDetail.objects.filter(job=job).exclude(status=status)
+        update_data = {'status': status}
+        if date_field:
+            update_data[date_field] = timezone.now()
+        return queryset.update(**update_data)
+    
+    def update_assignments_status(self, job: Job, status: str, date_field: str = None) -> int:
+        """
+        Met à jour le statut de tous les Assigments d'un job (qui ne sont pas déjà au statut spécifié)
+        
+        Args:
+            job: Le job concerné
+            status: Le nouveau statut
+            date_field: Le champ de date à mettre à jour (optionnel)
+            
+        Returns:
+            int: Nombre d'Assigments mis à jour
+        """
+        queryset = Assigment.objects.filter(job=job).exclude(status=status)
+        update_data = {'status': status}
+        if date_field:
+            update_data[date_field] = timezone.now()
+        return queryset.update(**update_data)
+    
     def get_jobs_with_filters(self, warehouse_id: int, filters: Optional[Dict[str, Any]] = None) -> List[Job]:
         """Récupère des jobs avec filtres"""
         queryset = Job.objects.filter(warehouse_id=warehouse_id)

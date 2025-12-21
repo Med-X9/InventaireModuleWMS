@@ -330,6 +330,18 @@ class JobTransferRequestSerializer(serializers.Serializer):
         help_text="Liste des ordres de comptage pour lesquels transférer les assignments (ex: [1, 2, 3])"
     )
 
+class JobTransferAllRequestSerializer(serializers.Serializer):
+    """
+    Serializer pour transférer tous les assignments de tous les comptages pour des jobs.
+    Accepte uniquement job_ids, puis récupère automatiquement tous les assignments PRET de tous les counting_order.
+    Transfère tous les assignments au statut PRET pour tous les counting_order des jobs spécifiés.
+    """
+    job_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False,
+        help_text="Liste des IDs des jobs pour lesquels transférer tous les assignments PRET de tous les counting_order"
+    )
+
 class JobManualEntryRequestSerializer(serializers.Serializer):
     """
     Serializer pour mettre les jobs et leurs assignments en statut SAISIE MANUELLE.
@@ -345,6 +357,18 @@ class JobManualEntryRequestSerializer(serializers.Serializer):
         child=serializers.IntegerField(min_value=1),
         allow_empty=False,
         help_text="Liste des ordres de comptage pour lesquels mettre en saisie manuelle (ex: [1, 2, 3])"
+    )
+
+class JobCancelRequestSerializer(serializers.Serializer):
+    """
+    Serializer pour annuler des jobs avec leurs jobdetails et assignments.
+    Vérifie que les jobs ne sont pas dans les statuts interdits (EN ATTENTE, VALIDE, AFFECTE, PRET).
+    """
+    job_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False,
+        min_length=1,
+        help_text="Liste des IDs des jobs à annuler"
     ) 
 
 class JobProgressByCountingSerializer(serializers.Serializer):

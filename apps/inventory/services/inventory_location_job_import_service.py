@@ -348,6 +348,7 @@ class InventoryLocationJobImportService:
                         'active_excel': is_active,  # Pour la synchronisation avec Location.is_active
                         'session_1': self._normalize_excel_value(row_dict.get('session_1')),
                         'session_2': self._normalize_excel_value(row_dict.get('session_2')),
+                        'row_number': row_number,  # Pour les messages d'erreur de validation globale
                     })
             
             print(f"[IMPORT] Validation terminée: {len(validation_errors)} erreur(s), {len(validated_data)} ligne(s) valide(s)")
@@ -371,6 +372,28 @@ class InventoryLocationJobImportService:
                     'success': False,
                     'message': f"Import annulé: erreur(s) d'incrémentation des jobs",
                     'errors': job_errors,
+                    'imported_count': 0
+                }
+            
+            # Valider la cohérence des sessions par job
+            session_errors = self._validate_job_sessions_consistency(validated_data)
+            if session_errors:
+                logger.warning(f"Import annulé: erreur(s) de cohérence des sessions par job")
+                return {
+                    'success': False,
+                    'message': f"Import annulé: erreur(s) de cohérence des sessions par job",
+                    'errors': session_errors,
+                    'imported_count': 0
+                }
+            
+            # Valider qu'un job est affecté à une seule équipe dans les deux sessions
+            single_team_errors = self._validate_job_single_team_in_sessions(validated_data)
+            if single_team_errors:
+                logger.warning(f"Import annulé: erreur(s) de validation - un job doit être affecté à une seule équipe dans les deux sessions")
+                return {
+                    'success': False,
+                    'message': f"Import annulé: erreur(s) de validation - un job doit être affecté à une seule équipe dans les deux sessions",
+                    'errors': single_team_errors,
                     'imported_count': 0
                 }
             
@@ -888,6 +911,152 @@ class InventoryLocationJobImportService:
                 })
                 break
             expected_number += 1
+        
+        return errors
+    
+    def _validate_job_sessions_consistency(self, validated_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Valide que pour chaque job, toutes les lignes ont exactement les mêmes sessions (session_1 et session_2)
+        Ne valide que les lignes où active = true et où job n'est pas vide
+        
+        Args:
+            validated_data: Liste des données validées (contient 'job', 'session_1', 'session_2', 'is_active')
+            
+        Returns:
+            List[Dict]: Liste des erreurs (vide si aucune erreur)
+        """
+        errors = []
+        
+        # Filtrer uniquement les lignes actives avec un job
+        active_data_with_jobs = [
+            data for data in validated_data
+            if data.get('is_active', False) and data.get('job')
+        ]
+        
+        if not active_data_with_jobs:
+            return errors
+        
+        # Grouper par job
+        from collections import defaultdict
+        jobs_sessions = defaultdict(list)
+        
+        for data in active_data_with_jobs:
+            job = data.get('job')
+            session_1 = data.get('session_1', '')
+            session_2 = data.get('session_2', '')
+            row_number = data.get('row_number', 0)
+            jobs_sessions[job].append({
+                'session_1': session_1,
+                'session_2': session_2,
+                'row_number': row_number,
+            })
+        
+        # Pour chaque job, vérifier que toutes les sessions sont identiques
+        for job, sessions_list in jobs_sessions.items():
+            if len(sessions_list) <= 1:
+                continue  # Pas besoin de vérifier s'il n'y a qu'une seule ligne
+            
+            # Récupérer la première session comme référence
+            first_session_1 = sessions_list[0]['session_1']
+            first_session_2 = sessions_list[0]['session_2']
+            first_row_number = sessions_list[0].get('row_number', 0)
+            
+            # Vérifier que toutes les autres lignes ont les mêmes sessions
+            for session_info in sessions_list[1:]:
+                if session_info['session_1'] != first_session_1 or session_info['session_2'] != first_session_2:
+                    # Utiliser le row_number stocké dans validated_data
+                    row_number = session_info.get('row_number', 0)
+                    
+                    errors.append({
+                        'row_number': row_number,
+                        'field': 'session',
+                        'value': f"session_1={session_info['session_1']}, session_2={session_info['session_2']}",
+                        'message': (
+                            f"Le job '{job}' doit avoir les mêmes sessions pour toutes ses lignes. "
+                            f"Sessions attendues (définies à la ligne {first_row_number}): session_1='{first_session_1}', session_2='{first_session_2}'. "
+                            f"Sessions trouvées sur cette ligne: session_1='{session_info['session_1']}', session_2='{session_info['session_2']}'"
+                        )
+                    })
+        
+        return errors
+    
+    def _validate_job_single_team_in_sessions(self, validated_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Valide qu'un job est affecté à une seule équipe dans les deux sessions.
+        Cela signifie que session_1 et session_2 doivent correspondre à la même équipe
+        (même numéro d'équipe, mais dans des plages différentes: 1000-1999 pour session_1, 2000-2999 pour session_2).
+        
+        Exemple valide: session_1='equipe-1001', session_2='equipe-2001' (même équipe 1)
+        Exemple invalide: session_1='equipe-1001', session_2='equipe-2002' (équipes différentes)
+        
+        Ne valide que les lignes où active = true et où job n'est pas vide.
+        
+        Args:
+            validated_data: Liste des données validées (contient 'job', 'session_1', 'session_2', 'is_active', 'row_number')
+            
+        Returns:
+            List[Dict]: Liste des erreurs (vide si aucune erreur)
+        """
+        errors = []
+        import re
+        
+        # Filtrer uniquement les lignes actives avec un job
+        active_data_with_jobs = [
+            data for data in validated_data
+            if data.get('is_active', False) and data.get('job')
+        ]
+        
+        if not active_data_with_jobs:
+            return errors
+        
+        # Pour chaque ligne, vérifier que session_1 et session_2 correspondent à la même équipe
+        for data in active_data_with_jobs:
+            job = data.get('job')
+            session_1 = data.get('session_1', '')
+            session_2 = data.get('session_2', '')
+            row_number = data.get('row_number', 0)
+            
+            # Extraire le numéro d'équipe de session_1 (format: equipe-XXXX, plage 1000-1999)
+            session_1_pattern = r'^equipe-(\d+)$'
+            match_1 = re.match(session_1_pattern, session_1, re.IGNORECASE)
+            
+            # Extraire le numéro d'équipe de session_2 (format: equipe-XXXX, plage 2000-2999)
+            session_2_pattern = r'^equipe-(\d+)$'
+            match_2 = re.match(session_2_pattern, session_2, re.IGNORECASE)
+            
+            # Si les deux sessions sont valides, vérifier qu'elles correspondent à la même équipe
+            if match_1 and match_2:
+                team_number_1 = int(match_1.group(1))
+                team_number_2 = int(match_2.group(1))
+                
+                # Vérifier que session_1 est dans la plage 1000-1999
+                if team_number_1 < 1000 or team_number_1 > 1999:
+                    # Cette erreur devrait déjà être détectée par _validate_row, mais on la vérifie quand même
+                    continue
+                
+                # Vérifier que session_2 est dans la plage 2000-2999
+                if team_number_2 < 2000 or team_number_2 > 2999:
+                    # Cette erreur devrait déjà être détectée par _validate_row, mais on la vérifie quand même
+                    continue
+                
+                # Calculer le numéro d'équipe réel (en soustrayant 1000 pour session_1 et 2000 pour session_2)
+                real_team_1 = team_number_1 - 1000
+                real_team_2 = team_number_2 - 2000
+                
+                # Vérifier que les deux sessions correspondent à la même équipe
+                if real_team_1 != real_team_2:
+                    errors.append({
+                        'row_number': row_number,
+                        'field': 'session',
+                        'value': f"session_1={session_1}, session_2={session_2}",
+                        'message': (
+                            f"Le job '{job}' doit être affecté à une seule équipe dans les deux sessions. "
+                            f"Session 1: '{session_1}' (équipe {real_team_1}), "
+                            f"Session 2: '{session_2}' (équipe {real_team_2}). "
+                            f"Les deux sessions doivent correspondre à la même équipe. "
+                            f"Exemple valide: session_1='equipe-1001' et session_2='equipe-2001' (équipe 1)"
+                        )
+                    })
         
         return errors
     
