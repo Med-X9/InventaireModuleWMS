@@ -1,11 +1,12 @@
 """
-Service pour calculer les écarts entre le 1er et le 2ème comptage d'un job.
+Service pour calculer les écarts entre les comptages d'un job.
 """
 from typing import Dict, Any, List, Optional
 from collections import defaultdict
 from django.db.models import Q
 from ..repositories.job_repository import JobRepository
 from ..models import Job, Assigment, CountingDetail, EcartComptage
+from ..usecases.job_discrepancy_standardization import JobDiscrepancyStandardizationUseCase
 import logging
 
 logger = logging.getLogger(__name__)
@@ -13,18 +14,24 @@ logger = logging.getLogger(__name__)
 
 class JobDiscrepancyService:
     """
-    Service pour calculer les écarts entre le 1er et le 2ème comptage.
+    Service pour calculer les écarts entre les comptages.
     Contient la logique métier pour le calcul des écarts.
     """
     
-    def __init__(self, job_repository: Optional[JobRepository] = None):
+    def __init__(
+        self,
+        job_repository: Optional[JobRepository] = None,
+        standardization_use_case: Optional[JobDiscrepancyStandardizationUseCase] = None
+    ):
         """
-        Initialise le service avec un repository.
+        Initialise le service avec un repository et un use case de standardisation.
         
         Args:
             job_repository: Repository pour l'accès aux données (injection de dépendance)
+            standardization_use_case: Use case pour standardiser les comptages (injection de dépendance)
         """
         self.job_repository = job_repository or JobRepository()
+        self.standardization_use_case = standardization_use_case or JobDiscrepancyStandardizationUseCase()
     
     def get_jobs_with_discrepancies(
         self,
@@ -32,7 +39,7 @@ class JobDiscrepancyService:
         warehouse_id: int
     ) -> List[Dict[str, Any]]:
         """
-        Récupère les jobs avec leurs assignments et calcule les écarts entre le 1er et 2ème comptage.
+        Récupère les jobs avec leurs assignments et calcule les écarts entre tous les comptages.
         
         Args:
             inventory_id: ID de l'inventaire
@@ -40,6 +47,7 @@ class JobDiscrepancyService:
             
         Returns:
             Liste de dictionnaires contenant les informations des jobs avec écarts calculés
+            et tous les comptages standardisés
             
         Raises:
             ValueError: Si l'inventaire ou le warehouse n'existe pas
@@ -65,19 +73,18 @@ class JobDiscrepancyService:
             # Récupérer les assignments du job
             assignments = self.job_repository.get_assignments_by_job(job)
             
-            # Filtrer seulement les assignments avec counting_order 1 et 2
+            # Récupérer tous les assignments (pas seulement 1 et 2)
             assignments_filtered = [
                 assignment for assignment in assignments
-                if assignment.counting and assignment.counting.order in [1, 2]
+                if assignment.counting
             ]
             
-            # Calculer les écarts entre le 1er et 2ème comptage
+            # Calculer les écarts entre le 1er et 2ème comptage (pour compatibilité)
             discrepancy_info = self._calculate_discrepancies(job)
             
-            # Formater les assignments (seulement counting_order, status, counting_reference, session_full_name)
+            # Formater les assignments (seulement status, counting_reference, counting_order, session_full_name)
             assignments_data = [
                 {
-                    'assignment_id': assignment.id,
                     'status': assignment.status,
                     'counting_reference': assignment.counting.reference if assignment.counting else None,
                     'counting_order': assignment.counting.order if assignment.counting else None,
@@ -98,7 +105,10 @@ class JobDiscrepancyService:
                 'common_lines_count': discrepancy_info['common_lines_count'],
             })
         
-        return result
+        # Standardiser les comptages pour tous les jobs
+        standardized_result = self.standardization_use_case.standardize_jobs_countings(result)
+        
+        return standardized_result
     
     def _calculate_discrepancies(self, job: Job) -> Dict[str, Any]:
         """
@@ -116,12 +126,22 @@ class JobDiscrepancyService:
             - common_lines_count: Nombre de lignes communes aux deux comptages
         """
         # Récupérer les counting details depuis les attributs temporaires
-        counting_details_1 = getattr(job, '_counting_details_1', {})
-        counting_details_2 = getattr(job, '_counting_details_2', {})
+        # Support de l'ancienne structure (_counting_details_1, _counting_details_2)
+        # et de la nouvelle (_counting_details_by_order)
+        counting_details_by_order = getattr(job, '_counting_details_by_order', {})
         
-        total_lines_counting_1 = len(counting_details_1)
-        total_lines_counting_2 = len(counting_details_2)
-        
+        if counting_details_by_order:
+            # Nouvelle structure : utiliser _counting_details_by_order
+            counting_details_1 = counting_details_by_order.get(1, {})
+            counting_details_2 = counting_details_by_order.get(2, {})
+        else:
+            # Ancienne structure : utiliser _counting_details_1 et _counting_details_2
+            counting_details_1 = getattr(job, '_counting_details_1', {})
+            counting_details_2 = getattr(job, '_counting_details_2', {})
+            
+            total_lines_counting_1 = len(counting_details_1)
+            total_lines_counting_2 = len(counting_details_2)
+            
         # Créer un ensemble des clés communes aux deux comptages (intersection)
         # On ne compare que les lignes qui existent dans les deux comptages
         common_keys = set(counting_details_1.keys()) & set(counting_details_2.keys())
@@ -134,12 +154,13 @@ class JobDiscrepancyService:
             detail_2 = counting_details_2.get(key)
             
             # Les deux détails existent forcément car on utilise l'intersection
-            quantity_1 = detail_1.quantity_inventoried
-            quantity_2 = detail_2.quantity_inventoried
-            
-            # Si les quantités diffèrent, c'est un écart
-            if quantity_1 != quantity_2:
-                discrepancy_count += 1
+            if detail_1 and detail_2:
+                quantity_1 = detail_1.quantity_inventoried
+                quantity_2 = detail_2.quantity_inventoried
+                
+                # Si les quantités diffèrent, c'est un écart
+                if quantity_1 != quantity_2:
+                    discrepancy_count += 1
         
         # Calculer le taux d'écart
         # Le taux est basé uniquement sur les lignes communes aux deux comptages

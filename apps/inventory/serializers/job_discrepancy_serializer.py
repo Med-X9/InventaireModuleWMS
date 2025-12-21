@@ -5,15 +5,26 @@ from rest_framework import serializers
 
 
 class AssignmentDiscrepancySerializer(serializers.Serializer):
-    """Serializer pour un assignment dans le contexte de discrepancies"""
-    status = serializers.CharField()
+    """
+    Serializer pour un assignment dans le contexte de discrepancies.
+    
+    Note: Ne contient pas id, reference, personne_nom, personne_two_nom
+    selon les spécifications.
+    """
+    status = serializers.CharField(allow_null=True)
     counting_reference = serializers.CharField(allow_null=True)
     counting_order = serializers.IntegerField(allow_null=True)
     session_full_name = serializers.CharField(allow_null=True)
 
 
 class JobDiscrepancySerializer(serializers.Serializer):
-    """Serializer pour les données de job avec écarts"""
+    """
+    Serializer pour les données de job avec écarts.
+    
+    Supporte tous les comptages standardisés (1er, 2ème, 3ème, n-ème).
+    Les assignments sont standardisés : si un job a moins de comptages,
+    des assignments vides sont ajoutés.
+    """
     job_id = serializers.IntegerField()
     job_reference = serializers.CharField()
     job_status = serializers.CharField()

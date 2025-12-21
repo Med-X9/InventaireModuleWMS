@@ -1,4 +1,5 @@
 from typing import List, Dict, Any, Optional
+from collections import defaultdict
 from django.db import transaction
 from django.db.models import Q
 from ..interfaces.job_interface import JobRepositoryInterface
@@ -514,7 +515,7 @@ class JobRepository(JobRepositoryInterface):
         warehouse_id: int
     ) -> List[Job]:
         """
-        Récupère les jobs avec leurs assignments et les CountingDetail des 1er et 2ème comptages.
+        Récupère les jobs avec leurs assignments et les CountingDetail de tous les comptages.
         
         Args:
             inventory_id: ID de l'inventaire
@@ -539,48 +540,35 @@ class JobRepository(JobRepositoryInterface):
             ).order_by('reference')
         )
         
-        # Récupérer les comptages d'ordre 1 et 2 pour cet inventaire
-        countings = Counting.objects.filter(
-            inventory_id=inventory_id,
-            order__in=[1, 2]
+        # Récupérer tous les comptages pour cet inventaire (pas seulement 1 et 2)
+        countings = list(
+            Counting.objects.filter(
+                inventory_id=inventory_id
         ).order_by('order')
+        )
         
-        counting_1 = countings.filter(order=1).first()
-        counting_2 = countings.filter(order=2).first()
-        
-        if not counting_1 or not counting_2:
+        if not countings:
             return jobs
         
         # Précharger les CountingDetail pour chaque job et chaque comptage
         job_ids = [job.id for job in jobs]
+        counting_ids = [c.id for c in countings]
         
-        # Récupérer tous les CountingDetail pour les jobs et les comptages
-        counting_details_1 = {
-            (cd.job_id, cd.location_id, cd.product_id if cd.product else None, 
-             cd.n_lot, cd.dlc): cd
-            for cd in CountingDetail.objects.filter(
+        # Récupérer tous les CountingDetail pour les jobs et tous les comptages
+        all_counting_details = CountingDetail.objects.filter(
                 job_id__in=job_ids,
-                counting=counting_1
+            counting_id__in=counting_ids
             ).select_related('location', 'product', 'counting', 'job')
-        }
         
-        counting_details_2 = {
-            (cd.job_id, cd.location_id, cd.product_id if cd.product else None,
-             cd.n_lot, cd.dlc): cd
-            for cd in CountingDetail.objects.filter(
-                job_id__in=job_ids,
-                counting=counting_2
-            ).select_related('location', 'product', 'counting', 'job')
-        }
+        # Organiser les counting details par job et par counting
+        counting_details_by_job_and_counting = defaultdict(lambda: defaultdict(dict))
+        for cd in all_counting_details:
+            key = (cd.location_id, cd.product_id if cd.product else None, cd.n_lot, cd.dlc)
+            counting_details_by_job_and_counting[cd.job_id][cd.counting.order][key] = cd
         
         # Attacher les counting details aux jobs (via un attribut temporaire)
         for job in jobs:
-            job._counting_details_1 = {
-                k: v for k, v in counting_details_1.items() if k[0] == job.id
-            }
-            job._counting_details_2 = {
-                k: v for k, v in counting_details_2.items() if k[0] == job.id
-            }
+            job._counting_details_by_order = dict(counting_details_by_job_and_counting.get(job.id, {}))
         
         return jobs
     

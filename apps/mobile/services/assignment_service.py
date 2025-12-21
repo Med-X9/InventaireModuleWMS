@@ -51,8 +51,15 @@ class AssignmentService:
         
         # Vérifier que l'utilisateur est affecté à cet assignment
         if assignment.session_id != user_id:
+            # Récupérer le username de l'utilisateur pour le message d'erreur
+            try:
+                user = UserApp.objects.get(id=user_id)
+                username = user.username
+            except UserApp.DoesNotExist:
+                username = f"ID {user_id}"
+            
             raise UserNotAssignedException(
-                f"L'utilisateur {user_id} n'est pas affecté à l'assignment {assignment_id}"
+                f"L'utilisateur {username} n'est pas affecté à l'assignment {assignment_id}"
             )
         
         return assignment
@@ -300,7 +307,7 @@ class AssignmentService:
         }
     
     @transaction.atomic
-    def close_job(self, job_id: int, assignment_id: int, personnes_ids: Optional[List[int]] = None) -> dict:
+    def close_job(self, job_id: int, assignment_id: int, personnes_ids: Optional[List[int]] = None, user_id: Optional[int] = None) -> dict:
         """
         Clôture un assignment et vérifie si le job peut être clôturé.
         
@@ -314,6 +321,7 @@ class AssignmentService:
             job_id: ID du job
             assignment_id: ID de l'assignment
             personnes_ids: Liste des IDs des personnes (min 1, max 2)
+            user_id: ID de l'utilisateur authentifié (requis pour vérifier l'affectation)
             
         Returns:
             Dictionnaire avec les informations du job et de l'assignment, incluant :
@@ -323,6 +331,7 @@ class AssignmentService:
         Raises:
             JobNotFoundException: Si le job n'existe pas
             AssignmentNotFoundException: Si l'assignment n'existe pas
+            UserNotAssignedException: Si l'utilisateur n'est pas affecté à l'assignment
             InvalidStatusTransitionException: Si tous les emplacements ne sont pas terminés
             PersonValidationException: Si la validation des personnes échoue
         """
@@ -352,11 +361,16 @@ class AssignmentService:
         except Job.DoesNotExist:
             raise JobNotFoundException(f"Job avec l'ID {job_id} non trouvé")
         
-        # Vérifier que l'assignment existe
-        try:
-            assignment = Assigment.objects.get(id=assignment_id)
-        except Assigment.DoesNotExist:
-            raise AssignmentNotFoundException(f"Assignment avec l'ID {assignment_id} non trouvé")
+        # Vérifier que l'utilisateur est affecté à l'assignment (si user_id est fourni)
+        if user_id is not None:
+            assignment = self.verify_user_assignment(assignment_id, user_id)
+        else:
+            # Si user_id n'est pas fourni, récupérer l'assignment sans vérification
+            # (pour compatibilité avec les appels existants, mais déconseillé)
+            try:
+                assignment = Assigment.objects.get(id=assignment_id)
+            except Assigment.DoesNotExist:
+                raise AssignmentNotFoundException(f"Assignment avec l'ID {assignment_id} non trouvé")
         
         # Vérifier que l'assignment appartient au job
         if assignment.job_id != job_id:

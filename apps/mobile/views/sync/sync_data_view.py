@@ -19,15 +19,16 @@ class SyncDataView(APIView):
     API de synchronisation intelligente pour l'application mobile.
     
     Récupère toutes les données nécessaires en une seule requête pour optimiser
-    les performances de l'application mobile. Inclut les inventaires, comptages,
-    jobs, assignments, produits, emplacements et stocks.
+    les performances de l'application mobile. Inclut les comptages, jobs et assignments.
+    Les inventaires ne sont plus retournés dans la réponse.
     
     Comportement:
     - Récupère l'utilisateur depuis le token d'authentification
-    - Récupère les inventaires du même compte que l'utilisateur connecté
+    - Filtre les données par les assignments de l'utilisateur connecté
+    - Si inventory_id est fourni, filtre également par cet inventaire
     
     Paramètres de requête:
-    - inventory_id (int, optionnel): ID d'inventaire spécifique à synchroniser
+    - inventory_id (int, optionnel): ID d'inventaire spécifique à synchroniser (filtre)
     
     Réponses:
     - 200: Données de synchronisation récupérées avec succès
@@ -40,12 +41,12 @@ class SyncDataView(APIView):
     
     @swagger_auto_schema(
         operation_summary="Synchronisation des données mobile",
-        operation_description="Récupère toutes les données nécessaires en une seule requête pour optimiser les performances de l'application mobile",
+        operation_description="Récupère toutes les données nécessaires en une seule requête pour optimiser les performances de l'application mobile. Les inventaires ne sont plus retournés dans la réponse.",
         manual_parameters=[
             openapi.Parameter(
                 'inventory_id',
                 openapi.IN_QUERY,
-                description="ID d'inventaire spécifique à synchroniser",
+                description="ID d'inventaire spécifique à synchroniser (filtre optionnel)",
                 type=openapi.TYPE_INTEGER,
                 required=False
             )
@@ -57,40 +58,26 @@ class SyncDataView(APIView):
                     type=openapi.TYPE_OBJECT,
                     properties={
                         'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=True),
-                        'inventories': openapi.Schema(
-                            type=openapi.TYPE_ARRAY,
-                            items=openapi.Schema(type=openapi.TYPE_OBJECT),
-                            description="Liste des inventaires actifs"
-                        ),
-                        'countings': openapi.Schema(
-                            type=openapi.TYPE_ARRAY,
-                            items=openapi.Schema(type=openapi.TYPE_OBJECT),
-                            description="Liste des comptages associés"
-                        ),
-                        'jobs': openapi.Schema(
-                            type=openapi.TYPE_ARRAY,
-                            items=openapi.Schema(type=openapi.TYPE_OBJECT),
-                            description="Liste des jobs"
-                        ),
-                        'assignments': openapi.Schema(
-                            type=openapi.TYPE_ARRAY,
-                            items=openapi.Schema(type=openapi.TYPE_OBJECT),
-                            description="Liste des assignments"
-                        ),
-                        'products': openapi.Schema(
-                            type=openapi.TYPE_ARRAY,
-                            items=openapi.Schema(type=openapi.TYPE_OBJECT),
-                            description="Liste des produits"
-                        ),
-                        'locations': openapi.Schema(
-                            type=openapi.TYPE_ARRAY,
-                            items=openapi.Schema(type=openapi.TYPE_OBJECT),
-                            description="Liste des emplacements"
-                        ),
-                        'stocks': openapi.Schema(
-                            type=openapi.TYPE_ARRAY,
-                            items=openapi.Schema(type=openapi.TYPE_OBJECT),
-                            description="Liste des stocks"
+                        'message': openapi.Schema(type=openapi.TYPE_STRING, example='Données synchronisées avec succès'),
+                        'data': openapi.Schema(
+                            type=openapi.TYPE_OBJECT,
+                            properties={
+                                'jobs': openapi.Schema(
+                                    type=openapi.TYPE_ARRAY,
+                                    items=openapi.Schema(type=openapi.TYPE_OBJECT),
+                                    description="Liste des jobs"
+                                ),
+                                'assignments': openapi.Schema(
+                                    type=openapi.TYPE_ARRAY,
+                                    items=openapi.Schema(type=openapi.TYPE_OBJECT),
+                                    description="Liste des assignments"
+                                ),
+                                'countings': openapi.Schema(
+                                    type=openapi.TYPE_ARRAY,
+                                    items=openapi.Schema(type=openapi.TYPE_OBJECT),
+                                    description="Liste des comptages associés"
+                                )
+                            }
                         )
                     }
                 )
@@ -148,14 +135,13 @@ class SyncDataView(APIView):
         Args:
             request: Requête GET avec paramètres optionnels
             - L'utilisateur est récupéré automatiquement depuis le token d'authentification
+            - inventory_id (optionnel): ID d'inventaire pour filtrer les données
             
         Returns:
             Response: Données complètes de synchronisation incluant:
-                - inventaires actifs
-                - comptages associés
                 - jobs et assignments
-                - produits et emplacements
-                - stocks disponibles
+                - comptages associés
+                Note: Les inventaires ne sont plus retournés dans la réponse
         """
         try:
             # Récupérer l'utilisateur depuis le token d'authentification
@@ -165,9 +151,20 @@ class SyncDataView(APIView):
             sync_service = SyncService()
             
             # Récupérer les paramètres de synchronisation
-            # inventory_id = request.GET.get('inventory_id')
+            inventory_id = request.GET.get('inventory_id')
+            if inventory_id:
+                try:
+                    inventory_id = int(inventory_id)
+                except ValueError:
+                    return error_response(
+                        message='Paramètre inventory_id invalide: doit être un entier',
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        error_type='INVALID_PARAMETER'
+                    )
+            else:
+                inventory_id = None
             
-            response_data = sync_service.sync_data(target_user_id)
+            response_data = sync_service.sync_data(target_user_id, inventory_id)
             
             return success_response(
                 data=response_data,

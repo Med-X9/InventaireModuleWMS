@@ -180,31 +180,51 @@ def optimize_queryset(
     Returns:
         QuerySet optimisé
     """
-    # Appliquer select_related en premier
+    # Détecter les champs déjà dans select_related du queryset existant
+    existing_select_related_fields = set()
+    if hasattr(queryset.query, 'select_related') and queryset.query.select_related:
+        # Extraire les champs déjà dans select_related
+        # queryset.query.select_related est un dictionnaire ou une structure complexe
+        try:
+            if isinstance(queryset.query.select_related, dict):
+                existing_select_related_fields = set(queryset.query.select_related.keys())
+            elif isinstance(queryset.query.select_related, (list, tuple)):
+                existing_select_related_fields = set(queryset.query.select_related)
+            elif queryset.query.select_related is True:
+                # Si select_related=True, tous les ForeignKey sont inclus
+                # Dans ce cas, on ne peut pas utiliser only() ou defer() sur ces champs
+                # On va extraire les champs ForeignKey du modèle
+                from django.db.models.fields.related import ForeignKey, OneToOneField
+                model = queryset.model
+                for field in model._meta.get_fields():
+                    if isinstance(field, (ForeignKey, OneToOneField)):
+                        existing_select_related_fields.add(field.name)
+        except Exception:
+            # Si on ne peut pas extraire les champs, on assume que tous les ForeignKey sont inclus
+            pass
+    
+    # Appliquer select_related seulement pour les nouveaux champs
     if select_related:
-        queryset = queryset.select_related(*select_related)
+        new_select_related = [field for field in select_related if field not in existing_select_related_fields]
+        if new_select_related:
+            queryset = queryset.select_related(*new_select_related)
+        # Mettre à jour l'ensemble des champs select_related
+        existing_select_related_fields.update(select_related)
     
     if prefetch_related:
         queryset = queryset.prefetch_related(*prefetch_related)
     
-    # IMPORTANT: Ne pas utiliser only() ou defer() si select_related est déjà appliqué
+    # IMPORTANT: Ne pas utiliser only() ou defer() sur les champs qui sont dans select_related
     # car cela peut créer des conflits (un champ ne peut pas être à la fois différé et traversé)
-    # Vérifier si le queryset a déjà des select_related appliqués
-    has_existing_select_related = hasattr(queryset.query, 'select_related') and queryset.query.select_related
-    
-    if only and not has_existing_select_related:
-        queryset = queryset.only(*only)
-    elif only and has_existing_select_related:
-        # Si select_related est déjà appliqué, filtrer only pour exclure les champs select_related
-        select_related_fields = set(select_related or [])
-        only_filtered = [field for field in only if field not in select_related_fields]
+    if only:
+        # Filtrer only pour exclure les champs dans select_related
+        only_filtered = [field for field in only if field not in existing_select_related_fields]
         if only_filtered:
             queryset = queryset.only(*only_filtered)
     
     if defer:
         # Exclure les champs qui sont dans select_related
-        select_related_fields = set(select_related or [])
-        defer_filtered = [field for field in defer if field not in select_related_fields]
+        defer_filtered = [field for field in defer if field not in existing_select_related_fields]
         if defer_filtered:
             queryset = queryset.defer(*defer_filtered)
     
