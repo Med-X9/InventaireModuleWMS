@@ -101,7 +101,9 @@ class JobDiscrepancyStandardizationUseCase:
                     'status': None,
                     'counting_reference': None,
                     'counting_order': order,
-                    'session_full_name': None,
+                    'username': None,
+                    'discrepancy_count': None,
+                    'discrepancy_rate': None,
                 })
         
         # Créer une copie du job_data avec les assignments standardisés
