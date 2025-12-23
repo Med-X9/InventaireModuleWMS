@@ -456,6 +456,7 @@ class ImportTask(TimeStampedModel):
     )
     
     user = models.ForeignKey('users.UserApp', on_delete=models.CASCADE)
+    inventory = models.ForeignKey('inventory.Inventory', on_delete=models.CASCADE, null=True, blank=True, related_name='import_tasks', verbose_name='Inventaire')
     file_path = models.CharField(max_length=500)
     file_name = models.CharField(max_length=255)
     total_rows = models.IntegerField(default=0)

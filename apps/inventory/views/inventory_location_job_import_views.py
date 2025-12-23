@@ -258,15 +258,22 @@ class InventoryLocationJobImportStatusView(APIView):
     """
     permission_classes = [IsAuthenticated]
     
-    def get(self, request, import_task_id, *args, **kwargs):
+    def get(self, request, inventaire_id, *args, **kwargs):
         """
-        Récupère le statut et les erreurs d'un import
+        Récupère le statut et les erreurs d'un import pour un inventaire donné
         
         Args:
-            import_task_id: ID de la tâche d'import (ImportTask)
+            inventaire_id: ID de l'inventaire
         """
         try:
-            import_task = ImportTask.objects.get(id=import_task_id)
+            # Récupérer la dernière ImportTask pour cet inventaire
+            import_task = ImportTask.objects.filter(inventory_id=inventaire_id).order_by('-created_at').first()
+            
+            if not import_task:
+                return self._error_response(
+                    message=f"Aucune tâche d'import trouvée pour l'inventaire {inventaire_id}",
+                    status_code=status.HTTP_404_NOT_FOUND
+                )
             
             # Récupérer les erreurs associées
             errors = ImportError.objects.filter(import_task=import_task).order_by('row_number')
@@ -285,6 +292,7 @@ class InventoryLocationJobImportStatusView(APIView):
             return self._success_response(
                 data={
                     'import_task_id': import_task.id,
+                    'inventory_id': inventaire_id,
                     'status': import_task.status,
                     'file_name': import_task.file_name,
                     'total_rows': import_task.total_rows,
@@ -302,11 +310,6 @@ class InventoryLocationJobImportStatusView(APIView):
                 status_code=status.HTTP_200_OK
             )
             
-        except ImportTask.DoesNotExist:
-            return self._error_response(
-                message=f"Tâche d'import {import_task_id} non trouvée",
-                status_code=status.HTTP_404_NOT_FOUND
-            )
         except Exception as e:
             logger.error(f"Erreur lors de la récupération du statut: {str(e)}", exc_info=True)
             return self._error_response(

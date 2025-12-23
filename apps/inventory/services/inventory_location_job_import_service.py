@@ -57,6 +57,7 @@ class InventoryLocationJobImportService:
         file_name = os.path.basename(file_path)
         import_task = ImportTask.objects.create(
             user_id=user_id or 1,  # Utiliser l'utilisateur par défaut si non fourni
+            inventory_id=inventory_id,
             file_path=file_path,
             file_name=file_name,
             status='PENDING',

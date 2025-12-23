@@ -86,7 +86,7 @@ urlpatterns = [
     path('inventory/<int:inventory_id>/stocks/import/', StockImportView.as_view(), name='stock-import'),
     path('inventory/<int:inventory_id>/location-jobs/import/', InventoryLocationJobImportView.as_view(), name='inventory-location-job-import'),
     path('inventory/<int:inventory_id>/location-jobs/import-sync/', InventoryLocationJobImportSyncView.as_view(), name='inventory-location-job-import-sync'),
-    path('inventory/location-jobs/import/<int:import_task_id>/status/', InventoryLocationJobImportStatusView.as_view(), name='inventory-location-job-import-status'),
+    path('inventory/location-jobs/import/<int:inventaire_id>/status/', InventoryLocationJobImportStatusView.as_view(), name='inventory-location-job-import-status'),
     path('inventory/planning/<int:inventory_id>/warehouses/', InventoryWarehousesView.as_view(), name='inventory-warehouses'),
     path('inventory/account/<int:account_id>/warehouses/', AccountWarehousesView.as_view(), name='account-warehouses'),
     
