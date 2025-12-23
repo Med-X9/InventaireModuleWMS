@@ -629,44 +629,27 @@
                 <i class="fas fa-info-circle"></i>
                 Informations importantes
             </h2>
-            <div class="info-cards">
-                <div class="info-card blue" data-ordre="1" onclick="selectOrdre(1)">
-                    <div class="card-icon blue">
-                        <i class="fas fa-sort-numeric-down"></i>
+            
+            <!-- Indicateur dynamique de plage -->
+            <div id="dynamic-range-indicator" style="display: none; margin-bottom: 30px; padding: 20px; background: white; border-radius: 16px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08); border-left: 4px solid #667eea;">
+                <div style="display: flex; align-items: center; gap: 15px;">
+                    <div style="width: 48px; height: 48px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; display: flex; align-items: center; justify-content: center;">
+                        <i class="fas fa-calculator" style="color: white; font-size: 24px;"></i>
                     </div>
-                    <div class="card-content">
-                        <h3>Ordre 1</h3>
-                        <p>1000 à 1999</p>
-                        <small>Maximum 1000 équipes</small>
-                        <span class="badge blue">Cliquez pour sélectionner</span>
-                    </div>
-                </div>
-                <div class="info-card green" data-ordre="2" onclick="selectOrdre(2)">
-                    <div class="card-icon green">
-                        <i class="fas fa-sort-numeric-down-alt"></i>
-                    </div>
-                    <div class="card-content">
-                        <h3>Ordre 2</h3>
-                        <p>2000 à 2999</p>
-                        <small>Maximum 1000 équipes</small>
-                        <span class="badge green">Cliquez pour sélectionner</span>
-                    </div>
-                </div>
-                <div class="info-card purple">
-                    <div class="card-icon purple">
-                        <i class="fas fa-key"></i>
-                    </div>
-                    <div class="card-content">
-                        <h3>Mot de passe</h3>
-                        <p>user1234</p>
-                        <small>Commun à toutes les équipes</small>
-                        <span class="badge purple">Par défaut</span>
+                    <div style="flex: 1;">
+                        <h4 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 700; color: #1a202c;">
+                            <span id="range-title">Aperçu de création</span>
+                        </h4>
+                        <p id="range-details" style="margin: 0; font-size: 14px; color: #64748b; line-height: 1.6;">
+                            Sélectionnez un ordre pour voir la plage d'équipes
+                        </p>
                     </div>
                 </div>
             </div>
+            
             <div class="info-badge">
                 <i class="fas fa-lightbulb"></i>
-                <span>Astuce : Cliquez sur une carte d'ordre pour pré-remplir le formulaire</span>
+                <span>Saisissez un ordre (1, 2, 3, 4, ...). Formule : Ordre N → équipes de N001 à N999 (max 999 équipes par ordre)</span>
             </div>
         </div>
 
@@ -766,50 +749,71 @@ document.addEventListener('DOMContentLoaded', function() {
     const ordreField = document.getElementById('id_ordre_comptage');
     const nombreField = document.getElementById('id_nombre_equipes');
     const nombreHelpText = document.getElementById('nombre-help-text');
-    const infoCards = document.querySelectorAll('.info-card[data-ordre]');
 
-    // Fonction pour sélectionner un ordre (appelée depuis les cartes)
-    window.selectOrdre = function(ordre) {
-        ordreField.value = ordre;
-        ordreField.dispatchEvent(new Event('change'));
-        
-        // Mettre à jour l'état visuel des cartes
-        infoCards.forEach(card => {
-            if (parseInt(card.dataset.ordre) === ordre) {
-                card.classList.add('active');
-            } else {
-                card.classList.remove('active');
-            }
-        });
-        
-        // Focus sur le champ nombre d'équipes
-        nombreField.focus();
-    };
-
-    // Mise à jour dynamique de l'aide selon l'ordre sélectionné
-    function updateHelpText() {
-        const ordre = parseInt(ordreField.value);
-        if (nombreHelpText) {
-            if (ordre === 1) {
-                nombreHelpText.textContent = 'Nombre d\'équipes à créer (max 1000, de 1000 à 1999)';
-            } else if (ordre === 2) {
-                nombreHelpText.textContent = 'Nombre d\'équipes à créer (max 1000, de 2000 à 2999)';
-            } else {
-                nombreHelpText.textContent = 'Nombre d\'équipes à créer';
-            }
-        }
-        
-        // Mettre à jour l'état visuel des cartes
-        infoCards.forEach(card => {
-            if (parseInt(card.dataset.ordre) === ordre) {
-                card.classList.add('active');
-            } else {
-                card.classList.remove('active');
-            }
-        });
+    // Fonction pour calculer la plage selon l'ordre
+    function calculateRange(ordre) {
+        const start = (ordre * 1000) + 1;
+        const end = (ordre * 1000) + 999;
+        return { start, end, max: 999 };
     }
 
+    // Mise à jour dynamique de l'aide selon l'ordre saisi
+    function updateHelpText() {
+        const ordre = parseInt(ordreField.value);
+        const nombre = parseInt(nombreField.value);
+        const indicator = document.getElementById('dynamic-range-indicator');
+        const rangeDetails = document.getElementById('range-details');
+        
+        if (ordre && ordre > 0 && ordre <= 999) {
+            const range = calculateRange(ordre);
+            
+            if (nombreHelpText) {
+                nombreHelpText.textContent = `Nombre d'équipes à créer (max ${range.max}, de ${range.start} à ${range.end})`;
+            }
+            
+            // Mettre à jour l'indicateur dynamique
+            if (indicator && rangeDetails) {
+                indicator.style.display = 'block';
+                
+                if (nombre && nombre > 0 && nombre <= 999) {
+                    const firstTeam = range.start;
+                    const lastTeam = range.start + nombre - 1;
+                    rangeDetails.innerHTML = `
+                        <strong style="color: #667eea;">Ordre ${ordre}</strong> : 
+                        Création de <strong>${nombre}</strong> équipe(s) 
+                        de <strong style="color: #667eea;">equipe-${firstTeam}</strong> 
+                        à <strong style="color: #667eea;">equipe-${lastTeam}</strong>
+                        <br>
+                        <small style="color: #94a3b8;">Plage disponible : ${range.start} à ${range.end}</small>
+                    `;
+                } else {
+                    rangeDetails.innerHTML = `
+                        <strong style="color: #667eea;">Ordre ${ordre}</strong> : 
+                        Plage disponible de <strong>equipe-${range.start}</strong> 
+                        à <strong>equipe-${range.end}</strong> 
+                        (max ${range.max} équipes)
+                    `;
+                }
+            }
+        } else {
+            if (nombreHelpText) {
+                nombreHelpText.textContent = 'Nombre d\'équipes à créer (maximum 999 par ordre)';
+            }
+            
+            // Cacher l'indicateur dynamique
+            if (indicator) {
+                indicator.style.display = 'none';
+            }
+        }
+    }
+
+    // Écouter les changements sur le champ ordre
+    ordreField.addEventListener('input', updateHelpText);
     ordreField.addEventListener('change', updateHelpText);
+    
+    // Écouter les changements sur le champ nombre
+    nombreField.addEventListener('input', updateHelpText);
+    nombreField.addEventListener('change', updateHelpText);
     
     // Initialiser l'état visuel au chargement
     if (ordreField.value) {
@@ -821,9 +825,16 @@ document.addEventListener('DOMContentLoaded', function() {
         const ordre = parseInt(ordreField.value);
         const nombre = parseInt(nombreField.value);
 
-        if (!ordre) {
+        if (!ordre || ordre < 1) {
             e.preventDefault();
-            showError('Veuillez sélectionner un ordre de comptage');
+            showError('Veuillez saisir un ordre de comptage valide (nombre entier positif)');
+            ordreField.focus();
+            return;
+        }
+
+        if (ordre > 999) {
+            e.preventDefault();
+            showError('L\'ordre de comptage ne peut pas dépasser 999');
             ordreField.focus();
             return;
         }
@@ -835,16 +846,10 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        if (ordre === 1 && nombre > 1000) {
+        if (nombre > 999) {
+            const range = calculateRange(ordre);
             e.preventDefault();
-            showError('Pour l\'ordre 1, le nombre maximum d\'équipes est 1000 (de 1000 à 1999)');
-            nombreField.focus();
-            return;
-        }
-
-        if (ordre === 2 && nombre > 1000) {
-            e.preventDefault();
-            showError('Pour l\'ordre 2, le nombre maximum d\'équipes est 1000 (de 2000 à 2999)');
+            showError(`Pour l'ordre ${ordre}, le nombre maximum d'équipes est 999 (de ${range.start} à ${range.end})`);
             nombreField.focus();
             return;
         }
@@ -900,8 +905,27 @@ document.addEventListener('DOMContentLoaded', function() {
         const ordre = parseInt(ordreField.value);
         const nombre = parseInt(this.value);
         
-        if (ordre && nombre) {
-            if ((ordre === 1 || ordre === 2) && nombre > 1000) {
+        if (ordre && ordre > 0 && nombre) {
+            if (nombre > 999) {
+                this.style.borderColor = '#ef4444';
+                this.style.boxShadow = '0 0 0 4px rgba(239, 68, 68, 0.1)';
+            } else if (nombre > 0) {
+                this.style.borderColor = '#10b981';
+                this.style.boxShadow = '0 0 0 4px rgba(16, 185, 129, 0.1)';
+                setTimeout(() => {
+                    this.style.borderColor = '';
+                    this.style.boxShadow = '';
+                }, 2000);
+            }
+        }
+    });
+    
+    // Validation en temps réel pour l'ordre
+    ordreField.addEventListener('input', function() {
+        const ordre = parseInt(this.value);
+        
+        if (ordre) {
+            if (ordre < 1 || ordre > 999) {
                 this.style.borderColor = '#ef4444';
                 this.style.boxShadow = '0 0 0 4px rgba(239, 68, 68, 0.1)';
             } else {

@@ -66,6 +66,7 @@ MIDDLEWARE = [
     'project.middleware.security_headers.SecurityHeadersMiddleware',  # Headers de sécurité
     'project.middleware.ActionLoggingMiddleware',
     'apps.masterdata.middleware.CreateTeamsButtonMiddleware',  # Middleware pour le bouton "Créer des équipes"
+    # 'apps.inventory.middleware.CreatePersonnesButtonMiddleware',  # Désactivé - utiliser l'action admin à la place
 ]
 
 
@@ -320,6 +321,12 @@ JAZZMIN_SETTINGS = {
             "url": "make_messages", 
             "icon": "fas fa-comments",
             "permissions": ["books.view_book"]
+        }],
+        "inventory": [{
+            "name": "Générer des personnes", 
+            "url": "admin:inventory_personne_create_personnes", 
+            "icon": "fas fa-user-plus",
+            "permissions": ["inventory.add_personne"]
         }]
     },
 
@@ -359,7 +366,7 @@ JAZZMIN_SETTINGS = {
     #############
     # Relative paths to custom CSS/JS scripts (must be present in static files)
     "custom_css": None,
-    "custom_js": None,
+    "custom_js": None,  # Désactivé pour l'instant
     # Whether to link font from fonts.googleapis.com (use custom_css to supply font otherwise)
     "use_google_fonts_cdn": True,
     # Whether to show the UI customizer on the sidebar
