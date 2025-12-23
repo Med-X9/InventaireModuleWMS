@@ -642,14 +642,15 @@ class UserAppResource(resources.ModelResource):
         attribute='compte',
         widget=OptionalAccountWidget(Account, 'account_name')
     )
+    comptage = fields.Field(column_name='Ordre de comptage', attribute='comptage')
     is_active = fields.Field(column_name='Actif', attribute='is_active')
     is_staff = fields.Field(column_name='Administrateur', attribute='is_staff')
     # Le champ password n'est pas dans les fields pour éviter l'assignation directe
     # Il est géré manuellement via before_import_row et after_save_instance
-    
+
     class Meta:
         model = UserApp
-        fields = ('username', 'email', 'nom', 'prenom', 'type', 'compte', 'is_active', 'is_staff')
+        fields = ('username', 'email', 'nom', 'prenom', 'type', 'compte', 'comptage', 'is_active', 'is_staff')
         import_id_fields = ('username',)
         skip_unchanged = True
         report_skipped = False
@@ -896,10 +897,10 @@ class UserAppAdmin(ImportExportMixin, UserAdmin):
     Utilise ImportExportMixin pour éviter les conflits avec UserAdmin
     """
     resource_class = UserAppResource
-    list_display = ('username','type','is_staff', 'is_active','compte')
-    list_filter = ('type','is_staff', 'is_active','compte')
-    search_fields = ('username','compte__account_name')
-    ordering = ('username',)
+    list_display = ('username', 'comptage', 'type', 'is_staff', 'is_active', 'compte')
+    list_filter = ('comptage', 'type', 'is_staff', 'is_active', 'compte')
+    search_fields = ('username', 'comptage', 'compte__account_name')
+    ordering = ('comptage', 'username')
     
     filter_horizontal = ('groups', 'user_permissions')
     
@@ -909,7 +910,7 @@ class UserAppAdmin(ImportExportMixin, UserAdmin):
     # Champs à afficher dans le formulaire d'édition
     fieldsets = (
         (None, {'fields': ('username', 'email', 'password')}),
-        ('Informations personnelles', {'fields': ('nom', 'prenom', 'type','compte')}),
+        ('Informations personnelles', {'fields': ('nom', 'prenom', 'type', 'compte', 'comptage')}),
         ('Permissions', {'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')}),
         ('Dates importantes', {'fields': ('last_login',)}),
     )
@@ -918,7 +919,7 @@ class UserAppAdmin(ImportExportMixin, UserAdmin):
     add_fieldsets = (
         (None, {
             'classes': ('wide',),
-            'fields': ('username', 'email', 'nom', 'prenom', 'type', 'compte', 'password1', 'password2', 'is_staff', 'is_superuser', 'groups')}
+            'fields': ('username', 'email', 'nom', 'prenom', 'type', 'compte', 'comptage', 'password1', 'password2', 'is_staff', 'is_superuser', 'groups')}
         ),
     )
 
@@ -1064,6 +1065,7 @@ class UserAppAdmin(ImportExportMixin, UserAdmin):
                                             username=username,
                                             type='Mobile',
                                             compte=compte,
+                                            comptage=ordre,  # Stocker l'ordre dans le champ comptage
                                             is_active=True,
                                             is_staff=False,
                                             password=hashed_password  # Utiliser le hash pré-calculé
@@ -1130,6 +1132,7 @@ class UserAppAdmin(ImportExportMixin, UserAdmin):
                                             type='Mobile',
                                             password=password,
                                             compte=compte,
+                                            comptage=ordre,  # Stocker l'ordre dans le champ comptage
                                             is_active=True,
                                             is_staff=False
                                         )

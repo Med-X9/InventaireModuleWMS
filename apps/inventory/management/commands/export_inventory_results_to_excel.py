@@ -215,6 +215,8 @@ class Command(BaseCommand):
         final_columns = []
         if 'final_result' in df.columns:
             final_columns.append('final_result')
+        if 'manual_result' in df.columns:
+            final_columns.append('manual_result')
         if 'resolved' in df.columns:
             final_columns.append('resolved')
         
@@ -240,6 +242,7 @@ class Command(BaseCommand):
             'product': 'Code Interne Article',
             'product_description': 'Description Article',
             'final_result': 'Résultat Final',
+            'manual_result': 'Résultat Manuel',
             'resolved': 'Résolu',
         }
         

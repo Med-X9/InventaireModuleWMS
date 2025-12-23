@@ -164,6 +164,7 @@ class InventoryResultService:
                     "final_result": None,  # Stocker le final_result depuis EcartComptage
                     "ecart_id": row.get("ecart_id_alias"),
                     "resolved": None,  # Stocker le resolved depuis EcartComptage
+                    "manual_result": None,  # Stocker le manual_result depuis EcartComptage
                 },
             )
 
@@ -192,6 +193,11 @@ class InventoryResultService:
             # Convertir 0/1 en False/True car PostgreSQL retourne un entier après MAX(Cast(...))
             if row.get("resolved_agg") is not None:
                 entry_data["resolved"] = bool(row["resolved_agg"])
+            
+            # Mettre à jour le manual_result si disponible (sera le même pour tous les ordres)
+            # Convertir 0/1 en False/True car PostgreSQL retourne un entier après MAX(Cast(...))
+            if row.get("manual_result_agg") is not None:
+                entry_data["manual_result"] = bool(row["manual_result_agg"])
 
         formatted_results: List[Dict[str, Any]] = []
 
@@ -275,9 +281,12 @@ class InventoryResultService:
                 result_row["result_id"] = entry["ecart_id"]  # Alias pour result_id
                 # Ajouter le statut resolved depuis EcartComptage (booléen, peut être False ou None)
                 result_row["resolved"] = entry.get("resolved")
+                # Ajouter le statut manual_result depuis EcartComptage (booléen, peut être False ou None)
+                result_row["manual_result"] = entry.get("manual_result")
             else:
                 # Si pas d'ecart_id, result_id est None
                 result_row["result_id"] = None
+                result_row["manual_result"] = None
 
             formatted_results.append(result_row)
 

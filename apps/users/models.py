@@ -42,6 +42,7 @@ class UserApp(AbstractBaseUser, PermissionsMixin, models.Model):
     email = models.EmailField(_('Email'), blank=True, null=True)
     nom = models.CharField(_('Nom'), max_length=255, null=True, blank=True)
     prenom = models.CharField(_('Prénom'), max_length=255, null=True, blank=True)
+    comptage = models.IntegerField(_('Comptage'), null=True, blank=True)
     type = models.CharField(_('Type'), max_length=100, choices=TYPES)
     compte=models.ForeignKey('masterdata.Account', on_delete=models.CASCADE, null=True, blank=True)
     is_active = models.BooleanField(_('Actif'), default=True)

@@ -388,6 +388,7 @@ class CountingRepository(ICountingRepository):
         final_result_subquery = base_ecart_qs.values('ecart_comptage__final_result')[:1]
         ecart_id_subquery = base_ecart_qs.values('ecart_comptage_id')[:1]
         resolved_subquery = base_ecart_qs.values('ecart_comptage__resolved')[:1]
+        manual_result_subquery = base_ecart_qs.values('ecart_comptage__manual_result')[:1]
         
         # Sous-requête pour récupérer le statut de l'assignment pour ce job et ce comptage
         from ..models import Assigment
@@ -412,6 +413,7 @@ class CountingRepository(ICountingRepository):
             final_result_alias=Subquery(final_result_subquery),
             ecart_id_alias=Subquery(ecart_id_subquery),
             resolved_alias=Subquery(resolved_subquery),
+            manual_result_alias=Subquery(manual_result_subquery),
         )
 
         aggregated_queryset = annotated_queryset.values(
@@ -432,13 +434,17 @@ class CountingRepository(ICountingRepository):
             'assignment_status_alias',
             'ecart_id_alias',
             'resolved_alias',
+            'manual_result_alias',
         ).annotate(
             total_quantity=Sum('quantity_inventoried'),
             # Prendre le final_result (sera le même pour tous les CountingDetail d'une même combinaison)
             final_result_agg=Max('final_result_alias'),
             # Prendre le resolved (sera le même pour tous les CountingDetail d'une même combinaison)
             # Cast en entier car PostgreSQL ne supporte pas MAX() sur les booléens
-            resolved_agg=Max(Cast('resolved_alias', IntegerField()))
+            resolved_agg=Max(Cast('resolved_alias', IntegerField())),
+            # Prendre le manual_result (sera le même pour tous les CountingDetail d'une même combinaison)
+            # Cast en entier car PostgreSQL ne supporte pas MAX() sur les booléens
+            manual_result_agg=Max(Cast('manual_result_alias', IntegerField()))
         ).order_by(
             'warehouse_id_alias',
             'job_id',
