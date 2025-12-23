@@ -25,7 +25,8 @@ class PersonListView(APIView):
 
     def get(self, request):
         """
-        Retourne l'ensemble des personnes triées par nom puis prénom.
+        Retourne l'ensemble des numéros (numérotations) des personnes.
+        Ne retourne que le numéro, sans nom et prénom.
         """
         try:
             # Récupérer les personnes via le service dédié

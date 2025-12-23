@@ -14,7 +14,9 @@ class AssignmentDiscrepancySerializer(serializers.Serializer):
     status = serializers.CharField(allow_null=True)
     counting_reference = serializers.CharField(allow_null=True)
     counting_order = serializers.IntegerField(allow_null=True)
-    session_full_name = serializers.CharField(allow_null=True)
+    username = serializers.CharField(allow_null=True)
+    discrepancy_count = serializers.IntegerField(allow_null=True, required=False)
+    discrepancy_rate = serializers.FloatField(allow_null=True, required=False)
 
 
 class JobDiscrepancySerializer(serializers.Serializer):
@@ -34,6 +36,7 @@ class JobDiscrepancySerializer(serializers.Serializer):
     total_lines_counting_1 = serializers.IntegerField()
     total_lines_counting_2 = serializers.IntegerField()
     common_lines_count = serializers.IntegerField()
+    total_emplacements = serializers.IntegerField(required=False)
 
 
 class JobByCountingSerializer(serializers.Serializer):

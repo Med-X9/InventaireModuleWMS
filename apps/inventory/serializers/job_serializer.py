@@ -205,20 +205,24 @@ class JobFullDetailSerializer(serializers.ModelSerializer):
         Récupère les emplacements (job_details) d'un job.
         Filtre par counting pour éviter les doublons (un JobDetail a un champ counting).
         Utilise le counting du premier assignment actif, ou retourne les emplacements uniques par location.
+        OPTIMISÉ: Utilise les données préchargées au lieu de faire des requêtes SQL supplémentaires.
         """
-        # Récupérer le premier assignment actif pour déterminer le counting à utiliser
-        first_assignment = obj.assigment_set.select_related('counting').first()
+        # Utiliser les données préchargées (pas de requête SQL supplémentaire)
+        all_assignments = list(obj.assigment_set.all())
+        first_assignment = all_assignments[0] if all_assignments else None
         
-        if first_assignment and first_assignment.counting:
-            # Filtrer par le counting du premier assignment actif
-            job_details = obj.jobdetail_set.filter(
-                counting=first_assignment.counting
-            ).select_related('location__sous_zone__zone').order_by('location_id', '-id')
+        # Récupérer tous les job_details préchargés
+        all_job_details = list(obj.jobdetail_set.all())
+        
+        # Filtrer en mémoire par counting si nécessaire
+        if first_assignment and hasattr(first_assignment, 'counting') and first_assignment.counting:
+            counting_id = first_assignment.counting.id
+            job_details = [jd for jd in all_job_details if jd.counting_id == counting_id]
         else:
-            # Si pas d'assignment, retourner les emplacements uniques par location (évite les doublons)
-            job_details = obj.jobdetail_set.select_related(
-                'location__sous_zone__zone'
-            ).order_by('location_id', '-id')
+            job_details = all_job_details
+        
+        # Trier en mémoire (évite une requête SQL ORDER BY)
+        job_details.sort(key=lambda jd: (jd.location_id, -jd.id))
         
         # Éliminer les doublons par location_id (garder le plus récent)
         seen_locations = set()
@@ -230,10 +234,12 @@ class JobFullDetailSerializer(serializers.ModelSerializer):
         
         return JobEmplacementDetailSerializer(unique_job_details, many=True).data
     def get_assignments(self, obj):
-        assignments = obj.assigment_set.select_related('counting', 'session').all()
+        # Utiliser les données préchargées (pas de requête SQL supplémentaire)
+        assignments = list(obj.assigment_set.all())
         return JobAssignmentDetailSerializer(assignments, many=True).data
     def get_ressources(self, obj):
-        ressources = obj.jobdetailressource_set.select_related('ressource').all()
+        # Utiliser les données préchargées (pas de requête SQL supplémentaire)
+        ressources = list(obj.jobdetailressource_set.all())
         return JobRessourceSerializer(ressources, many=True).data
 
 class JobPendingSerializer(serializers.ModelSerializer):
@@ -250,20 +256,24 @@ class JobPendingSerializer(serializers.ModelSerializer):
         Récupère les emplacements (job_details) d'un job.
         Filtre par counting pour éviter les doublons (un JobDetail a un champ counting).
         Utilise le counting du premier assignment actif, ou retourne les emplacements uniques par location.
+        OPTIMISÉ: Utilise les données préchargées au lieu de faire des requêtes SQL supplémentaires.
         """
-        # Récupérer le premier assignment actif pour déterminer le counting à utiliser
-        first_assignment = obj.assigment_set.select_related('counting').first()
+        # Utiliser les données préchargées (pas de requête SQL supplémentaire)
+        all_assignments = list(obj.assigment_set.all())
+        first_assignment = all_assignments[0] if all_assignments else None
         
-        if first_assignment and first_assignment.counting:
-            # Filtrer par le counting du premier assignment actif 
-            job_details = obj.jobdetail_set.filter(
-                counting=first_assignment.counting
-            ).select_related('location__sous_zone__zone').order_by('location_id', '-id')
+        # Récupérer tous les job_details préchargés
+        all_job_details = list(obj.jobdetail_set.all())
+        
+        # Filtrer en mémoire par counting si nécessaire
+        if first_assignment and hasattr(first_assignment, 'counting') and first_assignment.counting:
+            counting_id = first_assignment.counting.id
+            job_details = [jd for jd in all_job_details if jd.counting_id == counting_id]
         else:
-            # Si pas d'assignment, retourner les emplacements uniques par location (évite les doublons)
-            job_details = obj.jobdetail_set.select_related(
-                'location__sous_zone__zone'
-            ).order_by('location_id', '-id')
+            job_details = all_job_details
+        
+        # Trier en mémoire (évite une requête SQL ORDER BY)
+        job_details.sort(key=lambda jd: (jd.location_id, -jd.id))
         
         # Éliminer les doublons par location_id (garder le plus récent)
         seen_locations = set()
@@ -276,11 +286,13 @@ class JobPendingSerializer(serializers.ModelSerializer):
         return JobEmplacementDetailSerializer(unique_job_details, many=True).data
     
     def get_assignments(self, obj):
-        assignments = obj.assigment_set.select_related('counting', 'session').all()
+        # Utiliser les données préchargées (pas de requête SQL supplémentaire)
+        assignments = list(obj.assigment_set.all())
         return JobAssignmentDetailSerializer(assignments, many=True).data
     
     def get_ressources(self, obj):
-        ressources = obj.jobdetailressource_set.select_related('ressource').all()
+        # Utiliser les données préchargées (pas de requête SQL supplémentaire)
+        ressources = list(obj.jobdetailressource_set.all())
         return JobRessourceSerializer(ressources, many=True).data 
 
 class PendingJobReferenceSerializer(serializers.Serializer):
