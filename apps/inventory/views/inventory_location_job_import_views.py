@@ -147,8 +147,8 @@ class InventoryLocationJobImportView(APIView):
 
 class InventoryLocationJobImportSyncView(APIView):
     """
-    Vue pour importer des InventoryLocationJob depuis un fichier Excel (version synchrone)
-    Utile pour les tests ou les petits fichiers
+    Vue pour importer des InventoryLocationJob depuis un fichier Excel (version asynchrone)
+    Retourne immédiatement une réponse avec import_task_id, le traitement se fait en arrière-plan
     """
     permission_classes = [IsAuthenticated]
     
@@ -158,7 +158,8 @@ class InventoryLocationJobImportSyncView(APIView):
     
     def post(self, request, inventory_id, *args, **kwargs):
         """
-        Importe des InventoryLocationJob depuis un fichier Excel (synchrone)
+        Importe des InventoryLocationJob depuis un fichier Excel (asynchrone)
+        Retourne immédiatement avec un import_task_id, le traitement se fait en arrière-plan
         """
         try:
             # Valider le serializer
@@ -180,37 +181,44 @@ class InventoryLocationJobImportSyncView(APIView):
                 temp_file.close()
                 file_path = temp_file.name
                 
-                # Lancer l'import de manière synchrone
-                result = self.service.import_from_excel(
+                # Lancer l'import de manière asynchrone
+                def import_callback(result):
+                    """Callback appelé après l'import"""
+                    # Nettoyer le fichier temporaire après le traitement
+                    try:
+                        if os.path.exists(file_path):
+                            os.unlink(file_path)
+                            logger.info(f"Fichier temporaire supprimé: {file_path}")
+                    except Exception as e:
+                        logger.warning(f"Erreur lors de la suppression du fichier temporaire: {str(e)}")
+                    
+                    logger.info(f"Import terminé pour l'inventaire {inventory_id}: {result.get('message', '')}")
+                
+                # Récupérer l'ID de l'utilisateur connecté
+                user_id = request.user.id if hasattr(request, 'user') and request.user.is_authenticated else None
+                
+                # Lancer l'import asynchrone et récupérer l'ImportTask
+                import_task = self.service.import_from_excel_async(
                     inventory_id=inventory_id,
-                    file_path=file_path
+                    file_path=file_path,
+                    user_id=user_id,
+                    callback=import_callback
                 )
                 
-                # Préparer la réponse
-                if result['success']:
-                    return self._success_response(
-                        data={
-                            'imported_count': result['imported_count'],
-                            'locations_updated': result.get('locations_updated', 0),
-                            'jobs_created': result.get('jobs_created', 0),
-                            'job_details_created': result.get('job_details_created', 0),
-                            'unconsumed_locations_count': result.get('unconsumed_locations_count', 0),
-                            'message': result['message']
-                        },
-                        message=result['message'],
-                        status_code=status.HTTP_201_CREATED
-                    )
-                else:
-                    return self._error_response(
-                        message=result['message'],
-                        errors=result.get('errors', []),
-                        status_code=status.HTTP_400_BAD_REQUEST
-                    )
+                # Retourner immédiatement une réponse indiquant que le traitement est en cours
+                return self._success_response(
+                    data={
+                        'status': 'processing',
+                        'message': 'Import en cours de traitement. Le traitement est effectué en arrière-plan.',
+                        'inventory_id': inventory_id,
+                        'import_task_id': import_task.id
+                    },
+                    status_code=status.HTTP_202_ACCEPTED
+                )
                     
             finally:
-                # Nettoyer le fichier temporaire
-                if os.path.exists(file_path):
-                    os.unlink(file_path)
+                # Le fichier temporaire sera nettoyé après le traitement asynchrone via le callback
+                pass
                 
         except InventoryNotFoundError as e:
             logger.warning(f"Inventaire non trouvé: {str(e)}")
