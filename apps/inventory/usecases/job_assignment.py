@@ -30,7 +30,7 @@ class JobAssignmentUseCase:
         Args:
             assignment_data: Données d'affectation contenant :
                 - job_ids: Liste des IDs des jobs
-                - counting_order: Ordre du comptage (1, 2, ou 3)
+                - counting_order: Ordre du comptage (1, 2, 3, 4, 5, ...)
                 - session_id: ID de la session (optionnel)
                 - date_start: Date de début (optionnel)
         
@@ -71,8 +71,8 @@ class JobAssignmentUseCase:
         
         # Validation de l'ordre du comptage
         counting_order = assignment_data.get('counting_order')
-        if counting_order and counting_order not in [1, 2, 3]:
-            errors.append("L'ordre du comptage doit être 1, 2 ou 3")
+        if counting_order and counting_order < 1:
+            errors.append("L'ordre du comptage doit être supérieur ou égal à 1")
         
         # Validation de la session pour le mode "image stock"
         counting_order = assignment_data.get('counting_order')

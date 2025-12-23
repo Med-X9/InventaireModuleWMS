@@ -279,12 +279,11 @@ def validate_numero_format(value):
 class Personne(TimeStampedModel, ReferenceMixin):
     REFERENCE_PREFIX = 'PER'
     reference = models.CharField(unique=True, max_length=20, null=False)
-    nom = models.CharField(max_length=200,null=True,blank=True)
-    prenom = models.CharField(max_length=200,null=True,blank=True)
+    full_name = models.CharField(max_length=200,null=True,blank=True)
     numero = models.CharField(max_length=20, validators=[validate_numero_format])
     history = HistoricalRecords()    
     def __str__(self):
-        return f"{self.nom} - {self.prenom}"
+        return self.numero
     
     
 
@@ -433,6 +432,7 @@ class EcartComptage(TimeStampedModel, ReferenceMixin):
     
     # Résultat final
     final_result = models.IntegerField(null=True, blank=True, verbose_name="Résultat final")
+    manual_result = models.BooleanField(default=False, verbose_name="Résultat manuel")
     justification = models.TextField(blank=True, null=True, verbose_name="Justification")
     resolved = models.BooleanField(default=False, verbose_name="Résolu")
     stopped_reason = models.CharField(

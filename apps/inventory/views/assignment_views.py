@@ -45,7 +45,7 @@ class AssignJobsToCountingView(APIView):
     Body:
     {
         "job_ids": [1, 2, 3],
-        "counting_order": 1,
+        "counting_order": 1,  // Peut être 1, 2, 3, 4, 5, etc.
         "session_id": 5,
         "date_start": "2024-01-15T10:00:00Z"
     }
@@ -516,9 +516,15 @@ class AutoAssignJobsFromInventoryLocationJobView(APIView):
     4. Vérifie que les équipes ne sont pas déjà affectées à un inventaire GENERAL en cours
     5. Applique l'affectation automatique avec transaction atomique (tout ou rien)
     6. Trouve les Jobs correspondants par référence
-    7. Crée les assignments pour les comptages 1 et 2
+    7. Crée les assignments pour les comptages 1 et 2 avec le statut AFFECTE
+    8. Met à jour le statut des jobs à AFFECTE
     
     Logique "tout ou rien" : Si une seule équipe échoue la validation, toute l'opération est annulée
+    
+    Comportement :
+    - Les assignments sont créés avec le statut AFFECTE
+    - Les jobs sont mis à jour au statut AFFECTE (sauf s'ils sont déjà à un statut avancé)
+    - Si un assignment est ENTAME, il est mis en TRANSFERT lors de la réaffectation
     """
     permission_classes = [IsAuthenticated]
     
@@ -696,8 +702,7 @@ class AutoAssignJobsFromInventoryLocationJobView(APIView):
                                 defaults={
                                     'reference': Assigment().generate_reference(Assigment.REFERENCE_PREFIX),
                                     'session': session_1_userapp,
-                                    'status': 'PRET',
-                                    'pret_date': current_time,
+                                    'status': 'AFFECTE',
                                     'affecte_date': current_time,
                                     'date_start': current_time
                                 }
@@ -710,8 +715,7 @@ class AutoAssignJobsFromInventoryLocationJobView(APIView):
                                     assignment_1.status = 'TRANSFERT'
                                     assignment_1.transfert_date = current_time
                                 else:
-                                    assignment_1.status = 'PRET'
-                                    assignment_1.pret_date = current_time
+                                    assignment_1.status = 'AFFECTE'
                                 
                                 assignment_1.session = session_1_userapp
                                 assignment_1.affecte_date = current_time
@@ -733,8 +737,7 @@ class AutoAssignJobsFromInventoryLocationJobView(APIView):
                                 defaults={
                                     'reference': Assigment().generate_reference(Assigment.REFERENCE_PREFIX),
                                     'session': session_2_userapp,
-                                    'status': 'PRET',
-                                    'pret_date': current_time,
+                                    'status': 'AFFECTE',
                                     'affecte_date': current_time,
                                     'date_start': current_time
                                 }
@@ -747,8 +750,7 @@ class AutoAssignJobsFromInventoryLocationJobView(APIView):
                                     assignment_2.status = 'TRANSFERT'
                                     assignment_2.transfert_date = current_time
                                 else:
-                                    assignment_2.status = 'PRET'
-                                    assignment_2.pret_date = current_time
+                                    assignment_2.status = 'AFFECTE'
                                 
                                 assignment_2.session = session_2_userapp
                                 assignment_2.affecte_date = current_time
@@ -757,6 +759,14 @@ class AutoAssignJobsFromInventoryLocationJobView(APIView):
                                 assignments_updated_2.append(assignment_2.id)
                             else:
                                 assignments_created_2.append(assignment_2.id)
+                    
+                    # Mettre à jour le statut du job à AFFECTE
+                    # Ne pas modifier si le job est déjà dans un statut avancé
+                    preserved_job_statuses = ['PRET', 'TRANSFERT', 'ENTAME', 'TERMINE', 'SAISIE MANUELLE']
+                    if job.status not in preserved_job_statuses:
+                        job.status = 'AFFECTE'
+                        job.affecte_date = current_time
+                        job.save()
             
             # Préparer la réponse
             response_data = {

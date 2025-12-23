@@ -7,208 +7,87 @@
 {{ block.super }}
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <style>
-    * {
-        box-sizing: border-box;
-    }
-    
     .create-teams-wrapper {
-        background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%);
-        min-height: calc(100vh - 60px);
-        padding: 40px 60px;
-        width: 100%;
+        background: #f5f7fa;
+        min-height: 100vh;
+        padding: 30px 20px;
     }
     
     .create-teams-container {
-        max-width: 100%;
-        width: 100%;
+        max-width: 800px;
         margin: 0 auto;
-        animation: fadeInUp 0.6s ease-out;
-    }
-    
-    @keyframes fadeInUp {
-        from {
-            opacity: 0;
-            transform: translateY(20px);
-        }
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
     }
     
     .create-teams-header {
         text-align: center;
-        margin-bottom: 45px;
-        padding-bottom: 30px;
-        border-bottom: 3px solid #e1e8ed;
-        position: relative;
-    }
-    
-    .create-teams-header::after {
-        content: '';
-        position: absolute;
-        bottom: -3px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 100px;
-        height: 3px;
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        border-radius: 2px;
+        margin-bottom: 35px;
+        padding-bottom: 25px;
+        border-bottom: 2px solid #e1e8ed;
     }
     
     .header-icon-wrapper {
-        width: 100px;
-        height: 100px;
-        margin: 0 auto 25px;
+        width: 80px;
+        height: 80px;
+        margin: 0 auto 20px;
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border-radius: 25px;
+        border-radius: 20px;
         display: flex;
         align-items: center;
         justify-content: center;
-        box-shadow: 0 10px 30px rgba(102, 126, 234, 0.35);
-        transition: transform 0.3s ease;
-        position: relative;
-        overflow: hidden;
-    }
-    
-    .header-icon-wrapper::before {
-        content: '';
-        position: absolute;
-        top: -50%;
-        left: -50%;
-        width: 200%;
-        height: 200%;
-        background: radial-gradient(circle, rgba(255,255,255,0.3) 0%, transparent 70%);
-        animation: shimmer 3s infinite;
-    }
-    
-    @keyframes shimmer {
-        0%, 100% { transform: translate(-50%, -50%) rotate(0deg); }
-        50% { transform: translate(-50%, -50%) rotate(180deg); }
-    }
-    
-    .header-icon-wrapper:hover {
-        transform: scale(1.05) rotate(5deg);
+        box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
     }
     
     .header-icon-wrapper i {
-        font-size: 48px;
+        font-size: 40px;
         color: white;
-        position: relative;
-        z-index: 1;
     }
     
     .create-teams-header h1 {
-        font-size: 38px;
-        font-weight: 800;
-        margin: 0 0 12px 0;
-        color: #1a202c;
-        letter-spacing: -0.5px;
+        font-size: 32px;
+        font-weight: 700;
+        margin: 0 0 10px 0;
+        color: #2c3e50;
     }
     
     .subtitle {
-        font-size: 18px;
-        color: #64748b;
+        font-size: 16px;
+        color: #7f8c8d;
         margin: 0;
-        font-weight: 400;
-        line-height: 1.6;
-    }
-    
-    .info-section {
-        margin-bottom: 40px;
-    }
-    
-    .section-title {
-        font-size: 20px;
-        font-weight: 700;
-        color: #1a202c;
-        margin-bottom: 20px;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-    
-    .section-title i {
-        color: #667eea;
-        font-size: 22px;
     }
     
     .info-cards {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
-        gap: 30px;
-        margin-bottom: 40px;
+        gap: 15px;
+        margin-bottom: 30px;
     }
     
     .info-card {
         background: white;
-        border-radius: 16px;
-        padding: 28px 24px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
         display: flex;
         flex-direction: column;
         align-items: center;
         text-align: center;
-        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-        border: 2px solid transparent;
-        cursor: pointer;
-        position: relative;
-        overflow: hidden;
-    }
-    
-    .info-card::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 4px;
-        background: linear-gradient(90deg, transparent, currentColor, transparent);
-        transform: translateX(-100%);
-        transition: transform 0.6s ease;
-    }
-    
-    .info-card:hover::before {
-        transform: translateX(100%);
+        transition: all 0.3s ease;
+        border: 1px solid #e1e8ed;
     }
     
     .info-card:hover {
-        transform: translateY(-8px) scale(1.02);
-        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.15);
-        border-color: currentColor;
-    }
-    
-    .info-card.active {
-        border-color: currentColor;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-        transform: translateY(-4px);
-    }
-    
-    .info-card.blue {
-        color: #667eea;
-    }
-    
-    .info-card.green {
-        color: #11998e;
-    }
-    
-    .info-card.purple {
-        color: #f5576c;
+        transform: translateY(-3px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
     }
     
     .card-icon {
-        width: 64px;
-        height: 64px;
-        border-radius: 16px;
+        width: 50px;
+        height: 50px;
+        border-radius: 12px;
         display: flex;
         align-items: center;
         justify-content: center;
-        margin-bottom: 16px;
-        transition: transform 0.3s ease;
-    }
-    
-    .info-card:hover .card-icon {
-        transform: scale(1.1) rotate(5deg);
+        margin-bottom: 12px;
     }
     
     .card-icon.blue {
@@ -224,260 +103,154 @@
     }
     
     .card-icon i {
-        font-size: 28px;
+        font-size: 24px;
         color: white;
     }
     
     .card-content h3 {
-        margin: 0 0 10px 0;
-        font-size: 18px;
+        margin: 0 0 6px 0;
+        font-size: 16px;
         font-weight: 700;
-        color: #1a202c;
+        color: #2c3e50;
     }
     
     .card-content p {
         margin: 0;
-        font-size: 15px;
-        color: #64748b;
-        line-height: 1.6;
-    }
-    
-    .card-content small {
-        display: block;
-        margin-top: 6px;
         font-size: 13px;
-        color: #94a3b8;
-        font-weight: 500;
-    }
-    
-    .badge {
-        display: inline-block;
-        padding: 4px 12px;
-        border-radius: 12px;
-        font-size: 11px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin-top: 8px;
-    }
-    
-    .badge.blue {
-        background: rgba(102, 126, 234, 0.1);
-        color: #667eea;
-    }
-    
-    .badge.green {
-        background: rgba(17, 153, 142, 0.1);
-        color: #11998e;
+        color: #7f8c8d;
+        line-height: 1.4;
     }
     
     .form-card {
         background: white;
-        border-radius: 20px;
-        padding: 50px 60px;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        border-radius: 16px;
+        padding: 40px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
         border: 1px solid #e1e8ed;
-        position: relative;
-        max-width: 100%;
-    }
-    
-    .form-card::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 5px;
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        border-radius: 20px 20px 0 0;
-    }
-    
-    .form-fields-grid {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: 32px;
-        margin-bottom: 20px;
     }
     
     .form-group {
-        margin-bottom: 32px;
-        position: relative;
-    }
-    
-    .form-group.full-width {
-        grid-column: 1 / -1;
+        margin-bottom: 25px;
     }
     
     .form-label {
         display: block;
-        font-weight: 700;
-        color: #1a202c;
-        margin-bottom: 12px;
-        font-size: 16px;
+        font-weight: 600;
+        color: #2c3e50;
+        margin-bottom: 10px;
+        font-size: 15px;
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: 8px;
     }
     
     .form-label i {
         color: #667eea;
-        font-size: 18px;
-        width: 24px;
-        text-align: center;
+        font-size: 16px;
+        width: 20px;
     }
     
     .required {
-        color: #ef4444;
+        color: #e74c3c;
         margin-left: 4px;
         font-weight: 700;
-        font-size: 18px;
     }
     
     .form-group select,
     .form-group input[type="number"] {
         width: 100%;
-        padding: 16px 20px;
+        padding: 14px 16px;
         border: 2px solid #e1e8ed;
-        border-radius: 12px;
-        font-size: 16px;
+        border-radius: 10px;
+        font-size: 15px;
         transition: all 0.3s ease;
-        background: #f8fafc;
-        color: #1a202c;
+        background: white;
+        color: #2c3e50;
         font-family: inherit;
-        appearance: none;
-        position: relative;
-    }
-    
-    .form-group select {
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23667eea' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
-        background-repeat: no-repeat;
-        background-position: right 16px center;
-        background-size: 16px;
-        padding-right: 48px;
     }
     
     .form-group select:focus,
     .form-group input[type="number"]:focus {
         outline: none;
         border-color: #667eea;
-        background: white;
-        box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
-        transform: translateY(-2px);
-    }
-    
-    .form-group select:hover,
-    .form-group input[type="number"]:hover {
-        border-color: #cbd5e1;
-        background: white;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
     }
     
     .help-text {
         display: block;
-        margin-top: 8px;
-        font-size: 13px;
-        color: #64748b;
-        line-height: 1.5;
-        padding-left: 34px;
+        margin-top: 6px;
+        font-size: 12px;
+        color: #7f8c8d;
     }
     
     .field-errors {
-        margin-top: 8px;
+        margin-top: 6px;
     }
     
     .field-errors .error {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        color: #ef4444;
-        font-size: 13px;
-        margin-top: 6px;
-        padding: 10px 14px;
-        background: #fef2f2;
-        border-left: 4px solid #ef4444;
-        border-radius: 8px;
-        font-weight: 500;
-    }
-    
-    .field-errors .error::before {
-        content: '⚠';
-        font-size: 16px;
+        display: block;
+        color: #e74c3c;
+        font-size: 12px;
+        margin-top: 4px;
+        padding: 6px 10px;
+        background: #fee;
+        border-left: 3px solid #e74c3c;
+        border-radius: 4px;
     }
     
     .form-errors {
-        margin-bottom: 25px;
-        padding: 18px 20px;
-        background: #fef2f2;
-        border: 2px solid #fecaca;
-        border-radius: 12px;
-        border-left: 4px solid #ef4444;
+        margin-bottom: 20px;
+        padding: 15px;
+        background: #fee;
+        border: 1px solid #fcc;
+        border-radius: 8px;
     }
     
     .error-message {
-        color: #dc2626;
+        color: #c33;
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: 8px;
         font-weight: 600;
-        font-size: 15px;
+        font-size: 14px;
     }
     
     .form-footer {
         display: flex;
         gap: 15px;
-        margin-top: 40px;
-        padding-top: 30px;
-        border-top: 2px solid #e1e8ed;
+        margin-top: 35px;
+        padding-top: 25px;
+        border-top: 1px solid #e1e8ed;
         justify-content: flex-end;
-        flex-wrap: wrap;
     }
     
     .btn-submit, .btn-cancel {
-        padding: 16px 36px;
-        border-radius: 12px;
-        font-weight: 700;
-        font-size: 16px;
+        padding: 12px 30px;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 15px;
         border: none;
         cursor: pointer;
         display: inline-flex;
         align-items: center;
-        gap: 12px;
+        gap: 10px;
         text-decoration: none;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        position: relative;
-        overflow: hidden;
+        transition: all 0.3s ease;
     }
     
     .btn-submit {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
-        box-shadow: 0 6px 20px rgba(102, 126, 234, 0.35);
-    }
-    
-    .btn-submit::before {
-        content: '';
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        width: 0;
-        height: 0;
-        border-radius: 50%;
-        background: rgba(255, 255, 255, 0.3);
-        transform: translate(-50%, -50%);
-        transition: width 0.6s, height 0.6s;
-    }
-    
-    .btn-submit:hover::before {
-        width: 300px;
-        height: 300px;
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
     }
     
     .btn-submit:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 10px 30px rgba(102, 126, 234, 0.45);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 18px rgba(102, 126, 234, 0.4);
     }
     
     .btn-submit:active {
-        transform: translateY(-1px);
+        transform: translateY(0);
     }
     
     .btn-submit:disabled {
@@ -486,86 +259,33 @@
         transform: none;
     }
     
-    .btn-submit i, .btn-cancel i {
-        position: relative;
-        z-index: 1;
-    }
-    
-    .btn-submit span, .btn-cancel span {
-        position: relative;
-        z-index: 1;
-    }
-    
     .btn-cancel {
         background: white;
-        color: #64748b;
+        color: #666;
         border: 2px solid #e1e8ed;
     }
     
     .btn-cancel:hover {
-        background: #f8fafc;
+        background: #f8f9fa;
         border-color: #667eea;
         color: #667eea;
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    }
-    
-    .info-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 8px 14px;
-        background: #f1f5f9;
-        border-radius: 20px;
-        font-size: 13px;
-        color: #475569;
-        margin-top: 20px;
-        font-weight: 500;
-    }
-    
-    .info-badge i {
-        color: #667eea;
-    }
-    
-    @media (max-width: 1200px) {
-        .create-teams-wrapper {
-            padding: 40px 40px;
-        }
-        
-        .form-card {
-            padding: 45px 50px;
-        }
-        
-        .form-fields-grid {
-            grid-template-columns: 1fr;
-        }
     }
     
     @media (max-width: 768px) {
         .create-teams-wrapper {
-            padding: 25px 20px;
+            padding: 20px 15px;
         }
         
         .create-teams-header h1 {
-            font-size: 32px;
-        }
-        
-        .subtitle {
-            font-size: 16px;
+            font-size: 28px;
         }
         
         .info-cards {
             grid-template-columns: 1fr;
-            gap: 15px;
         }
         
         .form-card {
-            padding: 30px 25px;
-        }
-        
-        .form-fields-grid {
-            grid-template-columns: 1fr;
-            gap: 25px;
+            padding: 25px 20px;
         }
         
         .form-footer {
@@ -575,25 +295,6 @@
         .btn-submit, .btn-cancel {
             width: 100%;
             justify-content: center;
-        }
-        
-        .header-icon-wrapper {
-            width: 80px;
-            height: 80px;
-        }
-        
-        .header-icon-wrapper i {
-            font-size: 38px;
-        }
-    }
-    
-    @media (max-width: 480px) {
-        .create-teams-header h1 {
-            font-size: 28px;
-        }
-        
-        .form-card {
-            padding: 25px 18px;
         }
     }
 </style>
@@ -619,138 +320,120 @@
             <p class="subtitle">Générer automatiquement des comptes d'équipes pour l'inventaire</p>
         </div>
 
-        <div class="info-section">
-            <h2 class="section-title">
-                <i class="fas fa-info-circle"></i>
-                Informations importantes
-            </h2>
-            <div class="info-cards">
-                <div class="info-card blue" data-ordre="1" onclick="selectOrdre(1)">
-                    <div class="card-icon blue">
-                        <i class="fas fa-sort-numeric-down"></i>
-                    </div>
-                    <div class="card-content">
-                        <h3>Ordre 1</h3>
-                        <p>1000 à 1999</p>
-                        <small>Maximum 1000 équipes</small>
-                        <span class="badge blue">Cliquez pour sélectionner</span>
-                    </div>
-                </div>
-                <div class="info-card green" data-ordre="2" onclick="selectOrdre(2)">
-                    <div class="card-icon green">
-                        <i class="fas fa-sort-numeric-down-alt"></i>
-                    </div>
-                    <div class="card-content">
-                        <h3>Ordre 2</h3>
-                        <p>2000 à 2999</p>
-                        <small>Maximum 1000 équipes</small>
-                        <span class="badge green">Cliquez pour sélectionner</span>
-                    </div>
-                </div>
-                <div class="info-card purple">
-                    <div class="card-icon purple">
-                        <i class="fas fa-key"></i>
-                    </div>
-                    <div class="card-content">
-                        <h3>Mot de passe</h3>
-                        <p>user1234</p>
-                        <small>Commun à toutes les équipes</small>
-                        <span class="badge purple">Par défaut</span>
-                    </div>
-                </div>
+    <div class="info-cards">
+        <div class="info-card">
+            <div class="card-icon blue">
+                <i class="fas fa-sort-numeric-down"></i>
             </div>
-            <div class="info-badge">
-                <i class="fas fa-lightbulb"></i>
-                <span>Astuce : Cliquez sur une carte d'ordre pour pré-remplir le formulaire</span>
+            <div class="card-content">
+                <h3>Ordre 1</h3>
+                <p>1000 à 1999<br><small>(max 1000 équipes)</small></p>
             </div>
         </div>
+        <div class="info-card">
+            <div class="card-icon green">
+                <i class="fas fa-sort-numeric-down-alt"></i>
+            </div>
+            <div class="card-content">
+                <h3>Ordre 2</h3>
+                <p>2000 à 2999<br><small>(max 1000 équipes)</small></p>
+            </div>
+        </div>
+        <div class="info-card">
+            <div class="card-icon purple">
+                <i class="fas fa-key"></i>
+            </div>
+            <div class="card-content">
+                <h3>Mot de passe</h3>
+                <p>user1234<br><small>(pour toutes les équipes)</small></p>
+            </div>
+        </div>
+    </div>
 
-        <div class="form-card">
-            <form method="post" id="create-teams-form">
-                {% csrf_token %}
-                
-                {% if form.non_field_errors %}
-                <div class="form-errors">
-                    {% for error in form.non_field_errors %}
-                        <div class="error-message">
-                            <i class="fas fa-exclamation-circle"></i>
-                            {{ error }}
-                        </div>
-                    {% endfor %}
-                </div>
+    <div class="form-card">
+        <form method="post" id="create-teams-form">
+            {% csrf_token %}
+            
+            {% if form.non_field_errors %}
+            <div class="form-errors">
+                {% for error in form.non_field_errors %}
+                    <div class="error-message">
+                        <i class="fas fa-exclamation-circle"></i>
+                        {{ error }}
+                    </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <div class="form-group">
+                <label for="{{ form.ordre_comptage.id_for_label }}" class="form-label">
+                    <i class="fas fa-sort-numeric-down"></i>
+                    {{ form.ordre_comptage.label }}
+                    <span class="required">*</span>
+                </label>
+                {{ form.ordre_comptage }}
+                {% if form.ordre_comptage.help_text %}
+                    <small class="help-text">{{ form.ordre_comptage.help_text }}</small>
                 {% endif %}
-
-                <div class="form-fields-grid">
-                    <div class="form-group">
-                        <label for="{{ form.ordre_comptage.id_for_label }}" class="form-label">
-                            <i class="fas fa-sort-numeric-down"></i>
-                            {{ form.ordre_comptage.label }}
-                            <span class="required">*</span>
-                        </label>
-                        {{ form.ordre_comptage }}
-                        {% if form.ordre_comptage.help_text %}
-                            <small class="help-text">{{ form.ordre_comptage.help_text }}</small>
-                        {% endif %}
-                        {% if form.ordre_comptage.errors %}
-                            <div class="field-errors">
-                                {% for error in form.ordre_comptage.errors %}
-                                    <span class="error">{{ error }}</span>
-                                {% endfor %}
-                            </div>
-                        {% endif %}
+                {% if form.ordre_comptage.errors %}
+                    <div class="field-errors">
+                        {% for error in form.ordre_comptage.errors %}
+                            <span class="error">{{ error }}</span>
+                        {% endfor %}
                     </div>
+                {% endif %}
+            </div>
 
-                    <div class="form-group">
-                        <label for="{{ form.nombre_equipes.id_for_label }}" class="form-label">
-                            <i class="fas fa-users-cog"></i>
-                            {{ form.nombre_equipes.label }}
-                            <span class="required">*</span>
-                        </label>
-                        {{ form.nombre_equipes }}
-                        {% if form.nombre_equipes.help_text %}
-                            <small class="help-text" id="nombre-help-text">{{ form.nombre_equipes.help_text }}</small>
-                        {% endif %}
-                        {% if form.nombre_equipes.errors %}
-                            <div class="field-errors">
-                                {% for error in form.nombre_equipes.errors %}
-                                    <span class="error">{{ error }}</span>
-                                {% endfor %}
-                            </div>
-                        {% endif %}
+            <div class="form-group">
+                <label for="{{ form.nombre_equipes.id_for_label }}" class="form-label">
+                    <i class="fas fa-users-cog"></i>
+                    {{ form.nombre_equipes.label }}
+                    <span class="required">*</span>
+                </label>
+                {{ form.nombre_equipes }}
+                {% if form.nombre_equipes.help_text %}
+                    <small class="help-text">{{ form.nombre_equipes.help_text }}</small>
+                {% endif %}
+                {% if form.nombre_equipes.errors %}
+                    <div class="field-errors">
+                        {% for error in form.nombre_equipes.errors %}
+                            <span class="error">{{ error }}</span>
+                        {% endfor %}
                     </div>
+                {% endif %}
+            </div>
 
-                    <div class="form-group full-width">
-                        <label for="{{ form.compte.id_for_label }}" class="form-label">
-                            <i class="fas fa-building"></i>
-                            {{ form.compte.label }}
-                            <span class="required">*</span>
-                        </label>
-                        {{ form.compte }}
-                        {% if form.compte.help_text %}
-                            <small class="help-text">{{ form.compte.help_text }}</small>
-                        {% endif %}
-                        {% if form.compte.errors %}
-                            <div class="field-errors">
-                                {% for error in form.compte.errors %}
-                                    <span class="error">{{ error }}</span>
-                                {% endfor %}
-                            </div>
-                        {% endif %}
+            <div class="form-group">
+                <label for="{{ form.compte.id_for_label }}" class="form-label">
+                    <i class="fas fa-building"></i>
+                    {{ form.compte.label }}
+                    <span class="required">*</span>
+                </label>
+                {{ form.compte }}
+                {% if form.compte.help_text %}
+                    <small class="help-text">{{ form.compte.help_text }}</small>
+                {% endif %}
+                {% if form.compte.errors %}
+                    <div class="field-errors">
+                        {% for error in form.compte.errors %}
+                            <span class="error">{{ error }}</span>
+                        {% endfor %}
                     </div>
-                </div>
+                {% endif %}
+            </div>
 
-                <div class="form-footer">
-                    <button type="submit" class="btn-submit" id="submit-btn">
-                        <i class="fas fa-plus-circle"></i>
-                        <span>Créer les équipes</span>
-                    </button>
-                    <a href="{% url 'admin:users_userapp_changelist' %}" class="btn-cancel">
-                        <i class="fas fa-times"></i>
-                        <span>Annuler</span>
-                    </a>
-                </div>
-            </form>
-        </div>
+            <div class="form-footer">
+                <button type="submit" class="btn-submit" id="submit-btn">
+                    <i class="fas fa-plus-circle"></i>
+                    <span>Créer les équipes</span>
+                </button>
+                <a href="{% url 'admin:users_userapp_changelist' %}" class="btn-cancel">
+                    <i class="fas fa-times"></i>
+                    <span>Annuler</span>
+                </a>
+            </div>
+        </form>
+    </div>
     </div>
 </div>
 
@@ -760,152 +443,38 @@ document.addEventListener('DOMContentLoaded', function() {
     const submitBtn = document.getElementById('submit-btn');
     const ordreField = document.getElementById('id_ordre_comptage');
     const nombreField = document.getElementById('id_nombre_equipes');
-    const nombreHelpText = document.getElementById('nombre-help-text');
-    const infoCards = document.querySelectorAll('.info-card[data-ordre]');
 
-    // Fonction pour sélectionner un ordre (appelée depuis les cartes)
-    window.selectOrdre = function(ordre) {
-        ordreField.value = ordre;
-        ordreField.dispatchEvent(new Event('change'));
-        
-        // Mettre à jour l'état visuel des cartes
-        infoCards.forEach(card => {
-            if (parseInt(card.dataset.ordre) === ordre) {
-                card.classList.add('active');
-            } else {
-                card.classList.remove('active');
-            }
-        });
-        
-        // Focus sur le champ nombre d'équipes
-        nombreField.focus();
-    };
-
-    // Mise à jour dynamique de l'aide selon l'ordre sélectionné
-    function updateHelpText() {
-        const ordre = parseInt(ordreField.value);
-        if (nombreHelpText) {
-            if (ordre === 1) {
-                nombreHelpText.textContent = 'Nombre d\'équipes à créer (max 1000, de 1000 à 1999)';
-            } else if (ordre === 2) {
-                nombreHelpText.textContent = 'Nombre d\'équipes à créer (max 1000, de 2000 à 2999)';
-            } else {
-                nombreHelpText.textContent = 'Nombre d\'équipes à créer';
-            }
-        }
-        
-        // Mettre à jour l'état visuel des cartes
-        infoCards.forEach(card => {
-            if (parseInt(card.dataset.ordre) === ordre) {
-                card.classList.add('active');
-            } else {
-                card.classList.remove('active');
-            }
-        });
-    }
-
-    ordreField.addEventListener('change', updateHelpText);
-    
-    // Initialiser l'état visuel au chargement
-    if (ordreField.value) {
-        updateHelpText();
-    }
-
-    // Validation côté client améliorée
+    // Validation côté client
     form.addEventListener('submit', function(e) {
         const ordre = parseInt(ordreField.value);
         const nombre = parseInt(nombreField.value);
 
-        if (!ordre) {
-            e.preventDefault();
-            showError('Veuillez sélectionner un ordre de comptage');
-            ordreField.focus();
-            return;
-        }
-
-        if (!nombre || nombre < 1) {
-            e.preventDefault();
-            showError('Veuillez entrer un nombre d\'équipes valide (minimum 1)');
-            nombreField.focus();
-            return;
-        }
-
         if (ordre === 1 && nombre > 1000) {
             e.preventDefault();
-            showError('Pour l\'ordre 1, le nombre maximum d\'équipes est 1000 (de 1000 à 1999)');
-            nombreField.focus();
+            alert('Pour l\'ordre 1, le nombre maximum d\'équipes est 1000 (de 1000 à 1999)');
             return;
         }
 
         if (ordre === 2 && nombre > 1000) {
             e.preventDefault();
-            showError('Pour l\'ordre 2, le nombre maximum d\'équipes est 1000 (de 2000 à 2999)');
-            nombreField.focus();
+            alert('Pour l\'ordre 2, le nombre maximum d\'équipes est 1000 (de 2000 à 2999)');
             return;
         }
 
-        // Désactiver le bouton et afficher le chargement
         submitBtn.disabled = true;
         submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>Création en cours...</span>';
     });
 
-    // Fonction pour afficher les erreurs de manière élégante
-    function showError(message) {
-        // Créer une alerte visuelle en haut du formulaire
-        const errorDiv = document.createElement('div');
-        errorDiv.className = 'form-errors';
-        errorDiv.style.animation = 'fadeInUp 0.3s ease-out';
-        errorDiv.innerHTML = `
-            <div class="error-message">
-                <i class="fas fa-exclamation-circle"></i>
-                ${message}
-            </div>
-        `;
+    // Mise à jour dynamique de l'aide selon l'ordre sélectionné
+    ordreField.addEventListener('change', function() {
+        const ordre = parseInt(this.value);
+        const helpText = nombreField.nextElementSibling;
         
-        const formCard = document.querySelector('.form-card');
-        const existingErrors = formCard.querySelector('.form-errors');
-        if (existingErrors) {
-            existingErrors.replaceWith(errorDiv);
-        } else {
-            formCard.insertBefore(errorDiv, formCard.firstChild);
-        }
-        
-        // Faire défiler jusqu'à l'erreur
-        errorDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        
-        // Supprimer l'erreur après 5 secondes
-        setTimeout(() => {
-            errorDiv.style.animation = 'fadeOut 0.3s ease-out';
-            setTimeout(() => errorDiv.remove(), 300);
-        }, 5000);
-    }
-
-    // Ajouter une animation de fadeOut
-    const style = document.createElement('style');
-    style.textContent = `
-        @keyframes fadeOut {
-            from { opacity: 1; transform: translateY(0); }
-            to { opacity: 0; transform: translateY(-10px); }
-        }
-    `;
-    document.head.appendChild(style);
-
-    // Validation en temps réel pour le nombre d'équipes
-    nombreField.addEventListener('input', function() {
-        const ordre = parseInt(ordreField.value);
-        const nombre = parseInt(this.value);
-        
-        if (ordre && nombre) {
-            if ((ordre === 1 || ordre === 2) && nombre > 1000) {
-                this.style.borderColor = '#ef4444';
-                this.style.boxShadow = '0 0 0 4px rgba(239, 68, 68, 0.1)';
+        if (helpText && helpText.classList.contains('help-text')) {
+            if (ordre === 1) {
+                helpText.textContent = 'Nombre d\'équipes à créer (max 1000, de 1000 à 1999)';
             } else {
-                this.style.borderColor = '#10b981';
-                this.style.boxShadow = '0 0 0 4px rgba(16, 185, 129, 0.1)';
-                setTimeout(() => {
-                    this.style.borderColor = '';
-                    this.style.boxShadow = '';
-                }, 2000);
+                helpText.textContent = 'Nombre d\'équipes à créer (max 1000, de 2000 à 2999)';
             }
         }
     });

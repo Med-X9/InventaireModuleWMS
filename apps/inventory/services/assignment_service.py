@@ -121,7 +121,7 @@ class AssignmentService(IAssignmentService):
                     assignment = self.repository.create_assignment(assignment_data)
                     assignments_created += 1
                 
-                # Vérifier si les deux comptages ont des sessions pour ce job
+                # Vérifier si au moins un comptage a une session pour ce job
                 should_update_status = self.should_update_job_status_to_affecte(job.id, inventory_id)
                 
                 # Recharger le job pour avoir le statut à jour après les modifications
@@ -183,8 +183,8 @@ class AssignmentService(IAssignmentService):
         if counting_order and not isinstance(counting_order, int):
             errors.append("counting_order doit être un entier")
         
-        if counting_order and counting_order not in [1, 2]:
-            errors.append("counting_order doit être 1 ou 2")
+        if counting_order and counting_order < 1:
+            errors.append("counting_order doit être supérieur ou égal à 1")
         
         # Validation de la date_start si fournie
         date_start = assignment_data.get('date_start')
@@ -233,8 +233,8 @@ class AssignmentService(IAssignmentService):
         Returns:
             bool: True si le statut doit être mis à AFFECTE
         """
-        # Récupérer les comptages de l'inventaire
-        countings = Counting.objects.filter(inventory_id=inventory_id, order__in=[1, 2]).order_by('order')
+        # Récupérer tous les comptages de l'inventaire (peut être 1, 2, 3, 4, 5, etc.)
+        countings = Counting.objects.filter(inventory_id=inventory_id).order_by('order')
         
         if countings.count() == 0:
             # S'il n'y a pas de comptages, ne pas mettre à jour le statut
