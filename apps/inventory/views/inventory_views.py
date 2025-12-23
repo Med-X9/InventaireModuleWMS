@@ -960,7 +960,7 @@ class InventoryResultByWarehouseView(ServerSideDataTableView):
     # Champs pour la recherche globale
     search_fields = [
         'location', 'location_id', 'product', 'product_description', 'product_internal_code',
-        'job_id', 'job_reference', 'final_result', 'resolved', 'result_id', 'ecart_comptage_id',
+        'job_id', 'job_reference', 'final_result', 'manual_result', 'resolved', 'result_id', 'ecart_comptage_id',
         # Comptages dynamiques
         '1er comptage', '2er comptage', '3er comptage', '4er comptage', '5er comptage',
         # Écarts dynamiques
@@ -1256,6 +1256,8 @@ class InventoryResultExportExcelView(APIView):
         final_columns = []
         if 'final_result' in df.columns:
             final_columns.append('final_result')
+        if 'manual_result' in df.columns:
+            final_columns.append('manual_result')
         # ecart_comptage_id exclu
         if 'resolved' in df.columns:
             final_columns.append('resolved')
@@ -1285,6 +1287,7 @@ class InventoryResultExportExcelView(APIView):
             'product': 'Code Interne Article',
             'product_description': 'Description Article',
             'final_result': 'Résultat Final',
+            'manual_result': 'Résultat Manuel',
             'resolved': 'Résolu',
         }
         
