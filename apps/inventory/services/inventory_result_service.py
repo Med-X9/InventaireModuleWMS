@@ -249,8 +249,15 @@ class InventoryResultService:
                     if quantity is None:
                         result_row[ecart_key] = None
                     else:
-                        # Utiliser la valeur absolue pour éviter les écarts négatifs
-                        result_row[ecart_key] = abs(quantity - previous_quantity)
+                        # Calculer l'écart
+                        ecart_value = abs(quantity - previous_quantity)
+                        
+                        # Pour ecart_1_2 : afficher la valeur numérique
+                        # Pour les autres écarts : afficher true (concordance) ou false (discordance)
+                        if previous_order == 1 and order == 2:
+                            result_row[ecart_key] = ecart_value
+                        else:
+                            result_row[ecart_key] = True if ecart_value == 0 else False
                 elif previous_order is not None:
                     ecart_key = f"ecart_{previous_order}_{order}"
                     result_row[ecart_key] = None

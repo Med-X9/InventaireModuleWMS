@@ -1000,6 +1000,40 @@ class JobCancelView(APIView):
 class JobBatchAssignmentView(APIView):
     """
     API pour affecter des sessions et ressources à plusieurs jobs en lot
+    
+    Supporte les comptages dynamiques (1, 2, 3, 4, 5, ...) via team1, team2, team3, team4, etc.
+    
+    Format:
+    [
+      {
+        "job_id": 1,
+        "team1": 5,                    // ID session pour team1 (optionnel)
+        "counting_order1": 1,          // Ordre du comptage pour team1 (défaut: 1)
+        "date1": "2024-01-15T10:00:00Z", // Date pour team1 (optionnel)
+        "team2": 8,                    // ID session pour team2 (optionnel)
+        "counting_order2": 2,          // Ordre du comptage pour team2 (défaut: 2)
+        "date2": "2024-01-15T14:00:00Z", // Date pour team2 (optionnel)
+        "team3": 10,                   // ID session pour team3 (optionnel)
+        "counting_order3": 3,          // Ordre du comptage pour team3 (défaut: 3)
+        "date3": "2024-01-15T16:00:00Z", // Date pour team3 (optionnel)
+        "team4": 4,                    // ID session pour team4 (optionnel)
+        "counting_order4": 4,          // Ordre du comptage pour team4 (défaut: 4)
+        "date4": "2024-01-15T18:00:00Z", // Date pour team4 (optionnel)
+        "resources": [10, 11, 12]      // IDs des ressources (optionnel)
+      }
+    ]
+    
+    Exemple avec 4 teams:
+    [
+      {
+        "job_id": 1,
+        "team1": 5,
+        "team2": 8,
+        "team3": 10,
+        "team4": 4,
+        "resources": [10, 11]
+      }
+    ]
     """
     def post(self, request):
         try:

@@ -606,73 +606,35 @@ class NSerieResource(resources.ModelResource):
 
 class PersonneResource(resources.ModelResource):
     """
-    Resource pour l'import/export des personnes
+    Resource pour l'import/export des personnes.
+    Importe/exporte les champs en accord avec le modèle Personne.
     """
-    nom = fields.Field(column_name='nom', attribute='nom')
-    prenom = fields.Field(column_name='prénom', attribute='prenom')
+    numero = fields.Field(column_name='numero', attribute='numero')
+    full_name = fields.Field(column_name='full_name', attribute='full_name')
+    reference = fields.Field(column_name='reference', attribute='reference', readonly=True)
 
     class Meta:
         model = Personne
-        fields = ('nom', 'prenom')
-        import_id_fields = ('nom', 'prenom')
-    
+        fields = ('reference', 'numero', 'full_name')
+        import_id_fields = ('numero',)
+
     def before_save_instance(self, instance, row, **kwargs):
         """
-        Génère automatiquement la référence si elle est vide avant la sauvegarde.
-        Cela évite les violations de contrainte unique lors de l'import.
-        
+        Génère automatiquement la référence si elle est vide avant la sauvegarde,
+        utilisant la méthode du modèle Personne pour garantir l'unicité et la présence du préfixe.
         Args:
-            instance: L'instance à sauvegarder
+            instance: L'instance Personne à sauvegarder
             row: Les données de la ligne importée (dict)
             **kwargs: Arguments supplémentaires (peut contenir 'file_name', 'dry_run', etc.)
         """
-        # S'assurer que la référence est toujours générée et unique
+        # Génère la référence via la méthode du modèle si besoin
         if not instance.reference or instance.reference.strip() == '':
-            import time
-            max_attempts = 20
-            attempt = 0
-            prefix = instance.REFERENCE_PREFIX  # 'PER'
-            prefix_len = len(prefix)  # 3
-            
-            # Calculer l'espace disponible pour le reste (20 - prefix - 1 pour le tiret = 16)
-            available_chars = 20 - prefix_len - 1  # 16 caractères disponibles
-            
-            while attempt < max_attempts:
-                # Générer une référence unique avec timestamp et UUID
-                # Format: PER-{timestamp}{uuid} (max 20 caractères)
-                timestamp_short = str(int(time.time() * 1000))[-6:]  # 6 derniers chiffres du timestamp en ms
-                unique_suffix = str(uuid.uuid4()).replace('-', '')[:available_chars - 6].upper()  # 10 caractères
-                reference = f"{prefix}-{timestamp_short}{unique_suffix}"
-                
-                # S'assurer que la référence ne dépasse pas 20 caractères
-                if len(reference) > 20:
-                    reference = reference[:20]
-                
-                # Vérifier si la référence existe déjà dans la base de données
-                if not Personne.objects.filter(reference=reference).exists():
-                    instance.reference = reference
-                    break
-                
-                attempt += 1
-                # Petite pause pour éviter les collisions si plusieurs tentatives
-                time.sleep(0.0001)
-            
-            # Si après toutes les tentatives on n'a pas trouvé de référence unique,
-            # utiliser une combinaison avec plus de caractères aléatoires
-            if not instance.reference or instance.reference.strip() == '':
-                timestamp_short = str(int(time.time() * 1000000))[-8:]  # 8 derniers chiffres
-                unique_suffix = str(uuid.uuid4()).replace('-', '')[:available_chars - 8].upper()  # 8 caractères
-                reference = f"{prefix}-{timestamp_short}{unique_suffix}"
-                # S'assurer que la référence ne dépasse pas 20 caractères
-                if len(reference) > 20:
-                    reference = reference[:20]
-                instance.reference = reference
-        
+            if hasattr(instance, 'generate_reference'):
+                instance.reference = instance.generate_reference(instance.REFERENCE_PREFIX)
         # Appeler la méthode parente si elle existe
         if hasattr(super(), 'before_save_instance'):
             return super().before_save_instance(instance, row, **kwargs)
         return instance
-
 
 class OptionalAccountWidget(widgets.ForeignKeyWidget):
     """Widget personnalisé pour gérer les comptes optionnels"""
@@ -1822,26 +1784,35 @@ class RegroupementEmplacementAdmin(ImportExportModelAdmin):
 
 @admin.register(Personne)
 class PersonneAdmin(ImportExportModelAdmin):
+    """
+    Admin pour le modèle Personne sans affichage du champ 'reference' en interface.
+    """
     resource_class = PersonneResource
-    list_display = ('reference', 'nom', 'prenom')
-    search_fields = ('reference', 'nom', 'prenom')
-    exclude = ('created_at', 'updated_at', 'deleted_at', 'is_deleted')
-    readonly_fields = ('reference',)
-    
-    def get_form(self, request, obj=None, **kwargs):
-        form = super().get_form(request, obj, **kwargs)
-        if not obj and 'reference' in form.base_fields:  # Si c'est une nouvelle personne
-            # Permettre au champ reference d'être vide lors de la création
-            form.base_fields['reference'].required = False
-            form.base_fields['reference'].widget = forms.HiddenInput()
-        return form
-    
-    def save_model(self, request, obj, form, change):
-        # S'assurer que la référence est générée si elle est vide
-        if not obj.reference:
-            obj.reference = obj.generate_reference(obj.REFERENCE_PREFIX)
-        super().save_model(request, obj, form, change)
+    list_display = ('numero', 'full_name')
+    search_fields = ('numero', 'full_name')
+    exclude = ('created_at', 'updated_at', 'deleted_at', 'is_deleted', 'reference')
+    readonly_fields = ()
 
+    def get_form(self, request, obj=None, **kwargs):
+        """
+        Permet de cacher complètement le champ 'reference' du formulaire d'admin,
+        que ce soit à la création ou à l'édition.
+        """
+        form = super().get_form(request, obj, **kwargs)
+        if 'reference' in form.base_fields:
+            form.base_fields['reference'].widget = forms.HiddenInput()
+            form.base_fields['reference'].required = False
+        return form
+
+    def save_model(self, request, obj, form, change):
+        """
+        Génère automatiquement la référence si vide, en suivant la logique du modèle.
+        Elle reste invisible pour l'administrateur.
+        """
+        if not obj.reference or obj.reference.strip() == '':
+            if hasattr(obj, 'generate_reference'):
+                obj.reference = obj.generate_reference(obj.REFERENCE_PREFIX)
+        super().save_model(request, obj, form, change)
 
 # @admin.register(ImportTask)
 # class ImportTaskAdmin(admin.ModelAdmin):

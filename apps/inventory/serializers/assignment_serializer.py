@@ -16,8 +16,7 @@ class JobAssignmentSerializer(serializers.Serializer):
     )
     counting_order = serializers.IntegerField(
         min_value=1,
-        max_value=2,
-        help_text="Ordre du comptage (1 ou 2)"
+        help_text="Ordre du comptage (1, 2, 3, 4, 5, ...)"
     )
     session_id = serializers.IntegerField(
         required=False,
@@ -46,8 +45,8 @@ class JobAssignmentSerializer(serializers.Serializer):
         """
         Valide l'ordre du comptage
         """
-        if value not in [1, 2]:
-            raise serializers.ValidationError("L'ordre du comptage doit être 1 ou 2")
+        if value < 1:
+            raise serializers.ValidationError("L'ordre du comptage doit être supérieur ou égal à 1")
         
         return value
     

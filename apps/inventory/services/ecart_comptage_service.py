@@ -44,6 +44,7 @@ class EcartComptageService:
         #     )
 
         ecart.final_result = final_result
+        ecart.manual_result = True
 
         if justification is not None:
             ecart.justification = justification
