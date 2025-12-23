@@ -21,6 +21,9 @@ class SyncRepository:
             inventory__in=inventories, 
             status__in=['TRANSFERT', 'ENTAME'],
             jobdetail__status='EN ATTENTE'
+        ).select_related(
+            'warehouse',  # ⭐ Charger warehouse pour accéder à warehouse_name
+            'inventory'
         ).prefetch_related(
             'jobdetail_set',
             'jobdetail_set__location',
@@ -29,23 +32,30 @@ class SyncRepository:
             'jobdetail_set__counting'
         )
     
-    def get_jobs_by_inventories_and_user(self, inventories, user_id):
+    def get_jobs_by_inventories_and_user(self, inventories, user_id, inventory_id=None):
         """
         Récupère tous les jobs assignés à l'utilisateur avec assignments ACTIFS (TRANSFERT) uniquement
 
         Args:
             inventories: Queryset des inventaires (utilisé pour référence)
             user_id: ID de l'utilisateur
+            inventory_id: ID de l'inventaire pour filtrer (optionnel)
 
         Returns:
             Queryset des jobs assignés à l'utilisateur avec assignments actifs (TRANSFERT) uniquement
         """
         # Récupérer tous les assignments ACTIFS (TRANSFERT) de l'utilisateur uniquement
-        job_ids = Assigment.objects.filter(
+        assignment_filter = Assigment.objects.filter(
             session_id=user_id,
             status='TRANSFERT',  # ⭐ Seulement les assignments actifs
             job__status__in=['TRANSFERT', 'ENTAME']
-        ).values_list('job_id', flat=True).distinct()
+        )
+        
+        # Filtrer par inventory_id si fourni
+        if inventory_id:
+            assignment_filter = assignment_filter.filter(job__inventory_id=inventory_id)
+        
+        job_ids = assignment_filter.values_list('job_id', flat=True).distinct()
 
         # Si aucun job trouvé, retourner un queryset vide
         if not job_ids:
@@ -54,6 +64,9 @@ class SyncRepository:
         # Récupérer les jobs avec leurs job_details préchargés
         return Job.objects.filter(
             id__in=job_ids
+        ).select_related(
+            'warehouse',  # ⭐ Charger warehouse pour accéder à warehouse_name
+            'inventory'
         ).prefetch_related(
             'jobdetail_set',
             'jobdetail_set__location',
@@ -84,26 +97,33 @@ class SyncRepository:
         # Récupérer les inventaires avec statut EN REALISATION uniquement
         return Inventory.objects.filter(id__in=inventory_ids, status='EN REALISATION')
     
-    def get_countings_by_user_assignments(self, user_id):
+    def get_countings_by_user_assignments(self, user_id, inventory_id=None):
         """
         Récupère les comptages liés aux assignments ACTIFS (TRANSFERT) de l'utilisateur
         
         Args:
             user_id: ID de l'utilisateur
+            inventory_id: ID de l'inventaire pour filtrer (optionnel)
             
         Returns:
             Queryset des countings des assignments actifs (TRANSFERT) de l'utilisateur
         """
         # Récupérer les counting_id des assignments ACTIFS (TRANSFERT) de l'utilisateur uniquement
-        counting_ids = Assigment.objects.filter(
+        assignment_filter = Assigment.objects.filter(
             session_id=user_id,
             status='TRANSFERT',  # ⭐ Seulement les assignments actifs
             job__status__in=['TRANSFERT', 'ENTAME']
-        ).values_list('counting_id', flat=True).distinct()
+        )
         
+        # Filtrer par inventory_id si fourni
+        if inventory_id:
+            assignment_filter = assignment_filter.filter(job__inventory_id=inventory_id)
+        
+        counting_ids = assignment_filter.values_list('counting_id', flat=True).distinct()
+
         if not counting_ids:
             return Counting.objects.none()
-        
+
         # Récupérer les countings
         return Counting.objects.filter(id__in=counting_ids)
     
@@ -226,7 +246,8 @@ class SyncRepository:
     
     def format_job_data(self, job, user_id=None):
         """
-        Formate les données d'un job avec ses job_details
+        Formate les données d'un job en fusionnant avec ses job_details.
+        Retourne une liste de jobs, un pour chaque job_detail.
         
         Filtre pour ne retourner que :
         - Les job_details liés aux assignments ACTIFS (status='TRANSFERT') de l'utilisateur
@@ -235,6 +256,9 @@ class SyncRepository:
         Args:
             job: Instance du Job
             user_id: ID de l'utilisateur pour filtrer les job_details par assignments (optionnel)
+            
+        Returns:
+            Liste de dictionnaires, chaque dictionnaire représente un job fusionné avec un job_detail
         """
         # Récupérer les job_details
         job_detail_queryset = job.jobdetail_set.all()
@@ -261,28 +285,37 @@ class SyncRepository:
             # Si pas de user_id, filtrer quand même par status EN ATTENTE
             job_detail_queryset = job_detail_queryset.filter(status='EN ATTENTE')
         
-        # Formater les job_details
-        job_details = []
+        # Créer un job fusionné pour chaque job_detail
+        jobs_fused = []
         for job_detail in job_detail_queryset:
-            job_details.append(self.format_job_detail_data(job_detail))
+            # Fusionner les données du job avec celles du job_detail
+            job_fused = {
+                # Données du job parent
+                'web_id': job.id,
+                'reference': job.reference,
+                'status': job.status,
+                'inventory_web_id': job.inventory.id,
+                'warehouse_name': job.warehouse.warehouse_name,  # ⭐ warehouse_name au lieu de warehouse_web_id
+                'en_attente_date': job.en_attente_date.isoformat() if job.en_attente_date else None,
+                'affecte_date': job.affecte_date.isoformat() if job.affecte_date else None,
+                'pret_date': job.pret_date.isoformat() if job.pret_date else None,
+                'transfert_date': job.transfert_date.isoformat() if job.transfert_date else None,
+                'entame_date': job.entame_date.isoformat() if job.entame_date else None,
+                'valide_date': job.valide_date.isoformat() if job.valide_date else None,
+                'termine_date': job.termine_date.isoformat() if job.termine_date else None,
+                'created_at': job.created_at.isoformat(),
+                'updated_at': job.updated_at.isoformat(),
+                # Données du job_detail fusionnées
+                'job_detail_web_id': job_detail.id,
+                'job_detail_reference': job_detail.reference,
+                'job_detail_status': job_detail.status,
+                'location_web_id': job_detail.location.id if job_detail.location else None,
+                'location_reference': job_detail.location.location_reference if job_detail.location else None,
+                'counting_web_id': job_detail.counting.id if job_detail.counting else None
+            }
+            jobs_fused.append(job_fused)
         
-        return {
-            'web_id': job.id,
-            'reference': job.reference,
-            'status': job.status,
-            'inventory_web_id': job.inventory.id,
-            'warehouse_web_id': job.warehouse.id,
-            'job_details': job_details,
-            'en_attente_date': job.en_attente_date.isoformat() if job.en_attente_date else None,
-            'affecte_date': job.affecte_date.isoformat() if job.affecte_date else None,
-            'pret_date': job.pret_date.isoformat() if job.pret_date else None,
-            'transfert_date': job.transfert_date.isoformat() if job.transfert_date else None,
-            'entame_date': job.entame_date.isoformat() if job.entame_date else None,
-            'valide_date': job.valide_date.isoformat() if job.valide_date else None,
-            'termine_date': job.termine_date.isoformat() if job.termine_date else None,
-            'created_at': job.created_at.isoformat(),
-            'updated_at': job.updated_at.isoformat()
-        }
+        return jobs_fused
     
     def format_assignment_data(self, assignment):
         """Formate les données d'une assignation"""

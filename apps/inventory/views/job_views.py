@@ -669,7 +669,7 @@ class JobFullDetailListView(ServerSideDataTableView):
         super().__init__(*args, **kwargs)
         self.repository = JobRepository()
     
-    def get_datatable_queryset(self):
+    def get_queryset(self):
         """
         Récupère les jobs validés et entamés via le repository avec relations préchargées.
         ⚠️ Règle: La vue ne doit PAS utiliser Job.objects directement.
@@ -677,6 +677,13 @@ class JobFullDetailListView(ServerSideDataTableView):
         warehouse_id = self.kwargs.get('warehouse_id')
         inventory_id = self.kwargs.get('inventory_id')
         return self.repository.get_validated_jobs_datatable(warehouse_id, inventory_id)
+    
+    def get_datatable_queryset(self):
+        """
+        Alias pour compatibilité avec l'ancien code.
+        Délègue à get_queryset().
+        """
+        return self.get_queryset()
 
 
 

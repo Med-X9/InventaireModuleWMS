@@ -15,47 +15,34 @@ from apps.mobile.exceptions import (
 
 class InventoryUsersView(APIView):
     """
-    API pour récupérer les utilisateurs du même compte qu'un inventaire.
+    API pour récupérer la liste des inventaires avec statut EN REALISATION
+    affectés à l'utilisateur authentifié.
     
-    Permet de récupérer la liste des utilisateurs appartenant au même compte
-    qu'un inventaire spécifique. Utile pour la gestion des équipes d'inventaire
-    et l'affichage des utilisateurs disponibles pour les assignments.
+    Permet de récupérer la liste des inventaires en cours de réalisation
+    pour lesquels l'utilisateur authentifié a des assignments actifs.
+    Utile pour l'affichage des inventaires disponibles dans l'application mobile.
     
-    URL: /mobile/api/inventory/{inventory_id}/users/
+    URL: /mobile/api/inventory/
     
     Fonctionnalités:
-    - Récupération des utilisateurs du même compte
-    - Validation de l'existence de l'inventaire
-    - Filtrage par compte associé à l'inventaire
+    - Récupération des inventaires EN REALISATION
+    - Filtrage par assignments de l'utilisateur authentifié
+    - Retourne uniquement les inventaires avec des jobs TRANSFERT ou ENTAME
     - Gestion des erreurs spécifiques
     
-    Paramètres d'URL:
-    - inventory_id (int): ID de l'inventaire
-    
     Réponses:
-    - 200: Liste des utilisateurs récupérée avec succès
-    - 400: ID d'inventaire invalide
+    - 200: Liste des inventaires récupérée avec succès
     - 401: Non authentifié
-    - 404: Inventaire ou compte non trouvé
     - 500: Erreur interne du serveur
     """
     permission_classes = [IsAuthenticated]
     
     @swagger_auto_schema(
-        operation_summary="Récupération des utilisateurs d'inventaire mobile",
-        operation_description="Récupère la liste des utilisateurs appartenant au même compte qu'un inventaire spécifique",
-        manual_parameters=[
-            openapi.Parameter(
-                'inventory_id',
-                openapi.IN_PATH,
-                description="ID de l'inventaire",
-                type=openapi.TYPE_INTEGER,
-                required=True
-            )
-        ],
+        operation_summary="Récupération des inventaires EN REALISATION pour l'utilisateur mobile",
+        operation_description="Récupère la liste des inventaires avec statut EN REALISATION affectés à l'utilisateur authentifié",
         responses={
             200: openapi.Response(
-                description="Liste des utilisateurs récupérée avec succès",
+                description="Liste des inventaires récupérée avec succès",
                 schema=openapi.Schema(
                     type=openapi.TYPE_OBJECT,
                     properties={
@@ -63,24 +50,26 @@ class InventoryUsersView(APIView):
                         'data': openapi.Schema(
                             type=openapi.TYPE_OBJECT,
                             properties={
-                                'users': openapi.Schema(
+                                'inventories': openapi.Schema(
                                     type=openapi.TYPE_ARRAY,
-                                    items=openapi.Schema(type=openapi.TYPE_OBJECT),
-                                    description="Liste des utilisateurs du même compte"
+                                    items=openapi.Schema(
+                                        type=openapi.TYPE_OBJECT,
+                                        properties={
+                                            'web_id': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
+                                            'reference': openapi.Schema(type=openapi.TYPE_STRING, example='INV-123'),
+                                            'label': openapi.Schema(type=openapi.TYPE_STRING, example='Inventaire principal'),
+                                            'status': openapi.Schema(type=openapi.TYPE_STRING, example='EN REALISATION'),
+                                            'inventory_type': openapi.Schema(type=openapi.TYPE_STRING, example='GENERAL'),
+                                            'date': openapi.Schema(type=openapi.TYPE_STRING, example='2025-01-15T10:00:00Z'),
+                                            'en_realisation_status_date': openapi.Schema(type=openapi.TYPE_STRING, example='2025-01-15T10:00:00Z'),
+                                            'created_at': openapi.Schema(type=openapi.TYPE_STRING, example='2025-01-15T10:00:00Z'),
+                                            'updated_at': openapi.Schema(type=openapi.TYPE_STRING, example='2025-01-15T10:00:00Z'),
+                                        }
+                                    ),
+                                    description="Liste des inventaires EN REALISATION"
                                 )
                             }
                         )
-                    }
-                )
-            ),
-            400: openapi.Response(
-                description="ID d'inventaire invalide",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
-                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='ID d\'inventaire invalide'),
-                        'error_type': openapi.Schema(type=openapi.TYPE_STRING, example='INVALID_PARAMETER')
                     }
                 )
             ),
@@ -90,17 +79,6 @@ class InventoryUsersView(APIView):
                     type=openapi.TYPE_OBJECT,
                     properties={
                         'detail': openapi.Schema(type=openapi.TYPE_STRING, example='Authentication credentials were not provided.')
-                    }
-                )
-            ),
-            404: openapi.Response(
-                description="Inventaire ou compte non trouvé",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
-                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Inventaire non trouvé'),
-                        'error_type': openapi.Schema(type=openapi.TYPE_STRING, example='INVENTORY_NOT_FOUND')
                     }
                 )
             ),
@@ -119,45 +97,30 @@ class InventoryUsersView(APIView):
         security=[{'Bearer': []}],
         tags=['Inventaire Mobile']
     )
-    def get(self, request, inventory_id):
+    def get(self, request):
         """
-        Récupère les utilisateurs du même compte qu'un inventaire.
+        Récupère la liste des inventaires EN REALISATION affectés à l'utilisateur authentifié.
         
         Args:
             request: Requête GET
-            inventory_id: ID de l'inventaire (depuis l'URL)
+            - L'utilisateur est récupéré automatiquement depuis le token d'authentification
             
         Returns:
-            Response: Liste des utilisateurs du même compte que l'inventaire
+            Response: Liste des inventaires EN REALISATION
         """
         try:
+            # Récupérer l'utilisateur depuis le token d'authentification
+            user_id = request.user.id
+            
             inventory_service = InventoryService()
             
-            response_data = inventory_service.get_inventory_users(inventory_id)
+            response_data = inventory_service.get_user_inventories(user_id)
             
             return success_response(
                 data=response_data,
-                message="Utilisateurs récupérés avec succès"
+                message="Inventaires récupérés avec succès"
             )
             
-        except InventoryNotFoundException as e:
-            return error_response(
-                message=str(e),
-                status_code=status.HTTP_404_NOT_FOUND,
-                error_type='INVENTORY_NOT_FOUND'
-            )
-        except AccountNotFoundException as e:
-            return error_response(
-                message=str(e),
-                status_code=status.HTTP_404_NOT_FOUND,
-                error_type='ACCOUNT_NOT_FOUND'
-            )
-        except ValueError as e:
-            return error_response(
-                message=f'ID d\'inventaire invalide: {str(e)}',
-                status_code=status.HTTP_400_BAD_REQUEST,
-                error_type='INVALID_PARAMETER'
-            )
         except Exception as e:
             print(f"Erreur inattendue dans InventoryUsersView: {str(e)}")
             import traceback

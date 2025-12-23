@@ -19,50 +19,39 @@ class SyncService:
     def __init__(self):
         self.repository = SyncRepository()
     
-    def sync_data(self, user_id):
-        """Synchronise toutes les données nécessaires"""
+    def sync_data(self, user_id, inventory_id=None):
+        """
+        Synchronise toutes les données nécessaires.
+        
+        Args:
+            user_id: ID de l'utilisateur authentifié
+            inventory_id: ID de l'inventaire pour filtrer (optionnel)
+        """
         try:
-            # Générer un ID de synchronisation
-            sync_id = f"sync_{user_id}_{int(timezone.now().timestamp())}"
-            
-            # Si user_id est fourni, récupérer les inventaires liés aux jobs assignés à l'utilisateur
+            # Récupérer les inventaires pour référence (mais ne pas les retourner)
             if user_id:
-                    # Récupérer les inventaires liés aux assignments de l'utilisateur
-                    inventories = self.repository.get_inventories_by_user_assignments(user_id)
-            # else:
-            #     # Si pas de user_id, utiliser la logique par défaut
-            #     inventories = self.repository.get_inventories_in_realisation()
+                inventories = self.repository.get_inventories_by_user_assignments(user_id)
+                # Filtrer par inventory_id si fourni
+                if inventory_id:
+                    inventories = inventories.filter(id=inventory_id)
+            else:
+                inventories = self.repository.get_inventories_in_realisation()
+                if inventory_id:
+                    inventories = inventories.filter(id=inventory_id)
             
-            # Préparer la réponse
+            # Préparer la réponse (sans inventaires)
             response_data = {
-                'success': True,
-                'sync_id': sync_id,
-                'timestamp': timezone.now().isoformat(),
-                'data': {
-                    'inventories': [],
-                    'jobs': [],
-                    'assignments': [],
-                    'countings': []
-                }
+                'jobs': [],
+                'assignments': [],
+                'countings': []
             }
-            
-            # Traiter les inventaires
-            for inventory in inventories:
-                try:
-                    warehouse_info = self.repository.get_warehouse_info_for_inventory(inventory)
-                    inv_data = self.repository.format_inventory_data(inventory, warehouse_info)
-                    response_data['data']['inventories'].append(inv_data)
-                except Exception as e:
-                    print(f"Erreur lors du traitement de l'inventaire {inventory.id}: {str(e)}")
-                    continue
 
             # Récupérer et traiter les jobs
-            # Filtrer par assignments de l'utilisateur si user_id est fourni
             jobs = []
             try:
                 if user_id:
                     # Filtrer les jobs par assignments de l'utilisateur
-                    jobs = self.repository.get_jobs_by_inventories_and_user(inventories, user_id)
+                    jobs = self.repository.get_jobs_by_inventories_and_user(inventories, user_id, inventory_id)
                 else:
                     # Récupérer tous les jobs des inventaires
                     jobs = self.repository.get_jobs_by_inventories(inventories)
@@ -70,8 +59,10 @@ class SyncService:
                 for job in jobs:
                     try:
                         # Passer user_id pour filtrer les job_details par assignments
-                        job_data = self.repository.format_job_data(job, user_id=user_id if user_id else None)
-                        response_data['data']['jobs'].append(job_data)
+                        # format_job_data retourne maintenant une liste de jobs fusionnés (un par job_detail)
+                        jobs_fused = self.repository.format_job_data(job, user_id=user_id if user_id else None)
+                        # Ajouter tous les jobs fusionnés à la réponse
+                        response_data['jobs'].extend(jobs_fused)
                     except Exception as e:
                         print(f"Erreur lors du traitement du job {job.id}: {str(e)}")
                         continue
@@ -90,7 +81,7 @@ class SyncService:
                     for assignment in assignments:
                         try:
                             assignment_data = self.repository.format_assignment_data(assignment)
-                            response_data['data']['assignments'].append(assignment_data)
+                            response_data['assignments'].append(assignment_data)
                         except Exception as e:
                             print(f"Erreur lors du traitement de l'assignation {assignment.id}: {str(e)}")
                             continue
@@ -103,15 +94,17 @@ class SyncService:
             try:
                 if user_id:
                     # Récupérer uniquement les countings liés aux assignments de l'utilisateur
-                    countings = self.repository.get_countings_by_user_assignments(user_id)
+                    countings = self.repository.get_countings_by_user_assignments(user_id, inventory_id)
                 else:
                     # Récupérer tous les countings des inventaires
                     countings = self.repository.get_countings_by_inventories(inventories)
+                    if inventory_id:
+                        countings = countings.filter(inventory_id=inventory_id)
                 
                 for counting in countings:
                     try:
                         counting_data = self.repository.format_counting_data(counting)
-                        response_data['data']['countings'].append(counting_data)
+                        response_data['countings'].append(counting_data)
                     except Exception as e:
                         print(f"Erreur lors du traitement du comptage {counting.id}: {str(e)}")
                         continue
@@ -119,7 +112,7 @@ class SyncService:
                 print(f"Erreur lors de la récupération des comptages: {str(e)}")
             
             # Logger la synchronisation
-            print(f"Synchronisation réussie: {len(response_data['data']['inventories'])} inventaires, {len(response_data['data']['jobs'])} jobs")
+            print(f"Synchronisation réussie: {len(response_data['jobs'])} jobs, {len(response_data['assignments'])} assignments, {len(response_data['countings'])} countings")
             
             return response_data
             

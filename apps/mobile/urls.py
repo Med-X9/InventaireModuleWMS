@@ -18,9 +18,9 @@ urlpatterns = [
         name="mobile_sync_data",
     ),
     path("sync/upload/", views.UploadDataView.as_view(), name="mobile_upload_data"),
-    # Utilisateurs du même compte d'inventaire
+    # Liste des inventaires EN REALISATION affectés à l'utilisateur authentifié
     path(
-        "inventory/<int:inventory_id>/users/",
+        "inventory/",
         views.InventoryUsersView.as_view(),
         name="mobile_inventory_users",
     ),

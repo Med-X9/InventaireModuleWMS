@@ -13,6 +13,7 @@ from .job_add_emplacements import JobAddEmplacementsUseCase
 from .job_remove_emplacements import JobRemoveEmplacementsUseCase
 from .stock_import_validation import StockImportValidationUseCase
 from .inventory_jobs_pdf import InventoryJobsPdfUseCase
+from .job_discrepancy_standardization import JobDiscrepancyStandardizationUseCase
 
 __all__ = [
     'InventoryCreationUseCase',
@@ -27,5 +28,6 @@ __all__ = [
     'JobAddEmplacementsUseCase',
     'JobRemoveEmplacementsUseCase',
     'StockImportValidationUseCase',
-    'InventoryJobsPdfUseCase'
+    'InventoryJobsPdfUseCase',
+    'JobDiscrepancyStandardizationUseCase'
 ] 
