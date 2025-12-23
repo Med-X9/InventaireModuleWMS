@@ -4,6 +4,7 @@ from .stock_repository import StockRepository
 from .warehouse_repository import WarehouseRepository
 from .ressource_repository import RessourceRepository
 from .ecart_comptage_repository import EcartComptageRepository
+from .auto_assignment_repository import AutoAssignmentRepository
 
 __all__ = [
     'InventoryRepository',
@@ -12,4 +13,5 @@ __all__ = [
     'WarehouseRepository',
     'RessourceRepository',
     'EcartComptageRepository',
+    'AutoAssignmentRepository',
 ] 

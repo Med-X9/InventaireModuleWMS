@@ -77,10 +77,10 @@ class AssignJobsToCountingView(APIView):
             
             # Préparation de la réponse
             response_data = {
-                'assignments_created': result['assignments_created'],
-                'assignments_updated': result['assignments_updated'],
-                'total_assignments': result['total_assignments'],
-                'counting_order': result['counting_order'],
+                # 'assignments_created': result['assignments_created'],
+                # 'assignments_updated': result['assignments_updated'],
+                # 'total_assignments': result['total_assignments'],
+                # 'counting_order': result['counting_order'],
                 'timestamp': timezone.now()
             }
             
@@ -528,271 +528,58 @@ class AutoAssignJobsFromInventoryLocationJobView(APIView):
     """
     permission_classes = [IsAuthenticated]
     
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from ..services.auto_assignment_service import AutoAssignmentService
+        self.service = AutoAssignmentService()
+    
     def post(self, request, inventory_id):
+        """
+        Endpoint pour effectuer l'affectation automatique des jobs
+        
+        Args:
+            request: Requête HTTP
+            inventory_id: ID de l'inventaire
+            
+        Returns:
+            Response: Réponse HTTP avec les résultats de l'affectation
+        """
         try:
-            from ..models import Job, Counting, Assigment, Inventory
-            from apps.users.models import UserApp
-            from apps.masterdata.models import InventoryLocationJob
-            from django.db import transaction
+            # Appel du service pour effectuer l'affectation
+            result = self.service.auto_assign_jobs_from_location_jobs(inventory_id)
             
-            # Liste pour collecter toutes les erreurs
-            errors = []
-            
-            # Vérifier que l'inventaire existe
-            try:
-                inventory = Inventory.objects.get(id=inventory_id)
-            except Inventory.DoesNotExist:
-                errors.append(f"Inventaire avec l'ID {inventory_id} non trouvé")
-                return error_response(
-                    message="Erreurs de validation",
-                    errors=errors,
-                    status_code=status.HTTP_404_NOT_FOUND
+            # Gestion de la réponse selon le succès ou l'échec
+            if result['success']:
+                return success_response(
+                    # data=result['data'],
+                    message=result['message'],
+                    status_code=status.HTTP_201_CREATED
                 )
-            
-            # Récupérer tous les InventoryLocationJob pour cet inventaire
-            location_jobs = InventoryLocationJob.objects.filter(
-                inventaire_id=inventory_id,
-                is_deleted=False
-            ).select_related('inventaire', 'emplacement')
-            
-            if not location_jobs.exists():
-                errors.append(f"Aucun InventoryLocationJob trouvé pour l'inventaire {inventory_id}")
-                return error_response(
-                    message="Erreurs de validation",
-                    errors=errors,
-                    status_code=status.HTTP_404_NOT_FOUND
-                )
-            
-            # Extraire toutes les équipes uniques de session_1 et session_2
-            teams_set = set()
-            for location_job in location_jobs:
-                if location_job.session_1:
-                    teams_set.add(location_job.session_1.strip())
-                if location_job.session_2:
-                    teams_set.add(location_job.session_2.strip())
-            
-            if not teams_set:
-                errors.append("Aucune équipe trouvée dans les InventoryLocationJob")
-            
-            # Vérifier que toutes les équipes existent dans UserApp (type='Mobile')
-            teams_list = list(teams_set) if teams_set else []
-            if teams_list:
-                existing_teams = UserApp.objects.filter(
-                    username__in=teams_list,
-                    type='Mobile',
-                    is_active=True
-                ).values_list('username', flat=True)
-                
-                existing_teams_set = set(existing_teams)
-                missing_teams = teams_set - existing_teams_set
-                
-                if missing_teams:
-                    errors.append(f"Équipes non trouvées dans UserApp (type Mobile) : {', '.join(sorted(missing_teams))}")
-            
-            # Récupérer les comptages 1 et 2 pour cet inventaire
-            counting_1 = Counting.objects.filter(inventory_id=inventory_id, order=1).first()
-            counting_2 = Counting.objects.filter(inventory_id=inventory_id, order=2).first()
-            
-            if not counting_1:
-                errors.append(f"Comptage d'ordre 1 non trouvé pour l'inventaire {inventory_id}")
-            
-            if not counting_2:
-                errors.append(f"Comptage d'ordre 2 non trouvé pour l'inventaire {inventory_id}")
-            
-            # Vérifier que les équipes ne sont pas déjà affectées à un inventaire GENERAL en cours
-            # Un inventaire en cours = status != 'TERMINE' et status != 'CLOTURE'
-            if teams_list:
-                active_general_inventories = Inventory.objects.filter(
-                    inventory_type='GENERAL',
-                    status__in=['EN PREPARATION', 'EN REALISATION']
-                ).exclude(id=inventory_id)
-                
-                if active_general_inventories.exists():
-                    # Vérifier les assignments pour ces inventaires
-                    conflicting_assignments = Assigment.objects.filter(
-                        session__username__in=teams_list,
-                        job__inventory__in=active_general_inventories
-                    ).select_related('session', 'job__inventory')
-                    
-                    if conflicting_assignments.exists():
-                        # Grouper par équipe et inventaire
-                        conflicts_by_team = {}
-                        for assignment in conflicting_assignments:
-                            team_username = assignment.session.username
-                            inv_ref = assignment.job.inventory.reference
-                            if team_username not in conflicts_by_team:
-                                conflicts_by_team[team_username] = set()
-                            conflicts_by_team[team_username].add(inv_ref)
-                        
-                        # Ajouter les erreurs de conflit
-                        for team, inv_refs in conflicts_by_team.items():
-                            errors.append(
-                                f"Équipe '{team}' déjà affectée à l'inventaire GENERAL en cours : {', '.join(sorted(inv_refs))}"
-                            )
-            
-            # Grouper les location_jobs par référence de job
-            jobs_by_reference = {}
-            for location_job in location_jobs:
-                if location_job.job:
-                    job_ref = location_job.job.strip()
-                    if job_ref not in jobs_by_reference:
-                        jobs_by_reference[job_ref] = []
-                    jobs_by_reference[job_ref].append(location_job)
-            
-            # Trouver les Jobs correspondants par référence
-            job_references = list(jobs_by_reference.keys())
-            if job_references:
-                jobs = Job.objects.filter(
-                    reference__in=job_references,
-                    inventory_id=inventory_id
-                )
-                
-                jobs_by_ref_dict = {job.reference: job for job in jobs}
-                missing_job_refs = set(job_references) - set(jobs_by_ref_dict.keys())
-                
-                if missing_job_refs:
-                    errors.append(f"Jobs non trouvés pour les références : {', '.join(sorted(missing_job_refs))}")
             else:
-                jobs_by_ref_dict = {}
-            
-            # Si des erreurs ont été collectées, les retourner toutes
-            if errors:
+                # Déterminer le code d'erreur selon le type d'erreur
+                status_code = status.HTTP_400_BAD_REQUEST
+                
+                # Si l'inventaire n'existe pas ou aucun location job trouvé
+                if result.get('errors'):
+                    first_error = result['errors'][0]
+                    if 'non trouvé' in first_error and 'Inventaire' in first_error:
+                        status_code = status.HTTP_404_NOT_FOUND
+                    elif 'Aucun InventoryLocationJob trouvé' in first_error:
+                        status_code = status.HTTP_404_NOT_FOUND
+                
                 return error_response(
-                    message="Erreurs de validation détectées",
-                    errors=errors,
-                    status_code=status.HTTP_400_BAD_REQUEST
+                    message=result['message'],
+                    errors=result.get('errors', []),
+                    status_code=status_code
                 )
-            
-            # Récupérer les UserApp correspondants (si pas d'erreurs)
-            teams_userapp = {
-                team.username: team 
-                for team in UserApp.objects.filter(
-                    username__in=teams_list,
-                    type='Mobile',
-                    is_active=True
-                )
-            }
-            
-            # Appliquer l'affectation avec transaction atomique (tout ou rien)
-            assignments_created_1 = []
-            assignments_created_2 = []
-            assignments_updated_1 = []
-            assignments_updated_2 = []
-            current_time = timezone.now()
-            
-            with transaction.atomic():
-                # Parcourir chaque job et créer/mettre à jour les assignments
-                for job_ref, location_jobs_list in jobs_by_reference.items():
-                    job = jobs_by_ref_dict[job_ref]
-                    
-                    # Pour chaque location_job, utiliser session_1 et session_2
-                    # Si plusieurs location_jobs ont le même job, on prend les sessions du premier
-                    # (selon la logique, normalement un job devrait avoir les mêmes sessions pour tous ses emplacements)
-                    first_location_job = location_jobs_list[0]
-                    
-                    # Assignment pour le comptage 1 avec session_1
-                    if first_location_job.session_1:
-                        session_1_username = first_location_job.session_1.strip()
-                        session_1_userapp = teams_userapp.get(session_1_username)
-                        
-                        if session_1_userapp:
-                            assignment_1, created_1 = Assigment.objects.get_or_create(
-                                job=job,
-                                counting=counting_1,
-                                defaults={
-                                    'reference': Assigment().generate_reference(Assigment.REFERENCE_PREFIX),
-                                    'session': session_1_userapp,
-                                    'status': 'AFFECTE',
-                                    'affecte_date': current_time,
-                                    'date_start': current_time
-                                }
-                            )
-                            
-                            if not created_1:
-                                # Mettre à jour l'assignment existant
-                                # Si l'assignment est ENTAME, le mettre en TRANSFERT
-                                if assignment_1.status == 'ENTAME':
-                                    assignment_1.status = 'TRANSFERT'
-                                    assignment_1.transfert_date = current_time
-                                else:
-                                    assignment_1.status = 'AFFECTE'
-                                
-                                assignment_1.session = session_1_userapp
-                                assignment_1.affecte_date = current_time
-                                assignment_1.date_start = current_time
-                                assignment_1.save()
-                                assignments_updated_1.append(assignment_1.id)
-                            else:
-                                assignments_created_1.append(assignment_1.id)
-                    
-                    # Assignment pour le comptage 2 avec session_2
-                    if first_location_job.session_2:
-                        session_2_username = first_location_job.session_2.strip()
-                        session_2_userapp = teams_userapp.get(session_2_username)
-                        
-                        if session_2_userapp:
-                            assignment_2, created_2 = Assigment.objects.get_or_create(
-                                job=job,
-                                counting=counting_2,
-                                defaults={
-                                    'reference': Assigment().generate_reference(Assigment.REFERENCE_PREFIX),
-                                    'session': session_2_userapp,
-                                    'status': 'AFFECTE',
-                                    'affecte_date': current_time,
-                                    'date_start': current_time
-                                }
-                            )
-                            
-                            if not created_2:
-                                # Mettre à jour l'assignment existant
-                                # Si l'assignment est ENTAME, le mettre en TRANSFERT
-                                if assignment_2.status == 'ENTAME':
-                                    assignment_2.status = 'TRANSFERT'
-                                    assignment_2.transfert_date = current_time
-                                else:
-                                    assignment_2.status = 'AFFECTE'
-                                
-                                assignment_2.session = session_2_userapp
-                                assignment_2.affecte_date = current_time
-                                assignment_2.date_start = current_time
-                                assignment_2.save()
-                                assignments_updated_2.append(assignment_2.id)
-                            else:
-                                assignments_created_2.append(assignment_2.id)
-                    
-                    # Mettre à jour le statut du job à AFFECTE
-                    # Ne pas modifier si le job est déjà dans un statut avancé
-                    preserved_job_statuses = ['PRET', 'TRANSFERT', 'ENTAME', 'TERMINE', 'SAISIE MANUELLE']
-                    if job.status not in preserved_job_statuses:
-                        job.status = 'AFFECTE'
-                        job.affecte_date = current_time
-                        job.save()
-            
-            # Préparer la réponse
-            response_data = {
-                'assignments_created_counting_1': len(assignments_created_1),
-                'assignments_updated_counting_1': len(assignments_updated_1),
-                'assignments_created_counting_2': len(assignments_created_2),
-                'assignments_updated_counting_2': len(assignments_updated_2),
-                'total_jobs': len(jobs_by_ref_dict),
-                'total_teams': len(teams_set),
-                'teams': sorted(list(teams_set)),
-                'inventory_id': inventory_id,
-                'inventory_reference': inventory.reference,
-                'counting_1_order': 1,
-                'counting_2_order': 2,
-                'timestamp': current_time
-            }
-            
-            return success_response(
-                data=response_data,
-                message=f"Affectation automatique réussie : {len(assignments_created_1) + len(assignments_created_2)} assignments créés, "
-                       f"{len(assignments_updated_1) + len(assignments_updated_2)} assignments mis à jour pour {len(jobs_by_ref_dict)} jobs",
-                status_code=status.HTTP_201_CREATED
-            )
-            
+                
         except Exception as e:
-            import traceback
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(
+                f"Erreur inattendue dans AutoAssignJobsFromInventoryLocationJobView : {str(e)}", 
+                exc_info=True
+            )
             return error_response(
                 message=f"Une erreur inattendue s'est produite: {str(e)}",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
