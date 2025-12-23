@@ -673,7 +673,7 @@ class InventoryLocationJobImportService:
                         'message': f"Le format du job '{job_value}' est invalide. Format attendu: JOB-XXXX (ex: JOB-0001, JOB-0002)"
                     })
         
-        # 4. Validation de session_1 (equipe-1000 à equipe-1999) - Obligatoire seulement si active = true
+        # 4. Validation de session_1 (equipe-1001 à equipe-1999) - Obligatoire seulement si active = true
         session_1_value = self._normalize_excel_value(row_dict.get('session_1'))
         if is_active:
             # Si active = true, session_1 est obligatoire
@@ -696,12 +696,12 @@ class InventoryLocationJobImportService:
                     })
                 else:
                     session_number = int(match.group(1))
-                    if session_number < 1000 or session_number > 1999:
+                    if session_number < 1001 or session_number > 1999:
                         errors.append({
                             'row_number': row_number,
                             'field': 'session_1',
                             'value': session_1_value,
-                            'message': f"La session_1 '{session_1_value}' est hors plage. Plage attendue: equipe-1000 à equipe-1999"
+                            'message': f"La session_1 '{session_1_value}' est hors plage. Plage attendue: equipe-1001 à equipe-1999"
                         })
         else:
             # Si active = false, session_1 n'est pas obligatoire mais on peut quand même le valider s'il est présent
@@ -717,15 +717,15 @@ class InventoryLocationJobImportService:
                     })
                 else:
                     session_number = int(match.group(1))
-                    if session_number < 1000 or session_number > 1999:
+                    if session_number < 1001 or session_number > 1999:
                         errors.append({
                             'row_number': row_number,
                             'field': 'session_1',
                             'value': session_1_value,
-                            'message': f"La session_1 '{session_1_value}' est hors plage. Plage attendue: equipe-1000 à equipe-1999"
+                            'message': f"La session_1 '{session_1_value}' est hors plage. Plage attendue: equipe-1001 à equipe-1999"
                         })
         
-        # 5. Validation de session_2 (equipe-2000 à equipe-2999) - Obligatoire seulement si active = true
+        # 5. Validation de session_2 (equipe-2001 à equipe-2999) - Obligatoire seulement si active = true
         session_2_value = self._normalize_excel_value(row_dict.get('session_2'))
         if is_active:
             # Si active = true, session_2 est obligatoire
@@ -748,12 +748,12 @@ class InventoryLocationJobImportService:
                     })
                 else:
                     session_number = int(match.group(1))
-                    if session_number < 2000 or session_number > 2999:
+                    if session_number < 2001 or session_number > 2999:
                         errors.append({
                             'row_number': row_number,
                             'field': 'session_2',
                             'value': session_2_value,
-                            'message': f"La session_2 '{session_2_value}' est hors plage. Plage attendue: equipe-2000 à equipe-2999"
+                            'message': f"La session_2 '{session_2_value}' est hors plage. Plage attendue: equipe-2001 à equipe-2999"
                         })
         else:
             # Si active = false, session_2 n'est pas obligatoire mais on peut quand même le valider s'il est présent
@@ -769,12 +769,12 @@ class InventoryLocationJobImportService:
                     })
                 else:
                     session_number = int(match.group(1))
-                    if session_number < 2000 or session_number > 2999:
+                    if session_number < 2001 or session_number > 2999:
                         errors.append({
                             'row_number': row_number,
                             'field': 'session_2',
                             'value': session_2_value,
-                            'message': f"La session_2 '{session_2_value}' est hors plage. Plage attendue: equipe-2000 à equipe-2999"
+                            'message': f"La session_2 '{session_2_value}' est hors plage. Plage attendue: equipe-2001 à equipe-2999"
                         })
         
         # 6. Règle métier supplémentaire :
@@ -985,7 +985,7 @@ class InventoryLocationJobImportService:
         """
         Valide qu'un job est affecté à une seule équipe dans les deux sessions.
         Cela signifie que session_1 et session_2 doivent correspondre à la même équipe
-        (même numéro d'équipe, mais dans des plages différentes: 1000-1999 pour session_1, 2000-2999 pour session_2).
+        (même numéro d'équipe, mais dans des plages différentes: 1001-1999 pour session_1, 2001-2999 pour session_2).
         
         Exemple valide: session_1='equipe-1001', session_2='equipe-2001' (même équipe 1)
         Exemple invalide: session_1='equipe-1001', session_2='equipe-2002' (équipes différentes)
@@ -1017,11 +1017,11 @@ class InventoryLocationJobImportService:
             session_2 = data.get('session_2', '')
             row_number = data.get('row_number', 0)
             
-            # Extraire le numéro d'équipe de session_1 (format: equipe-XXXX, plage 1000-1999)
+            # Extraire le numéro d'équipe de session_1 (format: equipe-XXXX, plage 1001-1999)
             session_1_pattern = r'^equipe-(\d+)$'
             match_1 = re.match(session_1_pattern, session_1, re.IGNORECASE)
             
-            # Extraire le numéro d'équipe de session_2 (format: equipe-XXXX, plage 2000-2999)
+            # Extraire le numéro d'équipe de session_2 (format: equipe-XXXX, plage 2001-2999)
             session_2_pattern = r'^equipe-(\d+)$'
             match_2 = re.match(session_2_pattern, session_2, re.IGNORECASE)
             
@@ -1030,13 +1030,13 @@ class InventoryLocationJobImportService:
                 team_number_1 = int(match_1.group(1))
                 team_number_2 = int(match_2.group(1))
                 
-                # Vérifier que session_1 est dans la plage 1000-1999
-                if team_number_1 < 1000 or team_number_1 > 1999:
+                # Vérifier que session_1 est dans la plage 1001-1999
+                if team_number_1 < 1001 or team_number_1 > 1999:
                     # Cette erreur devrait déjà être détectée par _validate_row, mais on la vérifie quand même
                     continue
                 
-                # Vérifier que session_2 est dans la plage 2000-2999
-                if team_number_2 < 2000 or team_number_2 > 2999:
+                # Vérifier que session_2 est dans la plage 2001-2999
+                if team_number_2 < 2001 or team_number_2 > 2999:
                     # Cette erreur devrait déjà être détectée par _validate_row, mais on la vérifie quand même
                     continue
                 

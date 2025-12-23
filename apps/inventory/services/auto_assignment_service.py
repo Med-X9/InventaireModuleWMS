@@ -155,8 +155,6 @@ class AutoAssignmentService:
                 'data': result,
                 'message': (
                     f"Affectation automatique réussie : "
-                    f"{result['assignments_created_counting_1'] + result['assignments_created_counting_2']} assignments créés, "
-                    f"{result['assignments_updated_counting_1'] + result['assignments_updated_counting_2']} assignments mis à jour "
                     f"pour {result['total_jobs']} jobs"
                 )
             }

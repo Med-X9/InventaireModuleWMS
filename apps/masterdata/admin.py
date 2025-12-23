@@ -21,10 +21,8 @@ from .models import (
     Ressource, TypeRessource, RegroupementEmplacement, NSerie,
     ImportTask, ImportError
 )
-from apps.inventory.models import Personne
 from django.contrib.auth.admin import UserAdmin
 from apps.users.models import UserApp
-from apps.inventory.models import Personne
 # ---------------- Resources ---------------- #
 
 class AccountResource(resources.ModelResource):
@@ -604,38 +602,6 @@ class NSerieResource(resources.ModelResource):
         import_id_fields = ('n_serie', 'product')
 
 
-class PersonneResource(resources.ModelResource):
-    """
-    Resource pour l'import/export des personnes.
-    Importe/exporte les champs en accord avec le modèle Personne.
-    """
-    numero = fields.Field(column_name='numero', attribute='numero')
-    full_name = fields.Field(column_name='full_name', attribute='full_name')
-    reference = fields.Field(column_name='reference', attribute='reference', readonly=True)
-
-    class Meta:
-        model = Personne
-        fields = ('reference', 'numero', 'full_name')
-        import_id_fields = ('numero',)
-
-    def before_save_instance(self, instance, row, **kwargs):
-        """
-        Génère automatiquement la référence si elle est vide avant la sauvegarde,
-        utilisant la méthode du modèle Personne pour garantir l'unicité et la présence du préfixe.
-        Args:
-            instance: L'instance Personne à sauvegarder
-            row: Les données de la ligne importée (dict)
-            **kwargs: Arguments supplémentaires (peut contenir 'file_name', 'dry_run', etc.)
-        """
-        # Génère la référence via la méthode du modèle si besoin
-        if not instance.reference or instance.reference.strip() == '':
-            if hasattr(instance, 'generate_reference'):
-                instance.reference = instance.generate_reference(instance.REFERENCE_PREFIX)
-        # Appeler la méthode parente si elle existe
-        if hasattr(super(), 'before_save_instance'):
-            return super().before_save_instance(instance, row, **kwargs)
-        return instance
-
 class OptionalAccountWidget(widgets.ForeignKeyWidget):
     """Widget personnalisé pour gérer les comptes optionnels"""
     
@@ -881,22 +847,20 @@ class UserAppResource(resources.ModelResource):
 
 class CreateTeamsForm(forms.Form):
     """Formulaire pour créer des équipes"""
-    ORDRE_CHOICES = [
-        (1, 'Ordre 1 (1000-1999)'),
-        (2, 'Ordre 2 (2000-2999)'),
-    ]
     
-    ordre_comptage = forms.ChoiceField(
+    ordre_comptage = forms.IntegerField(
         label='Ordre de comptage',
-        choices=ORDRE_CHOICES,
         required=True,
-        help_text='Ordre 1: équipes de 1000 à 1999 | Ordre 2: équipes de 2000 à 2999'
+        min_value=1,
+        max_value=999,  # Limiter à un nombre raisonnable d'ordres
+        help_text='Saisissez un nombre (1, 2, 3, 4, ...). Ordre N: équipes de N001 à N999'
     )
     nombre_equipes = forms.IntegerField(
         label='Nombre d\'équipes',
         required=True,
         min_value=1,
-        help_text='Nombre d\'équipes à créer'
+        max_value=999,
+        help_text='Nombre d\'équipes à créer (maximum 999 par ordre)'
     )
     compte = forms.ModelChoiceField(
         label='Compte',
@@ -908,6 +872,21 @@ class CreateTeamsForm(forms.Form):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['compte'].queryset = Account.objects.all()
+    
+    def clean(self):
+        cleaned_data = super().clean()
+        ordre = cleaned_data.get('ordre_comptage')
+        nombre_equipes = cleaned_data.get('nombre_equipes')
+        
+        if ordre and nombre_equipes:
+            # Vérifier que le nombre d'équipes ne dépasse pas 999
+            if nombre_equipes > 999:
+                raise forms.ValidationError(
+                    f'Le nombre maximum d\'équipes par ordre est 999. '
+                    f'Vous avez demandé {nombre_equipes} équipes.'
+                )
+        
+        return cleaned_data
 
 
 @admin.register(UserApp)
@@ -970,13 +949,10 @@ class UserAppAdmin(ImportExportMixin, UserAdmin):
                 nombre_equipes = form.cleaned_data['nombre_equipes']
                 compte = form.cleaned_data['compte']
                 
-                # Déterminer la plage de numéros
-                if ordre == 1:
-                    range_start = 1000
-                    range_end = 1999
-                else:  # ordre == 2
-                    range_start = 2000
-                    range_end = 2999
+                # Déterminer la plage de numéros en fonction de l'ordre
+                # Ordre 1: 1001-1999, Ordre 2: 2001-2999, Ordre 3: 3001-3999, etc.
+                range_start = (ordre * 1000) + 1
+                range_end = (ordre * 1000) + 999
                 
                 # Optimisation : Trouver le prochain numéro disponible de manière efficace
                 from django.contrib.auth.hashers import make_password
@@ -1780,40 +1756,6 @@ class RegroupementEmplacementAdmin(ImportExportModelAdmin):
     resource_class = RegroupementEmplacementResource
     list_display = ('nom', 'account')
     search_fields = ('nom', 'account__account_name')
-
-
-@admin.register(Personne)
-class PersonneAdmin(ImportExportModelAdmin):
-    """
-    Admin pour le modèle Personne sans affichage du champ 'reference' en interface.
-    """
-    resource_class = PersonneResource
-    list_display = ('numero', 'full_name')
-    search_fields = ('numero', 'full_name')
-    exclude = ('created_at', 'updated_at', 'deleted_at', 'is_deleted', 'reference')
-    readonly_fields = ()
-
-    def get_form(self, request, obj=None, **kwargs):
-        """
-        Permet de cacher complètement le champ 'reference' du formulaire d'admin,
-        que ce soit à la création ou à l'édition.
-        """
-        form = super().get_form(request, obj, **kwargs)
-        if 'reference' in form.base_fields:
-            form.base_fields['reference'].widget = forms.HiddenInput()
-            form.base_fields['reference'].required = False
-        return form
-
-    def save_model(self, request, obj, form, change):
-        """
-        Génère automatiquement la référence si vide, en suivant la logique du modèle.
-        Elle reste invisible pour l'administrateur.
-        """
-        if not obj.reference or obj.reference.strip() == '':
-            if hasattr(obj, 'generate_reference'):
-                obj.reference = obj.generate_reference(obj.REFERENCE_PREFIX)
-        super().save_model(request, obj, form, change)
-
 # @admin.register(ImportTask)
 # class ImportTaskAdmin(admin.ModelAdmin):
 #     """Admin pour les tâches d'import"""

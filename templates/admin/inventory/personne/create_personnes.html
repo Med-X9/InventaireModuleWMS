@@ -1,0 +1,642 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static %}
+
+{% block title %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
+
+{% block extrahead %}
+{{ block.super }}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+    * {
+        box-sizing: border-box;
+    }
+    
+    .create-personnes-wrapper {
+        background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%);
+        min-height: calc(100vh - 60px);
+        padding: 40px 60px;
+        width: 100%;
+    }
+    
+    .create-personnes-container {
+        max-width: 900px;
+        width: 100%;
+        margin: 0 auto;
+        animation: fadeInUp 0.6s ease-out;
+    }
+    
+    @keyframes fadeInUp {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    .create-personnes-header {
+        text-align: center;
+        margin-bottom: 45px;
+        padding-bottom: 30px;
+        border-bottom: 3px solid #e1e8ed;
+        position: relative;
+    }
+    
+    .create-personnes-header::after {
+        content: '';
+        position: absolute;
+        bottom: -3px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 100px;
+        height: 3px;
+        background: linear-gradient(90deg, #11998e 0%, #38ef7d 100%);
+        border-radius: 2px;
+    }
+    
+    .header-icon-wrapper {
+        width: 100px;
+        height: 100px;
+        margin: 0 auto 25px;
+        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        border-radius: 25px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 10px 30px rgba(17, 153, 142, 0.35);
+        transition: transform 0.3s ease;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .header-icon-wrapper::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(circle, rgba(255,255,255,0.3) 0%, transparent 70%);
+        animation: shimmer 3s infinite;
+    }
+    
+    @keyframes shimmer {
+        0%, 100% { transform: translate(-50%, -50%) rotate(0deg); }
+        50% { transform: translate(-50%, -50%) rotate(180deg); }
+    }
+    
+    .header-icon-wrapper:hover {
+        transform: scale(1.05) rotate(5deg);
+    }
+    
+    .header-icon-wrapper i {
+        font-size: 48px;
+        color: white;
+        position: relative;
+        z-index: 1;
+    }
+    
+    .create-personnes-header h1 {
+        font-size: 38px;
+        font-weight: 800;
+        margin: 0 0 12px 0;
+        color: #1a202c;
+        letter-spacing: -0.5px;
+    }
+    
+    .subtitle {
+        font-size: 18px;
+        color: #64748b;
+        margin: 0;
+        font-weight: 400;
+        line-height: 1.6;
+    }
+    
+    .info-section {
+        margin-bottom: 40px;
+    }
+    
+    .info-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 12px 18px;
+        background: white;
+        border-radius: 12px;
+        font-size: 14px;
+        color: #475569;
+        font-weight: 500;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        border-left: 4px solid #11998e;
+    }
+    
+    .info-badge i {
+        color: #11998e;
+        font-size: 18px;
+    }
+    
+    .form-card {
+        background: white;
+        border-radius: 20px;
+        padding: 50px 60px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        border: 1px solid #e1e8ed;
+        position: relative;
+    }
+    
+    .form-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 5px;
+        background: linear-gradient(90deg, #11998e 0%, #38ef7d 100%);
+        border-radius: 20px 20px 0 0;
+    }
+    
+    .form-group {
+        margin-bottom: 32px;
+        position: relative;
+    }
+    
+    .form-label {
+        display: block;
+        font-weight: 700;
+        color: #1a202c;
+        margin-bottom: 12px;
+        font-size: 16px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    
+    .form-label i {
+        color: #11998e;
+        font-size: 18px;
+        width: 24px;
+        text-align: center;
+    }
+    
+    .required {
+        color: #ef4444;
+        margin-left: 4px;
+        font-weight: 700;
+        font-size: 18px;
+    }
+    
+    .form-group input[type="number"] {
+        width: 100%;
+        padding: 16px 20px;
+        border: 2px solid #e1e8ed;
+        border-radius: 12px;
+        font-size: 16px;
+        transition: all 0.3s ease;
+        background: #f8fafc;
+        color: #1a202c;
+        font-family: inherit;
+    }
+    
+    .form-group input[type="number"]:focus {
+        outline: none;
+        border-color: #11998e;
+        background: white;
+        box-shadow: 0 0 0 4px rgba(17, 153, 142, 0.1);
+        transform: translateY(-2px);
+    }
+    
+    .form-group input[type="number"]:hover {
+        border-color: #cbd5e1;
+        background: white;
+    }
+    
+    .help-text {
+        display: block;
+        margin-top: 8px;
+        font-size: 13px;
+        color: #64748b;
+        line-height: 1.5;
+        padding-left: 34px;
+    }
+    
+    .field-errors {
+        margin-top: 8px;
+    }
+    
+    .field-errors .error {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: #ef4444;
+        font-size: 13px;
+        margin-top: 6px;
+        padding: 10px 14px;
+        background: #fef2f2;
+        border-left: 4px solid #ef4444;
+        border-radius: 8px;
+        font-weight: 500;
+    }
+    
+    .field-errors .error::before {
+        content: '⚠';
+        font-size: 16px;
+    }
+    
+    .form-errors {
+        margin-bottom: 25px;
+        padding: 18px 20px;
+        background: #fef2f2;
+        border: 2px solid #fecaca;
+        border-radius: 12px;
+        border-left: 4px solid #ef4444;
+    }
+    
+    .error-message {
+        color: #dc2626;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 600;
+        font-size: 15px;
+    }
+    
+    .form-footer {
+        display: flex;
+        gap: 15px;
+        margin-top: 40px;
+        padding-top: 30px;
+        border-top: 2px solid #e1e8ed;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+    }
+    
+    .btn-submit, .btn-cancel {
+        padding: 16px 36px;
+        border-radius: 12px;
+        font-weight: 700;
+        font-size: 16px;
+        border: none;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        text-decoration: none;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .btn-submit {
+        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        color: white;
+        box-shadow: 0 6px 20px rgba(17, 153, 142, 0.35);
+    }
+    
+    .btn-submit::before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 0;
+        height: 0;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.3);
+        transform: translate(-50%, -50%);
+        transition: width 0.6s, height 0.6s;
+    }
+    
+    .btn-submit:hover::before {
+        width: 300px;
+        height: 300px;
+    }
+    
+    .btn-submit:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 10px 30px rgba(17, 153, 142, 0.45);
+    }
+    
+    .btn-submit:active {
+        transform: translateY(-1px);
+    }
+    
+    .btn-submit:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+    }
+    
+    .btn-submit i, .btn-cancel i {
+        position: relative;
+        z-index: 1;
+    }
+    
+    .btn-submit span, .btn-cancel span {
+        position: relative;
+        z-index: 1;
+    }
+    
+    .btn-cancel {
+        background: white;
+        color: #64748b;
+        border: 2px solid #e1e8ed;
+    }
+    
+    .btn-cancel:hover {
+        background: #f8fafc;
+        border-color: #11998e;
+        color: #11998e;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+    
+    .preview-section {
+        display: none;
+        margin-top: 30px;
+        padding: 20px;
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        border-left: 4px solid #11998e;
+        animation: fadeInUp 0.3s ease-out;
+    }
+    
+    .preview-section.visible {
+        display: block;
+    }
+    
+    .preview-title {
+        font-size: 16px;
+        font-weight: 700;
+        color: #1a202c;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    
+    .preview-title i {
+        color: #11998e;
+    }
+    
+    .preview-content {
+        font-size: 14px;
+        color: #64748b;
+        line-height: 1.6;
+    }
+    
+    @media (max-width: 768px) {
+        .create-personnes-wrapper {
+            padding: 25px 20px;
+        }
+        
+        .create-personnes-header h1 {
+            font-size: 32px;
+        }
+        
+        .subtitle {
+            font-size: 16px;
+        }
+        
+        .form-card {
+            padding: 30px 25px;
+        }
+        
+        .form-footer {
+            flex-direction: column-reverse;
+        }
+        
+        .btn-submit, .btn-cancel {
+            width: 100%;
+            justify-content: center;
+        }
+        
+        .header-icon-wrapper {
+            width: 80px;
+            height: 80px;
+        }
+        
+        .header-icon-wrapper i {
+            font-size: 38px;
+        }
+    }
+    
+    @keyframes fadeOut {
+        from { opacity: 1; transform: translateY(0); }
+        to { opacity: 0; transform: translateY(-10px); }
+    }
+</style>
+{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">{% trans 'Home' %}</a>
+    &rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
+    &rsaquo; <a href="{% url 'admin:inventory_personne_changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
+    &rsaquo; {% trans 'Générer des personnes' %}
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="create-personnes-wrapper">
+    <div class="create-personnes-container">
+        <div class="create-personnes-header">
+            <div class="header-icon-wrapper">
+                <i class="fas fa-user-plus"></i>
+            </div>
+            <h1>Générer des personnes</h1>
+            <p class="subtitle">Créer automatiquement des personnes avec numérotation séquentielle</p>
+        </div>
+
+        <div class="info-section">
+            <div class="info-badge">
+                <i class="fas fa-info-circle"></i>
+                <span>Format de numérotation : opr-0001, opr-0002, opr-0003, ... (jusqu'à opr-9999)</span>
+            </div>
+        </div>
+
+        <div class="form-card">
+            <form method="post" id="create-personnes-form">
+                {% csrf_token %}
+                
+                {% if form.non_field_errors %}
+                <div class="form-errors">
+                    {% for error in form.non_field_errors %}
+                        <div class="error-message">
+                            <i class="fas fa-exclamation-circle"></i>
+                            {{ error }}
+                        </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                <div class="form-group">
+                    <label for="{{ form.nombre_personnes.id_for_label }}" class="form-label">
+                        <i class="fas fa-hashtag"></i>
+                        {{ form.nombre_personnes.label }}
+                        <span class="required">*</span>
+                    </label>
+                    {{ form.nombre_personnes }}
+                    {% if form.nombre_personnes.help_text %}
+                        <small class="help-text">{{ form.nombre_personnes.help_text }}</small>
+                    {% endif %}
+                    {% if form.nombre_personnes.errors %}
+                        <div class="field-errors">
+                            {% for error in form.nombre_personnes.errors %}
+                                <span class="error">{{ error }}</span>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                </div>
+
+                <div class="preview-section" id="preview-section">
+                    <div class="preview-title">
+                        <i class="fas fa-eye"></i>
+                        Aperçu de la création
+                    </div>
+                    <div class="preview-content" id="preview-content">
+                        <!-- Contenu dynamique généré par JavaScript -->
+                    </div>
+                </div>
+
+                <div class="form-footer">
+                    <button type="submit" class="btn-submit" id="submit-btn">
+                        <i class="fas fa-plus-circle"></i>
+                        <span>Générer les personnes</span>
+                    </button>
+                    <a href="{% url 'admin:inventory_personne_changelist' %}" class="btn-cancel">
+                        <i class="fas fa-times"></i>
+                        <span>Annuler</span>
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('create-personnes-form');
+    const submitBtn = document.getElementById('submit-btn');
+    const nombreField = document.getElementById('id_nombre_personnes');
+    const previewSection = document.getElementById('preview-section');
+    const previewContent = document.getElementById('preview-content');
+
+    // Fonction pour calculer et afficher l'aperçu
+    function updatePreview() {
+        const nombre = parseInt(nombreField.value);
+        
+        if (nombre && nombre > 0 && nombre <= 9999) {
+            // Simuler le prochain numéro disponible (en réalité, cela sera calculé côté serveur)
+            previewSection.classList.add('visible');
+            
+            previewContent.innerHTML = `
+                <strong style="color: #11998e;">Création de ${nombre} personne(s)</strong>
+                <br><br>
+                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin-top: 10px;">
+                    ${nombre <= 10 ? 
+                        Array.from({length: nombre}, (_, i) => 
+                            `<span style="padding: 6px 10px; background: rgba(17, 153, 142, 0.1); border-radius: 6px; font-size: 12px; font-weight: 600; color: #11998e;">opr-${String(i + 1).padStart(4, '0')}</span>`
+                        ).join('') 
+                        : 
+                        `<div style="grid-column: 1 / -1;">
+                            <span style="padding: 6px 10px; background: rgba(17, 153, 142, 0.1); border-radius: 6px; font-size: 12px; font-weight: 600; color: #11998e;">
+                                opr-0001 → opr-${String(nombre).padStart(4, '0')}
+                            </span>
+                        </div>`
+                    }
+                </div>
+                <br>
+                <small style="color: #94a3b8;">
+                    <i class="fas fa-info-circle"></i> 
+                    Les numéros seront générés automatiquement à partir du dernier numéro disponible dans la base de données.
+                </small>
+            `;
+        } else {
+            previewSection.classList.remove('visible');
+        }
+    }
+
+    // Écouter les changements sur le champ nombre
+    nombreField.addEventListener('input', updatePreview);
+    nombreField.addEventListener('change', updatePreview);
+    
+    // Initialiser l'aperçu si une valeur est déjà présente
+    if (nombreField.value) {
+        updatePreview();
+    }
+
+    // Validation côté client
+    form.addEventListener('submit', function(e) {
+        const nombre = parseInt(nombreField.value);
+
+        if (!nombre || nombre < 1) {
+            e.preventDefault();
+            showError('Veuillez entrer un nombre valide (minimum 1)');
+            nombreField.focus();
+            return;
+        }
+
+        if (nombre > 9999) {
+            e.preventDefault();
+            showError('Le nombre maximum de personnes est 9999');
+            nombreField.focus();
+            return;
+        }
+
+        // Désactiver le bouton et afficher le chargement
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>Création en cours...</span>';
+    });
+
+    // Fonction pour afficher les erreurs
+    function showError(message) {
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'form-errors';
+        errorDiv.style.animation = 'fadeInUp 0.3s ease-out';
+        errorDiv.innerHTML = `
+            <div class="error-message">
+                <i class="fas fa-exclamation-circle"></i>
+                ${message}
+            </div>
+        `;
+        
+        const formCard = document.querySelector('.form-card');
+        const existingErrors = formCard.querySelector('.form-errors');
+        if (existingErrors) {
+            existingErrors.replaceWith(errorDiv);
+        } else {
+            formCard.insertBefore(errorDiv, formCard.firstChild);
+        }
+        
+        errorDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        
+        setTimeout(() => {
+            errorDiv.style.animation = 'fadeOut 0.3s ease-out';
+            setTimeout(() => errorDiv.remove(), 300);
+        }, 5000);
+    }
+
+    // Validation en temps réel avec indicateur visuel
+    nombreField.addEventListener('input', function() {
+        const nombre = parseInt(this.value);
+        
+        if (nombre) {
+            if (nombre < 1 || nombre > 9999) {
+                this.style.borderColor = '#ef4444';
+                this.style.boxShadow = '0 0 0 4px rgba(239, 68, 68, 0.1)';
+            } else {
+                this.style.borderColor = '#10b981';
+                this.style.boxShadow = '0 0 0 4px rgba(16, 185, 129, 0.1)';
+                setTimeout(() => {
+                    this.style.borderColor = '';
+                    this.style.boxShadow = '';
+                }, 2000);
+            }
+        }
+    });
+});
+</script>
+{% endblock %}
+

@@ -139,8 +139,8 @@ class Command(BaseCommand):
                 location.location_reference,  # emplacement
                 True,  # active
                 f'job-{job_num}',  # job
-                f'equipe-{1000 + idx}',  # session_1 (1000-1999)
-                f'equipe-{2000 + idx}',  # session_2 (2000-2999)
+                f'equipe-{1000 + idx}',  # session_1 (1001-1999)
+                f'equipe-{2000 + idx}',  # session_2 (2001-2999)
                 f'Cas valide {idx}: active=true avec job-{job_num}'
             ])
             row_num += 1
@@ -177,8 +177,8 @@ class Command(BaseCommand):
             valid_locations[0].location_reference if valid_locations else 'LOC001',  # emplacement
             True,
             'job-01',
-            'equipe-1000',
-            'equipe-2000',
+            'equipe-1001',
+            'equipe-2001',
             'ERREUR: Warehouse inexistant'
         ])
         row_num += 1
@@ -191,8 +191,8 @@ class Command(BaseCommand):
                 valid_locations[0].location_reference if valid_locations else 'LOC001',  # emplacement
                 True,
                 'job-01',
-                'equipe-1000',
-                'equipe-2000',
+                'equipe-1001',
+                'equipe-2001',
                 f'ERREUR: Warehouse {other_wh.reference} n\'appartient pas à l\'inventaire'
             ])
             row_num += 1
@@ -203,8 +203,8 @@ class Command(BaseCommand):
             valid_locations[0].location_reference if valid_locations else 'LOC001',  # emplacement
             True,
             'job-01',
-            'equipe-1000',
-            'equipe-2000',
+            'equipe-1001',
+            'equipe-2001',
             'ERREUR: Warehouse vide (obligatoire)'
         ])
         row_num += 1
@@ -221,8 +221,8 @@ class Command(BaseCommand):
             'EMPLACEMENT_INEXISTANT',  # emplacement
             True,
             'job-01',
-            'equipe-1000',
-            'equipe-2000',
+            'equipe-1001',
+            'equipe-2001',
             'ERREUR: Emplacement inexistant'
         ])
         row_num += 1
@@ -233,8 +233,8 @@ class Command(BaseCommand):
             '',  # emplacement vide
             True,
             'job-01',
-            'equipe-1000',
-            'equipe-2000',
+            'equipe-1001',
+            'equipe-2001',
             'ERREUR: Emplacement vide (obligatoire)'
         ])
         row_num += 1
@@ -247,8 +247,8 @@ class Command(BaseCommand):
                 other_loc.location_reference,  # emplacement d'un autre warehouse
                 True,
                 'job-01',
-                'equipe-1000',
-                'equipe-2000',
+                'equipe-1001',
+                'equipe-2001',
                 f'ERREUR: Emplacement {other_loc.location_reference} n\'appartient pas au warehouse {valid_warehouse.reference}'
             ])
             row_num += 1
@@ -266,8 +266,8 @@ class Command(BaseCommand):
                 valid_locations[0].location_reference,
                 True,
                 '01',  # Format invalide
-                'equipe-1000',
-                'equipe-2000',
+                'equipe-1001',
+                'equipe-2001',
                 'ERREUR: Format job invalide (attendu: job-XX)'
             ])
             row_num += 1
@@ -279,8 +279,8 @@ class Command(BaseCommand):
                 valid_locations[0].location_reference,
                 True,
                 'travail-01',  # Format invalide
-                'equipe-1000',
-                'equipe-2000',
+                'equipe-1001',
+                'equipe-2001',
                 'ERREUR: Format job invalide (attendu: job-XX)'
             ])
             row_num += 1
@@ -292,8 +292,8 @@ class Command(BaseCommand):
                 valid_locations[0].location_reference,
                 True,
                 '',  # Job vide alors que active=true
-                'equipe-1000',
-                'equipe-2000',
+                'equipe-1001',
+                'equipe-2001',
                 'ERREUR: Job obligatoire lorsque active=true'
             ])
             row_num += 1
@@ -312,7 +312,7 @@ class Command(BaseCommand):
                 True,
                 'job-01',
                 'team-1000',  # Format invalide
-                'equipe-2000',
+                'equipe-2001',
                 'ERREUR: Format session_1 invalide (attendu: equipe-XXXX)'
             ])
             row_num += 1
@@ -325,8 +325,8 @@ class Command(BaseCommand):
                 True,
                 'job-01',
                 'equipe-999',  # Hors plage
-                'equipe-2000',
-                'ERREUR: Session_1 hors plage (attendu: 1000-1999)'
+                'equipe-2001',
+                'ERREUR: Session_1 hors plage (attendu: 1001-1999)'
             ])
             row_num += 1
         
@@ -337,9 +337,9 @@ class Command(BaseCommand):
                 valid_locations[0].location_reference,
                 True,
                 'job-01',
-                'equipe-2000',  # Hors plage (doit être dans 1000-1999)
-                'equipe-2000',
-                'ERREUR: Session_1 hors plage (attendu: 1000-1999)'
+                'equipe-2000',  # Hors plage (doit être dans 1001-1999)
+                'equipe-2001',
+                'ERREUR: Session_1 hors plage (attendu: 1001-1999)'
             ])
             row_num += 1
         
@@ -351,7 +351,7 @@ class Command(BaseCommand):
                 True,
                 'job-01',
                 '',  # Session_1 vide alors que active=true
-                'equipe-2000',
+                'equipe-2001',
                 'ERREUR: Session_1 obligatoire lorsque active=true'
             ])
             row_num += 1
@@ -369,7 +369,7 @@ class Command(BaseCommand):
                 valid_locations[0].location_reference,
                 True,
                 'job-01',
-                'equipe-1000',
+                'equipe-1001',
                 'team-2000',  # Format invalide
                 'ERREUR: Format session_2 invalide (attendu: equipe-XXXX)'
             ])
@@ -382,9 +382,9 @@ class Command(BaseCommand):
                 valid_locations[0].location_reference,
                 True,
                 'job-01',
-                'equipe-1000',
+                'equipe-1001',
                 'equipe-1999',  # Hors plage
-                'ERREUR: Session_2 hors plage (attendu: 2000-2999)'
+                'ERREUR: Session_2 hors plage (attendu: 2001-2999)'
             ])
             row_num += 1
         
@@ -395,9 +395,9 @@ class Command(BaseCommand):
                 valid_locations[0].location_reference,
                 True,
                 'job-01',
-                'equipe-1000',
+                'equipe-1001',
                 'equipe-3000',  # Hors plage
-                'ERREUR: Session_2 hors plage (attendu: 2000-2999)'
+                'ERREUR: Session_2 hors plage (attendu: 2001-2999)'
             ])
             row_num += 1
         
@@ -408,7 +408,7 @@ class Command(BaseCommand):
                 valid_locations[0].location_reference,
                 True,
                 'job-01',
-                'equipe-1000',
+                'equipe-1001',
                 '',  # Session_2 vide alors que active=true
                 'ERREUR: Session_2 obligatoire lorsque active=true'
             ])
@@ -427,8 +427,8 @@ class Command(BaseCommand):
                 valid_locations[0].location_reference,
                 True,
                 'job-02',  # Commence à job-02 au lieu de job-01
-                'equipe-1000',
-                'equipe-2000',
+                'equipe-1001',
+                'equipe-2001',
                 'ERREUR: Jobs doivent commencer à job-01'
             ])
             row_num += 1
@@ -441,8 +441,8 @@ class Command(BaseCommand):
                 valid_locations[0].location_reference,
                 True,
                 'job-01',
-                'equipe-1000',
-                'equipe-2000',
+                'equipe-1001',
+                'equipe-2001',
                 'Cas valide pour test rupture'
             ])
             row_num += 1
@@ -473,8 +473,8 @@ class Command(BaseCommand):
                 valid_locations[0].location_reference if len(valid_locations) > 0 else 'LOC001',
                 'true',  # String
                 'job-01',
-                'equipe-1000',
-                'equipe-2000',
+                'equipe-1001',
+                'equipe-2001',
                 'Cas valide: active="true" (string)'
             ])
             row_num += 1

@@ -41,8 +41,8 @@ class InventoryLocationJobImportView(APIView):
         - emplacement: Référence de l'emplacement
         - active: (utilisé pour synchroniser Location.is_active)
         - job: Format JOB-XXXX (ex: JOB-0001, JOB-0002, ...)
-        - session_1: Format equipe-XXXX (plage: 1000-1999)
-        - session_2: Format equipe-XXXX (plage: 2000-2999)
+        - session_1: Format equipe-XXXX (plage: 1001-1999)
+        - session_2: Format equipe-XXXX (plage: 2001-2999)
         """
         try:
             # Valider le serializer
