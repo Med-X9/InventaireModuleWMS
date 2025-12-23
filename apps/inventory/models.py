@@ -233,10 +233,9 @@ class Job(TimeStampedModel):
     
 def validate_numero_format(value):
     """
-    Valide le format du numéro selon l'ordre :
-    - Ordre 1: 0x - commence par 0, suivi d'au moins un chiffre (ex: 01, 02, 010, 011, etc.)
-    - Ordre 2: 00x - commence par 00, suivi d'au moins un chiffre (ex: 001, 002, 0010, 0011, etc.)
-    - Ordre 3: 000x - commence par 000, suivi d'au moins un chiffre (ex: 0001, 0002, 00010, 00011, etc.)
+    Valide le format du numéro avec le préfixe 'opr-' suivi de '000' et au moins un chiffre.
+    Format attendu: opr-000x où x est au moins un chiffre
+    Exemples valides: opr-0002, opr-00012, opr-00034
     """
     if value is None or value == '':
         return
@@ -244,35 +243,26 @@ def validate_numero_format(value):
     # Convertir en string si ce n'est pas déjà le cas
     numero_str = str(value).strip()
     
-    # Vérifier les formats possibles
-    # Format 0x (ordre 1): commence par 0, suivi d'au moins un chiffre
-    # Format 00x (ordre 2): commence par 00, suivi d'au moins un chiffre
-    # Format 000x (ordre 3): commence par 000, suivi d'au moins un chiffre
-    
-    is_valid = False
-    
-    if numero_str.startswith('000'):
-        # Format 000x: commence par 000, suivi d'au moins un chiffre
-        suffix = numero_str[3:]
-        if suffix.isdigit() and len(suffix) > 0:
-            is_valid = True
-    elif numero_str.startswith('00'):
-        # Format 00x: commence par 00, suivi d'au moins un chiffre
-        suffix = numero_str[2:]
-        if suffix.isdigit() and len(suffix) > 0:
-            is_valid = True
-    elif numero_str.startswith('0'):
-        # Format 0x: commence par 0, suivi d'au moins un chiffre
-        suffix = numero_str[1:]
-        if suffix.isdigit() and len(suffix) > 0:
-            is_valid = True
-    
-    if not is_valid:
+    # Vérifier que le format commence par 'opr-'
+    if not numero_str.startswith('opr-'):
         raise ValidationError(
-            _('Le numéro doit respecter l\'un des formats suivants : '
-              '0x pour l\'ordre 1 (ex: 01, 02, 010, 011, etc.), '
-              '00x pour l\'ordre 2 (ex: 001, 002, 0010, 0011, etc.), '
-              '000x pour l\'ordre 3 (ex: 0001, 0002, 00010, 00011, etc.)')
+            _('Le numéro doit commencer par "opr-" (ex: opr-0002, opr-00012, opr-00034)')
+        )
+    
+    # Extraire la partie après 'opr-'
+    suffix = numero_str[4:]  # Enlever 'opr-'
+    
+    # Vérifier que la partie après 'opr-' commence par '000' suivi d'au moins un chiffre
+    if not suffix.startswith('000'):
+        raise ValidationError(
+            _('Le numéro doit avoir le format "opr-000x" où x est au moins un chiffre (ex: opr-0002, opr-00012, opr-00034)')
+        )
+    
+    # Vérifier que la partie après '000' contient au moins un chiffre
+    remaining = suffix[3:]  # Enlever '000'
+    if not remaining or not remaining.isdigit() or len(remaining) == 0:
+        raise ValidationError(
+            _('Le numéro doit avoir le format "opr-000x" où x est au moins un chiffre (ex: opr-0002, opr-00012, opr-00034)')
         )
 
 
