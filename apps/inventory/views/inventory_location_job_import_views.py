@@ -188,12 +188,40 @@ class InventoryLocationJobImportSyncView(APIView):
                 # Lire le fichier Excel pour extraire les colonnes et le nombre de lignes
                 try:
                     df = pd.read_excel(file_path, engine='openpyxl')
+                    # Normaliser les noms de colonnes (minuscules, sans espaces) comme dans le service
+                    df.columns = df.columns.str.strip().str.lower()
                     columns = list(df.columns)
                     total_rows = len(df)
                 except Exception as e:
-                    logger.warning(f"Erreur lors de la lecture du fichier Excel pour extraction des métadonnées: {str(e)}")
-                    columns = []
-                    total_rows = 0
+                    logger.error(f"Erreur lors de la lecture du fichier Excel: {str(e)}")
+                    return self._error_response(
+                        message=f"Erreur lors de la lecture du fichier Excel: {str(e)}",
+                        status_code=status.HTTP_400_BAD_REQUEST
+                    )
+                
+                # Valider la structure du fichier (colonnes requises)
+                required_columns = ['warehouse', 'emplacement', 'active', 'job', 'session_1', 'session_2']
+                missing_columns = [col for col in required_columns if col not in columns]
+                
+                if missing_columns:
+                    # Nettoyer le fichier temporaire avant de retourner l'erreur
+                    try:
+                        if os.path.exists(file_path):
+                            os.unlink(file_path)
+                    except Exception as e:
+                        logger.warning(f"Erreur lors de la suppression du fichier temporaire: {str(e)}")
+                    
+                    return self._error_response(
+                        message=f"Colonnes manquantes dans le fichier Excel: {', '.join(missing_columns)}",
+                        errors={
+                            'missing_columns': missing_columns,
+                            'required_columns': required_columns,
+                            'found_columns': columns,
+                            'file_name': file_name,
+                            'total_rows': total_rows
+                        },
+                        status_code=status.HTTP_400_BAD_REQUEST
+                    )
                 
                 # Lancer l'import de manière asynchrone
                 def import_callback(result):
@@ -269,11 +297,19 @@ class InventoryLocationJobImportSyncView(APIView):
     def _error_response(self, message, errors=None, status_code=status.HTTP_400_BAD_REQUEST):
         """Helper pour créer une réponse d'erreur"""
         from rest_framework.response import Response
-        response_data = {
-            'success': False,
-            'message': message,
-            'errors': errors or []
-        }
+        # Si errors est un dict, le mettre dans 'data', sinon dans 'errors'
+        if isinstance(errors, dict):
+            response_data = {
+                'success': False,
+                'message': message,
+                'data': errors
+            }
+        else:
+            response_data = {
+                'success': False,
+                'message': message,
+                'data': {'errors': errors or []}
+            }
         return Response(response_data, status=status_code)
 
 
