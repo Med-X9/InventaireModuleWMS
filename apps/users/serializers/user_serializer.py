@@ -31,6 +31,5 @@ class MobileUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            'id', 'username', 'email', 'nom', 'prenom', 'type','compte'
-           
+            'id', 'username', 'email', 'nom', 'prenom', 'type', 'compte', 'comptage'
         ] 
