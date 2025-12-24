@@ -95,7 +95,7 @@ class JobDiscrepancyService:
             assignments_data = []
             for assignment in assignments_filtered:
                 counting_order = assignment.counting.order if assignment.counting else None
-                
+            
                 # Calculer les écarts pour ce comptage (par rapport au 1er comptage)
                 discrepancy_info = self._calculate_discrepancy_with_first_counting(
                     counting_details_by_order,
@@ -181,7 +181,7 @@ class JobDiscrepancyService:
             if detail_1 and detail_2:
                 quantity_1 = detail_1.quantity_inventoried
                 quantity_2 = detail_2.quantity_inventoried
-                
+            
                 # Si les quantités diffèrent, c'est un écart
                 if quantity_1 != quantity_2:
                     discrepancy_count += 1
