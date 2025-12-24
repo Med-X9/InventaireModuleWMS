@@ -4,6 +4,7 @@ Vues pour l'import des InventoryLocationJob
 import logging
 import tempfile
 import os
+import pandas as pd
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
@@ -173,6 +174,9 @@ class InventoryLocationJobImportSyncView(APIView):
             
             excel_file = serializer.validated_data['file']
             
+            # Extraire le nom de fichier
+            file_name = excel_file.name if hasattr(excel_file, 'name') else 'fichier.xlsx'
+            
             # Sauvegarder le fichier temporairement
             temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
             try:
@@ -180,6 +184,16 @@ class InventoryLocationJobImportSyncView(APIView):
                     temp_file.write(chunk)
                 temp_file.close()
                 file_path = temp_file.name
+                
+                # Lire le fichier Excel pour extraire les colonnes et le nombre de lignes
+                try:
+                    df = pd.read_excel(file_path, engine='openpyxl')
+                    columns = list(df.columns)
+                    total_rows = len(df)
+                except Exception as e:
+                    logger.warning(f"Erreur lors de la lecture du fichier Excel pour extraction des métadonnées: {str(e)}")
+                    columns = []
+                    total_rows = 0
                 
                 # Lancer l'import de manière asynchrone
                 def import_callback(result):
@@ -211,7 +225,10 @@ class InventoryLocationJobImportSyncView(APIView):
                         'status': 'processing',
                         'message': 'Import en cours de traitement. Le traitement est effectué en arrière-plan.',
                         'inventory_id': inventory_id,
-                        'import_task_id': import_task.id
+                        'import_task_id': import_task.id,
+                        'file_name': file_name,
+                        'columns': columns,
+                        'total_rows': total_rows
                     },
                     status_code=status.HTTP_202_ACCEPTED
                 )
