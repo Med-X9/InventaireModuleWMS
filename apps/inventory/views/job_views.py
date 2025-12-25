@@ -368,7 +368,7 @@ class PendingJobsReferencesView(ServerSideDataTableView):
     
     # Champs de recherche - tous les champs disponibles
     search_fields = [
-        'reference', 'status', 'created_at',
+        'reference', 'status',
         'inventory__reference', 'inventory__label',
         'warehouse__reference', 'warehouse__warehouse_name'
     ]
@@ -384,6 +384,18 @@ class PendingJobsReferencesView(ServerSideDataTableView):
     min_page_size = 1
     max_page_size = 1000
     export_filename = 'jobs_en_attente'
+
+    # Mapping frontend -> backend pour le DataTable « Jobs en attente »
+    column_field_mapping = {
+        'id': 'id',
+        'reference': 'reference',
+        'status': 'status',
+        'created_at': 'created_at',
+        'inventory_reference': 'inventory__reference',
+        'inventory_label': 'inventory__label',
+        'warehouse_reference': 'warehouse__reference',
+        'warehouse_name': 'warehouse__warehouse_name',
+    }
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -427,7 +439,7 @@ class JobListWithLocationsView(ServerSideDataTableView):
     
     # Champs de recherche et tri
     search_fields = [
-        'reference', 'status', 'created_at', 'warehouse__warehouse_name',
+        'reference', 'status', 'warehouse__warehouse_name',
         'inventory__reference', 'jobdetail__location__location_reference',
         'jobdetail__location__sous_zone__sous_zone_name',
         'jobdetail__location__sous_zone__zone__zone_name'
@@ -480,7 +492,7 @@ class WarehouseJobsView(ServerSideDataTableView):
     
     # Champs de recherche - tous les champs disponibles
     search_fields = [
-        'reference', 'status', 'created_at',
+        'reference', 'status',
         'warehouse__warehouse_name', 'warehouse__reference',
         'inventory__reference', 'inventory__label',
         'jobdetail__location__location_reference',
@@ -501,7 +513,7 @@ class WarehouseJobsView(ServerSideDataTableView):
     export_filename = 'jobs_par_warehouse'
 
     # Mapping frontend -> backend pour le DataTable « Jobs créés »
-    filter_aliases = {
+    column_field_mapping = {
         'id': 'id',
         'reference': 'reference',
         'status': 'status',
@@ -514,6 +526,9 @@ class WarehouseJobsView(ServerSideDataTableView):
         'zone_name': 'jobdetail__location__sous_zone__zone__zone_name',
         'sous_zone_name': 'jobdetail__location__sous_zone__sous_zone_name',
     }
+
+    # Alias pour compatibilité avec l'ancien système
+    filter_aliases = column_field_mapping
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -604,16 +619,16 @@ class JobFullDetailListView(ServerSideDataTableView):
     
     # Champs de recherche et tri - tous les champs disponibles
     search_fields = [
-        'reference', 'status', 'created_at',
+        'reference', 'status',
         'warehouse__warehouse_name', 'warehouse__reference',
         'inventory__reference', 'inventory__label',
         'jobdetail__location__location_reference',
         'jobdetail__location__sous_zone__sous_zone_name',
         'jobdetail__location__sous_zone__zone__zone_name',
-        'assigment__counting__reference', 'assigment__counting__order',
-        'assigment__session__username', 'assigment__status',
+        'assigment__counting__reference',
+        'assigment__session__username',
         'jobdetailressource__ressource__reference',
-        'jobdetailressource__ressource__name'
+        'jobdetailressource__ressource__libelle'
     ]
     
     order_fields = [
@@ -711,16 +726,16 @@ class JobPendingListView(ServerSideDataTableView):
     
     # Champs de recherche et tri - tous les champs disponibles
     search_fields = [
-        'reference', 'status', 'created_at',
+        'reference', 'status',
         'warehouse__warehouse_name', 'warehouse__reference',
         'inventory__reference', 'inventory__label',
         'jobdetail__location__location_reference',
         'jobdetail__location__sous_zone__sous_zone_name',
         'jobdetail__location__sous_zone__zone__zone_name',
-        'assigment__counting__reference', 'assigment__counting__order',
-        'assigment__session__username', 'assigment__status',
+        'assigment__counting__reference',
+        'assigment__session__username',
         'jobdetailressource__ressource__reference',
-        'jobdetailressource__ressource__name'
+        'jobdetailressource__ressource__libelle'
     ]
     
     order_fields = [

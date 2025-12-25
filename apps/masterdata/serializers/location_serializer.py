@@ -33,8 +33,38 @@ class LocationSerializer(serializers.ModelSerializer):
 
     # zone = ZoneSerializer()
     # location_type = LocationTypeSerializer()
-    
-    # class Meta:
+
+
+class LocationBulkDeactivateSerializer(serializers.Serializer):
+    """
+    Serializer pour désactiver plusieurs locations (mettre is_active = false)
+    """
+    location_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        min_length=1,
+        help_text="Liste des IDs des locations à désactiver"
+    )
+
+    def validate_location_ids(self, value):
+        """
+        Valide que tous les IDs de locations existent
+        """
+        from ..models import Location
+
+        location_ids = value
+        existing_ids = set(Location.objects.filter(
+            id__in=location_ids,
+            is_deleted=False
+        ).values_list('id', flat=True))
+
+        missing_ids = set(location_ids) - existing_ids
+
+        if missing_ids:
+            raise serializers.ValidationError(
+                f"Les locations suivantes n'existent pas ou sont supprimées: {list(missing_ids)}"
+            )
+
+        return value
     #     model = Location
     #     fields = [
     #         'id',

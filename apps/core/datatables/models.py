@@ -307,27 +307,36 @@ class QueryModel:
     def from_request(cls, request) -> 'QueryModel':
         """
         Crée depuis une requête HTTP (nouveau format uniquement).
-        
+
         Supporte :
         - POST avec JSON body : page, pageSize, search, sort, filters
         - GET avec query params : page, pageSize, search, sort, filters (ou sortBy/sortDir)
         - GET avec format array : sort[0][colId], sort[0][sort]
         """
         import json
-        
+
         # Essayer POST avec JSON body (ou GET avec body)
         if hasattr(request, 'data') and request.data:
             if isinstance(request.data, dict):
-                return cls.from_dict(request.data)
-        
+                # Vérifier si request.data contient des données QueryModel pertinentes
+                if any(key in request.data for key in ['page', 'pageSize', 'search', 'sort', 'filters']):
+                    return cls.from_dict(request.data)
+
         # Essayer aussi request.body pour les requêtes avec body JSON
-        if hasattr(request, 'body') and request.body:
+        # ⚠️ ATTENTION: Ne pas accéder à request.body si les données ont déjà été lues par DRF
+        if hasattr(request, 'body'):
             try:
-                import json
-                body_data = json.loads(request.body)
-                if isinstance(body_data, dict) and ('page' in body_data or 'pageSize' in body_data or 'sort' in body_data):
-                    return cls.from_dict(body_data)
-            except (json.JSONDecodeError, TypeError, ValueError, UnicodeDecodeError):
+                # Vérifier si le body n'a pas déjà été consommé
+                # Dans DRF, si _load_data() a été appelé, body est inutilisable
+                if hasattr(request, '_load_data_called') and request._load_data_called:
+                    # Les données ont déjà été chargées par DRF, ne pas toucher au body
+                    pass
+                elif hasattr(request, 'body') and request.body:
+                    body_data = json.loads(request.body)
+                    if isinstance(body_data, dict) and any(key in body_data for key in ['page', 'pageSize', 'search', 'sort', 'filters']):
+                        return cls.from_dict(body_data)
+            except (json.JSONDecodeError, TypeError, ValueError, UnicodeDecodeError, AttributeError):
+                # AttributeError peut se produire si _load_data_called n'existe pas
                 pass
         
         # GET params - nouveau format uniquement

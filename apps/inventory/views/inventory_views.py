@@ -70,11 +70,9 @@ class InventoryListView(ServerSideDataTableView):
     model = Inventory
     serializer_class = InventoryDetailSerializer
     
-    # Champs de recherche - tous les champs disponibles dans le JSON
+    # Champs de recherche - uniquement les CharField/TextField (pas de DateField)
     search_fields = [
-        'reference', 'label', 'status', 'inventory_type', 'date',
-        'en_preparation_status_date', 'en_realisation_status_date',
-        'termine_status_date', 'cloture_status_date', 'created_at',
+        'reference', 'label', 'status', 'inventory_type',
         # Relations pour account_name, account_reference, warehouse_name
         'awi_links__account__account_name',
         'awi_links__account__reference',

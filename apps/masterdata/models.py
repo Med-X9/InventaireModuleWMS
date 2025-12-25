@@ -476,6 +476,78 @@ class ImportTask(TimeStampedModel):
     
     def __str__(self):
         return f"Import {self.file_name} - {self.status}"
+    
+    def get_chunks_progress(self):
+        """
+        Récupère la progression des chunks depuis errors_file_path (stocké en JSON).
+        Retourne une liste vide si aucun chunk n'est suivi.
+        """
+        import json
+        import os
+        
+        if not self.errors_file_path or not os.path.exists(self.errors_file_path):
+            return []
+        
+        try:
+            with open(self.errors_file_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return []
+    
+    def set_chunks_progress(self, chunks_data):
+        """
+        Sauvegarde la progression des chunks dans errors_file_path (stocké en JSON).
+        Utilise errors_file_path pour stocker le chemin vers le fichier JSON des chunks.
+        """
+        import json
+        import tempfile
+        import os
+        
+        # Créer un fichier temporaire pour stocker les chunks
+        if not self.errors_file_path:
+            # Créer un nouveau fichier temporaire
+            temp_file = tempfile.NamedTemporaryFile(
+                mode='w',
+                delete=False,
+                suffix='_chunks.json',
+                prefix=f'import_task_{self.id}_'
+            )
+            self.errors_file_path = temp_file.name
+            temp_file.close()
+        
+        # Écrire les données dans le fichier
+        try:
+            with open(self.errors_file_path, 'w', encoding='utf-8') as f:
+                json.dump(chunks_data, f, indent=2, ensure_ascii=False)
+            self.save(update_fields=['errors_file_path'])
+        except IOError as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Erreur lors de l'écriture du fichier de chunks: {str(e)}")
+    
+    def update_chunk_progress(self, chunk_number, **kwargs):
+        """
+        Met à jour la progression d'un chunk spécifique.
+        
+        Args:
+            chunk_number: Numéro du chunk à mettre à jour
+            **kwargs: Champs à mettre à jour (status, processed_rows, imported_count, etc.)
+        """
+        chunks = self.get_chunks_progress()
+        
+        # Trouver le chunk à mettre à jour
+        for chunk in chunks:
+            if chunk.get('chunk_number') == chunk_number:
+                chunk.update(kwargs)
+                self.set_chunks_progress(chunks)
+                return
+        
+        # Si le chunk n'existe pas, le créer
+        chunks.append({
+            'chunk_number': chunk_number,
+            **kwargs
+        })
+        self.set_chunks_progress(chunks)
 
 
 class ImportError(TimeStampedModel):

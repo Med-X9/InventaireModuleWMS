@@ -4,7 +4,7 @@ from rest_framework import status, filters
 from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 from ..services.location_service import LocationService
-from ..serializers.location_serializer import LocationSerializer, UnassignedLocationSerializer
+from ..serializers.location_serializer import LocationSerializer, UnassignedLocationSerializer, LocationBulkDeactivateSerializer
 from rest_framework.permissions import IsAuthenticated
 from ..models import Location, SousZone
 import logging
@@ -240,4 +240,87 @@ class LocationDetailView(APIView):
             return Response(
                 {"error": str(e)},
                 status=status.HTTP_404_NOT_FOUND
-            ) 
+            )
+
+
+class LocationBulkDeactivateView(APIView):
+    """
+    Vue pour désactiver plusieurs locations (mettre is_active = false) en une seule opération
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """
+        Désactive plusieurs locations (met is_active = false)
+
+        Corps de la requête :
+        {
+            "location_ids": [1, 2, 3]
+        }
+
+        Réponse de succès :
+        {
+            "success": true,
+            "message": "5 location(s) désactivée(s) avec succès",
+            "data": {
+                "updated_count": 5,
+                "total_requested": 5,
+                "is_active": false,
+                "updated_locations": [
+                    {"id": 1, "reference": "LOC-001"},
+                    {"id": 2, "reference": "LOC-002"},
+                    ...
+                ]
+            }
+        }
+        """
+        try:
+            # Valider les données d'entrée
+            serializer = LocationBulkDeactivateSerializer(data=request.data)
+            if not serializer.is_valid():
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Données invalides",
+                        "errors": serializer.errors
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Extraire les données validées
+            location_ids = serializer.validated_data['location_ids']
+
+            # Désactiver les locations (is_active = false)
+            result = LocationService.bulk_update_location_status(location_ids, is_active=False)
+
+            # Retourner la réponse de succès
+            message = f"{result['updated_count']} location(s) désactivée(s) avec succès"
+            return Response(
+                {
+                    "success": True,
+                    "message": message,
+                    "data": result
+                },
+                status=status.HTTP_200_OK
+            )
+
+        except LocationError as e:
+            logger.warning(f"Erreur métier lors de la désactivation des locations: {str(e)}")
+            return Response(
+                {
+                    "success": False,
+                    "message": str(e),
+                    "errors": [str(e)]
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Erreur inattendue lors de la désactivation des locations: {str(e)}")
+            return Response(
+                {
+                    "success": False,
+                    "message": "Une erreur inattendue est survenue lors de la désactivation des locations",
+                    "errors": [str(e)]
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

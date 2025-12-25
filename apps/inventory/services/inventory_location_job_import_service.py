@@ -18,6 +18,9 @@ from apps.inventory.repositories.inventory_repository import InventoryRepository
 
 logger = logging.getLogger(__name__)
 
+# Taille des chunks pour le tracking
+CHUNK_SIZE = 1000  # Nombre de lignes par chunk
+
 
 class InventoryLocationJobImportService:
     """
@@ -398,6 +401,30 @@ class InventoryLocationJobImportService:
                     'imported_count': 0
                 }
             
+            # Initialiser le tracking des chunks si import_task est fourni
+            total_rows = len(validated_data)
+            total_chunks = (total_rows + CHUNK_SIZE - 1) // CHUNK_SIZE if total_rows > 0 else 0
+            
+            if import_task and total_chunks > 0:
+                chunks_progress = [
+                    {
+                        'chunk_number': i + 1,
+                        'status': 'PENDING',
+                        'start_row': (i * CHUNK_SIZE) + 1,
+                        'end_row': min((i + 1) * CHUNK_SIZE, total_rows),
+                        'processed_rows': 0,
+                        'imported_count': 0,
+                        'updated_count': 0,
+                        'error_count': 0,
+                        'started_at': None,
+                        'completed_at': None,
+                        'error_message': None
+                    }
+                    for i in range(total_chunks)
+                ]
+                import_task.set_chunks_progress(chunks_progress)
+                logger.info(f"Tracking des chunks initialisé: {total_chunks} chunk(s) pour {total_rows} ligne(s)")
+            
             # Si toutes les validations passent, procéder à la synchronisation puis à l'insertion
             with transaction.atomic():
                 # 5bis. D'abord, purger toutes les données liées aux jobs de cet inventaire
@@ -416,27 +443,90 @@ class InventoryLocationJobImportService:
                 sync_result = self._sync_location_active_status(validated_data)
                 logger.info(f"Synchronisation des emplacements: {sync_result['updated_count']} emplacement(s) mis à jour")
                 
-                # 7. Ensuite, insérer/mettre à jour dans InventoryLocationJob (UPSERT)
-                # Utiliser upsert au lieu de supprimer puis créer
-                # Champs à insérer/mettre à jour : inventaire, emplacement, job, session_1, session_2
-                # Champs à EXCLURE : 
-                #   - active_excel (utilisé uniquement pour la synchronisation de Location.is_active)
-                #   - job_number (utilisé uniquement pour la validation d'incrémentation)
-                #   - is_active (utilisé uniquement pour la validation conditionnelle)
-                #   - warehouse_id (le warehouse sert uniquement à la validation, pas à l'insertion)
-                data_to_upsert = [
-                    {
-                        'inventaire_id': data['inventaire_id'],
-                        'emplacement_id': data['emplacement_id'],
-                        'job': data['job'],
-                        'session_1': data['session_1'],
-                        'session_2': data['session_2'],
+                # 7. Traiter les données par chunks pour le tracking
+                if import_task and total_chunks > 0:
+                    # Traiter chaque chunk
+                    for chunk_idx in range(total_chunks):
+                        start_idx = chunk_idx * CHUNK_SIZE
+                        end_idx = min(start_idx + CHUNK_SIZE, total_rows)
+                        chunk_data = validated_data[start_idx:end_idx]
+                        chunk_number = chunk_idx + 1
+                        
+                        # Mettre à jour le statut du chunk
+                        import_task.update_chunk_progress(
+                            chunk_number,
+                            status='PROCESSING',
+                            started_at=timezone.now().isoformat()
+                        )
+                        logger.info(f"Traitement du chunk {chunk_number}/{total_chunks} (lignes {start_idx + 1} à {end_idx})")
+                        
+                        try:
+                            # Préparer les données du chunk pour l'upsert
+                            chunk_data_to_upsert = [
+                                {
+                                    'inventaire_id': data['inventaire_id'],
+                                    'emplacement_id': data['emplacement_id'],
+                                    'job': data['job'],
+                                    'session_1': data['session_1'],
+                                    'session_2': data['session_2'],
+                                }
+                                for data in chunk_data
+                            ]
+                            
+                            # Effectuer l'upsert pour ce chunk
+                            chunk_upsert_result = self.repository.bulk_upsert(chunk_data_to_upsert, inventory_id)
+                            
+                            # Mettre à jour le tracking du chunk
+                            import_task.update_chunk_progress(
+                                chunk_number,
+                                status='COMPLETED',
+                                processed_rows=len(chunk_data),
+                                imported_count=chunk_upsert_result.get('created', 0),
+                                updated_count=chunk_upsert_result.get('updated', 0),
+                                error_count=0,
+                                completed_at=timezone.now().isoformat()
+                            )
+                            
+                            logger.info(
+                                f"Chunk {chunk_number}/{total_chunks} terminé: "
+                                f"{chunk_upsert_result.get('created', 0)} créé(s), "
+                                f"{chunk_upsert_result.get('updated', 0)} mis à jour"
+                            )
+                            
+                        except Exception as e:
+                            # En cas d'erreur sur un chunk, marquer comme FAILED
+                            import_task.update_chunk_progress(
+                                chunk_number,
+                                status='FAILED',
+                                error_message=str(e),
+                                completed_at=timezone.now().isoformat()
+                            )
+                            logger.error(f"Erreur lors du traitement du chunk {chunk_number}: {str(e)}")
+                            raise
+                    
+                    # Récupérer les résultats totaux depuis les chunks
+                    chunks_progress = import_task.get_chunks_progress()
+                    total_imported = sum(chunk.get('imported_count', 0) for chunk in chunks_progress)
+                    total_updated = sum(chunk.get('updated_count', 0) for chunk in chunks_progress)
+                    upsert_result = {
+                        'created': total_imported,
+                        'updated': total_updated
                     }
-                    for data in validated_data
-                ]
-                
-                # Effectuer l'upsert (update or insert) en masse
-                upsert_result = self.repository.bulk_upsert(data_to_upsert, inventory_id)
+                else:
+                    # Traitement normal sans chunks (pour compatibilité)
+                    data_to_upsert = [
+                        {
+                            'inventaire_id': data['inventaire_id'],
+                            'emplacement_id': data['emplacement_id'],
+                            'job': data['job'],
+                            'session_1': data['session_1'],
+                            'session_2': data['session_2'],
+                        }
+                        for data in validated_data
+                    ]
+                    
+                    # Effectuer l'upsert (update or insert) en masse
+                    upsert_result = self.repository.bulk_upsert(data_to_upsert, inventory_id)
                 
                 logger.info(f"Import réussi: {upsert_result['created']} enregistrement(s) créé(s), {upsert_result['updated']} enregistrement(s) mis à jour dans InventoryLocationJob")
                 
