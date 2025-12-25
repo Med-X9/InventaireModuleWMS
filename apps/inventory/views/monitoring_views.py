@@ -19,15 +19,17 @@ logger = logging.getLogger(__name__)
 class ZoneMonitoringByInventoryAndWarehouseView(APIView):
     """
     Vue pour récupérer le monitoring par zone pour un inventaire et un entrepôt.
-    
-    GET /inventory/<inventory_id>/warehouse/<warehouse_id>/monitoring/
-    
+
+    GET /inventory/<inventory_id>/warehouses/<inventory_id>/monitoring/
+
     Retourne pour chaque zone :
     - nombre_equipes : nombre d'équipes distinctes
     - nombre_jobs : nombre de jobs
     - nombre_emplacements : nombre d'emplacements distincts
     - countings : pour chaque comptage, les statistiques des jobs (en attente, en cours, terminés)
     """
+
+    http_method_names = ['get']  # Restreint aux méthodes GET uniquement
     
     def get(self, request, inventory_id: int, warehouse_id: int):
         """
@@ -86,7 +88,7 @@ class GlobalMonitoringByInventoryAndWarehouseView(APIView):
     Vue pour récupérer le monitoring global (toutes zones confondues)
     pour un inventaire et un entrepôt.
 
-    GET /inventory/<inventory_id>/warehouses/<warehouse_id>/global-monitoring/
+    GET /inventory/<inventory_id>/warehouses/<warehouse_id>/global-monitoring
 
     Retourne :
     - total_equipes : nombre d'équipes distinctes affectées
@@ -95,6 +97,8 @@ class GlobalMonitoringByInventoryAndWarehouseView(APIView):
         - jobs_termines
         - jobs_termines_percent
     """
+
+    http_method_names = ['get']  # Restreint aux méthodes GET uniquement
 
     def get(self, request, inventory_id: int, warehouse_id: int):
         """

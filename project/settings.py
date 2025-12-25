@@ -317,16 +317,10 @@ JAZZMIN_SETTINGS = {
     # Custom links to append to app groups, keyed on app name
     "custom_links": {
         "books": [{
-            "name": "Make Messages", 
-            "url": "make_messages", 
+            "name": "Make Messages",
+            "url": "make_messages",
             "icon": "fas fa-comments",
             "permissions": ["books.view_book"]
-        }],
-        "inventory": [{
-            "name": "Générer des personnes", 
-            "url": "admin:inventory_personne_create_personnes", 
-            "icon": "fas fa-user-plus",
-            "permissions": ["inventory.add_personne"]
         }]
     },
 

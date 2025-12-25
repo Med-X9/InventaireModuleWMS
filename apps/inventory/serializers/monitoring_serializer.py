@@ -4,6 +4,15 @@ Serializers pour le monitoring (par zone et global)
 from rest_framework import serializers
 
 
+class AssignmentDetailSerializer(serializers.Serializer):
+    """
+    Serializer pour les détails d'un assignment avec son statut et pourcentage
+    """
+    status = serializers.CharField()
+    count = serializers.IntegerField()
+    percentage = serializers.FloatField()
+
+
 class CountingMonitoringSerializer(serializers.Serializer):
     """
     Serializer pour les statistiques de monitoring d'un comptage
@@ -12,8 +21,7 @@ class CountingMonitoringSerializer(serializers.Serializer):
     counting_reference = serializers.CharField()
     counting_order = serializers.IntegerField()
     nombre_jobs = serializers.IntegerField()
-    jobs_termines = serializers.IntegerField()
-    nombre_emplacements = serializers.IntegerField()
+    assignments = AssignmentDetailSerializer(many=True)
 
 
 class ZoneMonitoringSerializer(serializers.Serializer):
@@ -23,8 +31,6 @@ class ZoneMonitoringSerializer(serializers.Serializer):
     zone_id = serializers.IntegerField()
     zone_reference = serializers.CharField()
     zone_name = serializers.CharField()
-    status = serializers.CharField()
-    nombre_equipes = serializers.IntegerField()
     nombre_jobs = serializers.IntegerField()
     nombre_emplacements = serializers.IntegerField()
     countings = CountingMonitoringSerializer(many=True)

@@ -192,6 +192,72 @@ class JobReadyView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+class JobSetReadyView(APIView):
+    """
+    Vue pour mettre les jobs et leurs assignments en statut PRET
+
+    Optimisée pour les performances avec des opérations bulk.
+    Permet de traiter soit tous les jobs éligibles, soit une liste spécifique.
+    """
+
+    def post(self, request):
+        """
+        Met les jobs et leurs assignments en statut PRET
+
+        Body attendu:
+        {
+            "job_ids": [1, 2, 3]  // obligatoire - liste des jobs à traiter
+        }
+        """
+        from ..serializers.job_serializer import JobSetReadyRequestSerializer
+
+        serializer = JobSetReadyRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            # Formater les erreurs de manière sécurisée
+            error_messages = []
+            for field, errors in serializer.errors.items():
+                if isinstance(errors, list):
+                    error_messages.append(f"{field}: {', '.join(str(e) for e in errors)}")
+                else:
+                    error_messages.append(f"{field}: {str(errors)}")
+
+            return Response({
+                'success': False,
+                'message': 'Erreur de validation',
+                'errors': ' | '.join(error_messages)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        job_ids = serializer.validated_data['job_ids']
+
+        try:
+            # Utiliser le use case optimisé
+            from ..usecases.job_set_ready import JobSetReadyUseCase
+            use_case = JobSetReadyUseCase()
+            result = use_case.execute(job_ids=job_ids)
+
+            # Construire la réponse
+            response_data = {
+                'jobs_processed': result['jobs_processed'],
+                'assignments_processed': result['assignments_processed'],
+                'jobs': result['jobs']
+            }
+
+            return success_response(
+                data=response_data,
+                message=result['message']
+            )
+
+        except JobCreationError as e:
+            return Response({
+                'success': False,
+                'message': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': f'Erreur interne : {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 class JobDeleteView(APIView):
     def delete(self, request):

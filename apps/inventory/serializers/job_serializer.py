@@ -166,6 +166,21 @@ class JobReadyRequestSerializer(serializers.Serializer):
         help_text="Paramètre ignoré (conservé pour rétrocompatibilité). Tous les assignments avec statut AFFECTE seront marqués comme PRET."
     )
 
+
+class JobSetReadyRequestSerializer(serializers.Serializer):
+    """
+    Serializer pour la requête de mise en PRET des jobs et assignments
+
+    job_ids est obligatoire et doit contenir au moins un ID de job.
+    """
+    job_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        min_length=1,
+        required=True,
+        help_text="Liste des IDs des jobs à marquer comme PRET (au moins un ID requis)"
+    )
+
+
 class JobAssignmentDetailSerializer(serializers.ModelSerializer):
     counting_order = serializers.IntegerField(source='counting.order', read_only=True)
     status = serializers.CharField()
