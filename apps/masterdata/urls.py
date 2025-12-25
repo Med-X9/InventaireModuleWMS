@@ -1,7 +1,7 @@
 from django.urls import path
 
 from apps.inventory.views.ressource_views import RessourceDetailView, RessourceListView, RessourceInventaireListView, RessourceJobListView
-from .views.location_views import AllWarehouseLocationListView, WarehouseJobLocationsView, SousZoneLocationsView, UnassignedLocationsView, LocationDetailView
+from .views.location_views import AllWarehouseLocationListView, WarehouseJobLocationsView, SousZoneLocationsView, UnassignedLocationsView, LocationDetailView, LocationBulkDeactivateView
 from .views.warehouse_views import WarehouseListView, WarehouseDetailByReferenceView
 from .views.account_views import AccountListView
 from .views.user_views import MobileUserListView, MobileUserDetailView, WarehouseMobileUsersView
@@ -47,6 +47,7 @@ urlpatterns = [
     
     # URLs pour les emplacements
     path('locations/<int:pk>/', LocationDetailView.as_view(), name='location-detail'),
+    path('locations/bulk-deactivate/', LocationBulkDeactivateView.as_view(), name='location-bulk-deactivate'),
     
     # URLs pour les ressources
     path('ressources/', RessourceListView.as_view(), name='ressource-list'),

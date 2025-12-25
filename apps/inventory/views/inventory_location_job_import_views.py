@@ -350,23 +350,73 @@ class InventoryLocationJobImportStatusView(APIView):
                 for error in errors
             ]
             
+            # Récupérer la progression des chunks
+            chunks_progress = import_task.get_chunks_progress()
+            chunks_data = []
+            completed_chunks = 0
+            current_chunk = None
+            
+            if chunks_progress:
+                for chunk in chunks_progress:
+                    chunk_size = chunk.get('end_row', 0) - chunk.get('start_row', 0) + 1
+                    progress = 0.0
+                    
+                    if chunk.get('status') == 'COMPLETED':
+                        progress = 100.0
+                        completed_chunks += 1
+                    elif chunk.get('status') == 'PROCESSING':
+                        progress = (chunk.get('processed_rows', 0) / chunk_size * 100) if chunk_size > 0 else 0
+                        if not current_chunk:
+                            current_chunk = chunk.get('chunk_number')
+                    
+                    chunks_data.append({
+                        'chunk_number': chunk.get('chunk_number'),
+                        'status': chunk.get('status'),
+                        'start_row': chunk.get('start_row'),
+                        'end_row': chunk.get('end_row'),
+                        'processed_rows': chunk.get('processed_rows', 0),
+                        'imported_count': chunk.get('imported_count', 0),
+                        'updated_count': chunk.get('updated_count', 0),
+                        'error_count': chunk.get('error_count', 0),
+                        'progress': round(progress, 2),
+                        'started_at': chunk.get('started_at'),
+                        'completed_at': chunk.get('completed_at'),
+                        'error_message': chunk.get('error_message')
+                    })
+            
+            # Calculer la progression globale
+            total_chunks = len(chunks_data)
+            overall_progress = (completed_chunks / total_chunks * 100) if total_chunks > 0 else 0
+            
+            response_data = {
+                'import_task_id': import_task.id,
+                'inventory_id': inventaire_id,
+                'status': import_task.status,
+                'file_name': import_task.file_name,
+                'total_rows': import_task.total_rows,
+                'validated_rows': import_task.validated_rows,
+                'processed_rows': import_task.processed_rows,
+                'imported_count': import_task.imported_count,
+                'updated_count': import_task.updated_count,
+                'error_count': import_task.error_count,
+                'error_message': import_task.error_message,
+                'errors': errors_data,
+                'created_at': import_task.created_at,
+                'updated_at': import_task.updated_at
+            }
+            
+            # Ajouter les informations sur les chunks si disponibles
+            if chunks_data:
+                response_data['chunks'] = {
+                    'total_chunks': total_chunks,
+                    'completed_chunks': completed_chunks,
+                    'current_chunk': current_chunk,
+                    'overall_progress': round(overall_progress, 2),
+                    'chunks_detail': chunks_data
+                }
+            
             return self._success_response(
-                data={
-                    'import_task_id': import_task.id,
-                    'inventory_id': inventaire_id,
-                    'status': import_task.status,
-                    'file_name': import_task.file_name,
-                    'total_rows': import_task.total_rows,
-                    'validated_rows': import_task.validated_rows,
-                    'processed_rows': import_task.processed_rows,
-                    'imported_count': import_task.imported_count,
-                    'updated_count': import_task.updated_count,
-                    'error_count': import_task.error_count,
-                    'error_message': import_task.error_message,
-                    'errors': errors_data,
-                    'created_at': import_task.created_at,
-                    'updated_at': import_task.updated_at
-                },
+                data=response_data,
                 message=f"Statut de l'import: {import_task.get_status_display()}",
                 status_code=status.HTTP_200_OK
             )

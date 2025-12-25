@@ -279,12 +279,15 @@ class JobRepository(JobRepositoryInterface):
             'assigment_set__counting',
             'assigment_set__session',
             'jobdetailressource_set__ressource'
-        )
+        ).distinct()
     
     def get_jobs_for_inventory_warehouse_datatable(self, inventory_id: int, warehouse_id: int):
         """
         Récupère les jobs d'un inventaire et warehouse spécifiques avec relations préchargées.
         Utilisé par les vues DataTable.
+
+        ⚠️ IMPORTANT: Utilise .distinct() pour éviter les duplications causées par les prefetch_related
+        complexes qui peuvent créer des chemins multiples vers le même job.
         """
         return Job.objects.filter(
             inventory_id=inventory_id,
@@ -298,7 +301,7 @@ class JobRepository(JobRepositoryInterface):
             'assigment_set__counting',
             'assigment_set__session',
             'jobdetailressource_set__ressource'
-        )
+        ).distinct().distinct()
     
     def get_pending_jobs_for_warehouse_datatable(self, warehouse_id: int):
         """
@@ -314,7 +317,7 @@ class JobRepository(JobRepositoryInterface):
         ).prefetch_related(
             'jobdetail_set',
             'assigment_set'
-        )
+        ).distinct()
     
     def get_validated_jobs_datatable(self, warehouse_id: Optional[int] = None, inventory_id: Optional[int] = None):
         """
@@ -339,7 +342,7 @@ class JobRepository(JobRepositoryInterface):
             'assigment_set__counting',
             'assigment_set__session',
             'jobdetailressource_set__ressource'
-        )
+        ).distinct()
     
     def get_pending_jobs_datatable(self):
         """
@@ -355,7 +358,7 @@ class JobRepository(JobRepositoryInterface):
             'assigment_set__counting',
             'assigment_set__session',
             'jobdetailressource_set__ressource'
-        )
+        ).distinct()
     
     def get_jobs_with_assignments_by_warehouse_and_counting(
         self,
