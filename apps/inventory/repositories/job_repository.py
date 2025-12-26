@@ -676,3 +676,20 @@ class JobRepository(JobRepositoryInterface):
             'jobs': list(jobs),
             'countings': list(countings)
         }
+
+    def get_assigned_jobs_for_warehouse(self, inventory_id: int, warehouse_id: int) -> List[Job]:
+        """
+        Récupère tous les jobs pour un warehouse et un inventaire donnés
+        (la validation du statut se fait dans l'usecase)
+
+        Args:
+            inventory_id (int): ID de l'inventaire
+            warehouse_id (int): ID du warehouse
+
+        Returns:
+            List[Job]: Liste de tous les jobs
+        """
+        return list(Job.objects.filter(
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id
+        ).select_related('warehouse', 'inventory'))

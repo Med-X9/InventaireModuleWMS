@@ -1,3 +1,4 @@
+import logging
 from django.db import transaction
 from ..repositories.job_repository import JobRepository
 from ..exceptions.job_exceptions import JobCreationError
@@ -6,6 +7,8 @@ from django.utils import timezone
 from ..interfaces.job_interface import JobServiceInterface
 from typing import List, Dict, Any
 from django.db.models import Q, Count, Case, When, IntegerField
+
+logger = logging.getLogger(__name__)
 
 class JobService(JobServiceInterface):
     """
@@ -310,168 +313,12 @@ class JobService(JobServiceInterface):
         except JobCreationError:
             raise
         except Exception as e:
-            raise JobCreationError(f"Erreur inattendue lors de la validation des jobs : {str(e)}")
-
-    @transaction.atomic
-    def validate_jobs_by_inventory_and_warehouse(self, inventory_id: int, warehouse_id: int):
-        """
-        Valide automatiquement tous les jobs en attente pour un inventaire et warehouse spécifiques.
-        Vérifie d'abord que TOUS les jobs liés à cet inventaire/warehouse sont en statut "EN ATTENTE".
-        Si un seul job a un statut différent, bloque toute la validation.
-        Utilise une transaction atomique pour garantir que soit tous les jobs sont validés, soit aucun.
-        """
-        try:
-            # Récupérer TOUS les jobs liés à cet inventaire et warehouse
-            all_jobs = self.repository.get_jobs_by_inventory_and_warehouse(inventory_id, warehouse_id)
-
-            if not all_jobs:
-                return {
-                    'success': True,
-                    'validated_jobs_count': 0,
-                    'validated_jobs': [],
-                    'validation_date': timezone.now(),
-                    'message': 'Aucun job trouvé pour cet inventaire et warehouse'
-                }
-
-            # Vérifier que TOUS les jobs ont le statut EN ATTENTE
-            invalid_jobs = []
-            for job in all_jobs:
-                if job.status != 'EN ATTENTE':
-                    invalid_jobs.append(f"Job {job.reference} (statut: {job.status})")
-
-            if invalid_jobs:
-                raise JobCreationError(
-                    f"Tous les jobs doivent être en statut 'EN ATTENTE' pour être validés. "
-                    f"Jobs avec statut invalide : {', '.join(invalid_jobs)}"
-                )
-
-            # Tous les jobs sont en attente, on peut les valider
-            current_time = timezone.now()
-            validated_jobs = []
-
-            for job in all_jobs:
-                job.status = 'VALIDE'
-                job.valide_date = current_time
-                job.save()
-
-                validated_jobs.append({
-                    'job_id': job.id,
-                    'job_reference': job.reference
-                })
-
-            return {
-                'success': True,
-                'validated_jobs_count': len(validated_jobs),
-                'validated_jobs': validated_jobs,
-                'validation_date': current_time,
-                'message': f'{len(validated_jobs)} jobs validés automatiquement'
-            }
-
-        except JobCreationError:
-            raise
-        except Exception as e:
-            raise JobCreationError(f"Erreur inattendue lors de la validation automatique des jobs : {str(e)}")
-
-    @transaction.atomic
-    def make_jobs_ready_by_inventory_and_warehouse(self, inventory_id: int, warehouse_id: int):
-        """
-        Met automatiquement tous les jobs au statut PRET pour un inventaire et warehouse spécifiques.
-        Vérifie d'abord que TOUS les jobs sont en statut 'AFFECTE' et que TOUS leurs assignments sont aussi 'AFFECTE'.
-        Si un seul job ou assignment n'est pas éligible, bloque toute l'opération.
-        Utilise une transaction atomique pour garantir que soit tous les assignments sont mis à PRET, soit aucun.
-        """
-        try:
-            # Récupérer TOUS les jobs liés à cet inventaire et warehouse
-            all_jobs = self.repository.get_jobs_by_inventory_and_warehouse(inventory_id, warehouse_id)
-
-            if not all_jobs:
-                return {
-                    'success': True,
-                    'updated_jobs_count': 0,
-                    'updated_jobs': [],
-                    'update_date': timezone.now(),
-                    'message': 'Aucun job trouvé pour cet inventaire et warehouse'
-                }
-
-            # Vérifier que TOUS les jobs sont en statut AFFECTE
-            invalid_jobs_status = []
-            for job in all_jobs:
-                if job.status != 'AFFECTE':
-                    invalid_jobs_status.append(f"Job {job.reference} (statut: {job.status})")
-
-            if invalid_jobs_status:
-                raise JobCreationError(
-                    f"Tous les jobs doivent être en statut 'AFFECTE' pour être mis à PRET. "
-                    f"Jobs avec statut invalide : {', '.join(invalid_jobs_status)}"
-                )
-
-            # Maintenant vérifier que TOUS les assignments de ces jobs AFFECTE sont aussi AFFECTE
-            from ..models import Assigment
-            invalid_jobs_assignments = []
-            total_assignments_to_update = 0
-
-            for job in all_jobs:
-                # Récupérer tous les assignments du job
-                all_job_assignments = Assigment.objects.filter(job=job)
-
-                # Vérifier que tous les assignments sont AFFECTE
-                ineligible_assignments = all_job_assignments.exclude(status='AFFECTE')
-
-                if ineligible_assignments.exists():
-                    # Lister les assignments problématiques
-                    invalid_details = [
-                        f"comptage ordre {a.counting.order} (statut: {a.status})"
-                        for a in ineligible_assignments.select_related('counting')
-                    ]
-                    invalid_jobs_assignments.append(f"Job {job.reference} (assignments avec statuts invalides: {', '.join(invalid_details)})")
-                else:
-                    # Compter les assignments AFFECTE (ceux qui seront mis à PRET)
-                    assignments_affecte = all_job_assignments.filter(status='AFFECTE')
-                    total_assignments_to_update += assignments_affecte.count()
-
-            if invalid_jobs_assignments:
-                raise JobCreationError(
-                    f"Tous les assignments des jobs AFFECTE doivent aussi être en statut 'AFFECTE' pour être mis à PRET. "
-                    f"Jobs avec assignments invalides : {', '.join(invalid_jobs_assignments)}"
-                )
-
-            # Tous les jobs sont éligibles, mettre seulement les assignments AFFECTE à PRET
-            current_time = timezone.now()
-            updated_jobs = []
-            assignments_updated = 0
-
-            for job in all_jobs:
-                # Mettre à jour seulement les assignments AFFECTE du job au statut PRET
-                assignments = Assigment.objects.filter(job=job, status='AFFECTE')
-                job_assignments_updated = 0
-
-                for assignment in assignments:
-                    assignment.status = 'PRET'
-                    assignment.pret_date = current_time
-                    assignment.save()
-                    job_assignments_updated += 1
-
-                assignments_updated += job_assignments_updated
-
-                updated_jobs.append({
-                    'job_id': job.id,
-                    'job_reference': job.reference,
-                    'assignments_updated': job_assignments_updated
-                })
-
-            return {
-                'success': True,
-                'updated_assignments_count': assignments_updated,
-                'updated_jobs_count': len(updated_jobs),
-                'updated_jobs': updated_jobs,
-                'update_date': current_time,
-                'message': f'{len(updated_jobs)} jobs mis à PRET avec succès'
-            }
-
-        except JobCreationError:
-            raise
-        except Exception as e:
-            raise JobCreationError(f"Erreur inattendue lors de la mise à PRET automatique des jobs : {str(e)}")
+            import traceback
+            logger.error(f"Erreur inattendue lors de la validation des jobs: {str(e)}", exc_info=True)
+            logger.error(f"Type d'erreur: {type(e).__name__}")
+            logger.error(f"Job IDs concernés: {job_ids}")
+            logger.error(f"Traceback complet: {traceback.format_exc()}")
+            raise JobCreationError(f"Erreur technique lors de la validation des jobs: {str(e)}")
 
     @transaction.atomic
     def make_jobs_ready(self, job_ids):
@@ -1717,5 +1564,118 @@ class JobService(JobServiceInterface):
         # Inclure les erreurs de validation s'il y en a (mais certains jobs ont été annulés)
         if validation_errors:
             response_data['validation_warnings'] = validation_errors
-        
+
         return response_data
+
+    def auto_validate_jobs(self, inventory_id, warehouse_id):
+        """
+        Valide automatiquement TOUS les jobs d'un warehouse pour un inventaire donné.
+        Logique "tous ou rien" : tous les jobs doivent être en statut "EN ATTENTE"
+        pour que la validation soit effectuée.
+
+        Args:
+            inventory_id (int): ID de l'inventaire
+            warehouse_id (int): ID du warehouse
+
+        Returns:
+            dict: Résultat de l'opération avec les jobs validés ou erreur
+        """
+        try:
+            # Vérifier que l'inventaire existe
+            inventory = self.repository.get_inventory_by_id(inventory_id)
+            if not inventory:
+                raise JobCreationError(f"Inventaire avec l'ID {inventory_id} non trouvé")
+
+            # Vérifier que le warehouse existe
+            warehouse = self.repository.get_warehouse_by_id(warehouse_id)
+            if not warehouse:
+                raise JobCreationError(f"Warehouse avec l'ID {warehouse_id} non trouvé")
+
+            # Récupérer TOUS les jobs pour ce warehouse et inventaire
+            all_jobs = self.repository.get_jobs_by_inventory_and_warehouse(inventory_id, warehouse_id)
+
+            if not all_jobs:
+                return {
+                    'success': True,
+                    'validated_jobs_count': 0,
+                    'validated_jobs': [],
+                    'message': 'Aucun job trouvé pour cet inventaire et warehouse'
+                }
+
+            # Vérifier que TOUS les jobs sont en statut "EN ATTENTE" (logique "tous ou rien")
+            non_pending_jobs = []
+            for job in all_jobs:
+                if job.status != 'EN ATTENTE':
+                    non_pending_jobs.append(job)
+
+            if non_pending_jobs:
+                # Certains jobs ne sont pas en attente - retourner une erreur détaillée
+                non_pending_details = [
+                    f"Job {job.reference} (statut: {job.status})"
+                    for job in non_pending_jobs
+                ]
+                raise JobCreationError(
+                    f"Impossible de valider automatiquement : {len(non_pending_jobs)} job(s) ne sont pas en statut 'EN ATTENTE'. "
+                    f"Jobs concernés : {', '.join(non_pending_details)}. "
+                    f"Logique 'tous ou rien' : tous les jobs doivent être en attente pour être validés automatiquement."
+                )
+
+            # Tous les jobs sont en attente - procéder à la validation
+            logger.info(f"Validation automatique de {len(all_jobs)} jobs pour inventaire {inventory_id}, warehouse {warehouse_id}")
+            job_ids = [job.id for job in all_jobs]
+            return self.validate_jobs(job_ids)
+
+        except JobCreationError:
+            logger.error("JobCreationError relayée")
+            raise
+        except Exception as e:
+            import traceback
+            logger.error(f"Erreur lors de la validation automatique des jobs: {str(e)}", exc_info=True)
+            logger.error(f"Type d'erreur: {type(e).__name__}")
+            logger.error(f"Job IDs concernés: {job_ids if 'job_ids' in locals() else 'Non défini'}")
+            logger.error(f"Inventory ID: {inventory_id}, Warehouse ID: {warehouse_id}")
+            logger.error(f"Traceback complet: {traceback.format_exc()}")
+            raise JobCreationError(f"Erreur lors de la validation automatique des jobs: {str(e)}")
+
+    def auto_set_ready_jobs(self, inventory_id, warehouse_id):
+        """
+        Met automatiquement en statut PRET tous les jobs éligibles d'un warehouse pour un inventaire donné
+
+        Args:
+            inventory_id (int): ID de l'inventaire
+            warehouse_id (int): ID du warehouse
+
+        Returns:
+            dict: Résultat de l'opération avec les jobs mis en PRET
+        """
+        try:
+            # Vérifier que l'inventaire existe
+            inventory = self.repository.get_inventory_by_id(inventory_id)
+            if not inventory:
+                raise JobCreationError(f"Inventaire avec l'ID {inventory_id} non trouvé")
+
+            # Vérifier que le warehouse existe
+            warehouse = self.repository.get_warehouse_by_id(warehouse_id)
+            if not warehouse:
+                raise JobCreationError(f"Warehouse avec l'ID {warehouse_id} non trouvé")
+
+            # Récupérer tous les jobs en statut AFFECTE pour ce warehouse et inventaire
+            # Ces jobs ont des assignments qui peuvent être mis en PRET
+            assigned_jobs = self.repository.get_assigned_jobs_for_warehouse(inventory_id, warehouse_id)
+
+            if not assigned_jobs:
+                raise JobCreationError('Aucun job en statut AFFECTE trouvé')
+
+            # Extraire les IDs des jobs
+            job_ids = [job.id for job in assigned_jobs]
+
+            # Utiliser l'usecase JobSetReadyUseCase pour mettre en PRET
+            from ..usecases.job_set_ready import JobSetReadyUseCase
+            use_case = JobSetReadyUseCase()
+            return use_case.execute(job_ids)
+
+        except JobCreationError:
+            raise
+        except Exception as e:
+            logger.error(f"Erreur lors de la mise automatique en PRET des jobs: {str(e)}", exc_info=True)
+            raise JobCreationError(f"Erreur lors de la mise automatique en PRET: {str(e)}")
