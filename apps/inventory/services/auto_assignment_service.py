@@ -124,6 +124,13 @@ class AutoAssignmentService:
                     f"Jobs non trouvés pour les références : {', '.join(sorted(missing_job_refs))}"
                 )
         
+        # Validation : vérifier si les jobs et leurs assignments sont déjà au statut PRET
+        if job_references:
+            ready_validation_errors = self._check_jobs_and_assignments_already_ready(
+                jobs_by_ref_dict, counting_1, counting_2
+            )
+            errors.extend(ready_validation_errors)
+
         # Si des erreurs ont été collectées, les retourner
         if errors:
             return {
@@ -244,7 +251,57 @@ class AutoAssignmentService:
                     )
         
         return errors
-    
+
+    def _check_jobs_and_assignments_already_ready(self, jobs_by_ref_dict: Dict, counting_1, counting_2) -> List[str]:
+        """
+        Vérifie si les jobs et leurs assignments ont des statuts non autorisés
+
+        Les statuts non autorisés pour l'affectation automatique sont :
+        PRET, TRANSFERT, ENTAME, TERMINE
+
+        Si un job ou ses assignments pour les comptages 1 et 2 ont ces statuts,
+        l'affectation automatique doit être bloquée.
+
+        Args:
+            jobs_by_ref_dict: Dict mapping référence -> instance de Job
+            counting_1: Instance de Counting (ordre 1)
+            counting_2: Instance de Counting (ordre 2)
+
+        Returns:
+            Liste des messages d'erreur pour les jobs avec statuts non autorisés
+        """
+        # Statuts non autorisés pour l'affectation automatique
+        NON_AUTHORIZED_STATUSES = ['PRET', 'TRANSFERT', 'ENTAME', 'TERMINE']
+
+        errors = []
+        blocked_jobs = []
+
+        for job_ref, job in jobs_by_ref_dict.items():
+            # Vérifier si le job lui-même a un statut non autorisé
+            if job.status in NON_AUTHORIZED_STATUSES:
+                blocked_jobs.append(job_ref)
+                continue
+
+            # Vérifier les assignments pour les comptages 1 et 2
+            assignments = self.repository.get_assignments_by_job_and_countings(job, [counting_1, counting_2])
+
+            for assignment in assignments:
+                if assignment.status in NON_AUTHORIZED_STATUSES:
+                    blocked_jobs.append(job_ref)
+                    break
+
+        # Générer les messages d'erreur pour les jobs bloqués
+        if blocked_jobs:
+            errors.append(
+                f"Les jobs suivants ont des statuts non autorisés pour l'affectation automatique "
+                f"(PRET, TRANSFERT, ENTAME, TERMINE) : {', '.join(sorted(set(blocked_jobs)))}"
+            )
+            errors.append(
+                "L'affectation automatique est bloquée car ces jobs ont des statuts avancés."
+            )
+
+        return errors
+
     def _group_location_jobs_by_job_reference(self, location_jobs) -> Dict:
         """
         Groupe les location jobs par référence de job

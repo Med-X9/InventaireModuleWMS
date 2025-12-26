@@ -71,6 +71,21 @@ class JobRepository(JobRepositoryInterface):
             warehouse_id=warehouse_id,
             status='EN ATTENTE'
         ).values('id', 'reference').order_by('created_at'))
+
+    def get_pending_jobs_by_inventory_and_warehouse(self, inventory_id: int, warehouse_id: int) -> List[Job]:
+        """Récupère les jobs en attente d'un inventaire et warehouse spécifiques"""
+        return list(Job.objects.filter(
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id,
+            status='EN ATTENTE'
+        ).order_by('created_at'))
+
+    def get_jobs_by_inventory_and_warehouse(self, inventory_id: int, warehouse_id: int) -> List[Job]:
+        """Récupère tous les jobs d'un inventaire et warehouse spécifiques"""
+        return list(Job.objects.filter(
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id
+        ).order_by('created_at'))
     
     def get_pending_jobs_by_warehouse_with_filters(self, warehouse_id: int, filters: Optional[Dict[str, Any]] = None) -> List[Job]:
         """Récupère les jobs en attente d'un warehouse avec filtres et relations préchargées"""
@@ -661,3 +676,20 @@ class JobRepository(JobRepositoryInterface):
             'jobs': list(jobs),
             'countings': list(countings)
         }
+
+    def get_assigned_jobs_for_warehouse(self, inventory_id: int, warehouse_id: int) -> List[Job]:
+        """
+        Récupère tous les jobs pour un warehouse et un inventaire donnés
+        (la validation du statut se fait dans l'usecase)
+
+        Args:
+            inventory_id (int): ID de l'inventaire
+            warehouse_id (int): ID du warehouse
+
+        Returns:
+            List[Job]: Liste de tous les jobs
+        """
+        return list(Job.objects.filter(
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id
+        ).select_related('warehouse', 'inventory'))

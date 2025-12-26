@@ -284,3 +284,154 @@ class AutoAssignmentViewTest(TestCase):
         self.assertEqual(response.status_code, 404)
         mock_auto_assign.assert_called_once_with(999)
 
+    def test_check_jobs_and_assignments_already_ready_with_blocked_jobs(self):
+        """
+        Test de validation des jobs avec statuts non autorisés (PRET, TRANSFERT, ENTAME, TERMINE)
+        """
+        # Créer des mocks pour les jobs et assignments
+        mock_job_blocked = Mock(spec=Job, reference='JOB001', status='PRET')
+        mock_job_not_blocked = Mock(spec=Job, reference='JOB002', status='AFFECTE')
+
+        mock_assignment_blocked = Mock(spec=Assigment, status='ENTAME')
+        mock_assignment_not_blocked = Mock(spec=Assigment, status='AFFECTE')
+
+        mock_counting_1 = Mock(spec=Counting)
+        mock_counting_2 = Mock(spec=Counting)
+
+        # Mock du repository pour retourner les assignments
+        self.mock_repository.get_assignments_by_job_and_countings.side_effect = [
+            [mock_assignment_blocked],  # Pour JOB001 (blocked)
+            [mock_assignment_not_blocked]  # Pour JOB002 (not blocked)
+        ]
+
+        jobs_by_ref_dict = {
+            'JOB001': mock_job_blocked,
+            'JOB002': mock_job_not_blocked
+        }
+
+        result = self.service._check_jobs_and_assignments_already_ready(
+            jobs_by_ref_dict, mock_counting_1, mock_counting_2
+        )
+
+        # Vérifier que les erreurs sont détectées
+        self.assertEqual(len(result), 2)
+        self.assertIn('Les jobs suivants ont des statuts non autorisés pour l\'affectation automatique', result[0])
+        self.assertIn('(PRET, TRANSFERT, ENTAME, TERMINE)', result[0])
+        self.assertIn('JOB001', result[0])
+        self.assertIn("L'affectation automatique est bloquée", result[1])
+
+        # Vérifier que get_assignments_by_job_and_countings a été appelée
+        self.assertEqual(self.mock_repository.get_assignments_by_job_and_countings.call_count, 2)
+
+    def test_check_jobs_and_assignments_already_ready_with_different_blocked_statuses(self):
+        """
+        Test de validation des jobs avec différents statuts non autorisés
+        """
+        # Créer des mocks pour les jobs avec différents statuts non autorisés
+        mock_job_pret = Mock(spec=Job, reference='JOB001', status='PRET')
+        mock_job_transfert = Mock(spec=Job, reference='JOB002', status='TRANSFERT')
+        mock_job_entame = Mock(spec=Job, reference='JOB003', status='ENTAME')
+        mock_job_termine = Mock(spec=Job, reference='JOB004', status='TERMINE')
+        mock_job_ok = Mock(spec=Job, reference='JOB005', status='AFFECTE')
+
+        mock_counting_1 = Mock(spec=Counting)
+        mock_counting_2 = Mock(spec=Counting)
+
+        # Mock du repository pour retourner des assignments vides (pas d'assignments avec statuts bloquants)
+        self.mock_repository.get_assignments_by_job_and_countings.return_value = []
+
+        jobs_by_ref_dict = {
+            'JOB001': mock_job_pret,
+            'JOB002': mock_job_transfert,
+            'JOB003': mock_job_entame,
+            'JOB004': mock_job_termine,
+            'JOB005': mock_job_ok
+        }
+
+        result = self.service._check_jobs_and_assignments_already_ready(
+            jobs_by_ref_dict, mock_counting_1, mock_counting_2
+        )
+
+        # Vérifier que les erreurs sont détectées pour tous les statuts non autorisés
+        self.assertEqual(len(result), 2)
+        self.assertIn('Les jobs suivants ont des statuts non autorisés pour l\'affectation automatique', result[0])
+        self.assertIn('JOB001', result[0])  # PRET
+        self.assertIn('JOB002', result[0])  # TRANSFERT
+        self.assertIn('JOB003', result[0])  # ENTAME
+        self.assertIn('JOB004', result[0])  # TERMINE
+        self.assertNotIn('JOB005', result[0])  # AFFECTE devrait être OK
+
+    def test_check_jobs_and_assignments_already_ready_no_ready_jobs(self):
+        """
+        Test de validation quand aucun job n'est au statut PRET
+        """
+        # Créer des mocks pour les jobs et assignments non prêts
+        mock_job_1 = Mock(spec=Job, reference='JOB001', status='AFFECTE')
+        mock_job_2 = Mock(spec=Job, reference='JOB002', status='AFFECTE')
+
+        mock_assignment_1 = Mock(spec=Assigment, status='AFFECTE')
+        mock_assignment_2 = Mock(spec=Assigment, status='AFFECTE')
+
+        mock_counting_1 = Mock(spec=Counting)
+        mock_counting_2 = Mock(spec=Counting)
+
+        # Mock du repository pour retourner les assignments
+        self.mock_repository.get_assignments_by_job_and_countings.side_effect = [
+            [mock_assignment_1],  # Pour JOB001
+            [mock_assignment_2]   # Pour JOB002
+        ]
+
+        jobs_by_ref_dict = {
+            'JOB001': mock_job_1,
+            'JOB002': mock_job_2
+        }
+
+        result = self.service._check_jobs_and_assignments_already_ready(
+            jobs_by_ref_dict, mock_counting_1, mock_counting_2
+        )
+
+        # Vérifier qu'aucune erreur n'est détectée
+        self.assertEqual(len(result), 0)
+
+        # Vérifier que get_assignments_by_job_and_countings a été appelée
+        self.assertEqual(self.mock_repository.get_assignments_by_job_and_countings.call_count, 2)
+
+    def test_auto_assign_jobs_with_blocked_jobs_blocks_assignment(self):
+        """
+        Test d'affectation automatique bloquée quand des jobs ont des statuts non autorisés
+        """
+        # Setup des mocks
+        mock_inventory = Mock(spec=Inventory, id=1)
+        mock_location_jobs = Mock()
+        mock_location_jobs.exists.return_value = True
+
+        mock_counting_1 = Mock(spec=Counting)
+        mock_counting_2 = Mock(spec=Counting)
+
+        mock_job_ready = Mock(spec=Job, reference='JOB001', status='PRET')
+
+        # Mock des méthodes du repository
+        self.mock_repository.get_inventory_by_id.return_value = mock_inventory
+        self.mock_repository.get_location_jobs_by_inventory.return_value = mock_location_jobs
+        self.mock_repository.get_counting_by_inventory_and_order.side_effect = [mock_counting_1, mock_counting_2]
+        self.mock_repository.get_jobs_by_references_and_inventory.return_value = [mock_job_ready]
+
+        # Mock de _extract_teams_from_location_jobs pour retourner une équipe valide
+        with patch.object(self.service, '_extract_teams_from_location_jobs', return_value={'team1'}):
+            # Mock de _validate_teams_exist pour retourner l'équipe
+            with patch.object(self.service, '_validate_teams_exist', return_value={'team1'}):
+                # Mock de _check_team_conflicts pour ne pas avoir de conflits
+                with patch.object(self.service, '_check_team_conflicts', return_value=[]):
+                    # Mock de _group_location_jobs_by_job_reference
+                    with patch.object(self.service, '_group_location_jobs_by_job_reference', return_value={'JOB001': []}):
+                        # Mock de get_assignments_by_job_and_countings pour retourner un assignment prêt
+                        mock_assignment_ready = Mock(spec=Assigment, status='PRET')
+                        self.mock_repository.get_assignments_by_job_and_countings.return_value = [mock_assignment_ready]
+
+                        result = self.service.auto_assign_jobs_from_location_jobs(1)
+
+                        # Vérifier que l'affectation est bloquée
+                        self.assertFalse(result['success'])
+                        self.assertIn('Les jobs suivants ont des statuts non autorisés pour l\'affectation automatique', str(result['errors']))
+                        self.assertIn("L'affectation automatique est bloquée", str(result['errors']))
+

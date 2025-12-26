@@ -33,7 +33,7 @@ from .views.monitoring_views import (
 from apps.inventory.views import InventoryWarehousesView, AccountWarehousesView
 
 
-from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobSetReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView, JobBatchAssignmentView, JobTransferView, JobTransferAllView, JobManualEntryView, JobCancelView, JobProgressByCountingView, InventoryProgressByCountingView, JobsWithAssignmentsByWarehouseAndCountingView, JobDetailsByJobAndCountingView
+from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobAutoValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobSetReadyView, JobAutoSetReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView, JobBatchAssignmentView, JobTransferView, JobTransferAllView, JobManualEntryView, JobCancelView, JobProgressByCountingView, InventoryProgressByCountingView, JobsWithAssignmentsByWarehouseAndCountingView, JobDetailsByJobAndCountingView
 from .views.inventory_location_job_import_views import InventoryLocationJobImportView, InventoryLocationJobImportSyncView, InventoryLocationJobImportStatusView
 from .views.job_discrepancy_views import JobDiscrepancyView
 from .views.job_unresolved_discrepancy_views import (
@@ -103,7 +103,8 @@ urlpatterns = [
     path('jobs/validate/', JobValidateView.as_view(), name='jobs-validate'),
     path('jobs/delete/', JobDeleteView.as_view(), name='job-delete'),
     path('jobs/ready/', JobReadyView.as_view(), name='jobs-ready'),
-    path('jobs/set-ready/', JobSetReadyView.as_view(), name='jobs-set-ready'),
+    path('inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/validate-all/', JobAutoValidateView.as_view(), name='jobs-validate-all'),
+    path('inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/set-ready/', JobAutoSetReadyView.as_view(), name='jobs-auto-set-ready'),
     path('jobs/cancel/', JobCancelView.as_view(), name='jobs-cancel'),
     path('jobs/reset-assignments/', JobResetAssignmentsView.as_view(), name='job-reset-assignments'),
     path('jobs/launch-counting/', CountingLaunchView.as_view(), name='job-launch-counting'),
@@ -144,8 +145,8 @@ urlpatterns = [
     path('inventory/assign-jobs-manual/', JobBatchAssignmentView.as_view(), name='assign-jobs-manual'),
     # URL pour transférer les jobs par comptage
     path('jobs/transfer/', JobTransferView.as_view(), name='job-transfer'),
-    # URL pour transférer tous les jobs de tous les comptages
-    path('jobs/transfer-all/', JobTransferAllView.as_view(), name='job-transfer-all'),
+    # URL pour transférer tous les jobs d'un inventaire et entrepôt spécifiques
+    path('inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/transfer-all/', JobTransferAllView.as_view(), name='job-transfer-all'),
     # URL pour mettre les jobs en saisie manuelle
     path('jobs/manual-entry/', JobManualEntryView.as_view(), name='job-manual-entry'),
     

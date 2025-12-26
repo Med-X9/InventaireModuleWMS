@@ -35,7 +35,7 @@ def custom_exception_handler(exc, context):
         
         # En production, ne pas exposer les détails de l'erreur
         from django.conf import settings
-        
+
         if not settings.DEBUG:
             # Messages d'erreur génériques selon le type
             if response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR:

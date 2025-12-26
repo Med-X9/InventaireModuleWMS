@@ -1,8 +1,13 @@
+import logging
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.exceptions import NotFound
-from django.core.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError as DRFValidationError
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError, DatabaseError, transaction
+from django.http import Http404
+
+logger = logging.getLogger(__name__)
 from ..serializers import (
     InventoryJobCreateSerializer,
     JobSerializer
@@ -126,6 +131,261 @@ class JobValidateView(APIView):
                 'success': False,
                 'message': f'Erreur interne : {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class JobAutoValidateView(APIView):
+    """
+    Vue pour valider automatiquement tous les jobs en attente d'un warehouse pour un inventaire donné
+    """
+
+    def post(self, request, inventory_id, warehouse_id):
+        """
+        Valide automatiquement tous les jobs en attente
+
+        POST /api/inventory/{inventory_id}/warehouse/{warehouse_id}/jobs/validate-all/
+
+        Args:
+            inventory_id (int): ID de l'inventaire
+            warehouse_id (int): ID du warehouse
+
+        Returns:
+            Response avec le résultat de la validation
+        """
+        logger.info(f"Début de la validation automatique - inventory_id: {inventory_id}, warehouse_id: {warehouse_id}")
+
+        try:
+            # Validation des paramètres d'URL avec gestion d'erreurs détaillée
+            try:
+                inventory_id = int(inventory_id)
+                if inventory_id <= 0:
+                    return error_response(
+                        message="ID d'inventaire invalide",
+                        errors=["L'ID de l'inventaire doit être un nombre positif"],
+                        status_code=status.HTTP_400_BAD_REQUEST
+                    )
+            except (ValueError, TypeError) as e:
+                logger.warning(f"ID d'inventaire invalide: {inventory_id} - {str(e)}")
+                return error_response(
+                    message="ID d'inventaire invalide",
+                    errors=["L'ID de l'inventaire doit être un nombre entier"],
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+
+            try:
+                warehouse_id = int(warehouse_id)
+                if warehouse_id <= 0:
+                    return error_response(
+                        message="ID de warehouse invalide",
+                        errors=["L'ID du warehouse doit être un nombre positif"],
+                        status_code=status.HTTP_400_BAD_REQUEST
+                    )
+            except (ValueError, TypeError) as e:
+                logger.warning(f"ID de warehouse invalide: {warehouse_id} - {str(e)}")
+                return error_response(
+                    message="ID de warehouse invalide",
+                    errors=["L'ID du warehouse doit être un nombre entier"],
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Utiliser le service pour valider automatiquement
+            logger.info(f"Appel du service de validation automatique pour inventory {inventory_id}, warehouse {warehouse_id}")
+            job_service = JobService()
+            result = job_service.auto_validate_jobs(inventory_id, warehouse_id)
+
+            logger.info(f"Validation automatique terminée avec succès: {result.get('validated_jobs_count', 0)} jobs validés")
+            return success_response(
+                data=result,
+                message=result['message']
+            )
+
+        except JobCreationError as e:
+            logger.error(f"Erreur métier dans JobAutoValidateView: {str(e)}")
+            logger.error(f"Paramètres - inventory_id: {inventory_id}, warehouse_id: {warehouse_id}")
+            return error_response(
+                message="Erreur de validation des jobs",
+                errors=[str(e)],
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        except NotFound as e:
+            logger.error(f"Ressource non trouvée: {str(e)}")
+            return error_response(
+                message="Ressource non trouvée",
+                errors=[str(e)],
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+
+        except (DjangoValidationError, DRFValidationError) as e:
+            logger.error(f"Erreur de validation: {str(e)}")
+            errors = []
+            if hasattr(e, 'messages'):
+                errors = e.messages
+            elif hasattr(e, 'detail'):
+                if isinstance(e.detail, dict):
+                    for field, field_errors in e.detail.items():
+                        if isinstance(field_errors, list):
+                            errors.extend([f"{field}: {err}" for err in field_errors])
+                        else:
+                            errors.append(f"{field}: {field_errors}")
+                else:
+                    errors = [str(e.detail)]
+            else:
+                errors = [str(e)]
+
+            return error_response(
+                message="Erreur de validation des données",
+                errors=errors,
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        except IntegrityError as e:
+            logger.error(f"Erreur d'intégrité de base de données: {str(e)}")
+            return error_response(
+                message="Erreur d'intégrité des données",
+                errors=[
+                    "Une contrainte d'intégrité a été violée",
+                    "Vérifiez que les données sont cohérentes"
+                ],
+                status_code=status.HTTP_409_CONFLICT
+            )
+
+        except DatabaseError as e:
+            logger.error(f"Erreur de base de données: {str(e)}", exc_info=True)
+            return error_response(
+                message="Erreur de base de données",
+                errors=[
+                    "Une erreur technique s'est produite lors de l'accès à la base de données",
+                    "Veuillez réessayer plus tard"
+                ],
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        except Http404 as e:
+            logger.error(f"Ressource non trouvée (Http404): {str(e)}")
+            return error_response(
+                message="Ressource non trouvée",
+                errors=["L'inventaire ou le warehouse demandé n'existe pas"],
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+
+        except PermissionError as e:
+            logger.error(f"Erreur de permissions: {str(e)}")
+            return error_response(
+                message="Permissions insuffisantes",
+                errors=["Vous n'avez pas les droits nécessaires pour effectuer cette opération"],
+                status_code=status.HTTP_403_FORBIDDEN
+            )
+
+        except ValueError as e:
+            logger.error(f"Erreur de valeur: {str(e)}")
+            return error_response(
+                message="Erreur de valeur",
+                errors=[str(e)],
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        except TypeError as e:
+            logger.error(f"Erreur de type: {str(e)}")
+            return error_response(
+                message="Erreur de type de données",
+                errors=[str(e)],
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        except Exception as e:
+            # Erreur inattendue - logging détaillé
+            import traceback
+            logger.error(f"Erreur inattendue dans JobAutoValidateView: {str(e)}", exc_info=True)
+            logger.error(f"Type d'erreur: {type(e).__name__}")
+            logger.error(f"Paramètres - inventory_id: {inventory_id}, warehouse_id: {warehouse_id}")
+            logger.error(f"Traceback complet: {traceback.format_exc()}")
+
+            # Erreur inattendue - logging détaillé
+            import traceback
+            logger.error(f"Erreur inattendue dans JobAutoValidateView: {str(e)}", exc_info=True)
+            logger.error(f"Type d'erreur: {type(e).__name__}")
+            logger.error(f"Paramètres - inventory_id: {inventory_id}, warehouse_id: {warehouse_id}")
+            logger.error(f"Traceback complet: {traceback.format_exc()}")
+
+            # En mode DEBUG, afficher plus de détails
+            from django.conf import settings
+            if settings.DEBUG:
+                error_details = [
+                    f"Type d'erreur: {type(e).__name__}",
+                    f"Détails: {str(e)}",
+                    f"Inventory ID: {inventory_id}",
+                    f"Warehouse ID: {warehouse_id}",
+                    f"Traceback: {traceback.format_exc()}"
+                ]
+            else:
+                error_details = [
+                    "Une erreur inattendue s'est produite",
+                    "Veuillez contacter l'administrateur système"
+                ]
+
+            return error_response(
+                message="Erreur technique inattendue",
+                errors=error_details,
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class JobAutoSetReadyView(APIView):
+    """
+    Vue pour mettre automatiquement en statut PRET tous les assignments des jobs éligibles
+    d'un warehouse pour un inventaire donné
+    """
+
+    def post(self, request, inventory_id, warehouse_id):
+        """
+        Met automatiquement en PRET tous les assignments des jobs éligibles
+
+        POST /api/inventory/{inventory_id}/warehouse/{warehouse_id}/jobs/set-ready/
+
+        Args:
+            inventory_id (int): ID de l'inventaire
+            warehouse_id (int): ID du warehouse
+
+        Returns:
+            Response avec le résultat de l'opération
+        """
+        try:
+            # Validation des paramètres d'URL
+            if not inventory_id or inventory_id <= 0:
+                return Response({
+                    'success': False,
+                    'message': 'ID d\'inventaire invalide'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            if not warehouse_id or warehouse_id <= 0:
+                return Response({
+                    'success': False,
+                    'message': 'ID de warehouse invalide'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # TRANSACTION ATOMIQUE : Logique "tout ou rien"
+            # Toutes les validations et mises à jour dans une seule transaction
+            with transaction.atomic():
+                # Utiliser le service pour mettre automatiquement en PRET
+                job_service = JobService()
+                result = job_service.auto_set_ready_jobs(inventory_id, warehouse_id)
+
+                return success_response(
+                    data=result,
+                    message=result['message']
+                )
+
+        except JobCreationError as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Erreur dans JobAutoSetReadyView: {str(e)}", exc_info=True)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la mise en PRET automatique",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class JobReadyView(APIView):
     """
@@ -921,30 +1181,25 @@ class JobTransferView(APIView):
 
 class JobTransferAllView(APIView):
     """
-    Vue pour transférer tous les assignments de tous les comptages qui sont au statut PRET.
-    
+    Vue pour transférer automatiquement tous les jobs et leurs assignments PRET
+    liés à un inventaire et un entrepôt spécifiques.
+
     Règles métier :
-    - Seuls les assignments au statut PRET peuvent être transférés
-    - Transfère tous les assignments PRET de tous les counting_order pour les jobs spécifiés
-    - Si un assignment n'est pas PRET, retourne un message d'erreur avec la référence du job et la raison
+    - Logique tout-ou-rien : vérifie d'abord que TOUS les jobs et assignments sont PRET
+    - Si une seule condition n'est pas remplie, bloque tout le transfert
+    - Utilise une transaction atomique pour garantir la cohérence
+    - Transfère automatiquement tous les jobs et assignments liés à l'inventory_id et warehouse_id
     """
-    def post(self, request):
-        serializer = JobTransferAllRequestSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response({
-                'success': False,
-                'message': 'Erreur de validation',
-                'errors': serializer.errors
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        job_ids = serializer.validated_data['job_ids']
-        
+    def post(self, request, inventory_id, warehouse_id):
         try:
             job_service = JobService()
-            result = job_service.transfer_all_assignments_by_jobs(job_ids)
+            result = job_service.transfer_all_jobs_and_assignments_by_inventory_warehouse(
+                inventory_id=inventory_id,
+                warehouse_id=warehouse_id
+            )
             return success_response(
                 data=result,
-                message=f'{result["total_transferred"]} assignment(s) transféré(s) avec succès'
+                message=f'{result["total_jobs_transferred"]} job(s) et {result["total_assignments_transferred"]} assignment(s) transféré(s) avec succès'
             )
         except JobCreationError as e:
             return error_response(

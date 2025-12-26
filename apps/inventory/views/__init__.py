@@ -10,7 +10,7 @@ from .inventory_views import (
     InventoryImportView
 )
 from .warehouse_views import InventoryWarehousesView, AccountWarehousesView
-from .job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView
+from .job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobAutoValidateView, JobAutoSetReadyView
 from .pdf_views import InventoryJobsPdfView
 # from .pda_views import InventoryPDAListView
 
@@ -31,6 +31,8 @@ __all__ = [
     'JobAddEmplacementsView',
     'JobDeleteView',
     'JobValidateView',
+    'JobAutoValidateView',
+    'JobAutoSetReadyView',
     "InventoryImportView"
     # 'InventoryPDAListView'
 ]

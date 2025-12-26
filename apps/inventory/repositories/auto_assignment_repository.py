@@ -230,3 +230,24 @@ class AutoAssignmentRepository:
         job.save()
         return job
 
+    def get_assignments_by_job_and_countings(
+        self,
+        job: Job,
+        countings: List[Counting]
+    ) -> QuerySet:
+        """
+        Récupère les assignments pour un job et une liste de comptages
+
+        Args:
+            job: Instance de Job
+            countings: Liste d'instances de Counting
+
+        Returns:
+            QuerySet d'Assigment
+        """
+        counting_ids = [counting.id for counting in countings if counting]
+        return Assigment.objects.filter(
+            job=job,
+            counting_id__in=counting_ids
+        )
+
