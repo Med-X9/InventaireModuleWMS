@@ -313,6 +313,167 @@ class JobService(JobServiceInterface):
             raise JobCreationError(f"Erreur inattendue lors de la validation des jobs : {str(e)}")
 
     @transaction.atomic
+    def validate_jobs_by_inventory_and_warehouse(self, inventory_id: int, warehouse_id: int):
+        """
+        Valide automatiquement tous les jobs en attente pour un inventaire et warehouse spécifiques.
+        Vérifie d'abord que TOUS les jobs liés à cet inventaire/warehouse sont en statut "EN ATTENTE".
+        Si un seul job a un statut différent, bloque toute la validation.
+        Utilise une transaction atomique pour garantir que soit tous les jobs sont validés, soit aucun.
+        """
+        try:
+            # Récupérer TOUS les jobs liés à cet inventaire et warehouse
+            all_jobs = self.repository.get_jobs_by_inventory_and_warehouse(inventory_id, warehouse_id)
+
+            if not all_jobs:
+                return {
+                    'success': True,
+                    'validated_jobs_count': 0,
+                    'validated_jobs': [],
+                    'validation_date': timezone.now(),
+                    'message': 'Aucun job trouvé pour cet inventaire et warehouse'
+                }
+
+            # Vérifier que TOUS les jobs ont le statut EN ATTENTE
+            invalid_jobs = []
+            for job in all_jobs:
+                if job.status != 'EN ATTENTE':
+                    invalid_jobs.append(f"Job {job.reference} (statut: {job.status})")
+
+            if invalid_jobs:
+                raise JobCreationError(
+                    f"Tous les jobs doivent être en statut 'EN ATTENTE' pour être validés. "
+                    f"Jobs avec statut invalide : {', '.join(invalid_jobs)}"
+                )
+
+            # Tous les jobs sont en attente, on peut les valider
+            current_time = timezone.now()
+            validated_jobs = []
+
+            for job in all_jobs:
+                job.status = 'VALIDE'
+                job.valide_date = current_time
+                job.save()
+
+                validated_jobs.append({
+                    'job_id': job.id,
+                    'job_reference': job.reference
+                })
+
+            return {
+                'success': True,
+                'validated_jobs_count': len(validated_jobs),
+                'validated_jobs': validated_jobs,
+                'validation_date': current_time,
+                'message': f'{len(validated_jobs)} jobs validés automatiquement'
+            }
+
+        except JobCreationError:
+            raise
+        except Exception as e:
+            raise JobCreationError(f"Erreur inattendue lors de la validation automatique des jobs : {str(e)}")
+
+    @transaction.atomic
+    def make_jobs_ready_by_inventory_and_warehouse(self, inventory_id: int, warehouse_id: int):
+        """
+        Met automatiquement tous les jobs au statut PRET pour un inventaire et warehouse spécifiques.
+        Vérifie d'abord que TOUS les jobs sont en statut 'AFFECTE' et que TOUS leurs assignments sont aussi 'AFFECTE'.
+        Si un seul job ou assignment n'est pas éligible, bloque toute l'opération.
+        Utilise une transaction atomique pour garantir que soit tous les assignments sont mis à PRET, soit aucun.
+        """
+        try:
+            # Récupérer TOUS les jobs liés à cet inventaire et warehouse
+            all_jobs = self.repository.get_jobs_by_inventory_and_warehouse(inventory_id, warehouse_id)
+
+            if not all_jobs:
+                return {
+                    'success': True,
+                    'updated_jobs_count': 0,
+                    'updated_jobs': [],
+                    'update_date': timezone.now(),
+                    'message': 'Aucun job trouvé pour cet inventaire et warehouse'
+                }
+
+            # Vérifier que TOUS les jobs sont en statut AFFECTE
+            invalid_jobs_status = []
+            for job in all_jobs:
+                if job.status != 'AFFECTE':
+                    invalid_jobs_status.append(f"Job {job.reference} (statut: {job.status})")
+
+            if invalid_jobs_status:
+                raise JobCreationError(
+                    f"Tous les jobs doivent être en statut 'AFFECTE' pour être mis à PRET. "
+                    f"Jobs avec statut invalide : {', '.join(invalid_jobs_status)}"
+                )
+
+            # Maintenant vérifier que TOUS les assignments de ces jobs AFFECTE sont aussi AFFECTE
+            from ..models import Assigment
+            invalid_jobs_assignments = []
+            total_assignments_to_update = 0
+
+            for job in all_jobs:
+                # Récupérer tous les assignments du job
+                all_job_assignments = Assigment.objects.filter(job=job)
+
+                # Vérifier que tous les assignments sont AFFECTE
+                ineligible_assignments = all_job_assignments.exclude(status='AFFECTE')
+
+                if ineligible_assignments.exists():
+                    # Lister les assignments problématiques
+                    invalid_details = [
+                        f"comptage ordre {a.counting.order} (statut: {a.status})"
+                        for a in ineligible_assignments.select_related('counting')
+                    ]
+                    invalid_jobs_assignments.append(f"Job {job.reference} (assignments avec statuts invalides: {', '.join(invalid_details)})")
+                else:
+                    # Compter les assignments AFFECTE (ceux qui seront mis à PRET)
+                    assignments_affecte = all_job_assignments.filter(status='AFFECTE')
+                    total_assignments_to_update += assignments_affecte.count()
+
+            if invalid_jobs_assignments:
+                raise JobCreationError(
+                    f"Tous les assignments des jobs AFFECTE doivent aussi être en statut 'AFFECTE' pour être mis à PRET. "
+                    f"Jobs avec assignments invalides : {', '.join(invalid_jobs_assignments)}"
+                )
+
+            # Tous les jobs sont éligibles, mettre seulement les assignments AFFECTE à PRET
+            current_time = timezone.now()
+            updated_jobs = []
+            assignments_updated = 0
+
+            for job in all_jobs:
+                # Mettre à jour seulement les assignments AFFECTE du job au statut PRET
+                assignments = Assigment.objects.filter(job=job, status='AFFECTE')
+                job_assignments_updated = 0
+
+                for assignment in assignments:
+                    assignment.status = 'PRET'
+                    assignment.pret_date = current_time
+                    assignment.save()
+                    job_assignments_updated += 1
+
+                assignments_updated += job_assignments_updated
+
+                updated_jobs.append({
+                    'job_id': job.id,
+                    'job_reference': job.reference,
+                    'assignments_updated': job_assignments_updated
+                })
+
+            return {
+                'success': True,
+                'updated_assignments_count': assignments_updated,
+                'updated_jobs_count': len(updated_jobs),
+                'updated_jobs': updated_jobs,
+                'update_date': current_time,
+                'message': f'{len(updated_jobs)} jobs mis à PRET avec succès'
+            }
+
+        except JobCreationError:
+            raise
+        except Exception as e:
+            raise JobCreationError(f"Erreur inattendue lors de la mise à PRET automatique des jobs : {str(e)}")
+
+    @transaction.atomic
     def make_jobs_ready(self, job_ids):
         """
         Met les jobs affectés au statut "PRET"

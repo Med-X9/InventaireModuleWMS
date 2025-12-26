@@ -71,6 +71,21 @@ class JobRepository(JobRepositoryInterface):
             warehouse_id=warehouse_id,
             status='EN ATTENTE'
         ).values('id', 'reference').order_by('created_at'))
+
+    def get_pending_jobs_by_inventory_and_warehouse(self, inventory_id: int, warehouse_id: int) -> List[Job]:
+        """Récupère les jobs en attente d'un inventaire et warehouse spécifiques"""
+        return list(Job.objects.filter(
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id,
+            status='EN ATTENTE'
+        ).order_by('created_at'))
+
+    def get_jobs_by_inventory_and_warehouse(self, inventory_id: int, warehouse_id: int) -> List[Job]:
+        """Récupère tous les jobs d'un inventaire et warehouse spécifiques"""
+        return list(Job.objects.filter(
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id
+        ).order_by('created_at'))
     
     def get_pending_jobs_by_warehouse_with_filters(self, warehouse_id: int, filters: Optional[Dict[str, Any]] = None) -> List[Job]:
         """Récupère les jobs en attente d'un warehouse avec filtres et relations préchargées"""

@@ -1430,4 +1430,85 @@ class JobDetailsByJobAndCountingView(ServerSideDataTableView):
         return self.repository.get_job_details_by_job_and_counting_order_queryset(
             job_id=job_id,
             counting_order=counting_order
-        ) 
+        )
+
+
+class JobAutoValidateView(APIView):
+    """
+    Vue pour valider automatiquement tous les jobs en attente d'un inventaire et warehouse spécifiques
+    """
+    def post(self, request, inventory_id, warehouse_id):
+        # Validation basique des paramètres d'URL
+        try:
+            inventory_id = int(inventory_id)
+            warehouse_id = int(warehouse_id)
+        except (ValueError, TypeError):
+            return Response({
+                'success': False,
+                'message': 'IDs d\'inventaire et d\'entrepôt doivent être des nombres entiers valides'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if inventory_id <= 0 or warehouse_id <= 0:
+            return Response({
+                'success': False,
+                'message': 'IDs d\'inventaire et d\'entrepôt doivent être des nombres positifs'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            job_service = JobService()
+            result = job_service.validate_jobs_by_inventory_and_warehouse(inventory_id, warehouse_id)
+            return Response({
+                'success': True,
+                'message': f'{result["validated_jobs_count"]} jobs validés avec succès',
+            }, status=status.HTTP_200_OK)
+        except JobCreationError as e:
+            return Response({
+                'success': False,
+                'message': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': f'Erreur interne : {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class JobAutoSetReadyView(APIView):
+    """
+    Vue pour mettre automatiquement tous les jobs au statut PRET pour un inventaire et warehouse spécifiques.
+    Applique la même logique que validate-all : vérifie que tous les jobs sont éligibles avant de procéder.
+    """
+    def post(self, request, inventory_id, warehouse_id):
+        # Validation basique des paramètres d'URL
+        try:
+            inventory_id = int(inventory_id)
+            warehouse_id = int(warehouse_id)
+        except (ValueError, TypeError):
+            return Response({
+                'success': False,
+                'message': 'IDs d\'inventaire et d\'entrepôt doivent être des nombres entiers valides'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if inventory_id <= 0 or warehouse_id <= 0:
+            return Response({
+                'success': False,
+                'message': 'IDs d\'inventaire et d\'entrepôt doivent être des nombres positifs'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            job_service = JobService()
+            result = job_service.make_jobs_ready_by_inventory_and_warehouse(inventory_id, warehouse_id)
+            return Response({
+                'success': True,
+                'message': f'{result["updated_assignments_count"]} assignments mis à PRET avec succès sur {result["updated_jobs_count"]} jobs',
+            }, status=status.HTTP_200_OK)
+        except JobCreationError as e:
+            return Response({
+                'success': False,
+                'message': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': f'Erreur interne : {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
