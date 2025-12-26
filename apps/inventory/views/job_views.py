@@ -1181,30 +1181,25 @@ class JobTransferView(APIView):
 
 class JobTransferAllView(APIView):
     """
-    Vue pour transférer tous les assignments de tous les comptages qui sont au statut PRET.
-    
+    Vue pour transférer automatiquement tous les jobs et leurs assignments PRET
+    liés à un inventaire et un entrepôt spécifiques.
+
     Règles métier :
-    - Seuls les assignments au statut PRET peuvent être transférés
-    - Transfère tous les assignments PRET de tous les counting_order pour les jobs spécifiés
-    - Si un assignment n'est pas PRET, retourne un message d'erreur avec la référence du job et la raison
+    - Logique tout-ou-rien : vérifie d'abord que TOUS les jobs et assignments sont PRET
+    - Si une seule condition n'est pas remplie, bloque tout le transfert
+    - Utilise une transaction atomique pour garantir la cohérence
+    - Transfère automatiquement tous les jobs et assignments liés à l'inventory_id et warehouse_id
     """
-    def post(self, request):
-        serializer = JobTransferAllRequestSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response({
-                'success': False,
-                'message': 'Erreur de validation',
-                'errors': serializer.errors
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        job_ids = serializer.validated_data['job_ids']
-        
+    def post(self, request, inventory_id, warehouse_id):
         try:
             job_service = JobService()
-            result = job_service.transfer_all_assignments_by_jobs(job_ids)
+            result = job_service.transfer_all_jobs_and_assignments_by_inventory_warehouse(
+                inventory_id=inventory_id,
+                warehouse_id=warehouse_id
+            )
             return success_response(
                 data=result,
-                message=f'{result["total_transferred"]} assignment(s) transféré(s) avec succès'
+                message=f'{result["total_jobs_transferred"]} job(s) et {result["total_assignments_transferred"]} assignment(s) transféré(s) avec succès'
             )
         except JobCreationError as e:
             return error_response(

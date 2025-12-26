@@ -369,6 +369,25 @@ class JobTransferAllRequestSerializer(serializers.Serializer):
         help_text="Liste des IDs des jobs pour lesquels transférer tous les assignments PRET de tous les counting_order"
     )
 
+class JobTransferByInventoryWarehouseRequestSerializer(serializers.Serializer):
+    """
+    Serializer pour transférer automatiquement tous les jobs et leurs assignments PRET
+    liés à un inventaire et un entrepôt spécifiques.
+
+    Accepte inventory_id et warehouse_id, puis récupère automatiquement tous les jobs
+    et assignments PRET liés à cet inventaire/warehouse.
+
+    Logique tout-ou-rien : si un job ou assignment n'est pas PRET, bloque tout le transfert.
+    """
+    inventory_id = serializers.IntegerField(
+        min_value=1,
+        help_text="ID de l'inventaire pour lequel transférer tous les jobs et assignments PRET"
+    )
+    warehouse_id = serializers.IntegerField(
+        min_value=1,
+        help_text="ID de l'entrepôt pour lequel transférer tous les jobs et assignments PRET"
+    )
+
 class JobManualEntryRequestSerializer(serializers.Serializer):
     """
     Serializer pour mettre les jobs et leurs assignments en statut SAISIE MANUELLE.

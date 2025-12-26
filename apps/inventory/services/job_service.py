@@ -998,7 +998,126 @@ class JobService(JobServiceInterface):
             'counting_orders': counting_orders,
             'total_transferred': len(transferred_assignments)
         }
-    
+
+    @transaction.atomic
+    def transfer_all_jobs_and_assignments_by_inventory_warehouse(self, inventory_id: int, warehouse_id: int):
+        """
+        Transfère automatiquement tous les jobs et leurs assignments PRET liés à un inventaire et entrepôt spécifiques.
+
+        Logique tout-ou-rien : vérifie d'abord que TOUS les jobs et assignments sont PRET,
+        puis transfère tout en une seule transaction. Si une erreur est détectée, rollback complet.
+
+        Règles métier :
+        - Tous les jobs liés à l'inventaire/warehouse doivent être au statut PRET
+        - Tous les assignments de ces jobs doivent être au statut PRET
+        - Si une seule condition n'est pas remplie, bloque tout le transfert
+        - Utilise une transaction atomique pour garantir la cohérence
+
+        Args:
+            inventory_id: ID de l'inventaire
+            warehouse_id: ID de l'entrepôt
+
+        Returns:
+            Dict contenant les informations sur les jobs et assignments transférés
+
+        Raises:
+            JobCreationError: Si des erreurs de validation sont détectées (tout-ou-rien)
+        """
+        from ..models import Assigment
+
+        current_time = timezone.now()
+        errors = []
+
+        # Étape 1: Récupérer tous les jobs liés à cet inventory/warehouse
+        jobs = Job.objects.filter(
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id
+        ).prefetch_related('assigment_set__counting')
+
+        if not jobs.exists():
+            raise JobCreationError(f"Aucun job trouvé pour l'inventaire {inventory_id} et l'entrepôt {warehouse_id}")
+
+        # Étape 2: Validation tout-ou-rien - vérifier que TOUS les jobs sont PRET
+        invalid_jobs = []
+        for job in jobs:
+            if job.status != 'PRET':
+                invalid_jobs.append(f"Job {job.reference} : statut actuel '{job.status}' (attendu: 'PRET')")
+
+        if invalid_jobs:
+            errors.extend(invalid_jobs)
+
+        # Étape 3: Validation tout-ou-rien - vérifier que TOUS les assignments sont PRET
+        invalid_assignments = []
+        all_assignments = []
+
+        for job in jobs:
+            job_assignments = list(job.assigment_set.all())
+            all_assignments.extend(job_assignments)
+
+            for assignment in job_assignments:
+                if assignment.status != 'PRET':
+                    invalid_assignments.append(
+                        f"Assignment {assignment.reference} (Job {job.reference}) : statut actuel '{assignment.status}' (attendu: 'PRET')"
+                    )
+
+        if invalid_assignments:
+            errors.extend(invalid_assignments)
+
+        # Étape 4: Si des erreurs détectées, lever une exception (rollback automatique)
+        if errors:
+            error_message = " | ".join(errors)
+            raise JobCreationError(f"Validation échouée - transfert annulé : {error_message}")
+
+        # Étape 5: Tout est valide, procéder au transfert
+        transferred_assignments = []
+        transferred_jobs = []
+
+        # Transférer tous les assignments
+        for job in jobs:
+            job_reference = job.reference
+
+            for assignment in job.assigment_set.all():
+                assignment.status = 'TRANSFERT'
+                assignment.transfert_date = current_time
+                assignment.save()
+
+                transferred_assignments.append({
+                    'assignment_id': assignment.id,
+                    'assignment_reference': assignment.reference,
+                    'job_reference': job_reference,
+                    'job_id': job.id,
+                    'counting_order': assignment.counting.order,
+                    'counting_reference': assignment.counting.reference
+                })
+
+            # Mettre à jour le statut du job
+            job.status = 'TRANSFERT'
+            job.transfert_date = current_time
+            job.save()
+
+            transferred_jobs.append({
+                'job_id': job.id,
+                'job_reference': job_reference,
+                'warehouse_id': warehouse_id,
+                'inventory_id': inventory_id
+            })
+
+        # Récupérer tous les counting_order transférés pour la réponse
+        counting_orders = list(set([
+            ass['counting_order'] for ass in transferred_assignments
+        ]))
+
+        return {
+            'transferred_jobs': transferred_jobs,
+            'transferred_assignments': transferred_assignments,
+            'transfer_date': current_time,
+            'counting_orders': counting_orders,
+            'total_jobs_transferred': len(transferred_jobs),
+            'total_assignments_transferred': len(transferred_assignments),
+            'inventory_id': inventory_id,
+            'warehouse_id': warehouse_id
+        }
+
     @transaction.atomic
     def set_manual_entry_status_by_jobs_and_counting_orders(self, job_ids: list, counting_orders: list):
         """

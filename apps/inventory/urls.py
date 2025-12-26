@@ -145,8 +145,8 @@ urlpatterns = [
     path('inventory/assign-jobs-manual/', JobBatchAssignmentView.as_view(), name='assign-jobs-manual'),
     # URL pour transférer les jobs par comptage
     path('jobs/transfer/', JobTransferView.as_view(), name='job-transfer'),
-    # URL pour transférer tous les jobs de tous les comptages
-    path('jobs/transfer-all/', JobTransferAllView.as_view(), name='job-transfer-all'),
+    # URL pour transférer tous les jobs d'un inventaire et entrepôt spécifiques
+    path('inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/transfer-all/', JobTransferAllView.as_view(), name='job-transfer-all'),
     # URL pour mettre les jobs en saisie manuelle
     path('jobs/manual-entry/', JobManualEntryView.as_view(), name='job-manual-entry'),
     
