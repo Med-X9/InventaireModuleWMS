@@ -294,13 +294,11 @@ class AssignmentService:
             },
             'personne': {
                 'id': assignment.personne.id,
-                'nom': assignment.personne.nom,
-                'prenom': assignment.personne.prenom
+                'full_name': assignment.personne.full_name
             } if assignment.personne else None,
             'personne_two': {
                 'id': assignment.personne_two.id,
-                'nom': assignment.personne_two.nom,
-                'prenom': assignment.personne_two.prenom
+                'full_name': assignment.personne_two.full_name
             } if assignment.personne_two else None,
             'created_at': assignment.created_at,
             'updated_at': assignment.updated_at
@@ -447,8 +445,7 @@ class AssignmentService:
             'personnes': [
                 {
                     'id': p.id,
-                    'nom': p.nom,
-                    'prenom': p.prenom,
+                    'full_name': p.full_name,
                     'reference': p.reference
                 } for p in personne_list
             ],

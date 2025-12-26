@@ -12,7 +12,7 @@ class PersonRepository:
         Récupère toutes les personnes enregistrées.
 
         Returns:
-            Iterable[Personne]: Liste ou QuerySet des personnes triées par nom puis prénom.
+            Iterable[Personne]: Liste ou QuerySet des personnes triées par nom complet.
         """
-        return Personne.objects.all().order_by("nom", "prenom")
+        return Personne.objects.all().order_by("full_name")
 

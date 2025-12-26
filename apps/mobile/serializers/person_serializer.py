@@ -6,12 +6,13 @@ from apps.inventory.models import Personne
 class PersonSerializer(serializers.ModelSerializer):
     """
     Sérialiseur pour l'entité Personne.
-    Retourne uniquement le numéro (numérotation) sans nom et prénom.
+    Retourne le numéro (numérotation) et l'ID pour l'application mobile.
     """
 
     class Meta:
         model = Personne
         fields = [
+            "id",
             "numero",
         ]
 

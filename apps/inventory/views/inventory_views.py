@@ -886,56 +886,66 @@ class InventoryResourcesDetailView(APIView):
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-class InventoryWarehouseStatsView(APIView):
+class InventoryWarehouseStatsView(ServerSideDataTableView):
     """
     Vue pour récupérer les statistiques des warehouses d'un inventaire.
+    Support DataTable avec tri, recherche et pagination.
     """
-    permission_classes = [IsAuthenticated]
+    serializer_class = InventoryWarehouseStatsSerializer
 
-    def get(self, request, inventory_id):
+    # Configuration de pagination
+    default_page_size = 20
+    max_page_size = 100
+    export_filename = 'statistiques_warehouses_inventaire'
+
+    # Champs de recherche
+    search_fields = [
+        'warehouse_name', 'warehouse_reference', 'account_name',
+        'total_jobs', 'completed_jobs', 'pending_jobs', 'in_progress_jobs'
+    ]
+
+    # Mapping colonnes frontend -> backend
+    column_field_mapping = {
+        'warehouse_name': 'warehouse_name',
+        'warehouse_reference': 'warehouse_reference',
+        'account_name': 'account_name',
+        'total_jobs': 'total_jobs',
+        'completed_jobs': 'completed_jobs',
+        'pending_jobs': 'pending_jobs',
+        'in_progress_jobs': 'in_progress_jobs',
+        'completion_percentage': 'completion_percentage'
+    }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.service = InventoryService()
+
+    def get_data_source(self):
         """
-        Récupère les statistiques des warehouses pour un inventaire.
-        
-        Args:
-            request: La requête HTTP
-            inventory_id: L'ID de l'inventaire
-            
-        Returns:
-            Response: La réponse HTTP avec les statistiques des warehouses
+        Retourne la source de données depuis le service InventoryService.
+        Les données sont récupérées sous forme de liste de dictionnaires.
         """
+        from apps.core.datatables.datasource import DataSourceFactory
+
+        inventory_id = self.kwargs.get('inventory_id')
+
+        if not inventory_id:
+            raise InventoryValidationError("inventory_id est requis")
+
         try:
             # Récupérer les statistiques via le service
-            inventory_service = InventoryService()
-            stats_data = inventory_service.get_warehouse_stats_for_inventory(inventory_id)
-            
-            # Sérialiser les données
-            serializer = InventoryWarehouseStatsSerializer(stats_data, many=True)
-            
-            return success_response(
-                data=serializer.data,
-                message='Statistiques des warehouses récupérées avec succès',
-                warehouses_count=len(stats_data)
-            )
-            
-        except InventoryNotFoundError as e:
-            return error_response(
-                message='Inventaire non trouvé',
-                status_code=status.HTTP_404_NOT_FOUND
-            )
-            
-        except InventoryValidationError as e:
-            return error_response(
-                message='Erreur de validation',
-                errors=[str(e)],
-                status_code=status.HTTP_400_BAD_REQUEST
-            )
-            
+            stats_data = self.service.get_warehouse_stats_for_inventory(inventory_id)
+
+            # Retourner la source de données
+            return DataSourceFactory.create(stats_data)
+
+        except InventoryNotFoundError:
+            # Retourner une liste vide si inventaire non trouvé
+            return DataSourceFactory.create([])
         except Exception as e:
-            logger.error(f"Erreur lors de la récupération des statistiques des warehouses: {str(e)}")
-            return error_response(
-                message='Erreur lors de la récupération des statistiques des warehouses',
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            logger.error(f"Erreur dans get_data_source pour InventoryWarehouseStatsView: {str(e)}")
+            # Retourner une liste vide en cas d'erreur
+            return DataSourceFactory.create([])
 
 
 class InventoryResultByWarehouseView(ServerSideDataTableView):
