@@ -88,7 +88,7 @@ class ExcelExportRepository:
             inventory_id=inventory_id,
             resolved=True,  # Uniquement les écarts résolus
             final_result__isnull=False  # Avec un résultat final défini
-        ).select_related(
+        ).prefetch_related(
             'counting_sequences__counting_detail__product',
             'counting_sequences__counting_detail__product__Product_Family',
             'counting_sequences__counting_detail__location'
