@@ -69,30 +69,47 @@ class ExcelExportRepository:
     ) -> List[Dict[str, Any]]:
         """
         Récupère les données consolidées par article pour un inventaire.
-        Utilise le final_result des EcartComptage qui ont un résultat final défini
-        (soit résolus, soit ayant un final_result explicite).
+        CONDITION PRÉALABLE : TOUS les EcartComptage de l'inventaire doivent être resolved=True.
+
+        Utilise UNIQUEMENT le final_result des EcartComptage RÉSOLUS.
+
+        Pour chaque produit apparaissant dans des EcartComptage résolus,
+        la quantité consolidée est la SOMME des final_result de TOUS les EcartComptage
+        résolus associés à ce produit.
+
+        Contrairement à l'ancienne logique qui additionnait les quantités de comptage (5+3+2=10),
+        cette logique utilise les résultats finaux validés après résolution des écarts.
 
         Exclut les articles avec le code produit '1111111111111' de la consolidation.
-
-        Retourne une liste de dictionnaires avec :
-        - Les informations de l'article
-        - La quantité consolidée (somme de tous les final_result des EcartComptage résolus)
-        - Les emplacements où l'article est présent
 
         Args:
             inventory_id: ID de l'inventaire
 
         Returns:
             Liste de dictionnaires avec les données consolidées
+
+        Raises:
+            ValueError: Si tous les EcartComptage de l'inventaire ne sont pas résolus
         """
-        # Récupérer les EcartComptage avec résultat final défini de l'inventaire
-        # Inclure les écarts résolus OU ayant un final_result défini
+        # VÉRIFICATION PRÉALABLE : Tous les EcartComptage doivent être resolved=True
+        total_ecarts = EcartComptage.objects.filter(inventory_id=inventory_id).count()
+        resolved_ecarts = EcartComptage.objects.filter(
+            inventory_id=inventory_id,
+            resolved=True
+        ).count()
+
+        if total_ecarts > 0 and total_ecarts != resolved_ecarts:
+            raise ValueError(
+                f"Tous les écarts de comptage de cet inventaire doivent être résolus "
+                f"avant de pouvoir exporter le fichier consolidé. "
+                f"Écarts résolus : {resolved_ecarts}/{total_ecarts}"
+            )
+
+        # Récupérer TOUS les EcartComptage résolus de l'inventaire
         ecart_comptages = EcartComptage.objects.filter(
-            inventory_id=inventory_id
-        ).filter(
-            Q(resolved=True) | Q(final_result__isnull=False)  # Écarts résolus OU avec résultat final
-        ).select_related(
-            'inventory'  # Relation directe ForeignKey uniquement
+            inventory_id=inventory_id,
+            resolved=True,  # UNIQUEMENT les écarts RÉSOLUS
+            final_result__isnull=False  # Avec un résultat final défini
         ).prefetch_related(
             'counting_sequences__counting_detail__product',
             'counting_sequences__counting_detail__product__Product_Family',
@@ -134,7 +151,7 @@ class ExcelExportRepository:
                         'locations_set': set()  # Set pour stocker les références d'emplacements uniques
                     }
 
-                # Utiliser le final_result de l'EcartComptage
+                # Ajouter le final_result de cet EcartComptage au total du produit
                 products_data[product_id]['total_quantity'] += ecart.final_result
 
                 # Ajouter l'emplacement à la liste des emplacements (set pour éviter les doublons)
