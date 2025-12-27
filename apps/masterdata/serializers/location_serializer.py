@@ -33,7 +33,7 @@ class LocationSerializer(serializers.ModelSerializer):
 
     # zone = ZoneSerializer()
     # location_type = LocationTypeSerializer()
-
+    
 
 class LocationBulkDeactivateSerializer(serializers.Serializer):
     """

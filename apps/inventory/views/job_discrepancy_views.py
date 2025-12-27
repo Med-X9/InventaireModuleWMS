@@ -16,29 +16,29 @@ logger = logging.getLogger(__name__)
 
 class JobDiscrepancyView(ServerSideDataTableView):
     """
-    Vue DataTable pour récupérer les jobs avec leurs assignments et les écarts entre tous les comptages.
-    
-    Récupère tous les comptages (1er, 2ème, 3ème, n-ème) pour chaque job.
-    Les comptages sont standardisés : si un job a moins de comptages que d'autres,
-    des assignments vides sont ajoutés pour maintenir un format cohérent.
-    
+    Vue DataTable pour récupérer les écarts des jobs avec format compatible DataTable.
+
+    Retourne les informations essentielles au format attendu par DataTable :
+    - Informations de base du job
+    - Métriques d'écarts (count, rate, lignes)
+    - Assignments standardisés
+    - Écarts dynamiques par counting_order
+
     Support DataTable avec pagination, tri, recherche et filtrage.
-    
+
     URL: /api/inventory/{inventory_id}/warehouse/{warehouse_id}/jobs/discrepancies/
-    
+
     FONCTIONNALITÉS AUTOMATIQUES:
     - Tri sur tous les champs configurés
     - Recherche sur champs multiples
     - Filtrage avancé
     - Pagination optimisée
-    - Support DataTable et REST API
-    - Standardisation automatique des comptages
-    
+
     PARAMÈTRES:
     - Tri: ordering=job_reference, ordering=-discrepancy_rate
     - Recherche: search=terme
     - Pagination: page=1&page_size=20
-    - Filtres: job_status=VALIDE, discrepancy_rate__gte=10
+    - Filtres: job_status=ENTAME, discrepancy_rate__gte=10
     """
     permission_classes = [IsAuthenticated]
     serializer_class = JobDiscrepancySerializer
@@ -50,7 +50,7 @@ class JobDiscrepancyView(ServerSideDataTableView):
         'discrepancy_count',
         'discrepancy_rate',
     ]
-    
+
     # Champs de tri
     order_fields = [
         'job_id',
@@ -74,8 +74,8 @@ class JobDiscrepancyView(ServerSideDataTableView):
         self.job_discrepancy_service = JobDiscrepancyService()
     
     def _get_results_data(self, inventory_id: int, warehouse_id: int) -> list:
-        """Récupère les données brutes depuis le service."""
-        return self.job_discrepancy_service.get_jobs_with_discrepancies(
+        """Récupère les données brutes depuis le service (format simplifié)."""
+        return self.job_discrepancy_service.get_jobs_discrepancies_simplified(
             inventory_id=inventory_id,
             warehouse_id=warehouse_id
         )
