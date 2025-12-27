@@ -151,3 +151,56 @@ class EcartComptageResolveView(APIView):
         )
 
 
+class EcartComptageBulkResolveView(APIView):
+    """
+    API pour marquer comme résolus tous les EcartComptage d'un inventaire qui ont un final_result.
+
+    Contraintes métier :
+    - Seuls les écarts ayant un final_result non nul seront marqués comme résolus.
+    - Les écarts sans final_result restent inchangés.
+
+    Méthode HTTP : PATCH
+    URL : /api/inventory/ecarts-comptage/bulk-resolve/<inventory_id>/
+
+    Corps attendu (JSON) : Aucun corps requis
+    """
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.service = EcartComptageService()
+
+    def patch(self, request, inventory_id: int):
+        try:
+            resolved_count = self.service.bulk_resolve_ecarts_by_inventory(
+                inventory_id=inventory_id
+            )
+        except InventoryNotFoundError as exc:
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except InventoryValidationError as exc:
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": f"{resolved_count} écarts de comptage ont été marqués comme résolus.",
+                "data": {
+                    "inventory_id": inventory_id,
+                    "resolved_count": resolved_count
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+

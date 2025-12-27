@@ -182,9 +182,10 @@ class EcartComptageAPITestCase(TestCase):
         self.ecart.refresh_from_db()
         self.assertEqual(self.ecart.final_result, 120)
 
-    def test_update_final_result_fails_with_less_than_two_sequences(self) -> None:
+    def test_update_final_result_works_with_less_than_two_sequences(self) -> None:
         """
-        Vérifie que la mise à jour du résultat final échoue si moins de 2 séquences.
+        Vérifie que la mise à jour du résultat final fonctionne même avec moins de 2 séquences
+        (la validation a été désactivée dans le service).
         """
         # On force un autre écart avec 0 séquence
         ecart2 = EcartComptage.objects.create(
@@ -204,8 +205,10 @@ class EcartComptageAPITestCase(TestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Il faut au moins deux comptages", response.data["message"])
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        ecart2.refresh_from_db()
+        self.assertEqual(ecart2.final_result, 50)
 
     def test_resolve_ecart_requires_final_result(self) -> None:
         """
@@ -240,5 +243,82 @@ class EcartComptageAPITestCase(TestCase):
         self.ecart.refresh_from_db()
         self.assertTrue(self.ecart.resolved)
         self.assertEqual(self.ecart.justification, "Résolution test")
+
+    def test_bulk_resolve_ecarts_only_with_final_result(self) -> None:
+        """
+        Vérifie que l'API de résolution en masse ne marque comme résolus
+        que les écarts qui ont un final_result non nul.
+        """
+        # Créer plusieurs écarts pour l'inventaire
+        ecart_with_result1 = EcartComptage.objects.create(
+            reference="ECT-WITH-RESULT-1",
+            inventory=self.inventory,
+            total_sequences=2,
+            resolved=False,
+            final_result=100,  # A un résultat final
+        )
+        ecart_with_result2 = EcartComptage.objects.create(
+            reference="ECT-WITH-RESULT-2",
+            inventory=self.inventory,
+            total_sequences=2,
+            resolved=False,
+            final_result=200,  # A un résultat final
+        )
+        ecart_without_result = EcartComptage.objects.create(
+            reference="ECT-WITHOUT-RESULT",
+            inventory=self.inventory,
+            total_sequences=2,
+            resolved=False,
+            final_result=None,  # Pas de résultat final
+        )
+
+        # URL pour la résolution en masse
+        bulk_resolve_url = reverse(
+            "ecart-comptage-bulk-resolve",
+            kwargs={"inventory_id": self.inventory.id},
+        )
+
+        # Appeler l'API
+        response = self.client.patch(
+            bulk_resolve_url,
+            data={},
+            format="json",
+        )
+
+        # Vérifier la réponse
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        self.assertEqual(response.data["data"]["resolved_count"], 2)  # 2 écarts résolus
+
+        # Vérifier que les écarts avec résultat final sont résolus
+        ecart_with_result1.refresh_from_db()
+        ecart_with_result2.refresh_from_db()
+        ecart_without_result.refresh_from_db()
+
+        self.assertTrue(ecart_with_result1.resolved)
+        self.assertTrue(ecart_with_result2.resolved)
+        self.assertFalse(ecart_without_result.resolved)  # Celui sans résultat reste non résolu
+
+        # Vérifier les stopped_reason
+        self.assertEqual(ecart_with_result1.stopped_reason, "RESOLU_MANUEL")
+        self.assertEqual(ecart_with_result2.stopped_reason, "RESOLU_MANUEL")
+
+    def test_bulk_resolve_ecarts_inventory_not_found(self) -> None:
+        """
+        Vérifie que l'API retourne 404 si l'inventaire n'existe pas.
+        """
+        bulk_resolve_url = reverse(
+            "ecart-comptage-bulk-resolve",
+            kwargs={"inventory_id": 99999},  # ID qui n'existe pas
+        )
+
+        response = self.client.patch(
+            bulk_resolve_url,
+            data={},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertFalse(response.data["success"])
 
 
