@@ -157,6 +157,7 @@ class InventoryResultService:
                     "job": {
                         "id": row.get("job_id"),
                         "reference": row.get("job_reference_alias"),
+                        "status": row.get("job_status_alias"),
                     },
                     "product": None,
                     "quantities": {},
@@ -234,6 +235,9 @@ class InventoryResultService:
                 job_reference = job_info.get("reference")
                 if job_reference:
                     result_row["job_reference"] = job_reference
+                job_status = job_info.get("status")
+                if job_status:
+                    result_row["job_status"] = job_status
 
             previous_quantities: Dict[int, int] = {}  # Stocker toutes les quantités précédentes
             assignment_statuses = entry.get("assignment_statuses", {})
