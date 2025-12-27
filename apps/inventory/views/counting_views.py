@@ -19,10 +19,10 @@ from ..repositories.job_repository import JobRepository
 class CountingLaunchView(APIView):
     """
     API REST pour lancer un nouveau comptage (3e ou ultérieur) pour un job donné.
-    
+
     Supporte deux formats :
     1. Ancien format : job_id, location_id, session_id (pour un seul emplacement)
-    2. Nouveau format : jobs[] (liste de job IDs), session_id (pour tous les emplacements avec écart)
+    2. Nouveau format : jobs[] (liste de job IDs), session_id (pour tous les emplacements avec écart et final_result=NULL)
     """
 
     permission_classes = [IsAuthenticated]
@@ -108,7 +108,7 @@ class CountingLaunchView(APIView):
                 return Response(
                     {
                         'success': False,
-                        'message': 'Aucun emplacement avec écart trouvé pour les jobs fournis.',
+                        'message': 'Aucun emplacement avec écart (final_result vide) trouvé pour les jobs fournis.',
                         'data': result,
                     },
                     status=status.HTTP_400_BAD_REQUEST,

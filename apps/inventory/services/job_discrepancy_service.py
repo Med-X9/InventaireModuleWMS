@@ -5,7 +5,7 @@ from typing import Dict, Any, List, Optional
 from collections import defaultdict
 from django.db.models import Q
 from ..repositories.job_repository import JobRepository
-from ..models import Job, Assigment, CountingDetail, EcartComptage
+from ..models import Job, Assigment, CountingDetail, EcartComptage, ComptageSequence
 from ..usecases.job_discrepancy_standardization import JobDiscrepancyStandardizationUseCase
 import logging
 
@@ -275,100 +275,206 @@ class JobDiscrepancyService:
         warehouse_id: int
     ) -> List[Dict[str, Any]]:
         """
-        Récupère les jobs ayant au moins un écart de comptage non résolu,
-        regroupés par comptage (counting.order) pour un inventaire et un entrepôt.
-        
-        Un écart est considéré comme non résolu si :
-        - resolved = False OU
-        - final_result est NULL
-        
+        Récupère les jobs nécessitant un prochain comptage à cause d'écarts avec résultat vide,
+        regroupés par numéro de prochain comptage pour un inventaire et un entrepôt.
+
+        LOGIQUE MÉTIER :
+        1. Récupère les jobs avec statut 'ENTAME'
+        2. Pour chaque job, analyse les comptages terminés et leurs écarts
+        3. Si comptages 1&2 terminés avec écarts (final_result=None) → besoin comptage 3
+        4. Si comptages 1&2&3 terminés avec écarts (final_result=None) → besoin comptage 4
+        5. Et ainsi de suite...
+
+        Un écart nécessite un nouveau comptage si :
+        - final_result est NULL (résultat vide/non déterminé)
+
         Args:
             inventory_id: ID de l'inventaire
             warehouse_id: ID de l'entrepôt
-            
+
         Returns:
-            Liste de dictionnaires avec le format :
+            Liste groupée par prochain comptage à lancer :
             [
                 {
-                    "counting_order": 3,
+                    "next_counting_order": 3,  // Prochain comptage à lancer
                     "jobs": [
-                        {"job_id": 1, "job_reference": "job-1"},
-                        {"job_id": 2, "job_reference": "job-2"},
-                    ],
-                },
-                {
-                    "counting_order": 4,
-                    "jobs": [
-                        {"job_id": 6, "job_reference": "job-6"},
-                    ],
-                },
+                        {
+                            "job_id": 1,
+                            "job_reference": "JOB-0001",
+                            "current_max_counting": 2,  // Max comptage terminé avec écarts
+                            "has_unresolved_discrepancies": true,
+                            "discrepancies_locations_count": 5  // Nombre d'emplacements avec écarts
+                        }
+                    ]
+                }
             ]
-            
-        Raises:
-            ValueError: Si l'inventaire ou le warehouse n'existe pas
         """
         # Vérifier que l'inventaire existe
         inventory = self.job_repository.get_inventory_by_id(inventory_id)
         if not inventory:
             raise ValueError(f"Inventaire avec l'ID {inventory_id} non trouvé")
-        
+
         # Vérifier que le warehouse existe
         warehouse = self.job_repository.get_warehouse_by_id(warehouse_id)
         if not warehouse:
             raise ValueError(f"Warehouse avec l'ID {warehouse_id} non trouvé")
-        
-        # Récupérer les écarts non résolus pour cet inventaire
-        # Un écart est non résolu si resolved=False OU final_result est NULL
-        unresolved_ecarts = EcartComptage.objects.filter(
-            inventory_id=inventory_id
-        ).filter(
-            Q(resolved=False) | Q(final_result__isnull=True)
+
+        # Récupérer les jobs ENTAME pour cet inventaire et entrepôt
+        jobs = self.job_repository.get_jobs_by_status_and_location(
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id,
+            status='ENTAME'
         )
-        
-        # Récupérer les CountingDetail liés à ces écarts via ComptageSequence
-        # et qui appartiennent aux jobs de l'entrepôt spécifié
-        # Grouper directement par counting.order et job pour éviter les doublons
-        from django.db.models import Count
-        
-        counting_details = CountingDetail.objects.filter(
-            job__inventory_id=inventory_id,
-            job__warehouse_id=warehouse_id,
-            counting__order__gte=3,  # Ne garder que les comptages à partir de l'ordre 3
-            counting_sequences__ecart_comptage__in=unresolved_ecarts
-        ).select_related('job', 'counting').values(
-            'counting__order',
-            'job__id',
-            'job__reference'
-        ).distinct().order_by('counting__order', 'job__id')
-        
-        # Grouper par counting_order
-        jobs_by_counting = defaultdict(list)
-        
-        for detail in counting_details:
-            counting_order = detail['counting__order']
-            job_id = detail['job__id']
-            job_reference = detail['job__reference']
-            
-            # Vérifier que le job n'est pas déjà dans la liste pour ce counting_order
-            if not any(j['job_id'] == job_id for j in jobs_by_counting[counting_order]):
-                jobs_by_counting[counting_order].append({
-                    'job_id': job_id,
-                    'job_reference': job_reference
+
+        # Analyser chaque job pour déterminer le prochain comptage nécessaire
+        jobs_needing_next_counting = defaultdict(list)
+
+        for job in jobs:
+            next_counting_order = self._determine_next_counting_order(job)
+            if next_counting_order:
+                # Récupérer le numéro maximum de comptage terminé pour ce job
+                max_completed_counting = self._get_max_completed_counting_order(job)
+
+                # Compter les emplacements avec écarts non résolus
+                discrepancies_locations_count = self._count_discrepancies_locations_for_job(job)
+
+                # Retourner le prochain comptage à lancer (next_counting_order)
+                jobs_needing_next_counting[next_counting_order].append({
+                    'job_id': job.id,
+                    'job_reference': job.reference,
+                    'current_max_counting': max_completed_counting,
+                    'has_unresolved_discrepancies': True,
+                    'discrepancies_locations_count': discrepancies_locations_count
                 })
-        
-        # Formater le résultat trié par counting_order
+
+        # Formater le résultat trié par ordre de comptage
         result = []
-        for counting_order in sorted(jobs_by_counting.keys()):
-            # Trier les jobs par job_id pour avoir un ordre cohérent
+        for counting_order in sorted(jobs_needing_next_counting.keys()):
             jobs_list = sorted(
-                jobs_by_counting[counting_order],
+                jobs_needing_next_counting[counting_order],
                 key=lambda x: x['job_id']
             )
-            
+
             result.append({
-                'counting_order': counting_order,
+                'next_counting_order': counting_order,
                 'jobs': jobs_list
             })
-        
+
         return result
+
+    def _determine_next_counting_order(self, job) -> Optional[int]:
+        """
+        Détermine le prochain comptage à lancer pour un job basé sur les écarts avec résultat vide.
+
+        Logique :
+        - Si comptages 1&2 terminés et contiennent écarts (final_result=None) → retourner 3
+        - Si comptages 1&2&3 terminés et contiennent écarts (final_result=None) → retourner 4
+        - Si comptages 1&2&3&4 terminés et contiennent écarts (final_result=None) → retourner 5
+        - etc.
+        - Si pas d'écarts avec résultat vide ou comptages pas terminés → retourner None
+
+        Args:
+            job: Instance du modèle Job
+
+        Returns:
+            Numéro du prochain comptage à lancer, ou None si pas nécessaire
+        """
+        # Récupérer tous les assignments du job triés par counting_order
+        assignments = job.assigment_set.select_related('counting').order_by('counting__order')
+
+        # Grouper par counting_order
+        assignments_by_order = {}
+        for assignment in assignments:
+            if assignment.counting:
+                order = assignment.counting.order
+                assignments_by_order[order] = assignment
+
+        # Si pas d'assignments, rien à faire
+        if not assignments_by_order:
+            return None
+
+        # Trouver le numéro maximum de comptage terminé avec écarts
+        max_order_with_discrepancies = 0
+
+        for order in sorted(assignments_by_order.keys()):
+            assignment = assignments_by_order[order]
+
+            # Vérifier si ce comptage est terminé
+            if assignment.status != 'TERMINE':
+                break  # Les comptages suivants ne peuvent pas être terminés
+
+            # Vérifier si ce comptage a des écarts non résolus
+            has_unresolved_discrepancies = self._counting_has_unresolved_discrepancies(job, order)
+
+            if has_unresolved_discrepancies:
+                max_order_with_discrepancies = order
+
+        # Si on a trouvé des écarts dans les derniers comptages terminés,
+        # le prochain comptage à lancer est max_order_with_discrepancies + 1
+        if max_order_with_discrepancies > 0:
+            return max_order_with_discrepancies + 1
+
+        return None
+
+    def _get_max_completed_counting_order(self, job) -> int:
+        """
+        Retourne le numéro maximum de comptage terminé pour ce job.
+        """
+        max_order = 0
+        for assignment in job.assigment_set.select_related('counting'):
+            if assignment.status == 'TERMINE' and assignment.counting:
+                max_order = max(max_order, assignment.counting.order)
+        return max_order
+
+    def _counting_has_unresolved_discrepancies(self, job, counting_order: int) -> bool:
+        """
+        Vérifie si un comptage spécifique a des écarts avec résultat vide (final_result=None).
+
+        Args:
+            job: Instance Job
+            counting_order: Numéro d'ordre du comptage
+
+        Returns:
+            True si le comptage a des écarts avec résultat vide
+        """
+        # Récupérer les ComptageSequence pour ce job et ce comptage avec leurs écarts
+        sequences_with_ecarts = ComptageSequence.objects.filter(
+            counting_detail__job=job,
+            counting_detail__counting__order=counting_order
+        ).select_related('ecart_comptage')
+
+        # Vérifier si au moins un écart a un résultat vide (final_result is None)
+        for sequence in sequences_with_ecarts:
+            ecart = sequence.ecart_comptage
+            if ecart and ecart.final_result is None:
+                return True
+
+        return False
+
+    def _count_discrepancies_locations_for_job(self, job) -> int:
+        """
+        Compte le nombre d'emplacements (locations) qui ont des écarts avec résultat vide
+        pour ce job, peu importe le comptage.
+
+        Args:
+            job: Instance Job
+
+        Returns:
+            Nombre d'emplacements avec écarts (final_result=None)
+        """
+        # Récupérer tous les ComptageSequence pour ce job avec leurs écarts
+        sequences_with_ecarts = ComptageSequence.objects.filter(
+            counting_detail__job=job
+        ).select_related('ecart_comptage', 'counting_detail')
+
+        # Collecter les locations uniques qui ont des écarts non résolus
+        locations_with_discrepancies = set()
+
+        for sequence in sequences_with_ecarts:
+            ecart = sequence.ecart_comptage
+            if ecart and ecart.final_result is None:
+                # Ajouter la location de ce counting_detail
+                locations_with_discrepancies.add(sequence.counting_detail.location_id)
+
+        return len(locations_with_discrepancies)
 

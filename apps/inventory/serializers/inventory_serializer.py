@@ -165,7 +165,7 @@ class InventoryDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Inventory
         fields = [
-            'reference', 'label', 'date', 'status', 'inventory_type',
+            'id','reference', 'label', 'date', 'status', 'inventory_type',
             'en_preparation_status_date',
             'en_realisation_status_date', 'termine_status_date',
             'cloture_status_date', 'account_name', 'account_reference', 

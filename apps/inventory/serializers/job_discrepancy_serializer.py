@@ -40,15 +40,18 @@ class JobDiscrepancySerializer(serializers.Serializer):
 
 
 class JobByCountingSerializer(serializers.Serializer):
-    """Serializer pour un job simple (id + référence) dans un groupe de comptage."""
+    """Serializer pour un job avec ses informations d'écarts dans un groupe de comptage."""
     job_id = serializers.IntegerField()
     job_reference = serializers.CharField()
+    current_max_counting = serializers.IntegerField()
+    has_unresolved_discrepancies = serializers.BooleanField()
+    discrepancies_locations_count = serializers.IntegerField()
 
 
 class CountingJobsDiscrepancySerializer(serializers.Serializer):
     """
-    Serializer pour « jobs avec écarts non résolus groupés par comptage ».
+    Serializer pour « jobs nécessitant un prochain comptage groupés par numéro de comptage ».
     """
-    counting_order = serializers.IntegerField()
+    next_counting_order = serializers.IntegerField()
     jobs = JobByCountingSerializer(many=True)
 

@@ -4,9 +4,12 @@ Modèles de données pour QueryModel.
 Ce module fournit les modèles de données nécessaires pour supporter
 les fonctionnalités QueryModel : page, pageSize, search, sort, filters.
 """
+import logging
 from typing import List, Dict, Any, Optional, Union
 from dataclasses import dataclass, field
 from enum import Enum
+
+logger = logging.getLogger(__name__)
 
 
 class SortDirection(str, Enum):
@@ -209,8 +212,28 @@ class QueryModel:
         # Convertir nouveau format de filtres vers FilterModelItem
         filters_dict = data.get("filters", {})
         filter_model = {}
+
+        # Validation : s'assurer que filters_dict est un dictionnaire
+        if not isinstance(filters_dict, dict):
+            # Si c'est une string, essayer de la parser en JSON
+            if isinstance(filters_dict, str):
+                try:
+                    import json
+                    filters_dict = json.loads(filters_dict)
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    logger.warning(f"Filtres malformés reçus (string non JSON) : {filters_dict}. Ignoré.")
+                    filters_dict = {}
+            else:
+                logger.warning(f"Filtres malformés reçus (type {type(filters_dict)}) : {filters_dict}. Ignoré.")
+                filters_dict = {}
+
+        # Maintenant filters_dict est garanti d'être un dictionnaire
         for col_id, filter_data in filters_dict.items():
-            filter_model[col_id] = cls._convert_new_filter_format(col_id, filter_data)
+            try:
+                filter_model[col_id] = cls._convert_new_filter_format(col_id, filter_data)
+            except Exception as e:
+                logger.warning(f"Erreur lors du traitement du filtre '{col_id}': {e}. Filtre ignoré.")
+                continue
         
         return cls(
             page=data.get("page", 1),

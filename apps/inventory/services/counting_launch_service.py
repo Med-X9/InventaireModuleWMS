@@ -343,7 +343,7 @@ class CountingLaunchService:
 
     def get_locations_with_discrepancy_for_job(self, job_id: int) -> List[int]:
         """
-        Récupère la liste des IDs d'emplacements qui ont un écart (EcartComptage non résolu) pour un job donné.
+        Récupère la liste des IDs d'emplacements qui ont un écart (EcartComptage avec final_result vide) pour un job donné.
         
         Args:
             job_id: Identifiant du job
@@ -368,24 +368,23 @@ class CountingLaunchService:
         all_job_details = JobDetail.objects.filter(job=job).count()
         logger_debug.info(f"[DEBUG] Job {job.reference} (ID: {job_id}): {all_job_details} JobDetail(s) au total")
         
-        # Récupérer les écarts non résolus pour cet inventaire
-        # Un écart est non résolu si resolved=False OU final_result est NULL
+        # Récupérer les écarts avec résultat vide pour cet inventaire
+        # Un écart nécessite un nouveau comptage si final_result est NULL
         unresolved_ecarts = EcartComptage.objects.filter(
-            inventory=job.inventory
-        ).filter(
-            Q(resolved=False) | Q(final_result__isnull=True)
+            inventory=job.inventory,
+            final_result__isnull=True
         )
         
         unresolved_ecarts_count = unresolved_ecarts.count()
-        logger_debug.info(f"[DEBUG] Job {job.reference}: {unresolved_ecarts_count} écart(s) non résolu(s) pour l'inventaire {job.inventory_id}")
-        
+        logger_debug.info(f"[DEBUG] Job {job.reference}: {unresolved_ecarts_count} écart(s) avec résultat vide pour l'inventaire {job.inventory_id}")
+
         if not unresolved_ecarts.exists():
-            logger_debug.info(f"[DEBUG] Job {job.reference}: Aucun écart non résolu trouvé")
+            logger_debug.info(f"[DEBUG] Job {job.reference}: Aucun écart avec résultat vide trouvé")
             return []
         
-        # Récupérer directement les CountingDetail liés au job qui ont des écarts non résolus
+        # Récupérer directement les CountingDetail liés au job qui ont des écarts avec résultat vide
         # via ComptageSequence. Cette approche est plus stricte et garantit qu'on ne récupère
-        # que les emplacements qui ont vraiment un écart.
+        # que les emplacements qui ont vraiment un écart nécessitant un nouveau comptage.
         counting_details_with_ecart = CountingDetail.objects.filter(
             job=job,
             counting__inventory=job.inventory,
