@@ -3,8 +3,8 @@ from typing import Any, List
 from django.db import transaction
 from django.db.models import Q
 
-from ..models import EcartComptage, CountingDetail
-from ..exceptions import InventoryNotFoundError
+from ..models import EcartComptage, CountingDetail, Inventory
+from ..exceptions import InventoryNotFoundError, InventoryValidationError
 
 
 class EcartComptageRepository:
@@ -58,5 +58,38 @@ class EcartComptageRepository:
             )
             .select_related("job", "counting")
             .distinct()
+        )
+
+    def get_by_inventory_id(self, inventory_id: int) -> List[EcartComptage]:
+        """
+        Récupère tous les EcartComptage d'un inventaire.
+        """
+        return list(EcartComptage.objects.filter(inventory_id=inventory_id))
+
+    def get_inventory_by_id(self, inventory_id: int) -> Inventory:
+        """
+        Récupère un inventaire par son ID.
+        """
+        try:
+            return Inventory.objects.get(id=inventory_id)
+        except Inventory.DoesNotExist as exc:
+            raise InventoryNotFoundError(
+                f"Inventaire avec l'ID {inventory_id} non trouvé."
+            ) from exc
+
+    @transaction.atomic
+    def bulk_resolve_ecarts_by_inventory(self, inventory_id: int) -> int:
+        """
+        Marque comme résolus (resolved = True) uniquement les EcartComptage d'un inventaire
+        qui ont un final_result non nul.
+
+        Retourne le nombre d'écarts mis à jour.
+        """
+        return EcartComptage.objects.filter(
+            inventory_id=inventory_id,
+            final_result__isnull=False  # Uniquement ceux qui ont un final_result
+        ).update(
+            resolved=True,
+            stopped_reason="RESOLU_MANUEL"
         )
 

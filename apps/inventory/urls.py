@@ -39,7 +39,7 @@ from .views.job_discrepancy_views import JobDiscrepancyView
 from .views.job_unresolved_discrepancy_views import (
     JobsWithUnresolvedDiscrepanciesByCountingView,
 )
-from .views.ecart_comptage_views import EcartComptageUpdateFinalResultView, EcartComptageResolveView
+from .views.ecart_comptage_views import EcartComptageUpdateFinalResultView, EcartComptageResolveView, EcartComptageBulkResolveView
 from .views.assignment_views import AssignJobsToCountingView, AssignResourcesToInventoryView, InventoryResourcesView, SessionAssignmentsView, AssignJobsToBothCountingsView, AutoAssignJobsFromInventoryLocationJobView
 from .views.resource_assignment_views import AssignResourcesToJobsView, JobResourcesView, RemoveResourcesFromJobView
 from .views.counting_tracking_views import InventoryCountingTrackingView, JobDetailTrackingView
@@ -209,5 +209,11 @@ urlpatterns = [
         'ecarts-comptage/<int:ecart_id>/resolve/',
         EcartComptageResolveView.as_view(),
         name='ecart-comptage-resolve',
+    ),
+    # API pour marquer comme résolus les EcartComptage d'un inventaire qui ont un final_result
+    path(
+        'ecarts-comptage/bulk-resolve/<int:inventory_id>/',
+        EcartComptageBulkResolveView.as_view(),
+        name='ecart-comptage-bulk-resolve',
     ),
 ]

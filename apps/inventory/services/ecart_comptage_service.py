@@ -97,3 +97,20 @@ class EcartComptageService:
 
         return self.repository.save(ecart)
 
+    @transaction.atomic
+    def bulk_resolve_ecarts_by_inventory(self, inventory_id: int) -> int:
+        """
+        Marque comme résolus uniquement les EcartComptage d'un inventaire qui ont un final_result.
+
+        Règles métier :
+        - Seuls les écarts ayant un final_result non nul seront marqués comme résolus.
+        - Les écarts sans final_result restent inchangés.
+
+        Retourne le nombre d'écarts résolus.
+        """
+        # Vérifier que l'inventaire existe
+        self.repository.get_inventory_by_id(inventory_id)
+
+        # Marquer comme résolus uniquement les écarts qui ont un final_result
+        return self.repository.bulk_resolve_ecarts_by_inventory(inventory_id)
+
