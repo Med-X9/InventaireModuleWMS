@@ -248,10 +248,87 @@ class JobFullDetailSerializer(serializers.ModelSerializer):
                 unique_job_details.append(job_detail)
         
         return JobEmplacementDetailSerializer(unique_job_details, many=True).data
+
     def get_assignments(self, obj):
+        """
+        Récupère et standardise les assignments du job.
+
+        Tous les jobs retournent le même nombre d'assignments (max trouvé),
+        avec des valeurs null pour les comptages manquants.
+        """
         # Utiliser les données préchargées (pas de requête SQL supplémentaire)
         assignments = list(obj.assigment_set.all())
-        return JobAssignmentDetailSerializer(assignments, many=True).data
+
+        # Sérialiser les assignments existants
+        serialized_assignments = JobAssignmentDetailSerializer(assignments, many=True).data
+
+        # Standardiser : tous les jobs doivent avoir le même nombre d'assignments
+        return self._standardize_assignments_for_job(serialized_assignments)
+
+    def _standardize_assignments_for_job(self, assignments_data):
+        """
+        Standardise les assignments pour qu'ils aient tous la même longueur.
+
+        Args:
+            assignments_data: Liste des assignments sérialisés
+
+        Returns:
+            Liste standardisée avec des assignments vides si nécessaire
+        """
+        if not assignments_data:
+            return []
+
+        # Trouver le nombre maximum de comptages (dans tout le contexte)
+        # Pour cela, on utilise une approche globale : on regarde tous les jobs du serializer
+        # Cette méthode sera appelée pour chaque job, donc on utilise une approche statique
+        max_counting_order = self._get_max_counting_order_from_context()
+
+        # Créer un dictionnaire des assignments par counting_order
+        assignments_by_order = {}
+        for assignment in assignments_data:
+            counting_order = assignment.get('counting_order')
+            if counting_order is not None:
+                assignments_by_order[counting_order] = assignment
+
+        # Créer la liste standardisée
+        standardized_assignments = []
+        for order in range(1, max_counting_order + 1):
+            if order in assignments_by_order:
+                # Assignment existant
+                standardized_assignments.append(assignments_by_order[order])
+            else:
+                # Assignment vide pour ce comptage
+                standardized_assignments.append({
+                    'counting_order': order,
+                    'status': None,
+                    'session': None,
+                    'date_start': None
+                })
+
+        return standardized_assignments
+
+    def _get_max_counting_order_from_context(self):
+        """
+        Détermine le nombre maximum de comptages dans le contexte actuel.
+
+        Cette méthode examine tous les objets du serializer pour trouver le max.
+        """
+        # Cette approche examine tous les objets du serializer courant
+        # pour déterminer le nombre maximum de comptages
+        max_order = 1  # Minimum 1 comptage
+
+        # Si on a accès aux données du serializer parent (many=True context)
+        if hasattr(self, 'parent') and hasattr(self.parent, 'instance'):
+            # Dans le contexte many=True, self.parent.instance contient la queryset
+            if hasattr(self.parent.instance, '__iter__'):
+                for job in self.parent.instance:
+                    job_assignments = list(job.assigment_set.all())
+                    for assignment in job_assignments:
+                        if assignment.counting and assignment.counting.order > max_order:
+                            max_order = assignment.counting.order
+
+        return max(2, max_order)  # Au minimum 2 comptages (1er et 2ème)
+
     def get_ressources(self, obj):
         # Utiliser les données préchargées (pas de requête SQL supplémentaire)
         ressources = list(obj.jobdetailressource_set.all())

@@ -693,3 +693,24 @@ class JobRepository(JobRepositoryInterface):
             inventory_id=inventory_id,
             warehouse_id=warehouse_id
         ).select_related('warehouse', 'inventory'))
+
+    def get_jobs_by_status_and_location(self, inventory_id: int, warehouse_id: int, status: str) -> List[Job]:
+        """
+        Récupère les jobs avec un statut spécifique pour un inventaire et entrepôt donnés.
+
+        Args:
+            inventory_id (int): ID de l'inventaire
+            warehouse_id (int): ID de l'entrepôt
+            status (str): Statut des jobs à récupérer (ex: 'ENTAME')
+
+        Returns:
+            List[Job]: Liste des jobs avec le statut spécifié
+        """
+        return list(Job.objects.filter(
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id,
+            status=status
+        ).select_related('warehouse', 'inventory').prefetch_related(
+            'assigment_set__counting',
+            'assigment_set__session'
+        ))

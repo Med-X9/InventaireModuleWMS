@@ -17,20 +17,32 @@ logger = logging.getLogger(__name__)
 
 class JobsWithUnresolvedDiscrepanciesByCountingView(APIView):
     """
-    API pour récupérer les jobs ayant au moins un écart de comptage non résolu,
-    regroupés par comptage (counting.order) pour un inventaire et un entrepôt.
+    API pour récupérer les jobs nécessitant un prochain comptage à cause d'écarts avec résultat vide,
+    regroupés par numéro de prochain comptage pour un inventaire et un entrepôt.
 
     Exemple de réponse :
     [
         {
-            "counting_order": 3,
+            "next_counting_order": 3,  // Prochain comptage à lancer
             "jobs": [
-                {"job_id": 1, "job_reference": "job-1"},
-                {"job_id": 2, "job_reference": "job-2"},
+                {
+                    "job_id": 1,
+                    "job_reference": "job-1",
+                    "current_max_counting": 2,
+                    "has_unresolved_discrepancies": true,
+                    "discrepancies_locations_count": 3
+                },
+                {
+                    "job_id": 2,
+                    "job_reference": "job-2",
+                    "current_max_counting": 2,
+                    "has_unresolved_discrepancies": true,
+                    "discrepancies_locations_count": 7
+                },
             ],
         },
         {
-            "counting_order": 4,
+            "next_counting_order": 4,  // Prochain comptage à lancer
             "jobs": [
                 {"job_id": 6, "job_reference": "job-6"},
                 {"job_id": 4, "job_reference": "job-4"},
