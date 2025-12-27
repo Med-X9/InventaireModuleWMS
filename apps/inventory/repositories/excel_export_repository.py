@@ -2,7 +2,7 @@
 Repository pour les opérations de données pour l'export Excel consolidé
 """
 from typing import List, Dict, Any, Optional, Tuple
-from ..models import Inventory, CountingDetail, Counting
+from ..models import Inventory, CountingDetail, Counting, EcartComptage, ComptageSequence
 from apps.masterdata.models import Location
 
 
@@ -63,74 +63,79 @@ class ExcelExportRepository:
         return True, None
     
     def get_consolidated_data_by_inventory(
-        self, 
+        self,
         inventory_id: int
     ) -> List[Dict[str, Any]]:
         """
         Récupère les données consolidées par article pour un inventaire.
-        Récupère TOUS les CountingDetail de l'inventaire (tous les comptages) pour la consolidation.
-        
+        Utilise le final_result des EcartComptage résolus plutôt que quantity_inventoried.
+
         Exclut les articles avec le code produit '1111111111111' de la consolidation.
-        
+
         Retourne une liste de dictionnaires avec :
         - Les informations de l'article
-        - La quantité consolidée (somme de toutes les quantités)
-        - Les quantités par emplacement
-        
+        - La quantité consolidée (somme de tous les final_result des EcartComptage résolus)
+        - Les emplacements où l'article est présent
+
         Args:
             inventory_id: ID de l'inventaire
-            
+
         Returns:
             Liste de dictionnaires avec les données consolidées
         """
-        # Récupérer TOUS les CountingDetail de l'inventaire (tous les comptages)
-        # Exclure uniquement les enregistrements supprimés (soft delete), ceux sans produit
-        # et les articles avec le code produit 1111111111111
-        counting_details = CountingDetail.objects.filter(
-            job__inventory_id=inventory_id,
-            product__isnull=False,
-            is_deleted=False
-        ).exclude(
-            product__Internal_Product_Code='1111111111111'
+        # Récupérer les EcartComptage résolus de l'inventaire avec leurs produits et emplacements
+        ecart_comptages = EcartComptage.objects.filter(
+            inventory_id=inventory_id,
+            resolved=True,  # Uniquement les écarts résolus
+            final_result__isnull=False  # Avec un résultat final défini
         ).select_related(
-            'product',
-            'product__Product_Family',
-            'location',
-            'counting',
-            'job'
-        ).order_by('product__Internal_Product_Code', 'location__location_reference')
-        
+            'counting_sequences__counting_detail__product',
+            'counting_sequences__counting_detail__product__Product_Family',
+            'counting_sequences__counting_detail__location'
+        ).exclude(
+            counting_sequences__counting_detail__product__Internal_Product_Code='1111111111111'
+        ).prefetch_related('counting_sequences')
+
         # Convertir en liste pour pouvoir itérer plusieurs fois si nécessaire
-        counting_details_list = list(counting_details)
-        
+        ecart_comptages_list = list(ecart_comptages)
+
         # Grouper par produit et consolider
         products_data = {}
-        
-        for detail in counting_details_list:
-            product_id = detail.product.id
-            location_id = detail.location.id
-            location_ref = detail.location.location_reference
-            
-            if product_id not in products_data:
-                # Initialiser les données du produit
-                products_data[product_id] = {
-                    'product_id': product_id,
-                    'product_reference': detail.product.reference,
-                    'product_code': detail.product.Internal_Product_Code,
-                    'product_description': detail.product.Short_Description or '',
-                    'product_barcode': detail.product.Barcode or '',
-                    'product_unit': detail.product.Stock_Unit or '',
-                    'product_family': detail.product.Product_Family.family_name if detail.product.Product_Family else '',
-                    'total_quantity': 0,
-                    'locations_set': set()  # Set pour stocker les références d'emplacements uniques
-                }
-            
-            # Ajouter la quantité à la quantité totale
-            products_data[product_id]['total_quantity'] += detail.quantity_inventoried
-            
-            # Ajouter l'emplacement à la liste des emplacements (set pour éviter les doublons)
-            products_data[product_id]['locations_set'].add(location_ref)
-        
+
+        for ecart in ecart_comptages_list:
+            # Récupérer les détails de comptage associés à cet écart
+            for sequence in ecart.counting_sequences.all():
+                counting_detail = sequence.counting_detail
+                product = counting_detail.product
+                location = counting_detail.location
+
+                if not product:
+                    continue
+
+                product_id = product.id
+                location_ref = location.location_reference if location else ''
+
+                if product_id not in products_data:
+                    # Initialiser les données du produit
+                    products_data[product_id] = {
+                        'product_id': product_id,
+                        'product_reference': product.reference,
+                        'product_code': product.Internal_Product_Code,
+                        'product_description': product.Short_Description or '',
+                        'product_barcode': product.Barcode or '',
+                        'product_unit': product.Stock_Unit or '',
+                        'product_family': product.Product_Family.family_name if product.Product_Family else '',
+                        'total_quantity': 0,
+                        'locations_set': set()  # Set pour stocker les références d'emplacements uniques
+                    }
+
+                # Utiliser le final_result de l'EcartComptage
+                products_data[product_id]['total_quantity'] += ecart.final_result
+
+                # Ajouter l'emplacement à la liste des emplacements (set pour éviter les doublons)
+                if location_ref:
+                    products_data[product_id]['locations_set'].add(location_ref)
+
         # Convertir en liste et transformer le set d'emplacements en liste triée
         result = []
         for product_data in products_data.values():
@@ -139,7 +144,7 @@ class ExcelExportRepository:
             # Retirer le set de la structure de données
             del product_data['locations_set']
             result.append(product_data)
-        
+
         return result
     
 
