@@ -68,6 +68,13 @@ class SortModelItem:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'SortModelItem':
         """Crée depuis un dictionnaire"""
+        if not isinstance(data, dict):
+            # Si data n'est pas un dict, utiliser des valeurs par défaut
+            return cls(
+                col_id="",
+                sort=SortDirection("asc")
+            )
+
         return cls(
             col_id=data.get("colId", data.get("col_id", "")),
             sort=SortDirection(data.get("sort", "asc"))
@@ -190,10 +197,15 @@ class QueryModel:
     def from_dict(cls, data: Dict[str, Any]) -> 'QueryModel':
         """
         Crée depuis un dictionnaire (nouveau format uniquement).
-        
+
         Format attendu :
         - page, pageSize, search, sort (ou sortBy/sortDir), filters
         """
+        # Vérifier que data est bien un dictionnaire
+        if not isinstance(data, dict):
+            # Si data n'est pas un dict, retourner un QueryModel par défaut
+            return cls()
+
         # Support de deux formats de tri :
         # 1. Format simple : sortBy + sortDir
         # 2. Format multiple : sort (array)
@@ -204,10 +216,12 @@ class QueryModel:
                 "colId": data.get("sortBy"),
                 "sort": data.get("sortDir", "asc")
             }]
-        sort_model = [
-            SortModelItem.from_dict(item) 
-            for item in sort_list
-        ]
+        # Créer le modèle de tri en filtrant les éléments mal formés
+        sort_model = []
+        for item in sort_list:
+            if isinstance(item, dict):
+                sort_model.append(SortModelItem.from_dict(item))
+            # Ignorer les éléments qui ne sont pas des dict
         
         # Convertir nouveau format de filtres vers FilterModelItem
         filters_dict = data.get("filters", {})
