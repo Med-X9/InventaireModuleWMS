@@ -2,6 +2,7 @@
 Repository pour les opérations de données pour l'export Excel consolidé
 """
 from typing import List, Dict, Any, Optional, Tuple
+from django.db.models import Q
 from ..models import Inventory, CountingDetail, Counting, EcartComptage, ComptageSequence
 from apps.masterdata.models import Location
 
@@ -68,7 +69,8 @@ class ExcelExportRepository:
     ) -> List[Dict[str, Any]]:
         """
         Récupère les données consolidées par article pour un inventaire.
-        Utilise le final_result des EcartComptage résolus plutôt que quantity_inventoried.
+        Utilise le final_result des EcartComptage qui ont un résultat final défini
+        (soit résolus, soit ayant un final_result explicite).
 
         Exclut les articles avec le code produit '1111111111111' de la consolidation.
 
@@ -83,18 +85,21 @@ class ExcelExportRepository:
         Returns:
             Liste de dictionnaires avec les données consolidées
         """
-        # Récupérer les EcartComptage résolus de l'inventaire avec leurs produits et emplacements
+        # Récupérer les EcartComptage avec résultat final défini de l'inventaire
+        # Inclure les écarts résolus OU ayant un final_result défini
         ecart_comptages = EcartComptage.objects.filter(
-            inventory_id=inventory_id,
-            resolved=True,  # Uniquement les écarts résolus
-            final_result__isnull=False  # Avec un résultat final défini
+            inventory_id=inventory_id
+        ).filter(
+            Q(resolved=True) | Q(final_result__isnull=False)  # Écarts résolus OU avec résultat final
         ).select_related(
+            'inventory'  # Relation directe ForeignKey uniquement
+        ).prefetch_related(
             'counting_sequences__counting_detail__product',
             'counting_sequences__counting_detail__product__Product_Family',
             'counting_sequences__counting_detail__location'
         ).exclude(
             counting_sequences__counting_detail__product__Internal_Product_Code='1111111111111'
-        ).prefetch_related('counting_sequences')
+        )
 
         # Convertir en liste pour pouvoir itérer plusieurs fois si nécessaire
         ecart_comptages_list = list(ecart_comptages)
