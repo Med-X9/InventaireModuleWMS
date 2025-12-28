@@ -105,16 +105,23 @@ class JobDiscrepancyService:
                 
                 assignments_data.append({
                     'status': assignment.status,
-                    'counting_reference': assignment.counting.reference if assignment.counting else None,
                     'counting_order': counting_order,
                     'username': assignment.session.username if assignment.session else None,
-                    'discrepancy_count': discrepancy_info['discrepancy_count'],
-                    'discrepancy_rate': discrepancy_info['discrepancy_rate'],
                 })
             
             # Calculer les écarts entre le 1er et 2ème comptage (pour compatibilité avec l'ancien format)
             discrepancy_info_1_2 = self._calculate_discrepancies(job)
-            
+
+            # Calculer les écarts pour le 3ème comptage (par rapport au 1er)
+            discrepancy_count_3er = self._calculate_discrepancy_count_with_first_counting(
+                counting_details_by_order, 3
+            )
+
+            # Calculer les écarts pour le 4ème comptage (par rapport au 1er)
+            discrepancy_count_4er = self._calculate_discrepancy_count_with_first_counting(
+                counting_details_by_order, 4
+            )
+
             result.append({
                 'job_id': job.id,
                 'job_reference': job.reference,
@@ -122,10 +129,8 @@ class JobDiscrepancyService:
                 'assignments': assignments_data,
                 'discrepancy_count': discrepancy_info_1_2['discrepancy_count'],
                 'discrepancy_rate': discrepancy_info_1_2['discrepancy_rate'],
-                'total_lines_counting_1': discrepancy_info_1_2['total_lines_counting_1'],
-                'total_lines_counting_2': discrepancy_info_1_2['total_lines_counting_2'],
-                'common_lines_count': discrepancy_info_1_2['common_lines_count'],
-                'total_emplacements': total_emplacements,
+                'discrepancy_count_3er': discrepancy_count_3er,
+                'discrepancy_count_4er': discrepancy_count_4er,
             })
         
         # Standardiser les comptages pour tous les jobs
@@ -268,7 +273,55 @@ class JobDiscrepancyService:
             'discrepancy_count': discrepancy_count,
             'discrepancy_rate': round(discrepancy_rate, 2),
         }
-    
+
+    def _calculate_discrepancy_count_with_first_counting(
+        self,
+        counting_details_by_order: Dict[int, Dict],
+        counting_order: int
+    ) -> Optional[int]:
+        """
+        Calcule le nombre d'écarts entre le 1er comptage et un comptage donné.
+        Retourne None si le comptage n'existe pas ou n'est pas terminé.
+
+        Args:
+            counting_details_by_order: Dictionnaire des counting details par ordre
+            counting_order: Ordre du comptage à comparer avec le 1er
+
+        Returns:
+            Nombre d'écarts ou None si non applicable
+        """
+        if counting_order == 1:
+            return 0
+
+        # Récupérer les counting details du 1er comptage
+        counting_details_1 = counting_details_by_order.get(1, {})
+
+        # Récupérer les counting details du comptage à comparer
+        counting_details_n = counting_details_by_order.get(counting_order, {})
+
+        if not counting_details_1 or not counting_details_n:
+            return None
+
+        # Créer un ensemble des clés communes aux deux comptages
+        common_keys = set(counting_details_1.keys()) & set(counting_details_n.keys())
+
+        discrepancy_count = 0
+
+        # Comparer chaque ligne commune entre les deux comptages
+        for key in common_keys:
+            detail_1 = counting_details_1.get(key)
+            detail_n = counting_details_n.get(key)
+
+            if detail_1 and detail_n:
+                quantity_1 = detail_1.quantity_inventoried
+                quantity_n = detail_n.quantity_inventoried
+
+                # Si les quantités diffèrent, c'est un écart
+                if quantity_1 != quantity_n:
+                    discrepancy_count += 1
+
+        return discrepancy_count
+
     def get_jobs_with_unresolved_discrepancies_grouped_by_counting(
         self,
         inventory_id: int,

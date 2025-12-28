@@ -7,25 +7,20 @@ from rest_framework import serializers
 class AssignmentDiscrepancySerializer(serializers.Serializer):
     """
     Serializer pour un assignment dans le contexte de discrepancies.
-    
-    Note: Ne contient pas id, reference, personne_nom, personne_two_nom
-    selon les spécifications.
+
+    Format simplifié : status, counting_order, username uniquement.
     """
     status = serializers.CharField(allow_null=True)
-    counting_reference = serializers.CharField(allow_null=True)
     counting_order = serializers.IntegerField(allow_null=True)
     username = serializers.CharField(allow_null=True)
-    discrepancy_count = serializers.IntegerField(allow_null=True, required=False)
-    discrepancy_rate = serializers.FloatField(allow_null=True, required=False)
 
 
 class JobDiscrepancySerializer(serializers.Serializer):
     """
     Serializer pour les données de job avec écarts.
-    
+
     Supporte tous les comptages standardisés (1er, 2ème, 3ème, n-ème).
-    Les assignments sont standardisés : si un job a moins de comptages,
-    des assignments vides sont ajoutés.
+    Format simplifié avec discrepancy_count_3er et discrepancy_count_4er.
     """
     job_id = serializers.IntegerField()
     job_reference = serializers.CharField()
@@ -33,10 +28,8 @@ class JobDiscrepancySerializer(serializers.Serializer):
     assignments = AssignmentDiscrepancySerializer(many=True)
     discrepancy_count = serializers.IntegerField()
     discrepancy_rate = serializers.FloatField()
-    total_lines_counting_1 = serializers.IntegerField()
-    total_lines_counting_2 = serializers.IntegerField()
-    common_lines_count = serializers.IntegerField()
-    total_emplacements = serializers.IntegerField(required=False)
+    discrepancy_count_3er = serializers.IntegerField(allow_null=True, required=False)
+    discrepancy_count_4er = serializers.IntegerField(allow_null=True, required=False)
 
 
 class JobByCountingSerializer(serializers.Serializer):

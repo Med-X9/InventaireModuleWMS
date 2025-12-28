@@ -99,11 +99,8 @@ class JobDiscrepancyStandardizationUseCase:
                 # Assignment vide pour ce comptage
                 standardized_assignments.append({
                     'status': None,
-                    'counting_reference': None,
                     'counting_order': order,
                     'username': None,
-                    'discrepancy_count': None,
-                    'discrepancy_rate': None,
                 })
         
         # Créer une copie du job_data avec les assignments standardisés
