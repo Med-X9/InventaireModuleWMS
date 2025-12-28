@@ -5,7 +5,7 @@ from typing import Dict, Any, List, Optional
 from collections import defaultdict
 from django.db.models import Q
 from ..repositories.job_repository import JobRepository
-from ..models import Job, Assigment, CountingDetail, EcartComptage, ComptageSequence
+from ..models import Job, Assigment, CountingDetail, EcartComptage, ComptageSequence, JobDetail
 from ..usecases.job_discrepancy_standardization import JobDiscrepancyStandardizationUseCase
 import logging
 
@@ -522,4 +522,179 @@ class JobDiscrepancyService:
                 locations_with_discrepancies.add(sequence.counting_detail.location_id)
 
         return len(locations_with_discrepancies)
+
+    def get_jobs_discrepancies_simplified(
+        self,
+        inventory_id: int,
+        warehouse_id: int
+    ) -> List[Dict[str, Any]]:
+        """
+        Récupère les jobs avec écarts simplifiés.
+
+        Retourne uniquement :
+        - Le taux d'écart entre 1er vs 2e comptage
+        - Le nombre d'écarts dans les comptages suivants (final_result = null)
+
+        Args:
+            inventory_id: ID de l'inventaire
+            warehouse_id: ID de l'entrepôt
+
+        Returns:
+            Liste simplifiée des jobs avec écarts
+        """
+        # Vérifier que l'inventaire existe
+        inventory = self.job_repository.get_inventory_by_id(inventory_id)
+        if not inventory:
+            raise ValueError(f"Inventaire avec l'ID {inventory_id} non trouvé")
+
+        # Vérifier que le warehouse existe
+        warehouse = self.job_repository.get_warehouse_by_id(warehouse_id)
+        if not warehouse:
+            raise ValueError(f"Warehouse avec l'ID {warehouse_id} non trouvé")
+
+        # Récupérer les jobs avec assignments
+        jobs = self.job_repository.get_jobs_with_assignments_and_counting_details(
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id
+        )
+
+        result = []
+        for job in jobs:
+            # Récupérer les assignments du job
+            assignments = self.job_repository.get_assignments_by_job(job)
+
+            # Calculer l'écart entre 1er et 2e comptage
+            counting_1_assignment = None
+            counting_2_assignment = None
+
+            for assignment in assignments:
+                if assignment.counting.order == 1:
+                    counting_1_assignment = assignment
+                elif assignment.counting.order == 2:
+                    counting_2_assignment = assignment
+
+            # Calculer l'écart 1vs2 si les deux comptages existent et sont terminés
+            ecart_1_vs_2_count = 0
+            ecart_1_vs_2_rate = 0.0
+
+            # Récupérer le nombre total de résultats liés au job avec counting_order 1 et 2
+            total_results_1_2 = EcartComptage.objects.filter(
+                inventory=job.inventory,
+                counting_sequences__counting_detail__job=job,
+                counting_sequences__counting_detail__counting__order__in=[1, 2]
+            ).distinct().count()
+
+            # Compter les résultats vides (final_result = null)
+            ecart_1_vs_2_count = EcartComptage.objects.filter(
+                inventory=job.inventory,
+                counting_sequences__counting_detail__job=job,
+                counting_sequences__counting_detail__counting__order__in=[1, 2],
+                final_result__isnull=True
+            ).distinct().count()
+
+            # Calculer le taux
+            if total_results_1_2 > 0:
+                ecart_1_vs_2_rate = (ecart_1_vs_2_count / total_results_1_2) * 100
+            else:
+                ecart_1_vs_2_rate = 0.0
+
+            # Déterminer tous les counting_orders existants pour ce job (depuis CountingDetail)
+            counting_orders_in_job = set()
+            counting_details = CountingDetail.objects.filter(job=job).select_related('counting')
+            for counting_detail in counting_details:
+                if counting_detail.counting:
+                    counting_orders_in_job.add(counting_detail.counting.order)
+
+            max_counting_order = max(counting_orders_in_job) if counting_orders_in_job else 0
+
+            # Utiliser ecart_1_vs_2_count comme nombre_comptage
+            nombre_comptage = ecart_1_vs_2_count
+
+            # Calculer les écarts pour tous les counting_orders > 2
+            ecarts_by_order = {}
+            for counting_order in range(3, max_counting_order + 1):
+                ecarts_count = EcartComptage.objects.filter(
+                    inventory=job.inventory,
+                    counting_sequences__counting_detail__job=job,
+                    counting_sequences__counting_detail__counting__order=counting_order,
+                    final_result__isnull=True
+                ).distinct().count()
+                ecarts_by_order[f"nombre_{counting_order}er"] = ecarts_count
+
+            # Créer un dictionnaire des assignments existants par counting_order
+            assignments_by_order = {}
+            for assignment in assignments:
+                if hasattr(assignment, 'counting') and assignment.counting:
+                    counting_order = assignment.counting.order
+
+                    # Calculer le nombre d'écarts pour ce counting_order
+                    counting_details_with_ecarts = ComptageSequence.objects.filter(
+                        counting_detail__job=job,
+                        counting_detail__counting__order=counting_order,
+                        ecart_comptage__final_result__isnull=True
+                    ).values_list('counting_detail', flat=True).distinct()
+
+                    ecarts_count = counting_details_with_ecarts.count()
+
+                    # Récupérer le username de la session associée
+                    session_username = ""
+                    mobile_assignment = assignment.counting.assigment_set.filter(
+                        session__isnull=False  # Assignment mobile (avec session)
+                    ).first()
+                    if mobile_assignment and mobile_assignment.session:
+                        session_username = mobile_assignment.session.username or ""
+
+                    assignments_by_order[counting_order] = {
+                        'counting_order': counting_order,
+                        'status': assignment.status or "",
+                        'username': session_username
+                    }
+
+            # Standardiser : créer des assignments pour tous les counting_orders de 1 à max
+            simplified_assignments = []
+            for counting_order in range(1, max_counting_order + 1):
+                if counting_order in assignments_by_order:
+                    # Assignment existant
+                    simplified_assignments.append(assignments_by_order[counting_order])
+                else:
+                    # Assignment manquant - calculer les écarts pour ce counting_order
+                    # Nombre de CountingDetail distincts avec ce counting_order qui ont au moins une ComptageSequence avec final_result null
+                    counting_details_with_ecarts = ComptageSequence.objects.filter(
+                        counting_detail__job=job,
+                        counting_detail__counting__order=counting_order,
+                        ecart_comptage__final_result__isnull=True
+                    ).values_list('counting_detail', flat=True).distinct()
+
+                    ecarts_count = counting_details_with_ecarts.count()
+
+                    simplified_assignments.append({
+                        'counting_order': counting_order,
+                        'status': "",  # Pas d'assignment
+                        'username': ""  # Pas d'utilisateur assigné
+                    })
+
+            # Construire les données au format attendu par la vue
+            job_data = {
+                'job_id': job.id,
+                'job_reference': job.reference,
+                'job_status': job.status,
+                'assignments': simplified_assignments,
+                'nombre_comptage': nombre_comptage,  # ✅ Votre champ demandé
+                'ecart_1_vs_2_count': ecart_1_vs_2_count,
+                'ecart_1_vs_2_rate': round(ecart_1_vs_2_rate, 2),
+                'nombre_ecart_3er': nombre_ecart_3er,
+                'discrepancy_count': nombre_comptage,  # Pour compatibilité DataTable
+                'discrepancy_rate': round(ecart_1_vs_2_rate, 2),  # Pour compatibilité DataTable
+                'total_lines_counting_1': total_results_1_2,
+                'total_lines_counting_2': total_results_1_2,
+                'common_lines_count': total_results_1_2,
+                'total_emplacements': total_results_1_2,
+            }
+
+            # Ajouter les écarts dynamiques (nombre_3er, nombre_4er, etc.)
+            job_data.update(ecarts_by_order)
+
+            result.append(job_data)
+
+        return result
 

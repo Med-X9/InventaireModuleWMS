@@ -979,40 +979,45 @@ class InventoryResultByWarehouseView(ServerSideDataTableView):
     
     # Mapping des colonnes frontend -> backend (utilisé par QueryModel)
     column_field_mapping = {
-        'id': 'location_id',
-        'location_id': 'location_id',
-        'article': 'product',
-        'product': 'product',
-        'product_description': 'product_description',
-        'product_internal_code': 'product_internal_code',
-        'emplacement': 'location',
-        'location': 'location',
-        'job_id': 'job_id',
+        # Colonnes principales reçues du frontend
         'job_reference': 'job_reference',
-        'job': 'job_reference',  # Alias
+        'emplacement': 'location',
+        'article': 'product',
         'contage_1': '1er comptage',
         'contage_2': '2er comptage',
         'contage_3': '3er comptage',
         'contage_4': '4er comptage',
         'contage_5': '5er comptage',
         'ecart_1_2': 'ecart_1_2',
+        'resultats': 'final_result',
+        'resolved': 'resolved',
+
+        # Colonnes additionnelles (pour compatibilité et autres usages)
+        'id': 'location_id',
+        'location_id': 'location_id',
+        'product': 'product',
+        'product_description': 'product_description',
+        'product_internal_code': 'product_internal_code',
+        'location': 'location',
+        'job_id': 'job_id',
+        'job': 'job_reference',  # Alias pour job_reference
+        'final_result': 'final_result',
+        'result_id': 'result_id',
+        'ecart_comptage_id': 'ecart_comptage_id',
+
+        # Écarts supplémentaires (pour tri/filtrage avancé)
         'ecart_2_3': 'ecart_2_3',
         'ecart_3_4': 'ecart_3_4',
         'ecart_4_5': 'ecart_4_5',
         'ecart_1_3': 'ecart_1_3',
         'ecart_2_4': 'ecart_2_4',
         'ecart_3_5': 'ecart_3_5',
-        'resultats': 'final_result',
-        'final_result': 'final_result',
-        'resolved': 'resolved',
-        'result_id': 'result_id',
-        'ecart_comptage_id': 'ecart_comptage_id',
-        # Statuts d'assignment par comptage (seulement 1er et 2ème)
+
+        # Statuts d'assignment par comptage
         'statut_1er_comptage': 'statut_1er_comptage',
         'statut_2er_comptage': 'statut_2er_comptage',
-        # Alias pour compatibilité
-        'statut_comptage_1': 'statut_1er_comptage',
-        'statut_comptage_2': 'statut_2er_comptage',
+        'statut_comptage_1': 'statut_1er_comptage',  # Alias
+        'statut_comptage_2': 'statut_2er_comptage',  # Alias
     }
     
     def __init__(self, *args, **kwargs):

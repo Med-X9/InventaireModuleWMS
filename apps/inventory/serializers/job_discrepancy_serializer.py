@@ -7,7 +7,7 @@ from rest_framework import serializers
 class AssignmentDiscrepancySerializer(serializers.Serializer):
     """
     Serializer pour un assignment dans le contexte de discrepancies.
-    
+
     Note: Ne contient pas id, reference, personne_nom, personne_two_nom
     selon les spécifications.
     """
@@ -19,26 +19,32 @@ class AssignmentDiscrepancySerializer(serializers.Serializer):
     discrepancy_rate = serializers.FloatField(allow_null=True, required=False)
 
 
+class SimplifiedAssignmentSerializer(serializers.Serializer):
+    """
+    Serializer simplifié pour les assignments : counting_order, status, username.
+    """
+    counting_order = serializers.IntegerField()
+    status = serializers.CharField()
+    username = serializers.CharField()
+
+
 class JobDiscrepancySerializer(serializers.Serializer):
     """
-    Serializer pour les données de job avec écarts.
+    Serializer simplifié pour les données de job avec écarts.
 
-    Supporte tous les comptages standardisés (1er, 2ème, 3ème, n-ème).
-    Les assignments sont standardisés : si un job a moins de comptages,
-    des assignments vides sont ajoutés.
+    Format demandé par l'utilisateur.
     """
     job_id = serializers.IntegerField()
     job_reference = serializers.CharField()
     job_status = serializers.CharField()
-    assignments = AssignmentDiscrepancySerializer(many=True)
-
-    # Écarts entre 1er et 2ème comptage
-    discrepancy_count_1_2 = serializers.IntegerField()
-    discrepancy_rate_1_2 = serializers.FloatField()
-
-    # Écarts pour le Nème comptage (par rapport au 1er comptage)
-    discrepancy_count_n = serializers.IntegerField(required=False, allow_null=True)
-
+    assignments = SimplifiedAssignmentSerializer(many=True)
+    nombre_comptage = serializers.IntegerField()
+    ecart_1_vs_2_count = serializers.IntegerField()
+    ecart_1_vs_2_rate = serializers.FloatField()
+    nombre_ecart_3er = serializers.IntegerField()
+    # Champs pour compatibilité DataTable
+    discrepancy_count = serializers.IntegerField()
+    discrepancy_rate = serializers.FloatField()
     total_lines_counting_1 = serializers.IntegerField()
     total_lines_counting_2 = serializers.IntegerField()
     common_lines_count = serializers.IntegerField()
