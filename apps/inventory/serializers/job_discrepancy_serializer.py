@@ -20,7 +20,7 @@ class JobDiscrepancySerializer(serializers.Serializer):
     Serializer pour les données de job avec écarts.
 
     Supporte tous les comptages standardisés (1er, 2ème, 3ème, n-ème).
-    Format simplifié avec discrepancy_count_3er et discrepancy_count_4er.
+    Format simplifié avec écarts dynamiques selon le nombre de comptages.
     """
     job_id = serializers.IntegerField()
     job_reference = serializers.CharField()
@@ -28,8 +28,23 @@ class JobDiscrepancySerializer(serializers.Serializer):
     assignments = AssignmentDiscrepancySerializer(many=True)
     discrepancy_count = serializers.IntegerField()
     discrepancy_rate = serializers.FloatField()
-    discrepancy_count_3er = serializers.IntegerField(allow_null=True, required=False)
-    discrepancy_count_4er = serializers.IntegerField(allow_null=True, required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Les champs discrepancy_count_Xer sont ajoutés dynamiquement par le service
+
+    def to_representation(self, instance):
+        """
+        Sérialise l'instance en incluant tous les champs discrepancy_count_Xer.
+        """
+        data = super().to_representation(instance)
+
+        # Ajouter tous les champs discrepancy_count_Xer présents dans l'instance
+        for key, value in instance.items():
+            if key.startswith('discrepancy_count_') and key.endswith('er'):
+                data[key] = value
+
+        return data
 
 
 class JobByCountingSerializer(serializers.Serializer):
