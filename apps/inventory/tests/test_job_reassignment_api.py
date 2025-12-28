@@ -35,6 +35,22 @@ class JobReassignmentAPITestCase(TestCase):
 
         # Utiliser des données simples ou existantes
         self.team1 = UserApp.objects.filter(type='Mobile').first()
+        self.team2 = UserApp.objects.filter(type='Mobile').last()
+        # S'assurer que team1 et team2 sont différents
+        if self.team1 and self.team2 and self.team1.id == self.team2.id:
+            # Si c'est la même équipe, créer une deuxième équipe
+            self.team2 = UserApp.objects.create(
+                username='team2_test',
+                type='Mobile',
+                password='testpass123'
+            )
+        elif not self.team2:
+            # Si pas de team2, créer une équipe
+            self.team2 = UserApp.objects.create(
+                username='team2_test',
+                type='Mobile',
+                password='testpass123'
+            )
         self.job = Job.objects.first()
         self.counting1 = Counting.objects.filter(order=1).first()
         self.counting2 = Counting.objects.filter(order=2).first()
@@ -124,6 +140,48 @@ class JobReassignmentAPITestCase(TestCase):
         # Vérifier que les données n'ont pas été nettoyées
         counting_details_count = CountingDetail.objects.filter(job=self.job).count()
         self.assertEqual(counting_details_count, 0)  # Pas de nettoyage
+
+    def test_reassign_team_reassignment_changes_status_to_transfert(self):
+        """Test que la réaffectation d'une équipe existante met le statut à TRANSFERT"""
+        # Vérifier que les données de test existent
+        self.assertIsNotNone(self.job, "Job de test non trouvé")
+        self.assertIsNotNone(self.team1, "Team1 de test non trouvé")
+        self.assertIsNotNone(self.team2, "Team2 de test non trouvé")
+        self.assertIsNotNone(self.counting1, "Counting1 de test non trouvé")
+
+        # Première affectation
+        url = reverse('assign-jobs-manual')
+        data = {
+            'job_id': self.job.id,
+            'team': self.team1.id,
+            'counting_order': 1,
+            'complete': False
+        }
+
+        response = self.client.post(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Vérifier que la première affectation a le statut AFFECTE
+        assignment = Assigment.objects.get(job=self.job, counting=self.counting1)
+        self.assertEqual(assignment.status, 'AFFECTE')
+        self.assertEqual(assignment.session.id, self.team1.id)
+
+        # Réaffectation avec une autre équipe
+        data_reassign = {
+            'job_id': self.job.id,
+            'team': self.team2.id,  # Changement d'équipe
+            'counting_order': 1,
+            'complete': False
+        }
+
+        response_reassign = self.client.post(url, data_reassign, format='json')
+        self.assertEqual(response_reassign.status_code, status.HTTP_200_OK)
+
+        # Vérifier que la réaffectation a changé le statut à TRANSFERT
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.status, 'TRANSFERT')
+        self.assertEqual(assignment.session.id, self.team2.id)
+        self.assertIsNotNone(assignment.transfert_date)
 
     def test_reassign_team_success_with_complete(self):
         """Test de réaffectation réussie avec nettoyage complet"""

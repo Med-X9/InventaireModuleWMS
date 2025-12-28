@@ -154,11 +154,7 @@ class JobReassignmentService:
             en_attente_date=timezone.now()
         )
 
-        # 6. Mettre l'assignement à "TRANSFERT"
-        Assigment.objects.filter(job=job, counting=counting).update(
-            status='TRANSFERT',
-            transfert_date=timezone.now()
-        )
+        # 6. L'assignement sera mis à jour dans _reassign_team_to_counting selon le cas
 
     def _reassign_team_to_counting(self, job: Job, counting: Counting, session) -> Assigment:
         """
@@ -176,10 +172,10 @@ class JobReassignmentService:
         )
 
         if not created:
-            # Mettre à jour l'assignement existant
+            # Mettre à jour l'assignement existant (réaffectation)
             assignment.session = session
-            assignment.status = 'AFFECTE'
-            assignment.affecte_date = timezone.now()
+            assignment.status = 'TRANSFERT'  # Changement d'équipe = transfert
+            assignment.transfert_date = timezone.now()
             assignment.save()
 
         return assignment
@@ -187,12 +183,19 @@ class JobReassignmentService:
     def _update_statuses_after_reassignment(self, job: Job, counting: Counting):
         """
         Met à jour les statuts après réaffectation
+        Note: Le statut de l'assignement est déjà correctement défini dans _reassign_team_to_counting
+        - 'AFFECTE' pour nouvelle affectation
+        - 'TRANSFERT' pour réaffectation
+        Ici on ne fait que mettre à jour la date
         """
-        # Remettre l'assignement à AFFECTE (sera mis à TRANSFERT seulement si complete=True)
-        Assigment.objects.filter(job=job, counting=counting).update(
-            status='AFFECTE',
-            affecte_date=timezone.now()
-        )
+        # Mettre à jour seulement la date d'affectation, pas le statut
+        # Le statut est déjà correctement défini dans _reassign_team_to_counting
+        assignment = Assigment.objects.get(job=job, counting=counting)
+        if assignment.status == 'AFFECTE':
+            assignment.affecte_date = timezone.now()
+        elif assignment.status == 'TRANSFERT':
+            assignment.transfert_date = timezone.now()
+        assignment.save()
 
     def _update_job_status_based_on_assignments(self, job: Job):
         """
