@@ -35,10 +35,10 @@ class JobDiscrepancyView(ServerSideDataTableView):
     - Standardisation automatique des comptages
     
     PARAMÈTRES:
-    - Tri: ordering=job_reference, ordering=-discrepancy_rate
+    - Tri: ordering=job_reference, ordering=-discrepancy_rate_1_2
     - Recherche: search=terme
     - Pagination: page=1&page_size=20
-    - Filtres: job_status=VALIDE, discrepancy_rate__gte=10
+    - Filtres: job_status=VALIDE, discrepancy_rate_1_2__gte=10
     """
     permission_classes = [IsAuthenticated]
     serializer_class = JobDiscrepancySerializer
@@ -47,8 +47,9 @@ class JobDiscrepancyView(ServerSideDataTableView):
     search_fields = [
         'job_reference',
         'job_status',
-        'discrepancy_count',
-        'discrepancy_rate',
+        'discrepancy_count_1_2',
+        'discrepancy_rate_1_2',
+        'discrepancy_count_n',
     ]
     
     # Champs de tri
@@ -56,8 +57,9 @@ class JobDiscrepancyView(ServerSideDataTableView):
         'job_id',
         'job_reference',
         'job_status',
-        'discrepancy_count',
-        'discrepancy_rate',
+        'discrepancy_count_1_2',
+        'discrepancy_rate_1_2',
+        'discrepancy_count_n',
         'total_lines_counting_1',
         'total_lines_counting_2',
         'common_lines_count',
@@ -91,8 +93,9 @@ class JobDiscrepancyView(ServerSideDataTableView):
         for item in data_list:
             if (search_clean in str(item.get('job_reference', '')).lower() or
                 search_clean in str(item.get('job_status', '')).lower() or
-                search_clean in str(item.get('discrepancy_count', '')).lower() or
-                search_clean in str(item.get('discrepancy_rate', '')).lower()):
+                search_clean in str(item.get('discrepancy_count_1_2', '')).lower() or
+                search_clean in str(item.get('discrepancy_rate_1_2', '')).lower() or
+                search_clean in str(item.get('discrepancy_count_n', '')).lower()):
                 filtered.append(item)
         return filtered
     
@@ -200,8 +203,9 @@ class JobDiscrepancyView(ServerSideDataTableView):
             'job_id': 'job_id',
             'job_reference': 'job_reference',
             'job_status': 'job_status',
-            'discrepancy_count': 'discrepancy_count',
-            'discrepancy_rate': 'discrepancy_rate',
+            'discrepancy_count_1_2': 'discrepancy_count_1_2',
+            'discrepancy_rate_1_2': 'discrepancy_rate_1_2',
+            'discrepancy_count_n': 'discrepancy_count_n',
             'total_lines_counting_1': 'total_lines_counting_1',
             'total_lines_counting_2': 'total_lines_counting_2',
             'common_lines_count': 'common_lines_count',

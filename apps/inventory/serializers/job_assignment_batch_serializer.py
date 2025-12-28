@@ -145,6 +145,80 @@ class JobBatchAssignmentResponseSerializer(serializers.Serializer):
     jobs_results = serializers.ListField()
     processing_date = serializers.DateTimeField()
 
+class JobReassignmentSerializer(serializers.Serializer):
+    """
+    Serializer pour la réaffectation d'une équipe à un job pour un comptage spécifique
+
+    Format:
+    {
+        "job_id": 1,
+        "team": 5,
+        "counting_order": 1,
+        "complete": true/false
+    }
+    """
+    job_id = serializers.IntegerField(help_text="ID du job à réaffecter")
+    team = serializers.IntegerField(help_text="ID de l'équipe (session) à affecter")
+    counting_order = serializers.IntegerField(help_text="Ordre du comptage (1 ou 2)")
+    complete = serializers.BooleanField(
+        default=False,
+        help_text="Si true, supprime toutes les données liées et remet à zéro"
+    )
+
+    def validate_job_id(self, value):
+        """Valider job_id"""
+        if not isinstance(value, int) or value <= 0:
+            raise serializers.ValidationError("job_id doit être un ID valide (nombre positif)")
+        return value
+
+    def validate_team(self, value):
+        """Valider team (session ID)"""
+        if not isinstance(value, int) or value <= 0:
+            raise serializers.ValidationError("team doit être un ID valide (nombre positif)")
+        return value
+
+    def validate_counting_order(self, value):
+        """Valider counting_order"""
+        if not isinstance(value, int) or value not in [1, 2]:
+            raise serializers.ValidationError("counting_order doit être 1 ou 2")
+        return value
+
+class JobReassignmentRequestSerializer(serializers.Serializer):
+    """
+    Serializer pour la requête de réaffectation (format direct)
+    """
+    def to_internal_value(self, data):
+        """
+        Accepte directement l'objet de réaffectation
+        """
+        return data
+
+    job_id = serializers.IntegerField(help_text="ID du job à réaffecter")
+    team = serializers.IntegerField(help_text="ID de l'équipe (session) à affecter")
+    counting_order = serializers.IntegerField(help_text="Ordre du comptage (1 ou 2)")
+    complete = serializers.BooleanField(
+        default=False,
+        help_text="Si true, supprime toutes les données liées et remet à zéro"
+    )
+
+    def validate_job_id(self, value):
+        """Valider job_id"""
+        if not isinstance(value, int) or value <= 0:
+            raise serializers.ValidationError("job_id doit être un ID valide (nombre positif)")
+        return value
+
+    def validate_team(self, value):
+        """Valider team (session ID)"""
+        if not isinstance(value, int) or value <= 0:
+            raise serializers.ValidationError("team doit être un ID valide (nombre positif)")
+        return value
+
+    def validate_counting_order(self, value):
+        """Valider counting_order"""
+        if not isinstance(value, int) or value not in [1, 2]:
+            raise serializers.ValidationError("counting_order doit être 1 ou 2")
+        return value
+
 class JobAssignmentResultSerializer(serializers.Serializer):
     """
     Serializer pour le résultat d'affectation d'un job

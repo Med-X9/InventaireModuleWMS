@@ -22,7 +22,7 @@ class AssignmentDiscrepancySerializer(serializers.Serializer):
 class JobDiscrepancySerializer(serializers.Serializer):
     """
     Serializer pour les données de job avec écarts.
-    
+
     Supporte tous les comptages standardisés (1er, 2ème, 3ème, n-ème).
     Les assignments sont standardisés : si un job a moins de comptages,
     des assignments vides sont ajoutés.
@@ -31,8 +31,14 @@ class JobDiscrepancySerializer(serializers.Serializer):
     job_reference = serializers.CharField()
     job_status = serializers.CharField()
     assignments = AssignmentDiscrepancySerializer(many=True)
-    discrepancy_count = serializers.IntegerField()
-    discrepancy_rate = serializers.FloatField()
+
+    # Écarts entre 1er et 2ème comptage
+    discrepancy_count_1_2 = serializers.IntegerField()
+    discrepancy_rate_1_2 = serializers.FloatField()
+
+    # Écarts pour le Nème comptage (par rapport au 1er comptage)
+    discrepancy_count_n = serializers.IntegerField(required=False, allow_null=True)
+
     total_lines_counting_1 = serializers.IntegerField()
     total_lines_counting_2 = serializers.IntegerField()
     common_lines_count = serializers.IntegerField()

@@ -37,8 +37,9 @@ from ..serializers.job_serializer import (
     JobDetailSimpleSerializer,
     JobCancelRequestSerializer
 )
-from ..serializers.job_assignment_batch_serializer import JobBatchAssignmentRequestSerializer
+from ..serializers.job_assignment_batch_serializer import JobBatchAssignmentRequestSerializer, JobReassignmentRequestSerializer
 from ..usecases.job_batch_assignment import JobBatchAssignmentUseCase
+from ..services.job_reassignment_service import JobReassignmentService
 from ..exceptions import JobCreationError
 import logging
 from datetime import datetime
@@ -1333,48 +1334,27 @@ class JobCancelView(APIView):
             )
 
 
-class JobBatchAssignmentView(APIView):
+class JobReassignmentView(APIView):
     """
-    API pour affecter des sessions et ressources à plusieurs jobs en lot
-    
-    Supporte les comptages dynamiques (1, 2, 3, 4, 5, ...) via team1, team2, team3, team4, etc.
-    
-    Format:
-    [
-      {
+    API pour réaffecter une équipe à un job pour un comptage spécifique
+
+    Nouveau format simplifié :
+    {
         "job_id": 1,
-        "team1": 5,                    // ID session pour team1 (optionnel)
-        "counting_order1": 1,          // Ordre du comptage pour team1 (défaut: 1)
-        "date1": "2024-01-15T10:00:00Z", // Date pour team1 (optionnel)
-        "team2": 8,                    // ID session pour team2 (optionnel)
-        "counting_order2": 2,          // Ordre du comptage pour team2 (défaut: 2)
-        "date2": "2024-01-15T14:00:00Z", // Date pour team2 (optionnel)
-        "team3": 10,                   // ID session pour team3 (optionnel)
-        "counting_order3": 3,          // Ordre du comptage pour team3 (défaut: 3)
-        "date3": "2024-01-15T16:00:00Z", // Date pour team3 (optionnel)
-        "team4": 4,                    // ID session pour team4 (optionnel)
-        "counting_order4": 4,          // Ordre du comptage pour team4 (défaut: 4)
-        "date4": "2024-01-15T18:00:00Z", // Date pour team4 (optionnel)
-        "resources": [10, 11, 12]      // IDs des ressources (optionnel)
-      }
-    ]
-    
-    Exemple avec 4 teams:
-    [
-      {
-        "job_id": 1,
-        "team1": 5,
-        "team2": 8,
-        "team3": 10,
-        "team4": 4,
-        "resources": [10, 11]
-      }
-    ]
+        "team": 5,
+        "counting_order": 1,
+        "complete": true/false
+    }
+
+    Règles métier :
+    - Réaffecte l'équipe (team) au comptage spécifié du job
+    - Si complete=true : supprime toutes les données (CountingDetail, NSerieInventory, EcartComptage, ComptageSequence)
+    - Met à jour les statuts appropriés selon les règles définies
+    - Validation : empêche la réaffectation si l'assignement est déjà TERMINE
     """
     def post(self, request):
         try:
-            print(request.data)
-            serializer = JobBatchAssignmentRequestSerializer(data=request.data)
+            serializer = JobReassignmentRequestSerializer(data=request.data)
             if not serializer.is_valid():
                 # Formater les erreurs de manière sécurisée
                 error_messages = []
@@ -1388,39 +1368,43 @@ class JobBatchAssignmentView(APIView):
                                 error_messages.append(f"{field}: {str(error)}")
                     else:
                         error_messages.append(f"{field}: {str(errors)}")
-                
+
                 return Response({
                     'success': False,
                     'message': 'Erreur de validation des données',
                     'errors': ' | '.join(error_messages)
                 }, status=status.HTTP_400_BAD_REQUEST)
-            
-            assignments_data = serializer.validated_data['assignments']
-            
-            # Utiliser le use case pour la logique métier
-            use_case = JobBatchAssignmentUseCase()
-            result = use_case.execute(assignments_data)
-            
-            return Response({
-                'success': True,
-                'message': result['message'],
-                'data': result
-            }, status=status.HTTP_200_OK)
-            
-        except JobCreationError as e:
+
+            # Extraire les données validées
+            validated_data = serializer.validated_data
+            job_id = validated_data['job_id']
+            team_id = validated_data['team']
+            counting_order = validated_data['counting_order']
+            complete = validated_data.get('complete', False)
+
+            # Utiliser le service de réaffectation
+            reassignment_service = JobReassignmentService()
+            result = reassignment_service.reassign_team_to_job_counting(
+                job_id=job_id,
+                team_id=team_id,
+                counting_order=counting_order,
+                complete=complete
+            )
+
+            return Response(result, status=status.HTTP_200_OK)
+
+        except (DRFValidationError, DjangoValidationError) as e:
             return Response({
                 'success': False,
-                'message': 'Erreur lors du traitement',
+                'message': 'Erreur de validation',
                 'error': str(e)
             }, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            logger.error(f"Erreur dans JobBatchAssignmentView: {str(e)}", exc_info=True)
+            logger.error(f"Erreur dans JobReassignmentView: {str(e)}", exc_info=True)
             return Response({
                 'success': False,
                 'message': 'Erreur interne du serveur',
-                'errors': {
-                    'detail': f'Erreur interne : {str(e)}'
-                }
+                'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
 
 

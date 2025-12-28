@@ -112,16 +112,22 @@ class JobDiscrepancyService:
                     'discrepancy_rate': discrepancy_info['discrepancy_rate'],
                 })
             
-            # Calculer les écarts entre le 1er et 2ème comptage (pour compatibilité avec l'ancien format)
+            # Calculer les écarts entre le 1er et 2ème comptage
             discrepancy_info_1_2 = self._calculate_discrepancies(job)
-            
+
+            # Calculer le nombre total d'écarts pour tous les comptages N (par rapport au 1er)
+            total_discrepancy_count_n = self._calculate_total_discrepancies_with_first_counting(
+                counting_details_by_order, total_emplacements
+            )
+
             result.append({
                 'job_id': job.id,
                 'job_reference': job.reference,
                 'job_status': job.status,
                 'assignments': assignments_data,
-                'discrepancy_count': discrepancy_info_1_2['discrepancy_count'],
-                'discrepancy_rate': discrepancy_info_1_2['discrepancy_rate'],
+                'discrepancy_count_1_2': discrepancy_info_1_2['discrepancy_count'],
+                'discrepancy_rate_1_2': discrepancy_info_1_2['discrepancy_rate'],
+                'discrepancy_count_n': total_discrepancy_count_n,
                 'total_lines_counting_1': discrepancy_info_1_2['total_lines_counting_1'],
                 'total_lines_counting_2': discrepancy_info_1_2['total_lines_counting_2'],
                 'common_lines_count': discrepancy_info_1_2['common_lines_count'],
@@ -268,6 +274,45 @@ class JobDiscrepancyService:
             'discrepancy_count': discrepancy_count,
             'discrepancy_rate': round(discrepancy_rate, 2),
         }
+
+    def _calculate_total_discrepancies_with_first_counting(
+        self,
+        counting_details_by_order: Dict[int, Dict],
+        total_emplacements: int
+    ) -> int:
+        """
+        Calcule le nombre total d'écarts pour tous les comptages N (2ème, 3ème, etc.)
+        par rapport au premier comptage.
+
+        Args:
+            counting_details_by_order: Dictionnaire des counting details par ordre
+            total_emplacements: Nombre total d'emplacements du job
+
+        Returns:
+            Nombre total d'écarts pour tous les comptages N
+        """
+        if not counting_details_by_order or 1 not in counting_details_by_order:
+            return 0
+
+        counting_details_1 = counting_details_by_order[1]
+        total_discrepancy_count = 0
+
+        # Pour chaque comptage après le premier (2, 3, 4, etc.)
+        for counting_order in sorted(counting_details_by_order.keys()):
+            if counting_order == 1:
+                continue  # Sauter le premier comptage
+
+            counting_details_n = counting_details_by_order[counting_order]
+
+            # Calculer les écarts entre le 1er et ce comptage N
+            discrepancy_info = self._calculate_discrepancy_with_first_counting(
+                counting_details_by_order, counting_order, total_emplacements
+            )
+
+            # Ajouter le nombre d'écarts de ce comptage
+            total_discrepancy_count += discrepancy_info['discrepancy_count']
+
+        return total_discrepancy_count
     
     def get_jobs_with_unresolved_discrepancies_grouped_by_counting(
         self,
