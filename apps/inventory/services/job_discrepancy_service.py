@@ -75,7 +75,15 @@ class JobDiscrepancyService:
             job_id: JobDetail.objects.filter(job_id=job_id).count()
             for job_id in job_ids
         }
-        
+
+        # Déterminer le nombre maximum de comptages dans cet inventaire
+        max_counting_order = 0
+        for job in jobs:
+            assignments = self.job_repository.get_assignments_by_job(job)
+            for assignment in assignments:
+                if assignment.counting and assignment.counting.order > max_counting_order:
+                    max_counting_order = assignment.counting.order
+
         result = []
         for job in jobs:
             # Récupérer les assignments du job
@@ -112,26 +120,28 @@ class JobDiscrepancyService:
             # Calculer les écarts entre le 1er et 2ème comptage (pour compatibilité avec l'ancien format)
             discrepancy_info_1_2 = self._calculate_discrepancies(job)
 
-            # Calculer les écarts pour le 3ème comptage (par rapport au 1er)
-            discrepancy_count_3er = self._calculate_discrepancy_count_with_first_counting(
-                counting_details_by_order, 3
-            )
+            # Calculer dynamiquement les écarts pour tous les comptages (à partir du 3ème)
+            # par rapport au premier comptage
+            discrepancy_counts = {}
+            for counting_order in range(3, max_counting_order + 1):
+                discrepancy_count = self._calculate_discrepancy_count_with_first_counting(
+                    counting_details_by_order, counting_order
+                )
+                discrepancy_counts[f'discrepancy_count_{counting_order}er'] = discrepancy_count
 
-            # Calculer les écarts pour le 4ème comptage (par rapport au 1er)
-            discrepancy_count_4er = self._calculate_discrepancy_count_with_first_counting(
-                counting_details_by_order, 4
-            )
-
-            result.append({
+            job_data = {
                 'job_id': job.id,
                 'job_reference': job.reference,
                 'job_status': job.status,
                 'assignments': assignments_data,
                 'discrepancy_count': discrepancy_info_1_2['discrepancy_count'],
                 'discrepancy_rate': discrepancy_info_1_2['discrepancy_rate'],
-                'discrepancy_count_3er': discrepancy_count_3er,
-                'discrepancy_count_4er': discrepancy_count_4er,
-            })
+            }
+
+            # Ajouter les écarts dynamiques
+            job_data.update(discrepancy_counts)
+
+            result.append(job_data)
         
         # Standardiser les comptages pour tous les jobs
         standardized_result = self.standardization_use_case.standardize_jobs_countings(result)
