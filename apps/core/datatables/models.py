@@ -361,17 +361,16 @@ class QueryModel:
 
         # Essayer aussi request.body pour les requêtes avec body JSON
         # ⚠️ ATTENTION: Ne pas accéder à request.body si les données ont déjà été lues par DRF
-        if hasattr(request, 'body'):
+        if hasattr(request, '_load_data_called') and not request._load_data_called:
+            # Les données n'ont pas encore été chargées par DRF, on peut accéder au body
             try:
-                # Vérifier si le body n'a pas déjà été consommé
-                # Dans DRF, si _load_data() a été appelé, body est inutilisable
-                if hasattr(request, '_load_data_called') and request._load_data_called:
-                    # Les données ont déjà été chargées par DRF, ne pas toucher au body
-                    pass
-                elif hasattr(request, 'body') and request.body:
+                if hasattr(request, 'body') and request.body:
                     body_data = json.loads(request.body)
                     if isinstance(body_data, dict) and any(key in body_data for key in ['page', 'pageSize', 'search', 'sort', 'filters']):
                         return cls.from_dict(body_data)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                # Body n'est pas du JSON valide, ignorer
+                pass
             except (json.JSONDecodeError, TypeError, ValueError, UnicodeDecodeError, AttributeError):
                 # AttributeError peut se produire si _load_data_called n'existe pas
                 pass

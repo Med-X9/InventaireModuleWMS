@@ -255,7 +255,16 @@ class QueryModelMixin:
         
         try:
             # 1. Vérifier si export demandé
-            export_format = request.GET.get('export') or (request.data.get('export') if hasattr(request, 'data') and isinstance(request.data, dict) else None)
+            export_format = request.GET.get('export')
+            if not export_format:
+                # Essayer de récupérer depuis request.data si disponible
+                try:
+                    if hasattr(request, 'data') and isinstance(request.data, dict):
+                        export_format = request.data.get('export')
+                except Exception:
+                    # request.data peut lever une exception si le body n'est pas du JSON valide
+                    # Dans ce cas, ignorer et continuer sans export
+                    pass
             
             # 2. Parser QueryModel
             query_model = QueryModel.from_request(request)

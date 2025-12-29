@@ -19,6 +19,7 @@ urlpatterns = [
     path('verify/', TokenVerifyView.as_view(), name='token_verify'),
     path('mobile-users/', MobileUserListView.as_view(), name='mobile-users-list'),
     path('mobile-users/inventory/<int:inventory_id>/', MobileUserListView.as_view(), name='mobile-users-by-inventory'),
+    path('mobile-users/comptage/<n_comptage>/', MobileUserListView.as_view(), name='mobile-users-by-comptage'),
     
     # ========================================
     # URLs POUR L'IMPORT/EXPORT DES UTILISATEURS

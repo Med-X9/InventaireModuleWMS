@@ -185,14 +185,8 @@ class JobReassignmentSerializer(serializers.Serializer):
 
 class JobReassignmentRequestSerializer(serializers.Serializer):
     """
-    Serializer pour la requête de réaffectation (format direct)
+    Serializer pour la requête de réaffectation
     """
-    def to_internal_value(self, data):
-        """
-        Accepte directement l'objet de réaffectation
-        """
-        return data
-
     job_id = serializers.IntegerField(help_text="ID du job à réaffecter")
     team = serializers.IntegerField(help_text="ID de l'équipe (session) à affecter")
     counting_order = serializers.IntegerField(help_text="Ordre du comptage (1 ou 2)")
