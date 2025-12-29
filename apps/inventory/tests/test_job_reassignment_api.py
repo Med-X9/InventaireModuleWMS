@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 import json
 
 from ..models import Inventory, Job, Counting, Assigment, JobDetail, CountingDetail, NSerieInventory, EcartComptage, ComptageSequence
+from ..services.job_reassignment_service import JobReassignmentService
 from apps.masterdata.models import Warehouse, Account, Location
 from apps.users.models import UserApp
 
@@ -182,6 +183,48 @@ class JobReassignmentAPITestCase(TestCase):
         self.assertEqual(assignment.status, 'TRANSFERT')
         self.assertEqual(assignment.session.id, self.team2.id)
         self.assertIsNotNone(assignment.transfert_date)
+
+    def test_job_status_update_priority_logic(self):
+        """Test que la logique de priorité des statuts du job fonctionne correctement"""
+        # Créer deux assignments avec différents statuts pour tester la priorité
+        assignment1 = Assigment.objects.create(
+            reference='TESTASS001',
+            job=self.job,
+            counting=self.counting1,
+            session=self.team1,
+            status='TRANSFERT'
+        )
+        assignment2 = Assigment.objects.create(
+            reference='TESTASS002',
+            job=self.job,
+            counting=self.counting2,
+            session=self.team2,
+            status='ENTAME'
+        )
+
+        # Appeler la méthode de mise à jour du statut du job
+        service = JobReassignmentService()
+        service._update_job_status_based_on_assignments(self.job)
+
+        # Vérifier que le job a le statut ENTAME (priorité haute)
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.status, 'ENTAME')
+
+        # Test 2: Seulement TRANSFERT
+        assignment2.status = 'TRANSFERT'
+        assignment2.save()
+
+        service._update_job_status_based_on_assignments(self.job)
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.status, 'TRANSFERT')
+
+        # Test 3: Un TRANSFERT et un AFFECTE (devrait être TRANSFERT)
+        assignment2.status = 'AFFECTE'
+        assignment2.save()
+
+        service._update_job_status_based_on_assignments(self.job)
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.status, 'TRANSFERT')
 
     def test_reassign_team_success_with_complete(self):
         """Test de réaffectation réussie avec nettoyage complet"""

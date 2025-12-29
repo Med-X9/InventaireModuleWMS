@@ -200,8 +200,9 @@ class JobReassignmentService:
     def _update_job_status_based_on_assignments(self, job: Job):
         """
         Met à jour le statut du job selon les assignments des comptages 1 et 2 :
+        - Si au moins un assignment est ENTAME -> job = ENTAME (priorité haute)
+        - Si au moins un assignment est TRANSFERT -> job = TRANSFERT (priorité basse)
         - Si les deux assignments sont TRANSFERT -> job = TRANSFERT
-        - Si au moins un assignment est ENTAME -> job = ENTAME
         """
         # Récupérer les assignments des comptages 1 et 2
         assignments = Assigment.objects.filter(job=job)
@@ -212,10 +213,11 @@ class JobReassignmentService:
 
         new_status = None
 
-        if transfert_count >= 1:
-            new_status = 'TRANSFERT'
-        elif entame_count >= 1:
+        # Priorité : ENTAME > TRANSFERT
+        if entame_count >= 1:
             new_status = 'ENTAME'
+        elif transfert_count >= 1:
+            new_status = 'TRANSFERT'
 
         if new_status:
             job.status = new_status
