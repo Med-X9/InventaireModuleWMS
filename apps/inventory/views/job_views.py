@@ -1354,6 +1354,7 @@ class JobReassignmentView(APIView):
     """
     def post(self, request):
         try:
+            print(request.data)
             serializer = JobReassignmentRequestSerializer(data=request.data)
             if not serializer.is_valid():
                 # Formater les erreurs de manière sécurisée
