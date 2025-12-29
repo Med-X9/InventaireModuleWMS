@@ -23,16 +23,23 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         # Cette méthode lève AuthenticationFailed si les identifiants sont invalides
         # ou si l'utilisateur n'est pas actif
         data = super().validate(attrs)
-        
+
         # Récupérer l'utilisateur authentifié (défini par super().validate())
         user = self.user
-        
+
         # Vérification supplémentaire que l'utilisateur est actif
         # (déjà vérifié par super().validate(), mais double vérification pour sécurité)
         if not user.is_active:
             raise AuthenticationFailed(
                 'Ce compte utilisateur est désactivé.',
                 code='user_inactive'
+            )
+
+        # Vérification que l'utilisateur est de type 'Mobile'
+        if not hasattr(user, 'type') or user.type != 'Mobile':
+            raise AuthenticationFailed(
+                'Accès refusé. Cette API est réservée aux utilisateurs mobiles.',
+                code='invalid_user_type'
             )
         
         # Formater la réponse selon le format demandé
@@ -42,8 +49,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             'refresh': str(data['refresh']),
             'user': {
                 'user_id': user.id,
-                'nom': user.nom if hasattr(user, 'nom') else '',
-                'prenom': user.prenom if hasattr(user, 'prenom') else ''
+                'username': user.username
             }
         }
         
@@ -53,17 +59,17 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 class JWTLoginView(TokenObtainPairView):
     """
     API de connexion JWT pour l'application mobile.
-    
+
     Authentifie un utilisateur mobile avec nom d'utilisateur et mot de passe
     et retourne un token JWT pour l'authentification des requêtes suivantes.
     Hérite de SIMPLE_JWT et retourne une réponse formatée avec les informations utilisateur.
-    
+
     Paramètres de requête:
     - username (string): Nom d'utilisateur
     - password (string): Mot de passe
-    
+
     Réponses:
-    - 200: Connexion réussie avec token JWT et données utilisateur
+    - 200: Connexion réussie avec token JWT et données utilisateur (user_id, username)
     - 400: Erreur de connexion (identifiants invalides)
     - 401: Non autorisé
     - 500: Erreur interne du serveur
