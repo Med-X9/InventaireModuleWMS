@@ -79,3 +79,4 @@ if __name__ == '__main__':
     success = test_direct_api_call()
     print(f"\n=== RÉSULTAT: {'SUCCÈS' if success else 'ÉCHEC'} ===")
     sys.exit(0 if success else 1)
+
