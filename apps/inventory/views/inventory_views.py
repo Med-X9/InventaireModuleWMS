@@ -992,18 +992,12 @@ class InventoryResultByWarehouseView(ServerSideDataTableView):
         'resultats': 'final_result',
         'resolved': 'resolved',
 
-        # Informations produit supplémentaires
-        'famille': 'product_family',
-        'code_barres': 'product_barcode',
-
         # Colonnes additionnelles (pour compatibilité et autres usages)
         'id': 'location_id',
         'location_id': 'location_id',
         'product': 'product',
         'product_description': 'product_description',
         'product_internal_code': 'product_internal_code',
-        'product_family': 'product_family',
-        'product_barcode': 'product_barcode',
         'location': 'location',
         'job_id': 'job_id',
         'job': 'job_reference',  # Alias pour job_reference
@@ -1019,18 +1013,11 @@ class InventoryResultByWarehouseView(ServerSideDataTableView):
         'ecart_2_4': 'ecart_2_4',
         'ecart_3_5': 'ecart_3_5',
 
-        # Statuts d'assignment par comptage (existants)
+        # Statuts d'assignment par comptage
         'statut_1er_comptage': 'statut_1er_comptage',
         'statut_2er_comptage': 'statut_2er_comptage',
         'statut_comptage_1': 'statut_1er_comptage',  # Alias
         'statut_comptage_2': 'statut_2er_comptage',  # Alias
-
-        # Nouveaux statuts d'assignment standardisés
-        'assignment_status_counting_1': 'assignment_status_counting_1',
-        'assignment_status_counting_2': 'assignment_status_counting_2',
-        'assignment_status_counting_3': 'assignment_status_counting_3',
-        'assignment_status_counting_4': 'assignment_status_counting_4',
-        'assignment_status_counting_5': 'assignment_status_counting_5',
     }
     
     def __init__(self, *args, **kwargs):
@@ -1040,75 +1027,18 @@ class InventoryResultByWarehouseView(ServerSideDataTableView):
     def get_data_source(self):
         """Retourne la source de données depuis le service."""
         from apps.core.datatables.datasource import DataSourceFactory
-
+        
         inventory_id = self.kwargs.get('inventory_id')
         warehouse_id = self.kwargs.get('warehouse_id')
-
+        
         if not inventory_id or not warehouse_id:
             raise InventoryValidationError("inventory_id et warehouse_id sont requis")
-
+        
         # Récupérer les données depuis le service
         data_list = self.service.get_inventory_results_for_warehouse(inventory_id, warehouse_id)
-
-        # Enrichir les données avec les informations supplémentaires (famille, code-barres, statuts assignments)
-        enriched_data_list = self._enrich_results_with_additional_info(data_list, inventory_id, warehouse_id)
-
-        return DataSourceFactory.create(enriched_data_list)
-
-    def _enrich_results_with_additional_info(self, results, inventory_id, warehouse_id):
-        """
-        Enrichit les résultats avec les informations supplémentaires :
-        - Famille du produit
-        - Code-barres du produit
-        - Statuts des assignments pour tous les comptages
-        """
-        # Récupérer tous les job_ids uniques des résultats
-        job_ids = set()
-        for result in results:
-            if result.get('job_id'):
-                job_ids.add(result['job_id'])
-
-        if not job_ids:
-            return results
-
-        # Récupérer tous les jobs avec leurs assignments
-        from ..models import Job
-        jobs = Job.objects.filter(
-            id__in=job_ids,
-            inventory_id=inventory_id,
-            warehouse_id=warehouse_id
-        ).prefetch_related(
-            'assigment_set__counting',
-            'assigment_set__session'
-        )
-
-        # Créer un dictionnaire pour les assignments par job et counting order
-        from collections import defaultdict
-        assignments_dict = defaultdict(dict)
-
-        for job in jobs:
-            for assignment in job.assigment_set.all():
-                if assignment.counting:
-                    counting_order = assignment.counting.order
-                    assignments_dict[job.id][counting_order] = assignment
-
-        # Enrichir les résultats
-        enriched_results = []
-        for result in results:
-            enriched_result = dict(result)
-            job_id = result.get('job_id')
-
-            if job_id and job_id in assignments_dict:
-                job_assignments = assignments_dict[job_id]
-
-                # Ajouter les statuts des assignments pour chaque counting order
-                for counting_order, assignment in job_assignments.items():
-                    enriched_result[f'assignment_status_counting_{counting_order}'] = assignment.status
-
-            enriched_results.append(enriched_result)
-
-        return enriched_results
-
+        
+        return DataSourceFactory.create(data_list)
+    
     def serialize_data(self, data):
         """
         Sérialise les données avec InventoryWarehouseResultEntrySerializer.
@@ -1324,26 +1254,22 @@ class InventoryResultExportExcelView(APIView):
         product_columns = []
         if 'product' in df.columns:
             product_columns.append('product')
-        if 'product_family' in df.columns:
-            product_columns.append('product_family')
-        if 'product_barcode' in df.columns:
-            product_columns.append('product_barcode')
         if 'product_description' in df.columns:
             product_columns.append('product_description')
+        if 'product_family' in df.columns:
+            product_columns.append('product_family')
         
         # Colonnes de comptage (triées par ordre)
-        counting_columns = sorted([col for col in df.columns if col.endswith(' comptage')],
+        counting_columns = sorted([col for col in df.columns if col.endswith(' comptage')], 
                                  key=lambda x: int(x.split()[0]) if x.split()[0].isdigit() else 999)
-
-        # Colonnes de statut d'assignment (triées par ordre)
-        assignment_status_columns = sorted(
-            [col for col in df.columns if col.startswith('assignment_status_counting_')],
-            key=lambda x: int(x.split('_')[-1]) if x.split('_')[-1].isdigit() else 999
-        )
         
         # Colonnes d'écart (triées)
         ecart_columns = sorted([col for col in df.columns if col.startswith('ecart_')],
                               key=lambda x: tuple(map(int, x.split('_')[1:])) if all(part.isdigit() for part in x.split('_')[1:]) else (999, 999))
+
+        # Colonnes de statut des assignments (triées par ordre)
+        status_columns = sorted([col for col in df.columns if col.startswith('statut_')],
+                               key=lambda x: int(x.split('_')[1]) if len(x.split('_')) > 1 and x.split('_')[1].isdigit() else 999)
         
         # Colonnes finales (sans ecart_comptage_id)
         final_columns = []
@@ -1356,7 +1282,7 @@ class InventoryResultExportExcelView(APIView):
             final_columns.append('resolved')
         
         # Construire l'ordre final
-        column_order = base_columns + product_columns + counting_columns + assignment_status_columns + ecart_columns + final_columns
+        column_order = base_columns + product_columns + counting_columns + status_columns + ecart_columns + final_columns
         
         # Filtrer les colonnes exclues
         column_order = [col for col in column_order if col not in excluded_columns]
@@ -1378,9 +1304,8 @@ class InventoryResultExportExcelView(APIView):
             'location': 'Emplacement',
             'job_reference': 'Référence Job',
             'product': 'Code Interne Article',
-            'product_family': 'Famille Article',
-            'product_barcode': 'Code-barres Article',
             'product_description': 'Description Article',
+            'product_family': 'Famille Produit',
             'final_result': 'Résultat Final',
             'manual_result': 'Résultat Manuel',
             'resolved': 'Résolu',
@@ -1393,10 +1318,14 @@ class InventoryResultExportExcelView(APIView):
                 order_num = col.split()[0]
                 # Capitaliser la première lettre pour uniformiser
                 column_name_mapping[col] = f'{order_num.capitalize()} Comptage'
-            elif col.startswith('assignment_status_counting_'):
-                # Nouvelles colonnes standardisées : assignment_status_counting_X
-                order_num = col.split('_')[-1]
-                column_name_mapping[col] = f'Statut Assignment Comptage {order_num}'
+            elif col.startswith('statut_'):
+                # Extraire le numéro du comptage (ex: "statut_1er_comptage" -> "Statut 1er Comptage")
+                parts = col.split('_')
+                if len(parts) >= 2:
+                    # Reconstituer le numéro du comptage
+                    order_part = '_'.join(parts[1:])  # "1er_comptage"
+                    order_num = order_part.split('_')[0]  # "1er"
+                    column_name_mapping[col] = f'Statut {order_num.capitalize()} Comptage'
             elif col.startswith('ecart_'):
                 # Extraire les numéros des comptages (ex: "ecart_1_2" -> "Écart Comptage 1-2")
                 parts = col.split('_')
