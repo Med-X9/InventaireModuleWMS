@@ -2,12 +2,13 @@
 Vues pour la gestion des inventaires.
 """
 import logging
+from collections import defaultdict
 from rest_framework import status, filters
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
-from ..models import Inventory
+from ..models import Inventory, Job
 from ..services.inventory_result_service import InventoryResultService
 from ..services.inventory_service import InventoryService
 from ..serializers.inventory_serializer import (
@@ -1089,9 +1090,12 @@ class InventoryResultExportExcelView(APIView):
                     message="Aucun résultat trouvé pour cet inventaire et cet entrepôt",
                     status_code=status.HTTP_404_NOT_FOUND
                 )
-            
+
+            # Enrichir les résultats avec les statuts des jobs et assignments
+            enriched_results = self._enrich_results_with_statuses(results, inventory_id, warehouse_id)
+
             # Générer le fichier Excel
-            excel_buffer = self._generate_excel(results, inventory_id, warehouse_id)
+            excel_buffer = self._generate_excel(enriched_results, inventory_id, warehouse_id)
             
             # Récupérer les informations de l'inventaire pour le nom du fichier
             try:
@@ -1238,51 +1242,100 @@ class InventoryResultExportExcelView(APIView):
         # Colonnes à exclure de l'export
         excluded_columns = ['location_id', 'job_id', 'ecart_comptage_id']
         
-        # Réorganiser les colonnes pour un meilleur affichage
-        # Ordre souhaité : location, job_reference (si présent), product (si présent), 
-        # product_description (si présent), puis tous les comptages, puis final_result, resolved
+        # Construire l'ordre des colonnes selon les spécifications
         column_order = []
-        
-        # Colonnes de base (sans location_id et job_id)
-        base_columns = ['location']  # location_id exclu
-        
-        # Ajouter job_reference si présent (mais pas job_id)
-        if 'job_reference' in df.columns:
-            base_columns.append('job_reference')
-        
-        # Colonnes produit (si présentes)
-        product_columns = []
-        if 'product' in df.columns:
-            product_columns.append('product')
-        if 'product_description' in df.columns:
-            product_columns.append('product_description')
-        if 'product_family' in df.columns:
-            product_columns.append('product_family')
-        
-        # Colonnes de comptage (triées par ordre)
-        counting_columns = sorted([col for col in df.columns if col.endswith(' comptage')], 
-                                 key=lambda x: int(x.split()[0]) if x.split()[0].isdigit() else 999)
-        
-        # Colonnes d'écart (triées)
-        ecart_columns = sorted([col for col in df.columns if col.startswith('ecart_')],
-                              key=lambda x: tuple(map(int, x.split('_')[1:])) if all(part.isdigit() for part in x.split('_')[1:]) else (999, 999))
 
-        # Colonnes de statut des assignments (triées par ordre)
-        status_columns = sorted([col for col in df.columns if col.startswith('statut_')],
-                               key=lambda x: int(x.split('_')[1]) if len(x.split('_')) > 1 and x.split('_')[1].isdigit() else 999)
-        
-        # Colonnes finales (sans ecart_comptage_id)
-        final_columns = []
+        # 1. Colonnes de base du job
+        if 'job_reference' in df.columns:
+            column_order.append('job_reference')
+        if 'job_status' in df.columns:
+            column_order.append('job_status')
+
+        # 2. Colonne d'emplacement
+        if 'location' in df.columns:
+            column_order.append('location')
+
+        # 3. Colonnes produit
+        if 'product' in df.columns:
+            column_order.append('product')  # Code Barre en premier
+        if 'product_internal_code' in df.columns:
+            column_order.append('product_internal_code')  # Code Interne en deuxième
+        if 'product_description' in df.columns:
+            column_order.append('product_description')
+        if 'product_family' in df.columns:
+            column_order.append('product_family')
+
+        # 4. Colonnes de comptage et statuts par ordre de comptage
+        # D'abord identifier tous les comptages disponibles
+        counting_numbers = set()
+
+        # Collecter les numéros de comptage depuis les colonnes de comptage
+        for col in df.columns:
+            if col.endswith(' comptage'):
+                try:
+                    # Extraire le numéro (ex: "1er comptage" -> 1, "2e comptage" -> 2)
+                    num_str = col.split()[0]
+                    if num_str.endswith('er') or num_str.endswith('e'):
+                        num = int(num_str[:-2]) if num_str[:-2].isdigit() else int(num_str[:-1])
+                    else:
+                        num = int(num_str)
+                    counting_numbers.add(num)
+                except (ValueError, IndexError):
+                    continue
+
+        # Collecter aussi depuis les colonnes de statut
+        for col in df.columns:
+            if col.startswith('statut_') or col.startswith('assignment_status_counting_'):
+                try:
+                    if col.startswith('statut_'):
+                        # Ex: "statut_1er_comptage" -> 1
+                        parts = col.split('_')
+                        if len(parts) >= 2:
+                            num_str = parts[1]
+                            if num_str.endswith('er') or num_str.endswith('e'):
+                                num = int(num_str[:-2]) if num_str[:-2].isdigit() else int(num_str[:-1])
+                            else:
+                                num = int(num_str) if num_str.isdigit() else None
+                            if num:
+                                counting_numbers.add(num)
+                    elif col.startswith('assignment_status_counting_'):
+                        # Ex: "assignment_status_counting_1" -> 1
+                        num = int(col.split('_')[-1])
+                        counting_numbers.add(num)
+                except (ValueError, IndexError):
+                    continue
+
+        # Trier les numéros de comptage
+        counting_numbers = sorted(counting_numbers)
+
+        # Pour chaque comptage, ajouter la colonne de comptage puis le statut
+        for num in counting_numbers:
+            # Colonne de comptage (ex: "1er comptage", "2e comptage", etc.)
+            counting_col = f"{num}er comptage" if num == 1 else f"{num}e comptage"
+            if counting_col in df.columns:
+                column_order.append(counting_col)
+
+            # Colonne de statut pour ce comptage (priorité au nouveau format)
+            status_col_new = f"assignment_status_counting_{num}"
+            if status_col_new in df.columns:
+                column_order.append(status_col_new)
+            else:
+                # Fallback vers l'ancien format seulement si le nouveau n'existe pas
+                status_col_old = f"statut_{num}er_comptage" if num == 1 else f"statut_{num}e_comptage"
+                if status_col_old in df.columns:
+                    column_order.append(status_col_old)
+
+            # Ajouter l'écart 1-2 après le 2ème comptage
+            if num == 2 and 'ecart_1_2' in df.columns:
+                column_order.append('ecart_1_2')
+
+        # 6. Colonnes finales
         if 'final_result' in df.columns:
-            final_columns.append('final_result')
-        if 'manual_result' in df.columns:
-            final_columns.append('manual_result')
-        # ecart_comptage_id exclu
+            column_order.append('final_result')
         if 'resolved' in df.columns:
-            final_columns.append('resolved')
-        
-        # Construire l'ordre final
-        column_order = base_columns + product_columns + counting_columns + status_columns + ecart_columns + final_columns
+            column_order.append('resolved')
+        if 'manual_result' in df.columns:
+            column_order.append('manual_result')
         
         # Filtrer les colonnes exclues
         column_order = [col for col in column_order if col not in excluded_columns]
@@ -1303,9 +1356,11 @@ class InventoryResultExportExcelView(APIView):
         column_name_mapping = {
             'location': 'Emplacement',
             'job_reference': 'Référence Job',
-            'product': 'Code Interne Article',
-            'product_description': 'Description Article',
-            'product_family': 'Famille Produit',
+            'job_status': 'Statut Job',
+            'product': 'Code Barre',
+            'product_internal_code': 'Code Interne',
+            'product_description': 'Désignation',
+            'product_family': 'Famille',
             'final_result': 'Résultat Final',
             'manual_result': 'Résultat Manuel',
             'resolved': 'Résolu',
@@ -1319,13 +1374,25 @@ class InventoryResultExportExcelView(APIView):
                 # Capitaliser la première lettre pour uniformiser
                 column_name_mapping[col] = f'{order_num.capitalize()} Comptage'
             elif col.startswith('statut_'):
-                # Extraire le numéro du comptage (ex: "statut_1er_comptage" -> "Statut 1er Comptage")
+                # Extraire le numéro du comptage (ex: "statut_1er_comptage" -> "Statut Comptage 1")
                 parts = col.split('_')
                 if len(parts) >= 2:
                     # Reconstituer le numéro du comptage
                     order_part = '_'.join(parts[1:])  # "1er_comptage"
                     order_num = order_part.split('_')[0]  # "1er"
-                    column_name_mapping[col] = f'Statut {order_num.capitalize()} Comptage'
+                    # Extraire le numéro numérique
+                    if order_num.endswith('er') or order_num.endswith('e'):
+                        num = int(order_num[:-2]) if order_num[:-2].isdigit() else int(order_num[:-1]) if order_num[:-1].isdigit() else None
+                    else:
+                        num = int(order_num) if order_num.isdigit() else None
+                    if num:
+                        column_name_mapping[col] = f'Statut Comptage {num}'
+            elif col.startswith('assignment_status_counting_'):
+                # Extraire le numéro du comptage (ex: "assignment_status_counting_1" -> "Statut Comptage 1")
+                parts = col.split('_')
+                if len(parts) >= 4 and parts[-1].isdigit():
+                    counting_order = parts[-1]
+                    column_name_mapping[col] = f'Statut Comptage {counting_order}'
             elif col.startswith('ecart_'):
                 # Extraire les numéros des comptages (ex: "ecart_1_2" -> "Écart Comptage 1-2")
                 parts = col.split('_')
@@ -1371,6 +1438,89 @@ class InventoryResultExportExcelView(APIView):
         
         excel_buffer.seek(0)
         return excel_buffer
+
+    def _enrich_results_with_statuses(
+        self,
+        results: list,
+        inventory_id: int,
+        warehouse_id: int
+    ) -> list:
+        """
+        Enrichit les résultats avec les statuts des jobs et des assignments.
+
+        Les résultats peuvent déjà contenir les statuts des assignments pour les comptages 1 et 2
+        dans les colonnes 'statut_1er_comptage' et 'statut_2er_comptage'.
+        On ajoute :
+        - Le statut du job
+        - Les statuts des assignments pour tous les comptages (standardisation)
+
+        Args:
+            results: Liste des résultats d'inventaire
+            inventory_id: ID de l'inventaire
+            warehouse_id: ID de l'entrepôt
+
+        Returns:
+            Liste des résultats enrichis avec les statuts
+        """
+        # Récupérer tous les job_ids uniques des résultats
+        job_ids = set()
+        for result in results:
+            if result.get('job_id'):
+                job_ids.add(result['job_id'])
+
+        if not job_ids:
+            # Si aucun job_id, retourner les résultats tels quels
+            return results
+
+        # Récupérer tous les jobs avec leurs assignments en une seule requête
+        jobs = Job.objects.filter(
+            id__in=job_ids,
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id
+        ).select_related(
+            'inventory',
+            'warehouse'
+        ).prefetch_related(
+            'assigment_set__counting',
+            'assigment_set__session'
+        )
+
+        # Créer un dictionnaire pour accès rapide : job_id -> job
+        jobs_dict = {job.id: job for job in jobs}
+
+        # Créer un dictionnaire pour les assignments par job et counting order
+        # Structure: {job_id: {counting_order: assignment}}
+        assignments_dict = defaultdict(dict)
+
+        for job in jobs:
+            for assignment in job.assigment_set.all():
+                if assignment.counting:
+                    counting_order = assignment.counting.order
+                    assignments_dict[job.id][counting_order] = assignment
+
+        # Enrichir les résultats
+        enriched_results = []
+        for result in results:
+            enriched_result = dict(result)
+            job_id = result.get('job_id')
+
+            if job_id and job_id in jobs_dict:
+                job = jobs_dict[job_id]
+
+                # Ajouter le statut du job
+                enriched_result['job_status'] = job.status
+
+                # Ajouter les statuts des assignments pour chaque counting order
+                job_assignments = assignments_dict.get(job_id, {})
+
+                # Pour tous les comptages, ajouter le statut de l'assignment
+                # On utilise un format standardisé : assignment_status_counting_X
+                for counting_order, assignment in job_assignments.items():
+                    enriched_result[f'assignment_status_counting_{counting_order}'] = assignment.status
+
+            enriched_results.append(enriched_result)
+
+        return enriched_results
 
 
 class InventoryImportView(APIView):

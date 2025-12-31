@@ -221,15 +221,36 @@ class InventoryResultService:
             }
 
             if mode == "par article" and entry["product"]:
-                # Utiliser le code-barres du produit, ou la référence en fallback
-                result_row["product"] = entry["product"].get("barcode") or entry["product"].get("reference") or ""
-                # Ajouter la désignation du produit si disponible
+                # Code-barres : utiliser le barcode s'il existe, sinon l'internal_code
+                barcode = entry["product"].get("barcode")
+                internal_code = entry["product"].get("internal_code")
+                reference = entry["product"].get("reference")
+
+                # Debug logging pour diagnostiquer le problème
+                if barcode or internal_code:
+                    self.logger.debug(f"🔍 Produit debug - barcode: '{barcode}', internal_code: '{internal_code}', reference: '{reference}'")
+
+                if barcode and barcode.strip() and barcode != internal_code:
+                    # Si barcode différent d'internal_code, les utiliser séparément
+                    result_row["product"] = barcode.strip()
+                    result_row["product_internal_code"] = internal_code or ""
+                    self.logger.debug(f"✅ Colonnes séparées - Code Barre: '{barcode.strip()}', Code Interne: '{internal_code or ''}'")
+                elif internal_code and internal_code.strip():
+                    # Si pas de barcode distinct ou barcode identique à internal_code
+                    result_row["product"] = internal_code.strip()  # Code Barre = Internal Code
+                    result_row["product_internal_code"] = internal_code.strip()  # Code Interne = Internal Code
+                    self.logger.debug(f"⚠️ Colonnes identiques - Code Barre: '{internal_code.strip()}', Code Interne: '{internal_code.strip()}'")
+                elif barcode and barcode.strip():
+                    # Fallback: utiliser barcode même s'il est identique à internal_code
+                    result_row["product"] = barcode.strip()
+                    result_row["product_internal_code"] = barcode.strip()
+                    self.logger.debug(f"🔄 Fallback barcode - Code Barre: '{barcode.strip()}', Code Interne: '{barcode.strip()}'")
+
+                # Désignation du produit
                 if entry["product"].get("description"):
                     result_row["product_description"] = entry["product"]["description"]
-                # Ajouter le code interne du produit si disponible
-                if entry["product"].get("internal_code"):
-                    result_row["product_internal_code"] = entry["product"]["internal_code"]
-                # Ajouter la famille de produit si disponible
+
+                # Famille de produit
                 if entry["product"].get("family_name"):
                     result_row["product_family"] = entry["product"]["family_name"]
 
@@ -249,7 +270,7 @@ class InventoryResultService:
             # Standardiser : ajouter TOUTES les clés possibles avec null pour celles absentes
             for order in range(1, max_order_global + 1):
                 quantity = quantities.get(order)
-                quantity_key = f"{order}er comptage"
+                quantity_key = f"{order}er comptage" if order == 1 else f"{order}e comptage"
                 result_row[quantity_key] = quantity if quantity is not None else None
 
                 # Ajouter le statut de l'assignment pour TOUS les comptages (même null)
