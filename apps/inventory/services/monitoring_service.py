@@ -258,10 +258,16 @@ class MonitoringService:
         from django.db.models import Count
 
         # Compter les assignments par statut pour ce comptage dans cette zone
+        # Un job peut avoir un seul assignment par comptage, mais plusieurs emplacements dans différentes zones
+        # Il faut compter les jobs distincts qui ont des emplacements dans cette zone
+        job_ids_in_zone = Job.objects.filter(
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id,
+            jobdetail__location__sous_zone__zone_id=zone_id
+        ).values_list('id', flat=True).distinct()
+
         job_stats = Assigment.objects.filter(
-            job__inventory_id=inventory_id,
-            job__warehouse_id=warehouse_id,
-            job__jobdetail__location__sous_zone__zone_id=zone_id,
+            job_id__in=job_ids_in_zone,
             counting_id=counting.id
         ).values('status').annotate(count=Count('id')).order_by('status')
 
