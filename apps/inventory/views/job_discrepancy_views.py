@@ -195,8 +195,17 @@ class JobDiscrepancyView(ServerSideDataTableView):
         return DataSourceFactory.create(results)
     
     def get_column_field_mapping(self):
-        """Mapping des colonnes frontend -> backend."""
-        return {
+        """Mapping des colonnes frontend -> backend avec les nouveaux noms."""
+        mapping = {
+            # Identifiants de base (fixes)
+            'assignmentId': 'job_id',
+            'jobReference': 'job_reference',
+
+            # Écarts généraux fixes (1er vs 2ème)
+            'discrepancyRate': 'discrepancy_rate',
+            'discrepancyCount': 'discrepancy_count',
+
+            # Champs de compatibilité existants
             'job_id': 'job_id',
             'job_reference': 'job_reference',
             'job_status': 'job_status',
@@ -206,6 +215,13 @@ class JobDiscrepancyView(ServerSideDataTableView):
             'total_lines_counting_2': 'total_lines_counting_2',
             'common_lines_count': 'common_lines_count',
         }
+
+        # Ajouter dynamiquement les mappings pour les sessions et counts
+        # Ces champs sont créés dynamiquement dans le service
+        # Le système QueryModel les utilisera automatiquement même sans mapping explicite
+        # Mais on peut ajouter les plus courants pour référence
+
+        return mapping
     
     def process_request(self, request, *args, **kwargs):
         """

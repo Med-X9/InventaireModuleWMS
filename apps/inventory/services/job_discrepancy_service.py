@@ -127,7 +127,10 @@ class JobDiscrepancyService:
                 discrepancy_count = self._calculate_discrepancy_count_with_first_counting(
                     counting_details_by_order, counting_order
                 )
+                # Format original pour compatibilité
                 discrepancy_counts[f'discrepancy_count_{counting_order}er'] = discrepancy_count
+                # Alias pour le nouveau mapping
+                discrepancy_counts[f'counting_{counting_order}_count'] = discrepancy_count
 
             job_data = {
                 'job_id': job.id,
@@ -145,7 +148,22 @@ class JobDiscrepancyService:
         
         # Standardiser les comptages pour tous les jobs
         standardized_result = self.standardization_use_case.standardize_jobs_countings(result)
-        
+
+        # Ajouter les champs dynamiques pour le mapping des colonnes
+        for job_data in standardized_result:
+            assignments = job_data.get('assignments', [])
+
+            # Extraire les usernames par ordre de comptage (sessions dynamiques)
+            for assignment in assignments:
+                counting_order = assignment.get('counting_order')
+                username = assignment.get('username')
+                if counting_order:
+                    job_data[f'counting_{counting_order}_session'] = username
+
+            # Les champs counting_X_count sont déjà ajoutés dynamiquement
+            # dans discrepancy_counts[f'discrepancy_count_{counting_order}er']
+            # Ils seront mappés automatiquement par le système QueryModel
+
         return standardized_result
     
     def _calculate_discrepancies(self, job: Job) -> Dict[str, Any]:
