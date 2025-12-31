@@ -85,7 +85,7 @@ class MonitoringService:
                     job__inventory_id=inventory_id,
                     job__warehouse_id=warehouse_id,
                     location__sous_zone__zone_id=zone.id
-                ).distinct().count()
+                ).values('location').distinct().count()
 
                 # Calculer les statistiques détaillées par comptage
                 counting_stats = []
