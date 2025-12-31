@@ -175,7 +175,6 @@ class InventoryResultService:
                     "barcode": row.get("product_barcode_alias"),
                     "description": row.get("product_description_alias"),
                     "internal_code": row.get("product_internal_code_alias"),
-                    "family_name": row.get("product_family_name_alias"),
                 }
 
             order = row["counting_order_alias"]
@@ -229,9 +228,6 @@ class InventoryResultService:
                 # Ajouter le code interne du produit si disponible
                 if entry["product"].get("internal_code"):
                     result_row["product_internal_code"] = entry["product"]["internal_code"]
-                # Ajouter la famille de produit si disponible
-                if entry["product"].get("family_name"):
-                    result_row["product_family"] = entry["product"]["family_name"]
 
             job_info = entry.get("job")
             if job_info and job_info.get("id") is not None:

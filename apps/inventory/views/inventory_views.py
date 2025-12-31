@@ -1256,8 +1256,6 @@ class InventoryResultExportExcelView(APIView):
             product_columns.append('product')
         if 'product_description' in df.columns:
             product_columns.append('product_description')
-        if 'product_family' in df.columns:
-            product_columns.append('product_family')
         
         # Colonnes de comptage (triées par ordre)
         counting_columns = sorted([col for col in df.columns if col.endswith(' comptage')], 
@@ -1266,10 +1264,6 @@ class InventoryResultExportExcelView(APIView):
         # Colonnes d'écart (triées)
         ecart_columns = sorted([col for col in df.columns if col.startswith('ecart_')],
                               key=lambda x: tuple(map(int, x.split('_')[1:])) if all(part.isdigit() for part in x.split('_')[1:]) else (999, 999))
-
-        # Colonnes de statut des assignments (triées par ordre)
-        status_columns = sorted([col for col in df.columns if col.startswith('statut_')],
-                               key=lambda x: int(x.split('_')[1]) if len(x.split('_')) > 1 and x.split('_')[1].isdigit() else 999)
         
         # Colonnes finales (sans ecart_comptage_id)
         final_columns = []
@@ -1282,7 +1276,7 @@ class InventoryResultExportExcelView(APIView):
             final_columns.append('resolved')
         
         # Construire l'ordre final
-        column_order = base_columns + product_columns + counting_columns + status_columns + ecart_columns + final_columns
+        column_order = base_columns + product_columns + counting_columns + ecart_columns + final_columns
         
         # Filtrer les colonnes exclues
         column_order = [col for col in column_order if col not in excluded_columns]
@@ -1305,7 +1299,6 @@ class InventoryResultExportExcelView(APIView):
             'job_reference': 'Référence Job',
             'product': 'Code Interne Article',
             'product_description': 'Description Article',
-            'product_family': 'Famille Produit',
             'final_result': 'Résultat Final',
             'manual_result': 'Résultat Manuel',
             'resolved': 'Résolu',
@@ -1318,14 +1311,6 @@ class InventoryResultExportExcelView(APIView):
                 order_num = col.split()[0]
                 # Capitaliser la première lettre pour uniformiser
                 column_name_mapping[col] = f'{order_num.capitalize()} Comptage'
-            elif col.startswith('statut_'):
-                # Extraire le numéro du comptage (ex: "statut_1er_comptage" -> "Statut 1er Comptage")
-                parts = col.split('_')
-                if len(parts) >= 2:
-                    # Reconstituer le numéro du comptage
-                    order_part = '_'.join(parts[1:])  # "1er_comptage"
-                    order_num = order_part.split('_')[0]  # "1er"
-                    column_name_mapping[col] = f'Statut {order_num.capitalize()} Comptage'
             elif col.startswith('ecart_'):
                 # Extraire les numéros des comptages (ex: "ecart_1_2" -> "Écart Comptage 1-2")
                 parts = col.split('_')

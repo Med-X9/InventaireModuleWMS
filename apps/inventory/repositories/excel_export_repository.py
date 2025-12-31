@@ -88,67 +88,54 @@ class ExcelExportRepository:
             Liste de dictionnaires avec les données consolidées
         """
 
-        # Récupérer TOUS les EcartComptage résolus de l'inventaire
-        ecart_comptages = EcartComptage.objects.filter(
+        # Logique simplifiée : Σ(final_result) par produit depuis EcartComptage résolus
+        # Plus de jointures complexes avec counting_sequences
+
+        from django.db.models import Sum, F
+        from ..models import Product
+
+        # Récupérer les produits avec leur somme de final_result
+        # Jointure directe : EcartComptage -> CountingSequence -> CountingDetail -> Product
+        consolidated_data = EcartComptage.objects.filter(
             inventory_id=inventory_id,
-            resolved=True,  # UNIQUEMENT les écarts RÉSOLUS
-            final_result__isnull=False  # Avec un résultat final défini
-        ).prefetch_related(
-            'counting_sequences__counting_detail__product',
-            'counting_sequences__counting_detail__product__Product_Family',
-            'counting_sequences__counting_detail__location'
+            resolved=True,
+            final_result__isnull=False
+        ).values(
+            'counting_sequences__counting_detail__product_id'
+        ).annotate(
+            total_quantity=Sum('final_result'),
+            product_id=F('counting_sequences__counting_detail__product_id')
         ).exclude(
-            counting_sequences__counting_detail__product__Internal_Product_Code='1111111111111'
-        )
+            counting_sequences__counting_detail__product__Internal_Product_Code='111111111111111'
+        ).distinct()
 
-        # Convertir en liste pour pouvoir itérer plusieurs fois si nécessaire
-        ecart_comptages_list = list(ecart_comptages)
+        # Récupérer les détails des produits
+        product_ids = [item['product_id'] for item in consolidated_data]
+        products = Product.objects.filter(id__in=product_ids).select_related('Product_Family')
 
-        # Grouper par produit et consolider
-        products_data = {}
+        # Créer un mapping produit_id -> détails produit
+        products_map = {}
+        for product in products:
+            products_map[product.id] = {
+                'product_reference': product.reference,
+                'product_code': product.Internal_Product_Code,
+                'product_description': product.Short_Description or '',
+                'product_barcode': product.Barcode or '',
+                'product_unit': product.Stock_Unit or '',
+                'product_family': product.Product_Family.family_name if product.Product_Family else '',
+            }
 
-        for ecart in ecart_comptages_list:
-            # Récupérer les détails de comptage associés à cet écart
-            for sequence in ecart.counting_sequences.all():
-                counting_detail = sequence.counting_detail
-                product = counting_detail.product
-                location = counting_detail.location
-
-                if not product:
-                    continue
-
-                product_id = product.id
-                location_ref = location.location_reference if location else ''
-
-                if product_id not in products_data:
-                    # Initialiser les données du produit
-                    products_data[product_id] = {
-                        'product_id': product_id,
-                        'product_reference': product.reference,
-                        'product_code': product.Internal_Product_Code,
-                        'product_description': product.Short_Description or '',
-                        'product_barcode': product.Barcode or '',
-                        'product_unit': product.Stock_Unit or '',
-                        'product_family': product.Product_Family.family_name if product.Product_Family else '',
-                        'total_quantity': 0,
-                        'locations_set': set()  # Set pour stocker les références d'emplacements uniques
-                    }
-
-                # Ajouter le final_result de cet EcartComptage au total du produit
-                products_data[product_id]['total_quantity'] += ecart.final_result
-
-                # Ajouter l'emplacement à la liste des emplacements (set pour éviter les doublons)
-                if location_ref:
-                    products_data[product_id]['locations_set'].add(location_ref)
-
-        # Convertir en liste et transformer le set d'emplacements en liste triée
+        # Combiner les données
         result = []
-        for product_data in products_data.values():
-            # Convertir le set en liste triée
-            product_data['locations_list'] = sorted(list(product_data['locations_set']))
-            # Retirer le set de la structure de données
-            del product_data['locations_set']
-            result.append(product_data)
+        for item in consolidated_data:
+            product_id = item['product_id']
+            if product_id in products_map:
+                product_data = products_map[product_id].copy()
+                product_data.update({
+                    'product_id': product_id,
+                    'total_quantity': item['total_quantity'] or 0,
+                })
+                result.append(product_data)
 
         return result
     
