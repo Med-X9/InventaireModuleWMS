@@ -69,7 +69,6 @@ class ExcelExportRepository:
     ) -> List[Dict[str, Any]]:
         """
         Récupère les données consolidées par article pour un inventaire.
-        CONDITION PRÉALABLE : TOUS les EcartComptage de l'inventaire doivent être resolved=True.
 
         Utilise UNIQUEMENT le final_result des EcartComptage RÉSOLUS.
 
@@ -87,23 +86,7 @@ class ExcelExportRepository:
 
         Returns:
             Liste de dictionnaires avec les données consolidées
-
-        Raises:
-            ValueError: Si tous les EcartComptage de l'inventaire ne sont pas résolus
         """
-        # VÉRIFICATION PRÉALABLE : Tous les EcartComptage doivent être resolved=True
-        total_ecarts = EcartComptage.objects.filter(inventory_id=inventory_id).count()
-        resolved_ecarts = EcartComptage.objects.filter(
-            inventory_id=inventory_id,
-            resolved=True
-        ).count()
-
-        if total_ecarts > 0 and total_ecarts != resolved_ecarts:
-            raise ValueError(
-                f"Tous les écarts de comptage de cet inventaire doivent être résolus "
-                f"avant de pouvoir exporter le fichier consolidé. "
-                f"Écarts résolus : {resolved_ecarts}/{total_ecarts}"
-            )
 
         # Récupérer TOUS les EcartComptage résolus de l'inventaire
         ecart_comptages = EcartComptage.objects.filter(

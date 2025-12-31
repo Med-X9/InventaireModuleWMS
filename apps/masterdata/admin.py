@@ -370,6 +370,52 @@ class LocationResource(resources.ModelResource):
         fields = ('location_reference', 'location_type', 'sous_zone', 'regroupement')
         import_id_fields = ('location_reference',)
 
+    def get_or_init_instance(self, instance_loader, row):
+        """
+        Surcharge pour gérer les variations de noms de colonnes pour location_reference.
+        Permet d'accepter différentes variations de casse et d'espaces.
+        """
+        # Mapping des variations possibles pour location_reference
+        location_ref_variations = [
+            'location reference', 'location_reference', 'Location Reference',
+            'LOCATION REFERENCE', 'emplacement', 'Emplacement', 'EMPLACEMENT',
+            'reference', 'Reference', 'REFERENCE', 'ref', 'Ref', 'REF',
+            'location_ref', 'Location_Ref', 'LOCATION_REF'
+        ]
+
+        # Chercher la colonne location_reference dans les variations possibles
+        for key in row.keys():
+            if key.lower().strip() in [v.lower().strip() for v in location_ref_variations]:
+                row['location_reference'] = row[key]
+                break
+
+        return super().get_or_init_instance(instance_loader, row)
+
+    def before_import_row(self, row, **kwargs):
+        """
+        Validation avant l'import de chaque ligne.
+        S'assurer que location_reference n'est pas vide.
+        """
+        # Vérifier que location_reference existe et n'est pas vide
+        location_ref = row.get('location_reference', '').strip()
+        if not location_ref:
+            # Essayer de chercher dans d'autres colonnes possibles
+            possible_columns = ['location reference', 'location_reference', 'Location Reference',
+                              'emplacement', 'Emplacement', 'reference', 'Reference']
+            for col in possible_columns:
+                if col in row and row[col] and str(row[col]).strip():
+                    row['location_reference'] = str(row[col]).strip()
+                    break
+
+        # Validation finale
+        if not row.get('location_reference', '').strip():
+            raise ValueError(
+                "Le champ 'location reference' est obligatoire et ne peut pas être vide. "
+                "Colonnes disponibles dans le fichier: " + ", ".join(row.keys())
+            )
+
+        return super().before_import_row(row, **kwargs)
+
 
 
 from import_export import resources, fields
