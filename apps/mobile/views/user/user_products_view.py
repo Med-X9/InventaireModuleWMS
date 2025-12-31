@@ -140,7 +140,6 @@ class UserProductsView(APIView):
         try:
             # Récupérer l'utilisateur depuis le token d'authentification
             user_id = request.user.id
-            print(f"user_id depuis token: {user_id}")
             
             # Vérifier le format demandé (csv par défaut)
             export_format = request.GET.get('format', 'csv').lower()
@@ -153,11 +152,18 @@ class UserProductsView(APIView):
             products = []
             if response_data and 'data' in response_data and 'products' in response_data['data']:
                 for product in response_data['data']['products']:
+                    raw_product_code = str(product.get('product_code') or '')
+                    raw_internal_product_code = str(product.get('internal_product_code') or '')
+
+
+                    # Enlever tous les guillemets et espaces de la valeur brute
+                    clean_product_code = f'"{raw_product_code}"' 
+                    clean_internal_product_code = f'"{raw_internal_product_code}"' 
+
                     products.append({
                         'web_id': product.get('web_id'),
-                        'product_name': product.get('product_name'),
-                        'product_code': product.get('product_code'),
-                        'internal_product_code': product.get('internal_product_code'),
+                        'product_code': raw_product_code,
+                        'internal_product_code': raw_internal_product_code,
                         'family_name': product.get('family_name'),
                         'is_variant': product.get('is_variant'),
                         'n_lot': product.get('n_lot'),
@@ -328,11 +334,11 @@ class UserProductsView(APIView):
             n_lot = product.get('n_lot', False)
             n_serie = product.get('n_serie', False)
             dlc = product.get('dlc', False)
-            
+
             # Convertir la liste des numéros de série en JSON
             numeros_serie = product.get('numeros_serie', [])
             numeros_serie_json = json.dumps(numeros_serie, ensure_ascii=False) if numeros_serie else '[]'
-            
+
             # Formater les dates
             created_at = product.get('created_at', '')
             updated_at = product.get('updated_at', '')
@@ -348,7 +354,8 @@ class UserProductsView(APIView):
                         updated_at = datetime.fromisoformat(updated_at.replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M:%S')
                 except:
                     pass
-            
+
+            # Les codes sont déjà formatés avec guillemets dans la liste products
             ws.cell(row=row_num, column=1, value=product.get('web_id'))
             ws.cell(row=row_num, column=2, value=product.get('product_name'))
             ws.cell(row=row_num, column=3, value=product.get('product_code'))
@@ -388,17 +395,11 @@ class UserProductsView(APIView):
         
         return excel_buffer
     
-    def _generate_csv(self, products: list) -> io.StringIO:
+    def _generate_csv(self, products: list) -> io.BytesIO:
         """
         Génère un fichier CSV à partir de la liste des produits.
-        
-        Args:
-            products: Liste des produits à exporter
-            
-        Returns:
-            StringIO: Buffer contenant le fichier CSV
+        Garantit la conservation des codes-barres commençant par 0.
         """
-        # Définir les en-têtes (snake_case)
         headers = [
             'web_id',
             'product_name',
@@ -413,48 +414,56 @@ class UserProductsView(APIView):
             'created_at',
             'updated_at'
         ]
-        
-        # Créer un buffer pour le CSV
+
         csv_buffer = io.StringIO()
-        writer = csv.writer(csv_buffer, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
         
-        # Écrire les en-têtes
+        writer = csv.writer(
+            csv_buffer,
+            delimiter=',',
+            quotechar='"',
+            quoting=csv.QUOTE_ALL   
+        )
+
+        # Headers
         writer.writerow(headers)
-        
-        # Écrire les données
+
         for product in products:
-            # Garder les valeurs booléennes telles quelles (True/False)
+            # Sécurisation STRING (aucune conversion numérique)
+            product_code = str(product.get('product_code') or '')
+            internal_product_code = str(product.get('internal_product_code') or '')
+
+            # Booléens
             is_variant = product.get('is_variant', False)
             n_lot = product.get('n_lot', False)
             n_serie = product.get('n_serie', False)
             dlc = product.get('dlc', False)
-            
-            # Convertir la liste des numéros de série en JSON
+
+            # Liste → JSON
             numeros_serie = product.get('numeros_serie', [])
-            numeros_serie_json = json.dumps(numeros_serie, ensure_ascii=False) if numeros_serie else '[]'
-            
-            # Formater les dates
+            numeros_serie_json = json.dumps(numeros_serie, ensure_ascii=False)
+
+            # Dates
             created_at = product.get('created_at', '')
             updated_at = product.get('updated_at', '')
-            if created_at:
-                try:
-                    if isinstance(created_at, str):
-                        created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M:%S')
-                except:
-                    pass
-            if updated_at:
-                try:
-                    if isinstance(updated_at, str):
-                        updated_at = datetime.fromisoformat(updated_at.replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M:%S')
-                except:
-                    pass
-            
-            # Écrire la ligne
+
+            def format_date(value):
+                if isinstance(value, str):
+                    try:
+                        return datetime.fromisoformat(
+                            value.replace('Z', '+00:00')
+                        ).strftime('%Y-%m-%d %H:%M:%S')
+                    except:
+                        return value
+                return value
+
+            created_at = format_date(created_at)
+            updated_at = format_date(updated_at)
+
             writer.writerow([
                 product.get('web_id', ''),
                 product.get('product_name', ''),
-                product.get('product_code', ''),
-                product.get('internal_product_code', ''),
+                product_code,
+                internal_product_code,
                 product.get('family_name', ''),
                 is_variant,
                 n_lot,
@@ -464,11 +473,11 @@ class UserProductsView(APIView):
                 created_at,
                 updated_at
             ])
-        
-        # Retourner le buffer en BytesIO pour la réponse HTTP
+
+        # Conversion Bytes (BOM UTF-8 pour Excel)
         csv_buffer.seek(0)
         csv_bytes = io.BytesIO()
-        csv_bytes.write(csv_buffer.getvalue().encode('utf-8-sig'))  # BOM UTF-8 pour Excel
+        csv_bytes.write(csv_buffer.getvalue().encode('utf-8-sig'))
         csv_bytes.seek(0)
-        
+
         return csv_bytes

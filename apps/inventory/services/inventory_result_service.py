@@ -246,38 +246,34 @@ class InventoryResultService:
             previous_quantities: Dict[int, int] = {}  # Stocker toutes les quantités précédentes
             assignment_statuses = entry.get("assignment_statuses", {})
 
+            # Standardiser : ajouter TOUTES les clés possibles avec null pour celles absentes
             for order in range(1, max_order_global + 1):
                 quantity = quantities.get(order)
                 quantity_key = f"{order}er comptage"
                 result_row[quantity_key] = quantity if quantity is not None else None
 
-                # Ajouter le statut de l'assignment pour tous les comptages
+                # Ajouter le statut de l'assignment pour TOUS les comptages (même null)
                 assignment_status = assignment_statuses.get(order)
-                if assignment_status is not None:
-                    status_key = f"statut_{order}er_comptage"
-                    result_row[status_key] = assignment_status
+                status_key = f"statut_{order}er_comptage"
+                result_row[status_key] = assignment_status  # Peut être None
 
-                # Calculer les écarts pour tous les ordres précédents
-                if quantity is not None and previous_quantities:
-                    # Optimisation : vérifier une seule fois si la quantité actuelle correspond à au moins une précédente
-                    has_match_with_any_previous = any(
-                        quantity == prev_qty for prev_qty in previous_quantities.values()
-                    )
+                # Ajouter TOUS les écarts possibles (même null) pour standardiser le format
+                for prev_order in range(1, order):
+                    ecart_key = f"ecart_{prev_order}_{order}"
+                    prev_quantity = previous_quantities.get(prev_order)
 
-                    # Calculer tous les écarts pour cet ordre
-                    for prev_order in range(1, order):
-                        ecart_key = f"ecart_{prev_order}_{order}"
-                        prev_quantity = previous_quantities.get(prev_order)
-
-                        if prev_quantity is not None:
-                            # Pour ecart_1_2 : afficher la valeur numérique
-                            if prev_order == 1 and order == 2:
-                                result_row[ecart_key] = abs(quantity - prev_quantity)
-                            else:
-                                # Pour les autres écarts : vérifier si égal à AU MOINS UN comptage précédent
-                                result_row[ecart_key] = has_match_with_any_previous
+                    if quantity is not None and prev_quantity is not None:
+                        # Pour ecart_1_2 : afficher la valeur numérique
+                        if prev_order == 1 and order == 2:
+                            result_row[ecart_key] = abs(quantity - prev_quantity)
                         else:
-                            result_row[ecart_key] = None
+                            # Pour les autres écarts : vérifier si égal à AU MOINS UN comptage précédent
+                            has_match_with_any_previous = any(
+                                quantity == prev_qty for prev_qty in previous_quantities.values()
+                            )
+                            result_row[ecart_key] = has_match_with_any_previous
+                    else:
+                        result_row[ecart_key] = None
 
                 # Stocker la quantité actuelle pour les calculs suivants
                 if quantity is not None:
