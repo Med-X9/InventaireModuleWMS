@@ -110,38 +110,32 @@ class PersonneAdmin(ImportExportModelAdmin):
             if form.is_valid():
                 nombre_personnes = form.cleaned_data['nombre_personnes']
                 
-                # Plage de numéros disponibles : opr-0001 à opr-9999
+                # Plage de numéros disponibles : 0001 à 99999999 (pour supporter les grands numéros avec 3 zéros)
                 range_start = 1
-                range_end = 9999
-                
+                range_end = 99999999
+
                 # Trouver le prochain numéro disponible de manière optimisée
                 next_available_num = None
-                
-                try:
-                    # Essayer d'abord avec une requête SQL optimisée (PostgreSQL)
-                    db_vendor = connection.vendor
-                    if db_vendor == 'postgresql':
-                        with connection.cursor() as cursor:
-                            cursor.execute("""
-                                SELECT MIN(t.num) as next_num
-                                FROM (
-                                    SELECT generate_series(%s, %s) as num
-                                ) t
-                                WHERE NOT EXISTS (
-                                    SELECT 1 FROM inventory_personne 
-                                    WHERE numero = 'opr-' || LPAD(t.num::text, 4, '0')
-                                )
-                                LIMIT 1
-                            """, [range_start, range_end])
-                            
-                            result = cursor.fetchone()
-                            next_available_num = result[0] if result and result[0] else None
-                except Exception:
-                    # Si la requête SQL échoue, utiliser la méthode Django
-                    pass
-                
-                # Fallback : méthode Django optimisée
-                if next_available_num is None:
+
+                # Utiliser la méthode Django qui fonctionne avec tous les formats existants
+                existing_numeros = Personne.objects.filter(
+                    numero__startswith='opr-'
+                ).values_list('numero', flat=True)
+
+                # Extraire rapidement les numéros existants dans la plage
+                existing_nums_set = set()
+                for numero in existing_numeros:
+                    match = re.match(r'opr-(\d+)', numero)
+                    if match:
+                        num = int(match.group(1))
+                        if range_start <= num <= range_end:
+                            existing_nums_set.add(num)
+
+                # Trouver le prochain numéro disponible
+                for num in range(range_start, range_end + 1):
+                    if num not in existing_nums_set:
+                        next_available_num = num
+                        break
                     # Récupérer uniquement les numéros dans la plage avec une requête optimisée
                     existing_numeros = Personne.objects.filter(
                         numero__startswith='opr-'
@@ -165,7 +159,7 @@ class PersonneAdmin(ImportExportModelAdmin):
                 if next_available_num is None:
                     messages.error(
                         request,
-                        f'Aucun numéro disponible dans la plage opr-0001 à opr-9999. '
+                        f'Aucun numéro disponible dans la plage 1 à 99999999. '
                         f'Toutes les personnes ont déjà été créées.'
                     )
                     form = CreatePersonnesForm(request.POST)
@@ -176,8 +170,8 @@ class PersonneAdmin(ImportExportModelAdmin):
                         available_slots = range_end - next_available_num + 1
                         messages.error(
                             request,
-                            f'Il ne reste que {available_slots} emplacement(s) disponible(s) dans la plage opr-0001 à opr-9999. '
-                            f'Vous pouvez créer au maximum {available_slots} personne(s) à partir de opr-{str(next_available_num).zfill(4)}.'
+                            f'Il ne reste que {available_slots} emplacement(s) disponible(s). '
+                            f'Vous pouvez créer au maximum {available_slots} personne(s) à partir du numéro {next_available_num}.'
                         )
                         form = CreatePersonnesForm(request.POST)
                     else:
@@ -187,7 +181,7 @@ class PersonneAdmin(ImportExportModelAdmin):
                             with transaction.atomic():
                                 # Vérifier rapidement quelles personnes existent déjà dans la plage exacte à créer
                                 numeros_to_check = [
-                                    f'opr-{str(next_available_num + i).zfill(4)}' 
+                                    f'opr-000{next_available_num + i}'
                                     for i in range(nombre_personnes)
                                 ]
                                 
@@ -225,7 +219,7 @@ class PersonneAdmin(ImportExportModelAdmin):
                                 
                                 for i in range(nombre_personnes):
                                     person_num = next_available_num + i
-                                    numero = f'opr-{str(person_num).zfill(4)}'
+                                    numero = f'opr-000{person_num}'
                                     
                                     # Exclure ceux qui existent déjà
                                     if numero not in already_existing_set:
@@ -242,7 +236,7 @@ class PersonneAdmin(ImportExportModelAdmin):
                                 if not personnes_to_create:
                                     messages.warning(
                                         request,
-                                        f'Toutes les personnes demandées existent déjà dans la plage opr-{str(next_available_num).zfill(4)} à opr-{str(next_available_num + nombre_personnes - 1).zfill(4)}.'
+                                        f'Toutes les personnes demandées existent déjà dans la plage {next_available_num} à {next_available_num + nombre_personnes - 1}.'
                                     )
                                     return redirect('admin:inventory_personne_changelist')
                                 
@@ -260,7 +254,7 @@ class PersonneAdmin(ImportExportModelAdmin):
                                     last_person = next_available_num + created_count - 1
                                     messages.success(
                                         request,
-                                        f'{created_count} personne(s) créée(s) avec succès (de opr-{str(first_person).zfill(4)} à opr-{str(last_person).zfill(4)})'
+                                        f'{created_count} personne(s) créée(s) avec succès (de opr-000{first_person} à opr-000{last_person})'
                                     )
                                 
                                 # Si certaines personnes n'ont pas pu être créées
@@ -289,7 +283,7 @@ class PersonneAdmin(ImportExportModelAdmin):
                             
                             for i in range(nombre_personnes):
                                 person_num = next_available_num + i
-                                numero = f'opr-{str(person_num).zfill(4)}'
+                                numero = f'opr-000{person_num}'
                                 
                                 if numero not in already_existing_set:
                                     try:
@@ -313,7 +307,7 @@ class PersonneAdmin(ImportExportModelAdmin):
                                 last_person = created_persons[-1]
                                 messages.success(
                                     request,
-                                    f'{created_count} personne(s) créée(s) avec succès (de opr-{str(first_person).zfill(4)} à opr-{str(last_person).zfill(4)})'
+                                    f'{created_count} personne(s) créée(s) avec succès (de opr-000{first_person} à opr-000{last_person})'
                                 )
                             
                             if errors and len(errors) <= 50:

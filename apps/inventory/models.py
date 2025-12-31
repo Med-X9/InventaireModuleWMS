@@ -239,25 +239,25 @@ def validate_numero_format(value):
     """
     if value is None or value == '':
         return
-    
+
     # Convertir en string si ce n'est pas déjà le cas
     numero_str = str(value).strip()
-    
+
     # Vérifier que le format commence par 'opr-'
     if not numero_str.startswith('opr-'):
         raise ValidationError(
             _('Le numéro doit commencer par "opr-" (ex: opr-0002, opr-00012, opr-00034)')
         )
-    
+
     # Extraire la partie après 'opr-'
     suffix = numero_str[4:]  # Enlever 'opr-'
-    
+
     # Vérifier que la partie après 'opr-' commence par '000' suivi d'au moins un chiffre
     if not suffix.startswith('000'):
         raise ValidationError(
             _('Le numéro doit avoir le format "opr-000x" où x est au moins un chiffre (ex: opr-0002, opr-00012, opr-00034)')
         )
-    
+
     # Vérifier que la partie après '000' contient au moins un chiffre
     remaining = suffix[3:]  # Enlever '000'
     if not remaining or not remaining.isdigit() or len(remaining) == 0:
