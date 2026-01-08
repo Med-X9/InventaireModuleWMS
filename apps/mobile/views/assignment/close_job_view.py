@@ -18,7 +18,7 @@ from apps.mobile.exceptions import (
 class CloseJobView(APIView):
     """
     Vue pour clôturer un assignment et potentiellement le job associé.
-    
+
     Cette API :
     1. Vérifie que l'assignment est affecté à l'utilisateur authentifié
     2. Marque l'assignment comme TERMINE
@@ -28,9 +28,9 @@ class CloseJobView(APIView):
        - Crée les lignes manquantes dans chaque counting avec quantité 0
        - Les lignes sont comparées par (location_id, product_id, dlc, n_lot)
     4. Vérifie si TOUS les assignments du job sont TERMINE
-    5. Vérifie si tous les EcartComptage de l'inventaire ont un final_result non null
-    6. Si les deux conditions précédentes sont remplies, marque le job comme TERMINE
-    
+    5. Vérifie si TOUS les écarts du job ont été résolus (final_result != null)
+    6. Si tous les assignments sont terminés ET tous les écarts sont résolus, marque le job comme TERMINE
+
     URL: /api/mobile/job/{job_id}/close/{assignment_id}/
     """
     permission_classes = [IsAuthenticated]
@@ -51,7 +51,7 @@ class CloseJobView(APIView):
         Returns:
             Response avec les informations de clôture incluant :
             - Le statut de l'assignment (toujours TERMINE)
-            - Le statut du job (TERMINE si toutes les conditions sont remplies)
+            - Le statut du job (TERMINE si tous les assignments sont terminés)
             - Les informations sur les conditions de clôture du job
             - Les informations de synchronisation des CountingDetail (si applicable)
         """
@@ -82,7 +82,7 @@ class CloseJobView(APIView):
             if result.get('job_closure_status', {}).get('job_closed', False):
                 message = "Assignment et job clôturés avec succès"
             else:
-                message = "Assignment clôturé avec succès. Le job sera clôturé lorsque tous les assignments seront terminés et tous les écarts auront un résultat final."
+                message = "Assignment clôturé avec succès. Le job sera clôturé lorsque tous les assignments seront terminés."
             
             return success_response(
                 data=result,

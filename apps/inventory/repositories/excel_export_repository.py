@@ -94,20 +94,60 @@ class ExcelExportRepository:
         from django.db.models import Sum, F
         from ..models import Product
 
-        # Récupérer les produits avec leur somme de final_result
-        # Jointure directe : EcartComptage -> CountingSequence -> CountingDetail -> Product
-        consolidated_data = EcartComptage.objects.filter(
+        # Étape 1 : Récupérer les IDs des produits à exclure (code test)
+        from apps.masterdata.models import Product
+        excluded_product_ids = Product.objects.filter(
+            Internal_Product_Code='111111111111111'
+        ).values_list('id', flat=True)
+
+        # Étape 2 : Récupérer les produits avec leur somme de final_result
+        # Solution : d'abord identifier les produits des EcartComptage, puis sommer
+        # Pour éviter les duplications si un EcartComptage a plusieurs CountingSequence
+
+        # Étape 2a : Récupérer les paires (ecart_id, product_id) uniques
+        ecart_product_pairs = EcartComptage.objects.filter(
             inventory_id=inventory_id,
             resolved=True,
             final_result__isnull=False
         ).values(
+            'id',  # EcartComptage ID pour unicité
             'counting_sequences__counting_detail__product_id'
-        ).annotate(
-            total_quantity=Sum('final_result'),
-            product_id=F('counting_sequences__counting_detail__product_id')
-        ).exclude(
-            counting_sequences__counting_detail__product__Internal_Product_Code='111111111111111'
         ).distinct()
+
+        # Étape 2b : Créer un mapping ecart_id -> product_id (premier produit trouvé)
+        ecart_to_product = {}
+        for pair in ecart_product_pairs:
+            ecart_id = pair['id']
+            product_id = pair['counting_sequences__counting_detail__product_id']
+            if ecart_id not in ecart_to_product:
+                ecart_to_product[ecart_id] = product_id
+
+        # Étape 2c : Récupérer les EcartComptage avec leur produit et sommer par produit
+        consolidated_data = []
+        product_sums = {}
+
+        ecart_comptages = EcartComptage.objects.filter(
+            id__in=ecart_to_product.keys()
+        ).select_related()
+
+        for ecart in ecart_comptages:
+            product_id = ecart_to_product[ecart.id]
+            if product_id not in product_sums:
+                product_sums[product_id] = 0
+            product_sums[product_id] += ecart.final_result
+
+        # Convertir en format attendu
+        for product_id, total_quantity in product_sums.items():
+            consolidated_data.append({
+                'product_id': product_id,
+                'total_quantity': total_quantity
+            })
+
+        # Appliquer l'exclusion des produits test
+        consolidated_data = [
+            item for item in consolidated_data
+            if item['product_id'] not in excluded_product_ids
+        ]
 
         # Récupérer les détails des produits
         product_ids = [item['product_id'] for item in consolidated_data]

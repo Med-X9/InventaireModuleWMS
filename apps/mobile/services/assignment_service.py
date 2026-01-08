@@ -308,24 +308,24 @@ class AssignmentService:
     def close_job(self, job_id: int, assignment_id: int, personnes_ids: Optional[List[int]] = None, user_id: Optional[int] = None) -> dict:
         """
         Clôture un assignment et vérifie si le job peut être clôturé.
-        
+
         Cette méthode :
         1. Marque l'assignment comme TERMINE
         2. Vérifie si TOUS les assignments du job sont TERMINE
-        3. Vérifie si tous les EcartComptage de l'inventaire ont un final_result non null
-        4. Si les deux conditions précédentes sont remplies, marque le job comme TERMINE
-        
+        3. Vérifie si TOUS les écarts du job ont été résolus (final_result != null)
+        4. Si tous les assignments sont terminés ET tous les écarts sont résolus, marque le job comme TERMINE
+
         Args:
             job_id: ID du job
             assignment_id: ID de l'assignment
             personnes_ids: Liste des IDs des personnes (min 1, max 2)
             user_id: ID de l'utilisateur authentifié (requis pour vérifier l'affectation)
-            
+
         Returns:
             Dictionnaire avec les informations du job et de l'assignment, incluant :
             - Le statut de clôture du job (job_closed)
             - Les informations sur les conditions de clôture (job_closure_status)
-            
+
         Raises:
             JobNotFoundException: Si le job n'existe pas
             AssignmentNotFoundException: Si l'assignment n'existe pas
@@ -405,21 +405,23 @@ class AssignmentService:
         # Vérifier si tous les assignments du job sont terminés
         all_assignments = Assigment.objects.filter(job=job)
         all_assignments_terminated = all_assignments.exclude(status='TERMINE').count() == 0
-        
-        # Vérifier si tous les EcartComptage de l'inventaire ont un final_result non null
-        # Si aucun EcartComptage n'existe, on considère que la condition est remplie
-        ecart_comptages = EcartComptage.objects.filter(inventory=job.inventory)
-        if ecart_comptages.exists():
-            # Si des écarts existent, tous doivent avoir un final_result non null
-            all_ecarts_have_final_result = ecart_comptages.filter(final_result__isnull=True).count() == 0
-        else:
-            # Si aucun écart n'existe, on considère que la condition est remplie
-            all_ecarts_have_final_result = True
-        
-        # Si tous les assignments sont terminés ET tous les écarts ont un résultat final
-        # alors on peut clôturer le job
+
+        # Vérifier si tous les écarts du job ont été résolus (final_result != null)
+        all_ecarts_resolved = True
+        if all_assignments_terminated:
+            # Récupérer tous les EcartComptage liés au job via les ComptageSequence
+            from ..models import EcartComptage
+            unresolved_ecarts = EcartComptage.objects.filter(
+                counting_sequences__counting_detail__job=job,
+                final_result__isnull=True
+            ).exists()
+
+            if unresolved_ecarts:
+                all_ecarts_resolved = False
+
+        # Si tous les assignments sont terminés ET tous les écarts sont résolus, clôturer le job
         job_closed = False
-        if all_assignments_terminated and all_ecarts_have_final_result:
+        if all_assignments_terminated and all_ecarts_resolved:
             job.status = 'TERMINE'
             job.termine_date = now
             job.save()
@@ -451,7 +453,7 @@ class AssignmentService:
             ],
             'job_closure_status': {
                 'all_assignments_terminated': all_assignments_terminated,
-                'all_ecarts_have_final_result': all_ecarts_have_final_result,
+                'all_ecarts_resolved': all_ecarts_resolved,
                 'job_closed': job_closed
             },
             'counting_detail_sync': sync_result

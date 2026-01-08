@@ -15,11 +15,10 @@ logger = logging.getLogger(__name__)
 class ConsolidatedArticleExcelExportView(APIView):
     """
     Vue pour exporter un fichier Excel consolidé par article.
-    
+
     Pour chaque article, le fichier contient :
     - Les informations de l'article (référence, code, description, etc.)
-    - La quantité consolidée (somme de toutes les quantités dans tous les emplacements)
-    - Une colonne par emplacement avec la quantité dans cet emplacement
+    - La quantité consolidée (somme des final_result de tous les EcartComptage résolus)
     """
     
     def __init__(self, *args, **kwargs):
