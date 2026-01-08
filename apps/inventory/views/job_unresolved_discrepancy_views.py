@@ -75,6 +75,18 @@ class JobsWithUnresolvedDiscrepanciesByCountingView(APIView):
                     warehouse_id=warehouse_id,
                 )
             )
+
+            # Si aucun job ne nécessite un prochain comptage, retourner une erreur 404
+            if not data:
+                return error_response(
+                    message=(
+                        "Aucun job avec écarts non résolus trouvé pour cet inventaire "
+                        "Tous les comptages doivent être terminés et contenir des écarts "
+                        "avec résultat vide pour nécessiter un prochain comptage."
+                    ),
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+
             serializer = CountingJobsDiscrepancySerializer(data, many=True)
             return success_response(
                 message=(

@@ -410,7 +410,7 @@ class AssignmentService:
         all_ecarts_resolved = True
         if all_assignments_terminated:
             # Récupérer tous les EcartComptage liés au job via les ComptageSequence
-            from ..models import EcartComptage
+            # EcartComptage est déjà importé au début du fichier
             unresolved_ecarts = EcartComptage.objects.filter(
                 counting_sequences__counting_detail__job=job,
                 final_result__isnull=True
