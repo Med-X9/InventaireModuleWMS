@@ -312,7 +312,8 @@ class AssignmentService:
         Cette méthode :
         1. Marque l'assignment comme TERMINE
         2. Vérifie si TOUS les assignments du job sont TERMINE
-        3. Si tous les assignments sont terminés, marque le job comme TERMINE
+        3. Vérifie si TOUS les écarts du job ont été résolus (final_result != null)
+        4. Si tous les assignments sont terminés ET tous les écarts sont résolus, marque le job comme TERMINE
 
         Args:
             job_id: ID du job
@@ -405,9 +406,22 @@ class AssignmentService:
         all_assignments = Assigment.objects.filter(job=job)
         all_assignments_terminated = all_assignments.exclude(status='TERMINE').count() == 0
 
-        # Si tous les assignments sont terminés, clôturer le job
-        job_closed = False
+        # Vérifier si tous les écarts du job ont été résolus (final_result != null)
+        all_ecarts_resolved = True
         if all_assignments_terminated:
+            # Récupérer tous les EcartComptage liés au job via les ComptageSequence
+            from ..models import EcartComptage
+            unresolved_ecarts = EcartComptage.objects.filter(
+                counting_sequences__counting_detail__job=job,
+                final_result__isnull=True
+            ).exists()
+
+            if unresolved_ecarts:
+                all_ecarts_resolved = False
+
+        # Si tous les assignments sont terminés ET tous les écarts sont résolus, clôturer le job
+        job_closed = False
+        if all_assignments_terminated and all_ecarts_resolved:
             job.status = 'TERMINE'
             job.termine_date = now
             job.save()
@@ -439,6 +453,7 @@ class AssignmentService:
             ],
             'job_closure_status': {
                 'all_assignments_terminated': all_assignments_terminated,
+                'all_ecarts_resolved': all_ecarts_resolved,
                 'job_closed': job_closed
             },
             'counting_detail_sync': sync_result

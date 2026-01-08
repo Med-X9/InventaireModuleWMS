@@ -28,7 +28,8 @@ class CloseJobView(APIView):
        - Crée les lignes manquantes dans chaque counting avec quantité 0
        - Les lignes sont comparées par (location_id, product_id, dlc, n_lot)
     4. Vérifie si TOUS les assignments du job sont TERMINE
-    5. Si tous les assignments sont terminés, marque le job comme TERMINE
+    5. Vérifie si TOUS les écarts du job ont été résolus (final_result != null)
+    6. Si tous les assignments sont terminés ET tous les écarts sont résolus, marque le job comme TERMINE
 
     URL: /api/mobile/job/{job_id}/close/{assignment_id}/
     """

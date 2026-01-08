@@ -452,7 +452,7 @@ class ProductResource(resources.ModelResource):
             'product_status', 'internal_product_code', 'product_family',
             'n_lot', 'n_serie', 'dlc', 'is_variant'
         )
-        import_id_fields = ('internal_product_code',)
+        import_id_fields = ('barcode',)
         skip_unchanged = True
         report_skipped = True
         use_transactions = True
@@ -525,44 +525,64 @@ class ProductResource(resources.ModelResource):
                 row_result.instance.save(update_fields=['Is_Variant', 'n_lot', 'n_serie', 'dlc'])
 
 
-    # Surcharge pour gérer les variations de noms de colonne pour internal_product_code
+    # Surcharge pour gérer les variations de noms de colonne pour internal_product_code et barcode
+    # et gérer les doublons sur barcode
     def get_or_init_instance(self, instance_loader, row):
         field_variations = {
             'internal_product_code': ['internal product code', 'Internal Product Code', 'INTERNAL PRODUCT CODE', 
                                      'internal_product_code', 'Internal_Product_Code', 'code produit', 
                                      'Code Produit', 'CODE PRODUIT'],
+            'barcode': ['barcode', 'Barcode', 'BARCODE', 'code barre', 'Code Barre', 'CODE BARRE',
+                       'code-barres', 'Code-Barres', 'CODE-BARRES'],
         }
         for field_name, variations in field_variations.items():
             for key in row.keys():
                 if key.lower().strip() in [v.lower().strip() for v in variations]:
                     row[field_name] = row[key]
                     break
-        return super().get_or_init_instance(instance_loader, row)
 
-    # Vérifie les import_id_fields
+        # Essayer de trouver une instance existante par barcode
+        barcode_value = row.get('barcode')
+        if barcode_value and barcode_value.strip():
+            try:
+                # Essayer de trouver un produit avec ce barcode
+                instance = self._meta.model.objects.get(Barcode=barcode_value.strip())
+                return instance, False  # False = instance exists, will be updated
+            except self._meta.model.DoesNotExist:
+                # Aucun produit trouvé, créer une nouvelle instance
+                instance = self._meta.model()
+                return instance, True  # True = new instance
+            except self._meta.model.MultipleObjectsReturned:
+                # Plusieurs produits avec le même barcode, créer une nouvelle instance
+                # pour éviter l'erreur "get() returned more than one"
+                instance = self._meta.model()
+                return instance, True  # True = new instance
+        else:
+            # Pas de barcode fourni, créer une nouvelle instance
+            instance = self._meta.model()
+            return instance, True  # True = new instance
+
+    # Vérifie que la colonne barcode est présente
     def _check_import_id_fields(self, headers):
         field_to_columns = {
-            'internal_product_code': ['internal product code', 'Internal Product Code', 'INTERNAL PRODUCT CODE', 
-                                     'internal_product_code', 'Internal_Product_Code', 'code produit', 
-                                     'Code Produit', 'CODE PRODUIT'],
+            'barcode': ['barcode', 'Barcode', 'BARCODE', 'code barre', 'Code Barre', 'CODE BARRE',
+                       'code-barres', 'Code-Barres', 'CODE-BARRES'],
         }
         normalized_headers = {h.lower().strip(): h for h in headers}
         available_headers = ', '.join(headers[:10])
         if len(headers) > 10:
             available_headers += f', ... ({len(headers)} en-têtes au total)'
-        missing_fields = []
-        for field_name in self.get_import_id_fields():
-            possible_columns = field_to_columns.get(field_name, [field_name])
-            found = False
-            for possible_column in possible_columns:
-                if possible_column.lower().strip() in normalized_headers:
-                    found = True
-                    break
-            if not found:
-                missing_fields.append(field_name)
-        if missing_fields:
+
+        # Vérifier que la colonne barcode est présente
+        found = False
+        for possible_column in field_to_columns.get('barcode', ['barcode']):
+            if possible_column.lower().strip() in normalized_headers:
+                found = True
+                break
+
+        if not found:
             raise exceptions.FieldError(
-                f"The following fields are declared in 'import_id_fields' but are not present in the file headers: {', '.join(missing_fields)}. "
+                f"La colonne 'barcode' est obligatoire pour l'import. "
                 f"En-têtes disponibles dans le fichier: {available_headers}"
             )
 
@@ -1171,7 +1191,7 @@ class UserAppAdmin(ImportExportMixin, UserAdmin):
                                 team_num = next_available_num + i
                                 username = f'equipe-{team_num}'
                                 
-                                if team_num not in existing_nums:
+                                if team_num not in existing_nums_set:
                                     try:
                                         user = UserApp.objects.create_user(
                                             username=username,
