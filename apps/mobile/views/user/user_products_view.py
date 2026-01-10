@@ -481,3 +481,455 @@ class UserProductsView(APIView):
         csv_bytes.seek(0)
 
         return csv_bytes
+
+
+class AllProductsView(APIView):
+    """
+    API pour exporter TOUS les produits (sans filtre par account) en format CSV ou Excel.
+    
+    Permet d'exporter la liste de tous les produits du système sans vérification
+    de compte, avec un filtrage optionnel par statut (ACTIVE ou INACTIVE).
+    Utile pour l'export global des produits disponibles.
+    
+    URL: /mobile/api/products/all/
+    Paramètres GET:
+    - format: 'csv' (défaut) ou 'excel' pour choisir le format d'export
+    - status: 'ACTIVE' (défaut), 'INACTIVE' ou 'all' pour filtrer par statut
+    
+    Fonctionnalités:
+    - Export de TOUS les produits sans filtrage par account
+    - Filtrage optionnel par statut (ACTIVE/INACTIVE/all)
+    - Génération d'un fichier avec en-têtes (CSV ou Excel)
+    - Gestion des erreurs spécifiques et cas d'absence de produits
+    
+    Réponses:
+    - 200: Fichier CSV ou Excel généré avec succès
+    - 400: Erreur de validation
+    - 401: Non authentifié
+    - 500: Erreur interne du serveur ou erreur de base de données
+    """
+    permission_classes = [IsAuthenticated]
+    
+    @swagger_auto_schema(
+        operation_summary="Export CSV/Excel de tous les produits (sans filtre account)",
+        operation_description="Exporte la liste de TOUS les produits du système sans vérification de compte. Utilisez ?format=excel pour Excel et ?status=ACTIVE/INACTIVE/all pour filtrer par statut.",
+        manual_parameters=[
+            openapi.Parameter(
+                'format',
+                openapi.IN_QUERY,
+                description="Format d'export: 'csv' (défaut) ou 'excel'",
+                type=openapi.TYPE_STRING,
+                enum=['csv', 'excel'],
+                default='csv'
+            ),
+            openapi.Parameter(
+                'status',
+                openapi.IN_QUERY,
+                description="Statut des produits: 'ACTIVE' (défaut), 'INACTIVE' ou 'all'",
+                type=openapi.TYPE_STRING,
+                enum=['ACTIVE', 'INACTIVE', 'all'],
+                default='ACTIVE'
+            )
+        ],
+        responses={
+            200: openapi.Response(
+                description="Fichier CSV ou Excel généré avec succès",
+                content={
+                    'text/csv': {
+                        'schema': openapi.Schema(
+                            type=openapi.TYPE_FILE,
+                            description="Fichier CSV contenant tous les produits (format par défaut)"
+                        )
+                    },
+                    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': {
+                        'schema': openapi.Schema(
+                            type=openapi.TYPE_FILE,
+                            description="Fichier Excel contenant tous les produits (si format=excel)"
+                        )
+                    }
+                }
+            ),
+            400: openapi.Response(
+                description="Erreur de validation",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
+                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Erreur de validation'),
+                        'error_type': openapi.Schema(type=openapi.TYPE_STRING, example='VALIDATION_ERROR')
+                    }
+                )
+            ),
+            401: openapi.Response(
+                description="Non authentifié",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'detail': openapi.Schema(type=openapi.TYPE_STRING, example='Authentication credentials were not provided.')
+                    }
+                )
+            ),
+            500: openapi.Response(
+                description="Erreur interne du serveur",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
+                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Erreur interne du serveur'),
+                        'error_type': openapi.Schema(type=openapi.TYPE_STRING, example='INTERNAL_ERROR')
+                    }
+                )
+            )
+        },
+        security=[{'Bearer': []}],
+        tags=['Utilisateur Mobile']
+    )
+    def get(self, request):
+        """
+        Exporte TOUS les produits (sans filtre par account) en fichier CSV ou Excel.
+        
+        Args:
+            request: Requête GET
+            - format: Paramètre optionnel 'excel' pour exporter en Excel (défaut: 'csv')
+            - status: Paramètre optionnel 'ACTIVE', 'INACTIVE' ou 'all' (défaut: 'ACTIVE')
+            
+        Returns:
+            HttpResponse: Fichier CSV ou Excel contenant tous les produits
+        """
+        try:
+            # Récupérer le format demandé (csv par défaut)
+            export_format = request.GET.get('format', 'csv').lower()
+            
+            # Récupérer le statut demandé (ACTIVE par défaut)
+            status_filter = request.GET.get('status', 'ACTIVE').upper()
+            
+            # Valider le paramètre de statut
+            if status_filter not in ['ACTIVE', 'INACTIVE', 'ALL']:
+                return error_response(
+                    message="Le paramètre 'status' doit être 'ACTIVE', 'INACTIVE' ou 'all'",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    error_type='VALIDATION_ERROR'
+                )
+            
+            # Récupérer TOUS les produits sans filtre par account
+            from apps.masterdata.models import Product
+            from apps.mobile.repositories.user_repository import UserRepository
+            
+            # Construire la requête selon le filtre de statut
+            if status_filter == 'ALL':
+                products_queryset = Product.objects.select_related('Product_Family').all().order_by('Short_Description')
+            else:
+                products_queryset = Product.objects.select_related('Product_Family').filter(
+                    Product_Status=status_filter
+                ).order_by('Short_Description')
+            
+            # Formater les produits comme le fait le repository
+            repository = UserRepository()
+            formatted_products = []
+            
+            for product in products_queryset:
+                try:
+                    product_data = repository.format_product_data(product)
+                    formatted_products.append(product_data)
+                except Exception as e:
+                    print(f"Erreur lors du formatage du produit {product.id}: {str(e)}")
+                    continue
+            
+            # Extraire seulement les informations demandées de chaque produit
+            products = []
+            for product in formatted_products:
+                raw_product_code = str(product.get('product_code') or '')
+                raw_internal_product_code = str(product.get('internal_product_code') or '')
+
+                # Enlever tous les guillemets et espaces de la valeur brute
+                clean_product_code = f'"{raw_product_code}"' 
+                clean_internal_product_code = f'"{raw_internal_product_code}"' 
+
+                products.append({
+                    'web_id': product.get('web_id'),
+                    'product_name': product.get('product_name'),
+                    'product_code': raw_product_code,
+                    'internal_product_code': raw_internal_product_code,
+                    'family_name': product.get('family_name'),
+                    'is_variant': product.get('is_variant'),
+                    'n_lot': product.get('n_lot'),
+                    'n_serie': product.get('n_serie'),
+                    'dlc': product.get('dlc'),
+                    'numeros_serie': product.get('numeros_serie', []),
+                    'created_at': product.get('created_at'),
+                    'updated_at': product.get('updated_at')
+                })
+            
+            # Définir le nom du fichier avec timestamp
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            
+            # Générer le fichier selon le format demandé
+            if export_format == 'excel':
+                # Générer le fichier Excel
+                excel_buffer = self._generate_excel(products)
+                filename = f"tous_produits_{status_filter.lower()}_{timestamp}.xlsx"
+                
+                # Créer la réponse HTTP avec le fichier Excel
+                response = HttpResponse(
+                    excel_buffer.getvalue(),
+                    content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                )
+                response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            else:
+                # Générer le fichier CSV (par défaut)
+                csv_buffer = self._generate_csv(products)
+                filename = f"tous_produits_{status_filter.lower()}_{timestamp}.csv"
+                
+                # Créer la réponse HTTP avec le fichier CSV
+                response = HttpResponse(
+                    csv_buffer.getvalue(),
+                    content_type='text/csv; charset=utf-8'
+                )
+                response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            
+            return response
+            
+        except DataValidationException as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST,
+                error_type='VALIDATION_ERROR'
+            )
+        except DatabaseConnectionException as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                error_type='DATABASE_ERROR'
+            )
+        except ValueError as e:
+            return error_response(
+                message=f'Erreur de validation: {str(e)}',
+                status_code=status.HTTP_400_BAD_REQUEST,
+                error_type='VALIDATION_ERROR'
+            )
+        except ImportError as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                error_type='DEPENDENCY_ERROR'
+            )
+        except Exception as e:
+            print(f"Erreur inattendue dans AllProductsView: {str(e)}")
+            import traceback
+            print(f"Traceback complet: {traceback.format_exc()}")
+            return error_response(
+                message="Erreur interne du serveur",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                error_type='INTERNAL_ERROR'
+            )
+    
+    def _generate_excel(self, products: list) -> io.BytesIO:
+        """
+        Génère un fichier Excel à partir de la liste des produits.
+        
+        Args:
+            products: Liste des produits à exporter
+            
+        Returns:
+            BytesIO: Buffer contenant le fichier Excel
+            
+        Raises:
+            ImportError: Si openpyxl n'est pas installé
+        """
+        try:
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, Alignment, PatternFill
+        except ImportError:
+            raise ImportError(
+                "openpyxl est requis pour l'export Excel. "
+                "Installez-le avec: pip install openpyxl"
+            )
+        
+        # Créer le workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Produits"
+        
+        # Définir les en-têtes
+        headers = [
+            'ID',
+            'Nom du produit',
+            'Code produit',
+            'Code produit interne',
+            'Famille',
+            'Est variante',
+            'N° Lot',
+            'N° Série',
+            'DLC',
+            'Numéros de série',
+            'Date de création',
+            'Date de mise à jour'
+        ]
+        
+        # Style pour les en-têtes
+        header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+        header_font = Font(bold=True, color="FFFFFF")
+        header_alignment = Alignment(horizontal="center", vertical="center")
+        
+        # Écrire les en-têtes
+        for col_num, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col_num)
+            cell.value = header
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = header_alignment
+        
+        # Écrire les données
+        for row_num, product in enumerate(products, 2):
+            # Garder les valeurs booléennes telles quelles (True/False)
+            is_variant = product.get('is_variant', False)
+            n_lot = product.get('n_lot', False)
+            n_serie = product.get('n_serie', False)
+            dlc = product.get('dlc', False)
+
+            # Convertir la liste des numéros de série en JSON
+            numeros_serie = product.get('numeros_serie', [])
+            numeros_serie_json = json.dumps(numeros_serie, ensure_ascii=False) if numeros_serie else '[]'
+
+            # Formater les dates
+            created_at = product.get('created_at', '')
+            updated_at = product.get('updated_at', '')
+            if created_at:
+                try:
+                    if isinstance(created_at, str):
+                        created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    pass
+            if updated_at:
+                try:
+                    if isinstance(updated_at, str):
+                        updated_at = datetime.fromisoformat(updated_at.replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    pass
+
+            # Les codes sont déjà formatés avec guillemets dans la liste products
+            ws.cell(row=row_num, column=1, value=product.get('web_id'))
+            ws.cell(row=row_num, column=2, value=product.get('product_name'))
+            ws.cell(row=row_num, column=3, value=product.get('product_code'))
+            ws.cell(row=row_num, column=4, value=product.get('internal_product_code'))
+            ws.cell(row=row_num, column=5, value=product.get('family_name'))
+            ws.cell(row=row_num, column=6, value=is_variant)
+            ws.cell(row=row_num, column=7, value=n_lot)
+            ws.cell(row=row_num, column=8, value=n_serie)
+            ws.cell(row=row_num, column=9, value=dlc)
+            ws.cell(row=row_num, column=10, value=numeros_serie_json)
+            ws.cell(row=row_num, column=11, value=created_at)
+            ws.cell(row=row_num, column=12, value=updated_at)
+        
+        # Ajuster la largeur des colonnes
+        column_widths = {
+            'A': 10,  # ID
+            'B': 30,  # Nom du produit
+            'C': 20,  # Code produit
+            'D': 20,  # Code produit interne
+            'E': 20,  # Famille
+            'F': 15,  # Est variante
+            'G': 10,  # N° Lot
+            'H': 10,  # N° Série
+            'I': 10,  # DLC
+            'J': 40,  # Numéros de série
+            'K': 20,  # Date de création
+            'L': 20,  # Date de mise à jour
+        }
+        
+        for col, width in column_widths.items():
+            ws.column_dimensions[col].width = width
+        
+        # Sauvegarder dans un buffer
+        excel_buffer = io.BytesIO()
+        wb.save(excel_buffer)
+        excel_buffer.seek(0)
+        
+        return excel_buffer
+    
+    def _generate_csv(self, products: list) -> io.BytesIO:
+        """
+        Génère un fichier CSV à partir de la liste des produits.
+        Garantit la conservation des codes-barres commençant par 0.
+        """
+        headers = [
+            'web_id',
+            'product_name',
+            'product_code',
+            'internal_product_code',
+            'family_name',
+            'is_variant',
+            'n_lot',
+            'n_serie',
+            'dlc',
+            'numeros_serie',
+            'created_at',
+            'updated_at'
+        ]
+
+        csv_buffer = io.StringIO()
+        
+        writer = csv.writer(
+            csv_buffer,
+            delimiter=',',
+            quotechar='"',
+            quoting=csv.QUOTE_ALL   
+        )
+
+        # Headers
+        writer.writerow(headers)
+
+        for product in products:
+            # Sécurisation STRING (aucune conversion numérique)
+            product_code = str(product.get('product_code') or '')
+            internal_product_code = str(product.get('internal_product_code') or '')
+
+            # Booléens
+            is_variant = product.get('is_variant', False)
+            n_lot = product.get('n_lot', False)
+            n_serie = product.get('n_serie', False)
+            dlc = product.get('dlc', False)
+
+            # Liste → JSON
+            numeros_serie = product.get('numeros_serie', [])
+            numeros_serie_json = json.dumps(numeros_serie, ensure_ascii=False)
+
+            # Dates
+            created_at = product.get('created_at', '')
+            updated_at = product.get('updated_at', '')
+
+            def format_date(value):
+                if isinstance(value, str):
+                    try:
+                        return datetime.fromisoformat(
+                            value.replace('Z', '+00:00')
+                        ).strftime('%Y-%m-%d %H:%M:%S')
+                    except:
+                        return value
+                return value
+
+            created_at = format_date(created_at)
+            updated_at = format_date(updated_at)
+
+            writer.writerow([
+                product.get('web_id', ''),
+                product.get('product_name', ''),
+                product_code,
+                internal_product_code,
+                product.get('family_name', ''),
+                is_variant,
+                n_lot,
+                n_serie,
+                dlc,
+                numeros_serie_json,
+                created_at,
+                updated_at
+            ])
+
+        # Conversion Bytes (BOM UTF-8 pour Excel)
+        csv_buffer.seek(0)
+        csv_bytes = io.BytesIO()
+        csv_bytes.write(csv_buffer.getvalue().encode('utf-8-sig'))
+        csv_bytes.seek(0)
+
+        return csv_bytes
