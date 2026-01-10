@@ -368,7 +368,7 @@ class LocationResource(resources.ModelResource):
     class Meta:
         model = Location
         fields = ('location_reference', 'location_type', 'sous_zone', 'regroupement')
-        import_id_fields = ('location_reference',)
+        import_id_fields = ()
 
     def get_or_init_instance(self, instance_loader, row):
         """

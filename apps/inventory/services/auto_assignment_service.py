@@ -211,46 +211,21 @@ class AutoAssignmentService:
     def _check_team_conflicts(self, teams_list: List[str], inventory_id: int) -> List[str]:
         """
         Vérifie les conflits d'affectation pour les équipes
-        
-        Une équipe en conflit est une équipe déjà affectée à un inventaire GENERAL en cours
-        
+
+        NOTE: La vérification des conflits avec les autres inventaires GENERAL en cours
+        a été désactivée. Les équipes peuvent désormais être affectées à plusieurs
+        inventaires simultanément.
+
         Args:
             teams_list: Liste des usernames à vérifier
             inventory_id: ID de l'inventaire courant (à exclure)
-            
+
         Returns:
-            Liste des messages d'erreur de conflit
+            Liste des messages d'erreur de conflit (toujours vide)
         """
-        errors = []
-        
-        active_general_inventories = self.repository.get_active_general_inventories_excluding(
-            inventory_id
-        )
-        
-        if active_general_inventories.exists():
-            conflicting_assignments = self.repository.get_conflicting_assignments(
-                teams_list,
-                active_general_inventories
-            )
-            
-            if conflicting_assignments.exists():
-                # Grouper par équipe et inventaire
-                conflicts_by_team = {}
-                for assignment in conflicting_assignments:
-                    team_username = assignment.session.username
-                    inv_ref = assignment.job.inventory.reference
-                    if team_username not in conflicts_by_team:
-                        conflicts_by_team[team_username] = set()
-                    conflicts_by_team[team_username].add(inv_ref)
-                
-                # Ajouter les erreurs de conflit
-                for team, inv_refs in conflicts_by_team.items():
-                    errors.append(
-                        f"Équipe '{team}' déjà affectée à l'inventaire GENERAL en cours : "
-                        f"{', '.join(sorted(inv_refs))}"
-                    )
-        
-        return errors
+        # La vérification des conflits a été désactivée
+        # Retourne toujours une liste vide pour permettre l'affectation simultanée
+        return []
 
     def _check_jobs_and_assignments_already_ready(self, jobs_by_ref_dict: Dict, counting_1, counting_2) -> List[str]:
         """
