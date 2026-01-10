@@ -452,7 +452,7 @@ class ProductResource(resources.ModelResource):
             'product_status', 'internal_product_code', 'product_family',
             'n_lot', 'n_serie', 'dlc', 'is_variant'
         )
-        import_id_fields = ('barcode',)
+        import_id_fields = ()
         skip_unchanged = True
         report_skipped = True
         use_transactions = True
@@ -543,10 +543,10 @@ class ProductResource(resources.ModelResource):
 
         # Essayer de trouver une instance existante par barcode
         barcode_value = row.get('barcode')
-        if barcode_value and barcode_value.strip():
+        if barcode_value and str(barcode_value).strip():
             try:
                 # Essayer de trouver un produit avec ce barcode
-                instance = self._meta.model.objects.get(Barcode=barcode_value.strip())
+                instance = self._meta.model.objects.get(Barcode=str(barcode_value).strip())
                 return instance, False  # False = instance exists, will be updated
             except self._meta.model.DoesNotExist:
                 # Aucun produit trouvé, créer une nouvelle instance
