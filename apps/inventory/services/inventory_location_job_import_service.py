@@ -640,6 +640,8 @@ class InventoryLocationJobImportService:
         
         # 1. Validation du warehouse
         warehouse_value = str(row_dict.get('warehouse', '')).strip()
+        warehouse = None  # Initialiser pour éviter les erreurs de référence
+        
         if not warehouse_value:
             errors.append({
                 'row_number': row_number,
@@ -647,6 +649,8 @@ class InventoryLocationJobImportService:
                 'value': warehouse_value,
                 'message': 'Le champ warehouse est obligatoire'
             })
+            # Ne pas continuer si le warehouse n'est pas fourni (nécessaire pour la validation de l'emplacement)
+            return errors
         else:
             # Vérifier que le warehouse existe par son nom (warehouse_name)
             try:
@@ -676,7 +680,7 @@ class InventoryLocationJobImportService:
             # Stocker warehouse_id pour la création des jobs
             row_dict['warehouse_id'] = warehouse.id
         
-        # 2. Validation de l'emplacement
+        # 2. Validation de l'emplacement (warehouse est maintenant garanti d'être défini)
         emplacement_value = str(row_dict.get('emplacement', '')).strip()
         if not emplacement_value:
             errors.append({
@@ -686,35 +690,49 @@ class InventoryLocationJobImportService:
                 'message': 'Le champ emplacement est obligatoire'
             })
         else:
-            # Vérifier que l'emplacement existe
+            # Vérifier que l'emplacement existe ET qu'il est lié au warehouse spécifié
+            # Les emplacements sont liés aux warehouses via: location -> sous_zone -> zone -> warehouse
+            # Note: location_reference peut être dupliqué, l'unicité est garantie par warehouse
             try:
-                location = Location.objects.get(
+                location = Location.objects.select_related(
+                    'sous_zone__zone__warehouse'
+                ).get(
                     location_reference=emplacement_value,
+                    sous_zone__zone__warehouse=warehouse,
                     is_deleted=False
                 )
                 row_dict['emplacement_id'] = location.id
             except Location.DoesNotExist:
+                # Vérifier si l'emplacement existe mais dans un autre warehouse
+                location_exists = Location.objects.filter(
+                    location_reference=emplacement_value,
+                    is_deleted=False
+                ).exists()
+                
+                if location_exists:
+                    errors.append({
+                        'row_number': row_number,
+                        'field': 'emplacement',
+                        'value': emplacement_value,
+                        'message': f"L'emplacement '{emplacement_value}' existe mais n'est pas lié au warehouse '{warehouse_value}'"
+                    })
+                else:
+                    errors.append({
+                        'row_number': row_number,
+                        'field': 'emplacement',
+                        'value': emplacement_value,
+                        'message': f"L'emplacement '{emplacement_value}' n'existe pas"
+                    })
+                return errors  # Pas besoin de continuer si l'emplacement n'existe pas ou n'est pas lié au warehouse
+            except Location.MultipleObjectsReturned:
+                # Cas théorique : plusieurs locations avec la même référence dans le même warehouse (ne devrait pas arriver)
                 errors.append({
                     'row_number': row_number,
                     'field': 'emplacement',
                     'value': emplacement_value,
-                    'message': f"L'emplacement '{emplacement_value}' n'existe pas"
+                    'message': f"Plusieurs emplacements avec la référence '{emplacement_value}' trouvés pour le warehouse '{warehouse_value}'. Contactez l'administrateur."
                 })
-                return errors  # Pas besoin de continuer si l'emplacement n'existe pas
-            
-            # Vérifier que l'emplacement est lié au warehouse
-            # Les emplacements sont liés aux warehouses via: location -> sous_zone -> zone -> warehouse
-            location_obj = Location.objects.select_related(
-                'sous_zone__zone__warehouse'
-            ).get(id=location.id)
-            
-            if location_obj.sous_zone.zone.warehouse.id != warehouse.id:
-                errors.append({
-                    'row_number': row_number,
-                    'field': 'emplacement',
-                    'value': emplacement_value,
-                    'message': f"L'emplacement '{emplacement_value}' n'est pas lié au warehouse '{warehouse_value}'"
-                })
+                return errors
         
         # 3. Validation du job (format JOB-XXXX) - Obligatoire seulement si active = true
         job_value_raw = row_dict.get('job', '')
