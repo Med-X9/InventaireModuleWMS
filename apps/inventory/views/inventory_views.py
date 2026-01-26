@@ -1260,6 +1260,8 @@ class InventoryResultExportExcelView(APIView):
             column_order.append('product')  # Code Barre en premier
         if 'product_internal_code' in df.columns:
             column_order.append('product_internal_code')  # Code Interne en deuxième
+        if 'product_barcode' in df.columns:
+            column_order.append('product_barcode')  # BarCode en troisième
         if 'product_description' in df.columns:
             column_order.append('product_description')
         if 'product_family' in df.columns:
@@ -1359,6 +1361,7 @@ class InventoryResultExportExcelView(APIView):
             'job_status': 'Statut Job',
             'product': 'Code Barre',
             'product_internal_code': 'Code Interne',
+            'product_barcode': 'BarCode',
             'product_description': 'Désignation',
             'product_family': 'Famille',
             'final_result': 'Résultat Final',

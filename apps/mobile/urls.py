@@ -27,8 +27,14 @@ urlpatterns = [
     # Produits du même compte qu'un utilisateur
     path(
         "products/",
-        views.UserProductsView.as_view(),
+        views.AllProductsView.as_view(),
         name="mobile_user_products",
+    ),
+    # Tous les produits (sans filtre par account)
+    path(
+        "products/all/",
+        views.UserProductsView.as_view(),
+        name="mobile_all_products",
     ),
     # Export optimisé des produits (CSV/Excel streaming)
     path(

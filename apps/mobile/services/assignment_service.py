@@ -1,8 +1,9 @@
-from typing import Optional, List, Set, Tuple
+from typing import Optional, List, Set, Tuple, Dict, Any
 from django.utils import timezone
 from django.db import transaction
-from apps.inventory.models import Assigment, Job, JobDetail, Personne, EcartComptage, CountingDetail, Counting
+from apps.inventory.models import Assigment, Job, JobDetail, Personne, EcartComptage, CountingDetail, Counting, ComptageSequence, Inventory
 from apps.users.models import UserApp
+import logging
 from apps.mobile.exceptions import (
     AssignmentNotFoundException,
     UserNotAssignedException,
@@ -12,6 +13,8 @@ from apps.mobile.exceptions import (
     PersonValidationException
     
 )
+
+logger = logging.getLogger(__name__)
 
 
 class AssignmentService:
@@ -616,11 +619,258 @@ class AssignmentService:
             # Bulk update des références
             CountingDetail.objects.bulk_update(counting_details_to_create, fields=['reference'])
         
+        # NOUVELLE ÉTAPE : Créer les ComptageSequence et mettre à jour les EcartComptage
+        sequences_created = 0
+        sequences_updated = 0
+        ecarts_updated = 0
+        
+        # Récupérer tous les CountingDetail (existants + créés) pour les deux countings
+        all_counting_details = list(counting_details_1) + list(counting_details_2) + counting_details_to_create
+        
+        # Grouper par (product, location, inventory) pour créer/gérer les EcartComptage
+        ecarts_map = self._group_counting_details_by_ecart(all_counting_details, job.inventory)
+        
+        # Traiter chaque écart
+        for ecart_key, ecart_data in ecarts_map.items():
+            ecart = ecart_data['ecart']
+            counting_details = ecart_data['counting_details']
+            
+            # Trier par counting.order pour avoir l'ordre chronologique
+            counting_details.sort(key=lambda cd: cd.counting.order)
+            
+            # Récupérer toutes les séquences existantes pour cet écart (pour calculer ecart_with_previous)
+            existing_sequences = list(
+                ecart.counting_sequences.order_by('sequence_number')
+            )
+            existing_sequences_by_cd = {
+                seq.counting_detail_id: seq for seq in existing_sequences
+            }
+            
+            # Traiter chaque CountingDetail pour créer/mettre à jour les séquences
+            sequences_to_create = []
+            sequences_to_update = []
+            current_sequence_number = ecart.total_sequences
+            
+            for idx, counting_detail in enumerate(counting_details):
+                # Vérifier si une séquence existe déjà pour ce CountingDetail
+                existing_sequence = existing_sequences_by_cd.get(counting_detail.id)
+                
+                if existing_sequence:
+                    # MISE À JOUR : La séquence existe déjà
+                    existing_sequence.quantity = counting_detail.quantity_inventoried
+                    
+                    # Recalculer ecart_with_previous
+                    # Trouver la séquence précédente dans l'ordre chronologique (par sequence_number)
+                    if existing_sequence.sequence_number > 1:
+                        # Chercher la séquence avec sequence_number = existing_sequence.sequence_number - 1
+                        previous_sequence = next(
+                            (seq for seq in existing_sequences 
+                             if seq.sequence_number == existing_sequence.sequence_number - 1),
+                            None
+                        )
+                        
+                        if previous_sequence:
+                            existing_sequence.ecart_with_previous = abs(
+                                counting_detail.quantity_inventoried - previous_sequence.quantity
+                            )
+                        else:
+                            existing_sequence.ecart_with_previous = None
+                    else:
+                        existing_sequence.ecart_with_previous = None
+                    
+                    sequences_to_update.append(existing_sequence)
+                else:
+                    # CRÉATION : Nouvelle séquence
+                    # Calculer le numéro de séquence
+                    current_sequence_number += 1
+                    sequence_number = current_sequence_number
+                    
+                    # Calculer ecart_with_previous
+                    # Trouver la dernière séquence existante (par sequence_number)
+                    ecart_value = None
+                    if existing_sequences:
+                        last_sequence = existing_sequences[-1]
+                        ecart_value = abs(
+                            counting_detail.quantity_inventoried - last_sequence.quantity
+                        )
+                    
+                    # Créer la nouvelle séquence
+                    new_sequence = ComptageSequence(
+                        ecart_comptage=ecart,
+                        sequence_number=sequence_number,
+                        counting_detail=counting_detail,
+                        quantity=counting_detail.quantity_inventoried,
+                        ecart_with_previous=ecart_value
+                    )
+                    new_sequence.reference = new_sequence.generate_reference(ComptageSequence.REFERENCE_PREFIX)
+                    sequences_to_create.append(new_sequence)
+                    
+                    # Ajouter à la liste des séquences existantes pour les prochains calculs
+                    # (simulation en mémoire pour calculer les écarts suivants)
+                    existing_sequences.append(new_sequence)
+                    existing_sequences_by_cd[counting_detail.id] = new_sequence
+            
+            # Sauvegarder les séquences
+            if sequences_to_create:
+                ComptageSequence.objects.bulk_create(sequences_to_create)
+                sequences_created += len(sequences_to_create)
+            
+            if sequences_to_update:
+                ComptageSequence.objects.bulk_update(
+                    sequences_to_update,
+                    fields=['quantity', 'ecart_with_previous', 'updated_at']
+                )
+                sequences_updated += len(sequences_to_update)
+            
+            # Recalculer final_result et mettre à jour l'écart
+            # Rafraîchir la requête pour inclure les nouvelles séquences créées
+            ecart.refresh_from_db()
+            all_sequences = list(ecart.counting_sequences.order_by('sequence_number'))
+            
+            if len(all_sequences) >= 2:
+                final_result = self._calculate_consensus_result(all_sequences, ecart.final_result)
+                ecart.final_result = final_result
+            
+            # Mettre à jour les métadonnées de l'écart
+            ecart.total_sequences = len(all_sequences)
+            ecart.stopped_sequence = all_sequences[-1].sequence_number if all_sequences else None
+            ecart.save(update_fields=['total_sequences', 'stopped_sequence', 'final_result', 'updated_at'])
+            ecarts_updated += 1
+        
         return {
             'synchronized': True,
             'counting_order_1': counting_1.order,
             'counting_order_2': counting_2.order,
             'created_count': created_count,
             'missing_in_counting_1': len(missing_in_1),
-            'missing_in_counting_2': len(missing_in_2)
+            'missing_in_counting_2': len(missing_in_2),
+            'sequences_created': sequences_created,
+            'sequences_updated': sequences_updated,
+            'ecarts_updated': ecarts_updated
         }
+    
+    def _group_counting_details_by_ecart(
+        self, 
+        counting_details: List[CountingDetail], 
+        inventory: Inventory
+    ) -> Dict[Tuple, Dict[str, Any]]:
+        """
+        Groupe les CountingDetail par (product, location, inventory) pour créer/gérer les EcartComptage.
+        
+        Un EcartComptage est identifié par un (product, location, inventory) unique.
+        On cherche un EcartComptage existant qui a déjà une ComptageSequence liée à un CountingDetail
+        avec le même (product, location, inventory).
+        
+        Args:
+            counting_details: Liste de tous les CountingDetail à traiter
+            inventory: L'inventaire associé
+            
+        Returns:
+            Dictionnaire avec clé (product_id, location_id, inventory_id) et valeur {
+                'ecart': EcartComptage,
+                'counting_details': List[CountingDetail]
+            }
+        """
+        ecarts_map = {}
+        
+        for counting_detail in counting_details:
+            # Vérifier que product et location existent (obligatoires pour EcartComptage)
+            if not counting_detail.product or not counting_detail.location:
+                logger.warning(
+                    f"CountingDetail {counting_detail.id} ignoré : product ou location manquant"
+                )
+                continue
+            
+            key = (
+                counting_detail.product.id,
+                counting_detail.location.id,
+                inventory.id
+            )
+            
+            if key not in ecarts_map:
+                # Chercher un EcartComptage existant pour ce (product, location, inventory)
+                # via les ComptageSequence existantes
+                existing_ecart = None
+                existing_sequence = ComptageSequence.objects.filter(
+                    counting_detail__product_id=counting_detail.product.id,
+                    counting_detail__location_id=counting_detail.location.id,
+                    counting_detail__job__inventory=inventory,
+                    ecart_comptage__inventory=inventory
+                ).select_related('ecart_comptage').first()
+                
+                if existing_sequence:
+                    existing_ecart = existing_sequence.ecart_comptage
+                    logger.info(
+                        f"EcartComptage existant trouvé : {existing_ecart.reference} "
+                        f"pour (product={counting_detail.product.id}, location={counting_detail.location.id})"
+                    )
+                else:
+                    # Créer un nouvel EcartComptage
+                    existing_ecart = EcartComptage(
+                        inventory=inventory,
+                        total_sequences=0,
+                        resolved=False,
+                        stopped_reason=None,
+                        final_result=None,
+                        justification=None
+                    )
+                    existing_ecart.reference = existing_ecart.generate_reference(EcartComptage.REFERENCE_PREFIX)
+                    existing_ecart.save()
+                    logger.info(f"Nouvel EcartComptage créé : {existing_ecart.reference}")
+                
+                ecarts_map[key] = {
+                    'ecart': existing_ecart,
+                    'counting_details': []
+                }
+            
+            ecarts_map[key]['counting_details'].append(counting_detail)
+        
+        return ecarts_map
+    
+    def _calculate_consensus_result(
+        self,
+        sequences: List[ComptageSequence],
+        current_result: Optional[int]
+    ) -> Optional[int]:
+        """
+        Détermine le résultat final d'un écart selon les règles métier.
+        
+        Logique :
+        - Pour le comptage actuel (dernière séquence), vérifier s'il correspond 
+          à au moins un comptage précédent.
+        - Si oui → enregistrer cette valeur dans resultat
+        - Si non → conserver le résultat actuel (ou None)
+        
+        Args:
+            sequences: Liste de toutes les ComptageSequence (dans l'ordre chronologique)
+            current_result: Résultat actuel de l'écart (peut être None)
+            
+        Returns:
+            int: La valeur à enregistrer dans final_result, ou None si pas de consensus
+        """
+        if len(sequences) < 2:
+            return None  # Pas de résultat si moins de 2 comptages
+        
+        # Logique uniforme : pour le comptage actuel (dernière séquence),
+        # toujours vérifier s'il correspond à au moins un comptage précédent
+        comptage_actuel = sequences[-1]
+        quantite_actuelle = comptage_actuel.quantity
+        
+        # Extraire toutes les quantités des comptages précédents
+        # (on exclut la dernière séquence qui est le comptage actuel)
+        quantites_precedentes = [seq.quantity for seq in sequences[:-1]]
+        
+        # Vérifier si le comptage actuel correspond à au moins un comptage précédent
+        if quantite_actuelle in quantites_precedentes:
+            # Le comptage actuel correspond à au moins un précédent → enregistrer dans resultat
+            return quantite_actuelle
+        else:
+            # Le comptage actuel est différent de tous les précédents → enregistrer dans ecart
+            # Cas spécial : si exactement 2 comptages différents, pas de consensus (retourner None)
+            # Sinon, conserver le résultat actuel s'il existe (cas où un précédent comptage avait trouvé un consensus)
+            if len(sequences) == 2:
+                # Exactement 2 comptages différents → pas de consensus
+                return None
+            else:
+                # Plus de 2 comptages : conserver le résultat actuel s'il existe
+                return current_result

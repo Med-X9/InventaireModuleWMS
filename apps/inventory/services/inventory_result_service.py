@@ -230,6 +230,9 @@ class InventoryResultService:
                 if barcode or internal_code:
                     self.logger.debug(f"🔍 Produit debug - barcode: '{barcode}', internal_code: '{internal_code}', reference: '{reference}'")
 
+                # Toujours ajouter product_barcode avec le barcode réel du produit
+                result_row["product_barcode"] = barcode.strip() if barcode and barcode.strip() else ""
+                
                 if barcode and barcode.strip() and barcode != internal_code:
                     # Si barcode différent d'internal_code, les utiliser séparément
                     result_row["product"] = barcode.strip()
