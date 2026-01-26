@@ -27,7 +27,7 @@ class JobReassignmentService:
             job_id: ID du job
             team_id: ID de l'équipe (session)
             counting_order: Ordre du comptage (1 ou 2)
-            complete: Si True, supprime toutes les données et remet à zéro
+            complete: Si True, supprime uniquement les données du comptage spécifié (pas les autres comptages)
 
         Returns:
             Dict avec les informations sur l'opération effectuée
@@ -124,37 +124,56 @@ class JobReassignmentService:
 
     def _clean_job_counting_data(self, job: Job, counting: Counting):
         """
-        Nettoie toutes les données liées au job et au comptage :
-        - CountingDetail
-        - NSerieInventory
-        - EcartComptage
-        - ComptageSequence
+        Nettoie toutes les données liées au job et au comptage spécifique :
+        - CountingDetail (du comptage spécifique uniquement)
+        - NSerieInventory (liés aux CountingDetail du comptage)
+        - ComptageSequence (liés aux CountingDetail du comptage)
+        - EcartComptage (uniquement ceux qui n'ont plus de ComptageSequence après suppression)
         - Met à jour les statuts JobDetail et Assigment
         """
         logger.info(f"Nettoyage complet des données pour job {job.id} et counting {counting.id}")
 
-        # 1. Supprimer ComptageSequence liés aux EcartComptage du job
-        ecart_comptages = EcartComptage.objects.filter(inventory=job.inventory)
-        for ecart in ecart_comptages:
-            ComptageSequence.objects.filter(ecart_comptage=ecart).delete()
+        # 1. Récupérer les CountingDetail du comptage spécifique uniquement
+        counting_details = CountingDetail.objects.filter(job=job, counting=counting)
+        
+        if not counting_details.exists():
+            logger.info(f"Aucun CountingDetail trouvé pour job {job.id} et counting {counting.id}")
+            return
 
-        # 2. Supprimer EcartComptage
-        ecart_comptages.delete()
+        # 2. Récupérer les ComptageSequence liés à ces CountingDetail
+        comptage_sequences = ComptageSequence.objects.filter(
+            counting_detail__in=counting_details
+        )
+        
+        # 3. Récupérer les EcartComptage liés à ces ComptageSequence (avant suppression)
+        ecart_comptages_ids = comptage_sequences.values_list('ecart_comptage_id', flat=True).distinct()
+        ecart_comptages = EcartComptage.objects.filter(id__in=ecart_comptages_ids)
 
-        # 3. Supprimer NSerieInventory liés aux CountingDetail du job
-        counting_details = CountingDetail.objects.filter(job=job)
+        # 4. Supprimer NSerieInventory liés aux CountingDetail du comptage
         NSerieInventory.objects.filter(counting_detail__in=counting_details).delete()
 
-        # 4. Supprimer CountingDetail
+        # 5. Supprimer ComptageSequence liés aux CountingDetail du comptage
+        comptage_sequences.delete()
+
+        # 6. Supprimer les EcartComptage qui n'ont plus de ComptageSequence
+        # (uniquement ceux qui étaient liés au comptage qu'on nettoie)
+        for ecart in ecart_comptages:
+            remaining_sequences = ComptageSequence.objects.filter(ecart_comptage=ecart).exists()
+            if not remaining_sequences:
+                ecart.delete()
+
+        # 7. Supprimer CountingDetail du comptage
         counting_details.delete()
 
-        # 5. Remettre les JobDetail à "EN ATTENTE"
+        # 8. Remettre les JobDetail à "EN ATTENTE"
+        # Note: On remet tous les JobDetail du job à "EN ATTENTE" car le nettoyage
+        # d'un comptage peut affecter l'état global du job
         JobDetail.objects.filter(job=job).update(
             status='EN ATTENTE',
             en_attente_date=timezone.now()
         )
 
-        # 6. L'assignement sera mis à jour dans _reassign_team_to_counting selon le cas
+        # 9. L'assignement sera mis à jour dans _reassign_team_to_counting selon le cas
 
     def _reassign_team_to_counting(self, job: Job, counting: Counting, session) -> Assigment:
         """

@@ -142,6 +142,8 @@ class CountingDetailService:
                 # Séparer les éléments à créer et ceux à mettre à jour (UPSERT en lot)
                 items_to_create = []
                 items_to_update = []
+                # Cache en mémoire pour détecter les doublons dans la même requête batch
+                batch_created_keys = set()  # Clés déjà ajoutées à items_to_create dans cette requête
                 
                 for i, data in enumerate(data_list):
                     # Vérifier si le comptage a une quantité (condition pour upsert)
@@ -162,22 +164,50 @@ class CountingDetailService:
                         logger.warning(f"Élément {i} ignoré : quantité invalide ({quantity})")
                         continue
                     
-                    existing_detail = existing_details_map.get(self._get_detail_key(data))
+                    # Générer la clé unique pour ce counting-detail
+                    detail_key = self._get_detail_key(data)
+                    
+                    # Vérifier d'abord dans la base de données
+                    existing_detail = existing_details_map.get(detail_key)
                     
                     if existing_detail:
-                        # Mettre à jour l'existant
+                        # Mettre à jour l'existant en base
                         items_to_update.append({
                             'index': i,
                             'detail': existing_detail,
                             'data': data
                         })
                     else:
-                        # Créer un nouveau
-                        items_to_create.append({
-                            'index': i,
-                            'data': data,
-                            'related': validation_results[i]['related_objects']
-                        })
+                        # Vérifier si déjà ajouté dans cette requête batch (prévention doublons)
+                        if detail_key in batch_created_keys:
+                            # Doublon détecté dans la même requête → utiliser le dernier (mise à jour)
+                            logger.warning(
+                                f"Doublon détecté dans la requête batch pour l'élément {i} "
+                                f"(counting_id={data.get('counting_id')}, "
+                                f"location_id={data.get('location_id')}, "
+                                f"product_id={data.get('product_id')}). "
+                                f"Le dernier élément sera utilisé."
+                            )
+                            # Trouver l'élément précédent dans items_to_create et le remplacer
+                            for j, item in enumerate(items_to_create):
+                                if self._get_detail_key(item['data']) == detail_key:
+                                    # Remplacer l'ancien par le nouveau
+                                    items_to_create[j] = {
+                                        'index': i,  # Utiliser le nouvel index
+                                        'data': data,
+                                        'related': validation_results[i]['related_objects']
+                                    }
+                                    logger.info(f"Élément {j} remplacé par l'élément {i} (même clé)")
+                                    break
+                        else:
+                            # Nouveau élément, pas de doublon
+                            items_to_create.append({
+                                'index': i,
+                                'data': data,
+                                'related': validation_results[i]['related_objects']
+                            })
+                            # Marquer cette clé comme déjà traitée dans cette requête
+                            batch_created_keys.add(detail_key)
                 
                 # Mettre à jour les existants
                 for item in items_to_update:
@@ -1587,6 +1617,11 @@ class CountingDetailService:
             return quantite_actuelle
         else:
             # Le comptage actuel est différent de tous les précédents → enregistrer dans ecart
-            # On conserve le résultat actuel s'il existe (cas où un précédent comptage avait trouvé un consensus),
-            # sinon None
-            return current_result
+            # Cas spécial : si exactement 2 comptages différents, pas de consensus (retourner None)
+            # Sinon, conserver le résultat actuel s'il existe (cas où un précédent comptage avait trouvé un consensus)
+            if len(sequences) == 2:
+                # Exactement 2 comptages différents → pas de consensus
+                return None
+            else:
+                # Plus de 2 comptages : conserver le résultat actuel s'il existe
+                return current_result

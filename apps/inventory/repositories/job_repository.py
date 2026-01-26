@@ -7,6 +7,22 @@ from ..models import Job, Assigment, Counting, Inventory, JobDetail, CountingDet
 from apps.masterdata.models import Warehouse, Location
 from django.utils import timezone
 
+
+class CountingDetailAggregated:
+    """
+    Classe simple pour représenter un CountingDetail agrégé par emplacement.
+    Utilisé pour calculer les écarts par emplacement (somme des quantités de tous les produits).
+    """
+    def __init__(self, location_id: int, job_id: int, total_quantity: int, 
+                 location, counting, job):
+        self.location_id = location_id
+        self.job_id = job_id
+        self.quantity_inventoried = total_quantity
+        self.location = location
+        self.product = None  # Pas de produit spécifique car agrégé
+        self.counting = counting
+        self.job = job
+
 class JobRepository(JobRepositoryInterface):
     """
     Repository pour l'accès aux données des jobs
@@ -615,10 +631,37 @@ class JobRepository(JobRepositoryInterface):
             ).select_related('location', 'product', 'counting', 'job')
         
         # Organiser les counting details par job et par counting
+        # Clé unique d'une ligne : (location_id, job_id) - pour compter les écarts par emplacement
+        # Si un emplacement a plusieurs produits, on somme les quantités
         counting_details_by_job_and_counting = defaultdict(lambda: defaultdict(dict))
+        
+        # D'abord, grouper par (job_id, counting.order, location_id) et sommer les quantités
+        location_quantities = defaultdict(int)  # (job_id, counting.order, location_id) -> total_quantity
+        location_objects = {}  # (job_id, counting.order, location_id) -> CountingDetail (pour garder les autres infos)
+        
         for cd in all_counting_details:
-            key = (cd.location_id, cd.product_id if cd.product else None, cd.n_lot, cd.dlc)
-            counting_details_by_job_and_counting[cd.job_id][cd.counting.order][key] = cd
+            key = (cd.job_id, cd.counting.order, cd.location_id)
+            location_quantities[key] += cd.quantity_inventoried
+            # Garder le premier CountingDetail comme référence pour les autres attributs
+            if key not in location_objects:
+                location_objects[key] = cd
+        
+        # Créer des objets CountingDetail agrégés (un par emplacement)
+        for (job_id, counting_order, location_id), total_quantity in location_quantities.items():
+            # Utiliser le CountingDetail de référence et mettre à jour la quantité
+            cd_ref = location_objects[(job_id, counting_order, location_id)]
+            # Créer un objet agrégé avec la quantité totale
+            cd_aggregated = CountingDetailAggregated(
+                location_id=location_id,
+                job_id=job_id,
+                total_quantity=total_quantity,
+                location=cd_ref.location,
+                counting=cd_ref.counting,
+                job=cd_ref.job
+            )
+            
+            key = (location_id, job_id)
+            counting_details_by_job_and_counting[job_id][counting_order][key] = cd_aggregated
         
         # Attacher les counting details aux jobs (via un attribut temporaire)
         for job in jobs:

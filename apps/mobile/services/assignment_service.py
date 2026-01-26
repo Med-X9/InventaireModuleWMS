@@ -866,6 +866,11 @@ class AssignmentService:
             return quantite_actuelle
         else:
             # Le comptage actuel est différent de tous les précédents → enregistrer dans ecart
-            # On conserve le résultat actuel s'il existe (cas où un précédent comptage avait trouvé un consensus),
-            # sinon None
-            return current_result
+            # Cas spécial : si exactement 2 comptages différents, pas de consensus (retourner None)
+            # Sinon, conserver le résultat actuel s'il existe (cas où un précédent comptage avait trouvé un consensus)
+            if len(sequences) == 2:
+                # Exactement 2 comptages différents → pas de consensus
+                return None
+            else:
+                # Plus de 2 comptages : conserver le résultat actuel s'il existe
+                return current_result

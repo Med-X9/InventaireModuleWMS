@@ -1348,7 +1348,9 @@ class JobReassignmentView(APIView):
 
     Règles métier :
     - Réaffecte l'équipe (team) au comptage spécifié du job
-    - Si complete=true : supprime toutes les données (CountingDetail, NSerieInventory, EcartComptage, ComptageSequence)
+    - Si complete=true : supprime uniquement les données du comptage spécifié 
+      (CountingDetail, NSerieInventory, EcartComptage, ComptageSequence du comptage concerné)
+      Les données des autres comptages (ex: comptage 2 si on réaffecte comptage 1) sont préservées
     - Met à jour les statuts appropriés selon les règles définies
     - Validation : empêche la réaffectation si l'assignement est déjà TERMINE
     """
