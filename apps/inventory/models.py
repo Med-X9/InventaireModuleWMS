@@ -87,11 +87,19 @@ class Inventory(TimeStampedModel, ReferenceMixin):
 
 
 class Setting(TimeStampedModel, ReferenceMixin):
+    STATUS_CHOICES = (
+        ('EN ATTENTE', 'EN ATTENTE'),
+        ('LANCEE', 'LANCEE'),  
+        ('CLOTURE', 'CLOTURE'),
+    )   
     REFERENCE_PREFIX = 'SET'
     reference = models.CharField(unique=True, max_length=20, null=False)
     account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name='awi_links')
     warehouse = models.ForeignKey('masterdata.Warehouse', on_delete=models.CASCADE, related_name='awi_links')
     inventory = models.ForeignKey(Inventory, on_delete=models.CASCADE, related_name='awi_links')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='EN ATTENTE')
+    status_date_lancement = models.DateTimeField(null=True, blank=True)
+    status_date_cloture = models.DateTimeField(null=True, blank=True)
     history = HistoricalRecords()    
 
     def __str__(self):

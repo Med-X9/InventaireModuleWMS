@@ -31,6 +31,7 @@ from .views.monitoring_views import (
     GlobalMonitoringByInventoryAndWarehouseView,
 )
 from apps.inventory.views import InventoryWarehousesView, AccountWarehousesView
+from .views.setting_views import SettingLaunchView, SettingCancelLaunchView
 
 
 from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobAutoValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobSetReadyView, JobAutoSetReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView, JobReassignmentView, JobTransferView, JobTransferAllView, JobManualEntryView, JobCancelView, JobProgressByCountingView, InventoryProgressByCountingView, JobsWithAssignmentsByWarehouseAndCountingView, JobDetailsByJobAndCountingView
@@ -83,12 +84,19 @@ urlpatterns = [
     path('inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/results/export/', InventoryResultExportExcelView.as_view(), name='inventory-warehouse-results-export'),
     path('inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/monitoring/', ZoneMonitoringByInventoryAndWarehouseView.as_view(), name='inventory-warehouse-monitoring'),
     path('inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/global-monitoring/', GlobalMonitoringByInventoryAndWarehouseView.as_view(), name='inventory-warehouse-global-monitoring'),
-    path('inventory/<int:inventory_id>/stocks/import/', StockImportView.as_view(), name='stock-import'),
+    path('inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/stocks/import/', StockImportView.as_view(), name='stock-import'),
     path('inventory/<int:inventory_id>/location-jobs/import/', InventoryLocationJobImportView.as_view(), name='inventory-location-job-import'),
     path('inventory/<int:inventory_id>/location-jobs/import-async/', InventoryLocationJobImportSyncView.as_view(), name='inventory-location-job-import-sync'),
     path('inventory/location-jobs/import/<int:inventaire_id>/status/', InventoryLocationJobImportStatusView.as_view(), name='inventory-location-job-import-status'),
     path('inventory/planning/<int:inventory_id>/warehouses/', InventoryWarehousesView.as_view(), name='inventory-warehouses'),
     path('inventory/account/<int:account_id>/warehouses/', AccountWarehousesView.as_view(), name='account-warehouses'),
+    
+    # ========================================
+    # URLs POUR LE LANCEMENT DE WAREHOUSE (SETTING)
+    # ========================================
+    
+    path('inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/launch/', SettingLaunchView.as_view(), name='setting-launch'),
+    path('inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/cancel-launch/', SettingCancelLaunchView.as_view(), name='setting-cancel-launch'),
     
     # ========================================
     # URLs POUR LES JOBS
