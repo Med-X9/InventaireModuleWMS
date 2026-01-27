@@ -6,6 +6,7 @@ from django.db import transaction
 from django.utils import timezone
 from ..repositories.setting_repository import SettingRepository
 from ..repositories.inventory_repository import InventoryRepository
+from ..repositories.job_repository import JobRepository
 from ..models import Setting, Inventory
 from ..exceptions.inventory_exceptions import (
     InventoryValidationError,
@@ -26,10 +27,20 @@ class SettingService:
     def __init__(
         self,
         setting_repository: SettingRepository = None,
-        inventory_repository: InventoryRepository = None
+        inventory_repository: InventoryRepository = None,
+        job_repository: JobRepository = None,
     ):
+        """
+        Initialise le service de gestion des Settings.
+
+        Args:
+            setting_repository: Repository pour l'accès aux Settings.
+            inventory_repository: Repository pour l'accès aux Inventories.
+            job_repository: Repository pour l'accès aux Jobs.
+        """
         self.setting_repository = setting_repository or SettingRepository()
         self.inventory_repository = inventory_repository or InventoryRepository()
+        self.job_repository = job_repository or JobRepository()
         self.validation_use_case = WarehouseLaunchValidationUseCase()
     
     @transaction.atomic
@@ -195,3 +206,118 @@ class SettingService:
             'status_date_lancement': None
         }
 
+    @transaction.atomic
+    def close_warehouse(self, inventory_id: int, warehouse_id: int) -> Dict[str, Any]:
+        """
+        Marque un warehouse (Setting) comme clôturé pour un inventaire donné.
+
+        Conditions métier :
+        - Le Setting doit être en statut 'LANCEE'.
+        - L'inventaire lié doit être en statut 'EN REALISATION'.
+        - Il doit exister au moins un Job pour cet inventaire et ce warehouse.
+        - Tous les Jobs de cet inventaire et de ce warehouse doivent être au statut 'TERMINE'.
+
+        Args:
+            inventory_id: ID de l'inventaire.
+            warehouse_id: ID du warehouse.
+
+        Returns:
+            Dict[str, Any]: Résultat de l'opération contenant notamment :
+                - success: bool indiquant si la clôture est effectuée.
+                - message: description de l'état.
+                - jobs_not_completed: liste des jobs non terminés le cas échéant.
+                - total_jobs: nombre total de jobs du couple inventaire/warehouse.
+                - completed_jobs: nombre de jobs terminés.
+
+        Raises:
+            InventoryNotFoundError: Si le Setting n'existe pas.
+            InventoryStatusError: Si le Setting n'est pas en statut 'LANCEE'.
+            InventoryValidationError: Si les conditions de clôture ne sont pas remplies.
+        """
+        # Récupérer le Setting par inventory_id et warehouse_id
+        setting = self.setting_repository.get_by_warehouse_and_inventory(warehouse_id, inventory_id)
+
+        # Vérifier que le Setting est en statut 'LANCEE'
+        if setting.status != 'LANCEE':
+            raise InventoryStatusError(
+                "Le warehouse ne peut être clôturé que s'il est en statut 'LANCEE'. "
+                f"Statut actuel: {setting.status}"
+            )
+
+        # Vérifier le statut de l'inventaire
+        inventory = setting.inventory
+        if inventory.status != 'EN REALISATION':
+            raise InventoryValidationError(
+                "Seuls les inventaires en statut 'EN REALISATION' peuvent avoir des warehouses clôturés. "
+                f"Statut actuel de l'inventaire: {inventory.status}"
+            )
+
+        # Récupérer tous les jobs pour cet inventaire et ce warehouse
+        jobs = self.job_repository.get_jobs_by_inventory_and_warehouse(inventory_id, warehouse_id)
+
+        # Vérifier qu'il y a au moins un job
+        if not jobs:
+            raise InventoryValidationError(
+                "Aucun job trouvé pour cet inventaire et ce warehouse. Impossible de clôturer le warehouse."
+            )
+
+        # Vérifier que tous les jobs sont terminés
+        jobs_not_completed = [job for job in jobs if job.status != 'TERMINE']
+
+        if jobs_not_completed:
+            jobs_not_completed_list = [
+                {
+                    'id': job.id,
+                    'reference': job.reference,
+                    'status': job.status,
+                }
+                for job in jobs_not_completed
+            ]
+
+            return {
+                'success': False,
+                'message': (
+                    "Impossible de clôturer le warehouse. "
+                    f"{len(jobs_not_completed)} job(s) non terminé(s) pour cet inventaire et warehouse."
+                ),
+                'jobs_not_completed': jobs_not_completed_list,
+                'total_jobs': len(jobs),
+                'completed_jobs': len([job for job in jobs if job.status == 'TERMINE']),
+                'setting_id': setting.id,
+                'setting_reference': setting.reference,
+                'warehouse_id': setting.warehouse.id,
+                'warehouse_name': setting.warehouse.warehouse_name,
+                'inventory_id': inventory.id,
+                'inventory_reference': inventory.reference,
+                'status': setting.status,
+            }
+
+        # Tous les jobs sont terminés : clôturer le Setting
+        setting.status = 'CLOTURE'
+        setting.status_date_cloture = timezone.now()
+        setting.save()
+
+        logger.info(
+            "Warehouse %s (%s) clôturé pour l'inventaire %s (%s). Jobs terminés: %s",
+            setting.id,
+            setting.warehouse.warehouse_name,
+            inventory.id,
+            inventory.reference,
+            len(jobs),
+        )
+
+        return {
+            'success': True,
+            'message': "Le warehouse a été clôturé avec succès.",
+            'jobs_not_completed': [],
+            'total_jobs': len(jobs),
+            'completed_jobs': len(jobs),
+            'setting_id': setting.id,
+            'setting_reference': setting.reference,
+            'warehouse_id': setting.warehouse.id,
+            'warehouse_name': setting.warehouse.warehouse_name,
+            'inventory_id': inventory.id,
+            'inventory_reference': inventory.reference,
+            'status': setting.status,
+            'status_date_cloture': setting.status_date_cloture.isoformat() if setting.status_date_cloture else None,
+        }

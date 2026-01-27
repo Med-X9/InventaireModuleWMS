@@ -5,8 +5,27 @@ from ..interfaces.assignment_interface import IAssignmentRepository
 from ..models import Job, Counting, Assigment
 from ..exceptions.assignment_exceptions import AssignmentNotFoundError
 
+
 class AssignmentRepository(IAssignmentRepository):
     """Repository pour l'affectation des jobs"""
+
+    def get_by_id(self, assignment_id: int) -> Assigment:
+        """
+        Récupère une affectation par son ID.
+
+        Args:
+            assignment_id: ID de l'affectation
+
+        Returns:
+            Assigment: L'affectation correspondante
+
+        Raises:
+            AssignmentNotFoundError: Si aucune affectation n'est trouvée
+        """
+        try:
+            return Assigment.objects.get(id=assignment_id)
+        except Assigment.DoesNotExist:
+            raise AssignmentNotFoundError(f"Assignment avec l'ID {assignment_id} non trouvé")
     
     def get_jobs_by_ids(self, job_ids: List[int]) -> List[Any]:
         """

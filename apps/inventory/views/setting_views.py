@@ -10,7 +10,7 @@ from ..services.setting_service import SettingService
 from ..exceptions.inventory_exceptions import (
     InventoryValidationError,
     InventoryNotFoundError,
-    InventoryStatusError
+    InventoryStatusError,
 )
 from ..utils.response_utils import success_response, error_response
 
@@ -136,5 +136,87 @@ class SettingCancelLaunchView(APIView):
             return error_response(
                 "Une erreur est survenue lors de l'annulation du warehouse",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class SettingCloseView(APIView):
+    """
+    Vue pour clôturer un warehouse (Setting) pour un inventaire donné.
+
+    Conditions :
+    - Le Setting doit être en statut 'LANCEE'.
+    - L'inventaire doit être en statut 'EN REALISATION'.
+    - Tous les jobs de cet inventaire et de ce warehouse doivent être au statut 'TERMINE'.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def __init__(self, setting_service: SettingService = None, **kwargs):
+        super().__init__(**kwargs)
+        self.setting_service = setting_service or SettingService()
+
+    def post(self, request, inventory_id: int, warehouse_id: int):
+        """
+        Clôture un warehouse (Setting) pour un inventaire donné en vérifiant
+        que tous les jobs sont terminés.
+
+        URL Parameters:
+        - inventory_id: ID de l'inventaire.
+        - warehouse_id: ID du warehouse.
+        """
+        try:
+            result = self.setting_service.close_warehouse(inventory_id, warehouse_id)
+
+            if result.get('success'):
+                # Clôture réussie
+                return success_response(
+                    data=result,
+                    message=result.get('message', "Le warehouse a été clôturé avec succès."),
+                    status_code=status.HTTP_200_OK,
+                )
+
+            # Clôture impossible car des jobs ne sont pas terminés
+            errors = [
+                f"Job {job.get('reference', job.get('id', 'inconnu'))} non terminé (statut: {job.get('status')})"
+                for job in result.get('jobs_not_completed', [])
+            ]
+
+            return error_response(
+                message=result.get(
+                    'message',
+                    "Impossible de clôturer le warehouse : des jobs ne sont pas terminés."
+                ),
+                errors=errors,
+                status_code=status.HTTP_400_BAD_REQUEST,
+                **result,
+            )
+
+        except InventoryStatusError as exc:
+            logger.warning("Erreur de statut lors de la clôture du warehouse: %s", str(exc))
+            return error_response(
+                str(exc),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        except InventoryValidationError as exc:
+            logger.warning("Erreur de validation lors de la clôture du warehouse: %s", str(exc))
+            return error_response(
+                str(exc),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        except InventoryNotFoundError as exc:
+            logger.warning("Setting non trouvé lors de la clôture du warehouse: %s", str(exc))
+            return error_response(
+                str(exc),
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:  # pragma: no cover - sécurité
+            logger.error(
+                "Erreur inattendue lors de la clôture du warehouse: %s",
+                str(exc),
+                exc_info=True,
+            )
+            return error_response(
+                "Une erreur est survenue lors de la clôture du warehouse",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 

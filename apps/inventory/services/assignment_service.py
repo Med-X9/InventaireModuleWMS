@@ -7,17 +7,18 @@ from django.db import transaction
 from ..interfaces.assignment_interface import IAssignmentService
 from ..repositories.assignment_repository import AssignmentRepository
 from ..exceptions.assignment_exceptions import (
-    AssignmentValidationError, 
+    AssignmentValidationError,
     AssignmentBusinessRuleError,
-    AssignmentSessionError
+    AssignmentSessionError,
+    AssignmentNotFoundError,
 )
 from ..models import Job, Counting, Assigment
 from apps.users.models import UserApp
-from ..exceptions.assignment_exceptions import AssignmentNotFoundError
+
 
 class AssignmentService(IAssignmentService):
-    """Service pour l'affectation des jobs de comptage."""
-    
+    """Service pour l'affectation des jobs de comptage et la gestion des assignments."""
+
     def __init__(self, repository: AssignmentRepository = None):
         self.repository = repository or AssignmentRepository()
 
@@ -152,7 +153,7 @@ class AssignmentService(IAssignmentService):
                 'assignments_updated': assignments_updated,
                 'total_assignments': total_assignments,
                 'counting_order': counting_order,
-                'inventory_id': inventory_id
+                'inventory_id': inventory_id,
             }
 
     def validate_assignment_data(self, assignment_data: Dict[str, Any]) -> None:
@@ -276,7 +277,7 @@ class AssignmentService(IAssignmentService):
                 assignment.status = 'AFFECTE'
                 assignment.affecte_date = current_time
                 assignment.save()
-    
+
     def get_assignments_by_session(self, session_id: int) -> List[Any]:
         """
         Récupère toutes les affectations d'une session avec leurs jobs associés
@@ -298,5 +299,45 @@ class AssignmentService(IAssignmentService):
         
         # Récupérer les affectations avec leurs jobs
         assignments = self.repository.get_assignments_by_session_with_jobs(session_id)
-        
-        return list(assignments) 
+
+        return list(assignments)
+
+    def reopen_assignment_from_termine_to_entame(self, assignment_id: int) -> Dict[str, Any]:
+        """
+        Remet un assignment du statut 'TERMINE' au statut 'ENTAME'.
+
+        Règles métier :
+        - L'assignment doit exister
+        - Seuls les assignments au statut 'TERMINE' peuvent être remis à 'ENTAME'
+
+        Args:
+            assignment_id: ID de l'assignment à modifier
+
+        Returns:
+            Dict[str, Any]: Informations sur l'assignment mis à jour
+
+        Raises:
+            AssignmentNotFoundError: Si l'assignment n'existe pas
+            AssignmentBusinessRuleError: Si la transition de statut est invalide
+        """
+        assignment = self.repository.get_by_id(assignment_id)
+
+        if assignment.status != 'TERMINE':
+            raise AssignmentBusinessRuleError(
+                "Seuls les assignments avec le statut 'TERMINE' peuvent être remis à 'ENTAME'."
+            )
+
+        old_status = assignment.status
+        current_time = timezone.now()
+
+        assignment.status = 'ENTAME'
+        assignment.entame_date = current_time
+        assignment.save()
+
+        return {
+            'assignment_id': assignment.id,
+            'job_id': assignment.job_id,
+            'old_status': old_status,
+            'new_status': assignment.status,
+            'updated_at': current_time,
+        }
