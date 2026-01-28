@@ -322,22 +322,35 @@ class AssignmentService(IAssignmentService):
         """
         assignment = self.repository.get_by_id(assignment_id)
 
+        # Validation de la transition de statut pour l'assignment
         if assignment.status != 'TERMINE':
             raise AssignmentBusinessRuleError(
                 "Seuls les assignments avec le statut 'TERMINE' peuvent être remis à 'ENTAME'."
             )
 
-        old_status = assignment.status
         current_time = timezone.now()
+        old_assignment_status = assignment.status
 
+        # Mettre l'assignment en ENTAME
         assignment.status = 'ENTAME'
         assignment.entame_date = current_time
         assignment.save()
 
+        # Si le job lié est également terminé, le remettre en ENTAME
+        job = assignment.job
+        old_job_status = job.status if job else None
+
+        if job and job.status == 'TERMINE':
+            job.status = 'ENTAME'
+            job.entame_date = current_time
+            job.save()
+
         return {
             'assignment_id': assignment.id,
             'job_id': assignment.job_id,
-            'old_status': old_status,
+            'old_status': old_assignment_status,
             'new_status': assignment.status,
+            'job_old_status': old_job_status,
+            'job_new_status': job.status if job else None,
             'updated_at': current_time,
         }

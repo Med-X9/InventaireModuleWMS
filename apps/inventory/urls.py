@@ -159,6 +159,7 @@ urlpatterns = [
     path('inventory/<int:inventory_id>/auto-assign-jobs-from-location-jobs/', AutoAssignJobsFromInventoryLocationJobView.as_view(), name='auto-assign-jobs-from-location-jobs'),
     path('inventory/session/<int:session_id>/assignments/', SessionAssignmentsView.as_view(), name='session-assignments'),
     path('inventory/assign-jobs-both-countings/', AssignJobsToBothCountingsView.as_view(), name='assign-jobs-both-countings'),
+    # URL pour remettre un assignment en statut ENTAME
     path('inventory/assignments/<int:assignment_id>/reopen/', AssignmentReopenView.as_view(), name='assignment-reopen'),
     path('inventory/assign-jobs-manual/', JobReassignmentView.as_view(), name='assign-jobs-manual'),
     # URL pour transférer les jobs par comptage
