@@ -288,6 +288,15 @@ class SyncRepository:
         # Créer un job fusionné pour chaque job_detail
         jobs_fused = []
         for job_detail in job_detail_queryset:
+            # Préparer la liste des warehouses avec id, name et reference
+            warehouses = []
+            if job.warehouse:
+                warehouses.append({
+                    'id': job.warehouse.id,
+                    'name': job.warehouse.warehouse_name,
+                    'reference': job.warehouse.reference
+                })
+            
             # Fusionner les données du job avec celles du job_detail
             job_fused = {
                 # Données du job parent
@@ -295,7 +304,7 @@ class SyncRepository:
                 'reference': job.reference,
                 'status': job.status,
                 'inventory_web_id': job.inventory.id,
-                'warehouse_name': job.warehouse.warehouse_name,  # ⭐ warehouse_name au lieu de warehouse_web_id
+                'warehouses': warehouses,  # ⭐ Liste des warehouses avec id, name et reference
                 'en_attente_date': job.en_attente_date.isoformat() if job.en_attente_date else None,
                 'affecte_date': job.affecte_date.isoformat() if job.affecte_date else None,
                 'pret_date': job.pret_date.isoformat() if job.pret_date else None,
