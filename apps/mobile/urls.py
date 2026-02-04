@@ -17,7 +17,6 @@ urlpatterns = [
         views.SyncDataView.as_view(),
         name="mobile_sync_data",
     ),
-    path("sync/upload/", views.UploadDataView.as_view(), name="mobile_upload_data"),
     # Liste des inventaires EN REALISATION affectés à l'utilisateur authentifié
     path(
         "inventory/",
@@ -31,23 +30,11 @@ urlpatterns = [
         name="mobile_user_products",
     ),
     # Tous les produits (sans filtre par account)
-    path(
-        "products/all/",
-        views.UserProductsView.as_view(),
-        name="mobile_all_products",
-    ),
-    # Export optimisé des produits (CSV/Excel streaming)
-    path(
-        "products/export/",
-        views.UserProductsExportView.as_view(),
-        name="mobile_user_products_export",
-    ),
-    # Locations du même compte qu'un utilisateur
-    path(
-        "locations/",
-        views.UserLocationsView.as_view(),
-        name="mobile_user_locations",
-    ),
+    # path(
+    #     "products/all/",
+    #     views.UserProductsView.as_view(),
+    #     name="mobile_all_products",
+    # ),
     # Stocks du même compte qu'un utilisateur
     path(
         "stocks/",
