@@ -31,3 +31,18 @@ class AssignmentAlreadyStartedException(Exception):
 class PersonValidationException(Exception):
     """Exception levée lors de la validation des personnes pour un assignment"""
     pass
+
+
+class AssignmentNotEntameException(Exception):
+    """Exception levée quand on tente de bloquer un assignment qui n'est pas en statut ENTAME"""
+    pass
+
+
+class AssignmentNotBloqueException(Exception):
+    """Exception levée quand on tente de débloquer un assignment qui n'est pas en statut bloqué"""
+    pass
+
+
+class MaxEntameAssignmentsException(Exception):
+    """Exception levée quand l'utilisateur a déjà atteint le maximum d'assignments ENTAME (3) pour le même inventory"""
+    pass

@@ -28,6 +28,7 @@ class InventoryUsersView(APIView):
     - Récupération des inventaires EN REALISATION
     - Filtrage par assignments de l'utilisateur authentifié
     - Retourne uniquement les inventaires avec des jobs TRANSFERT ou ENTAME
+    - Inclut la liste des warehouses (entrepôts) associés à chaque inventaire
     - Gestion des erreurs spécifiques
     
     Réponses:
@@ -64,6 +65,22 @@ class InventoryUsersView(APIView):
                                             'en_realisation_status_date': openapi.Schema(type=openapi.TYPE_STRING, example='2025-01-15T10:00:00Z'),
                                             'created_at': openapi.Schema(type=openapi.TYPE_STRING, example='2025-01-15T10:00:00Z'),
                                             'updated_at': openapi.Schema(type=openapi.TYPE_STRING, example='2025-01-15T10:00:00Z'),
+                                            'warehouses': openapi.Schema(
+                                                type=openapi.TYPE_ARRAY,
+                                                items=openapi.Schema(
+                                                    type=openapi.TYPE_OBJECT,
+                                                    properties={
+                                                        'web_id': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
+                                                        'reference': openapi.Schema(type=openapi.TYPE_STRING, example='WH-001'),
+                                                        'warehouse_name': openapi.Schema(type=openapi.TYPE_STRING, example='Entrepôt Central'),
+                                                        'warehouse_type': openapi.Schema(type=openapi.TYPE_STRING, example='CENTRAL'),
+                                                        'status': openapi.Schema(type=openapi.TYPE_STRING, example='ACTIVE'),
+                                                        'description': openapi.Schema(type=openapi.TYPE_STRING, example='Entrepôt principal'),
+                                                        'address': openapi.Schema(type=openapi.TYPE_STRING, example='123 Rue Example'),
+                                                    }
+                                                ),
+                                                description="Liste des entrepôts associés à l'inventaire"
+                                            ),
                                         }
                                     ),
                                     description="Liste des inventaires EN REALISATION"

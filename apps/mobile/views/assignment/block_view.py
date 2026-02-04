@@ -1,50 +1,46 @@
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+import logging
 
 from apps.mobile.services.assignment_service import AssignmentService
 from apps.mobile.utils import success_response, error_response
 from apps.mobile.exceptions import (
     AssignmentNotFoundException,
     UserNotAssignedException,
-    InvalidStatusTransitionException,
-    JobNotFoundException,
-    AssignmentAlreadyStartedException,
-    MaxEntameAssignmentsException,
+    AssignmentNotEntameException,
 )
 
+logger = logging.getLogger(__name__)
 
-class AssignmentStatusView(APIView):
+
+class BlockAssignmentView(APIView):
     """
-    Vue pour la mise à jour des statuts d'un assignment et de son job associé.
+    Vue pour bloquer un assignment.
     
-    Permet de mettre à jour le statut d'un assignment et de son job correspondant
-    vers le statut "ENTAME" dans l'application mobile. Gère la cohérence des
-    statuts entre les deux entités.
+    Permet de bloquer un assignment en changeant son statut vers bloqué.
+    Cette opération n'est autorisée que si l'assignment est en statut ENTAME.
     
-    URL: /api/mobile/assignment/{assignment_id}/status/
+    URL: /api/mobile/assignment/{assignment_id}/block/
     
     Fonctionnalités:
-    - Mise à jour du statut assignment vers ENTAME
-    - Mise à jour du statut job associé vers ENTAME
+    - Bloque un assignment en statut ENTAME
+    - Change le statut vers bloqué
     - L'utilisateur est récupéré automatiquement depuis le token d'authentification
     - Validation des permissions utilisateur
-    - Gestion des transitions de statut valides
-    - Vérification de la limite de 3 assignments ENTAME par utilisateur et par inventaire
-    - Cohérence des données entre assignment et job
+    - Vérification que l'assignment est en statut ENTAME
     
     Paramètres d'URL:
-    - assignment_id (int): ID de l'assignment à mettre à jour
+    - assignment_id (int): ID de l'assignment à bloquer
     
     Réponses:
-    - 200: Statut mis à jour avec succès
-    - 400: Transition de statut invalide, assignment déjà entamé, ou limite d'assignments ENTAME atteinte (max 3)
+    - 200: Assignment bloqué avec succès
+    - 400: Assignment non en statut ENTAME
     - 401: Non authentifié
     - 403: Utilisateur non autorisé pour cet assignment
-    - 404: Assignment ou job non trouvé
+    - 404: Assignment non trouvé
     - 500: Erreur interne du serveur
     """
     permission_classes = [IsAuthenticated]
@@ -54,20 +50,20 @@ class AssignmentStatusView(APIView):
         self.assignment_service = AssignmentService()
     
     @swagger_auto_schema(
-        operation_summary="Mise à jour du statut d'assignment mobile",
-        operation_description="Met à jour le statut d'un assignment et de son job associé vers ENTAME. L'utilisateur est récupéré depuis le token d'authentification",
+        operation_summary="Bloquer un assignment",
+        operation_description="Bloque un assignment en changeant son statut vers bloqué. Seuls les assignments en statut ENTAME peuvent être bloqués. L'utilisateur est récupéré depuis le token d'authentification",
         manual_parameters=[
             openapi.Parameter(
                 'assignment_id',
                 openapi.IN_PATH,
-                description="ID de l'assignment à mettre à jour",
+                description="ID de l'assignment à bloquer",
                 type=openapi.TYPE_INTEGER,
                 required=True
             )
         ],
         responses={
             200: openapi.Response(
-                description="Statut mis à jour avec succès",
+                description="Assignment bloqué avec succès",
                 schema=openapi.Schema(
                     type=openapi.TYPE_OBJECT,
                     properties={
@@ -75,25 +71,38 @@ class AssignmentStatusView(APIView):
                         'data': openapi.Schema(
                             type=openapi.TYPE_OBJECT,
                             properties={
-                                'assignment_id': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
-                                'job_id': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
-                                'new_status': openapi.Schema(type=openapi.TYPE_STRING, example='ENTAME'),
-                                'updated_at': openapi.Schema(type=openapi.TYPE_STRING, example='2024-01-01T10:00:00Z')
+                                'assignment': openapi.Schema(
+                                    type=openapi.TYPE_OBJECT,
+                                    properties={
+                                        'id': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
+                                        'reference': openapi.Schema(type=openapi.TYPE_STRING, example='ASS001'),
+                                        'status': openapi.Schema(type=openapi.TYPE_STRING, example='bloqué'),
+                                        'previous_status': openapi.Schema(type=openapi.TYPE_STRING, example='ENTAME'),
+                                        'bloqued_date': openapi.Schema(type=openapi.TYPE_STRING, example='2024-01-01T10:00:00Z'),
+                                        'updated_at': openapi.Schema(type=openapi.TYPE_STRING, example='2024-01-01T10:00:00Z')
+                                    }
+                                ),
+                                'job': openapi.Schema(
+                                    type=openapi.TYPE_OBJECT,
+                                    properties={
+                                        'id': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
+                                        'reference': openapi.Schema(type=openapi.TYPE_STRING, example='JOB001'),
+                                        'status': openapi.Schema(type=openapi.TYPE_STRING, example='ENTAME')
+                                    }
+                                ),
+                                'message': openapi.Schema(type=openapi.TYPE_STRING, example='Assignment ASS001 bloqué avec succès')
                             }
                         )
                     }
                 )
             ),
             400: openapi.Response(
-                description="Transition de statut invalide, assignment déjà entamé, ou limite d'assignments ENTAME atteinte",
+                description="Assignment non en statut ENTAME",
                 schema=openapi.Schema(
                     type=openapi.TYPE_OBJECT,
                     properties={
                         'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
-                        'error': openapi.Schema(
-                            type=openapi.TYPE_STRING, 
-                            example='Vous ne pouvez pas lancer (entamer) cet assignment car vous avez déjà 3 assignments en statut ENTAME pour le même inventaire. Maximum autorisé: 3.'
-                        )
+                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='L\'assignment ne peut pas être bloqué car son statut est \'TERMINE\'. Seuls les assignments en statut \'ENTAME\' peuvent être bloqués.')
                     }
                 )
             ),
@@ -117,12 +126,12 @@ class AssignmentStatusView(APIView):
                 )
             ),
             404: openapi.Response(
-                description="Assignment ou job non trouvé",
+                description="Assignment non trouvé",
                 schema=openapi.Schema(
                     type=openapi.TYPE_OBJECT,
                     properties={
                         'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
-                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Assignment non trouvé')
+                        'error': openapi.Schema(type=openapi.TYPE_STRING, example='Assignment avec l\'ID 1 non trouvé')
                     }
                 )
             ),
@@ -142,7 +151,7 @@ class AssignmentStatusView(APIView):
     )
     def post(self, request, assignment_id):
         """
-        Met à jour le statut d'un assignment et de son job vers ENTAME.
+        Bloque un assignment en changeant son statut vers bloqué.
         
         Args:
             request: Requête POST
@@ -150,24 +159,20 @@ class AssignmentStatusView(APIView):
             assignment_id: ID de l'assignment (depuis l'URL)
             
         Returns:
-            Response: Confirmation de mise à jour avec données des statuts
+            Response: Confirmation de blocage avec données de l'assignment
         """
         try:
             # Récupérer l'utilisateur depuis le token d'authentification
             user_id = request.user.id
-            print(f"user_id depuis token: {user_id}")
             
-            # Statut fixe : ENTAME
-            new_status = "ENTAME"
-            
-            # Mettre à jour les deux statuts
-            result = self.assignment_service.update_assignment_and_job_status(
-                assignment_id, user_id, new_status
+            # Bloquer l'assignment
+            result = self.assignment_service.block_assignment(
+                assignment_id, user_id
             )
             
             return success_response(
                 data=result,
-                message="Statut mis à jour avec succès"
+                message="Assignment bloqué avec succès"
             )
             
         except AssignmentNotFoundException as e:
@@ -182,32 +187,15 @@ class AssignmentStatusView(APIView):
                 status_code=status.HTTP_403_FORBIDDEN
             )
             
-        except JobNotFoundException as e:
-            return error_response(
-                message=str(e),
-                status_code=status.HTTP_404_NOT_FOUND
-            )
-            
-        except InvalidStatusTransitionException as e:
-            return error_response(
-                message=str(e),
-                status_code=status.HTTP_400_BAD_REQUEST
-            )
-            
-        except AssignmentAlreadyStartedException as e:
-            return error_response(
-                message=str(e),
-                status_code=status.HTTP_400_BAD_REQUEST
-            )
-            
-        except MaxEntameAssignmentsException as e:
+        except AssignmentNotEntameException as e:
             return error_response(
                 message=str(e),
                 status_code=status.HTTP_400_BAD_REQUEST
             )
             
         except Exception as e:
+            logger.exception(f"Erreur lors du blocage de l'assignment {assignment_id}: {str(e)}")
             return error_response(
-                message="Une erreur inattendue s'est produite",
+                message=f"Une erreur inattendue s'est produite: {str(e)}",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )

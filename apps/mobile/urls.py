@@ -54,6 +54,16 @@ urlpatterns = [
         name="mobile_assignment_status",
     ),
     path(
+        "assignment/<int:assignment_id>/block/",
+        views.BlockAssignmentView.as_view(),
+        name="mobile_block_assignment",
+    ),
+    path(
+        "assignment/<int:assignment_id>/unblock/",
+        views.UnblockAssignmentView.as_view(),
+        name="mobile_unblock_assignment",
+    ),
+    path(
         "job/<int:job_id>/close/<int:assignment_id>/",
         views.CloseJobView.as_view(),
         name="mobile_close_job",

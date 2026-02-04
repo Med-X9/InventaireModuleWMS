@@ -31,7 +31,9 @@ from .user import (
 # Vues d'assignment
 from .assignment import (
     AssignmentStatusView,
-    CloseJobView
+    CloseJobView,
+    BlockAssignmentView,
+    UnblockAssignmentView
 )
 
 # Vues de comptage
@@ -68,6 +70,8 @@ __all__ = [
     # Assignment views
     'AssignmentStatusView',
     'CloseJobView',
+    'BlockAssignmentView',
+    'UnblockAssignmentView',
 
     # Counting views
     'CountingDetailView',

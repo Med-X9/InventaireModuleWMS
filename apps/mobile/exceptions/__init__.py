@@ -40,6 +40,9 @@ from .assignment_exceptions import (
     AssignmentValidationException,
     AssignmentAlreadyStartedException,
     PersonValidationException,
+    AssignmentNotEntameException,
+    AssignmentNotBloqueException,
+    MaxEntameAssignmentsException,
 )
 
 from .counting_detail_exceptions import (
@@ -92,6 +95,9 @@ __all__ = [
     'AssignmentValidationException',
     'AssignmentAlreadyStartedException',
     'PersonValidationException',
+    'AssignmentNotEntameException',
+    'AssignmentNotBloqueException',
+    'MaxEntameAssignmentsException',
     
     # Counting detail exceptions
     'CountingDetailValidationError',
