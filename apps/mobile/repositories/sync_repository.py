@@ -34,7 +34,7 @@ class SyncRepository:
     
     def get_jobs_by_inventories_and_user(self, inventories, user_id, inventory_id=None):
         """
-        Récupère tous les jobs assignés à l'utilisateur avec assignments ACTIFS (TRANSFERT) uniquement
+        Récupère tous les jobs assignés à l'utilisateur avec assignments ACTIFS (TRANSFERT ou ENTAME) uniquement
 
         Args:
             inventories: Queryset des inventaires (utilisé pour référence)
@@ -42,12 +42,12 @@ class SyncRepository:
             inventory_id: ID de l'inventaire pour filtrer (optionnel)
 
         Returns:
-            Queryset des jobs assignés à l'utilisateur avec assignments actifs (TRANSFERT) uniquement
+            Queryset des jobs assignés à l'utilisateur avec assignments actifs (TRANSFERT ou ENTAME) uniquement
         """
-        # Récupérer tous les assignments ACTIFS (TRANSFERT) de l'utilisateur uniquement
+        # Récupérer tous les assignments ACTIFS (TRANSFERT ou ENTAME) de l'utilisateur uniquement
         assignment_filter = Assigment.objects.filter(
             session_id=user_id,
-            status='TRANSFERT',  # ⭐ Seulement les assignments actifs
+            status__in=['TRANSFERT', 'ENTAME'],  # ⭐ Seulement les assignments actifs
             job__status__in=['TRANSFERT', 'ENTAME']
         )
         
@@ -83,9 +83,9 @@ class SyncRepository:
             user_id: ID de l'utilisateur
             
         Returns:
-            Queryset des inventaires EN REALISATION contenant des jobs TRANSFERT assignés à l'utilisateur
+            Queryset des inventaires EN REALISATION contenant des jobs TRANSFERT ou ENTAME assignés à l'utilisateur
         """
-        # Récupérer les IDs des inventaires des jobs assignés à l'utilisateur avec statut TRANSFERT uniquement
+        # Récupérer les IDs des inventaires des jobs assignés à l'utilisateur avec statut TRANSFERT ou ENTAME uniquement
         inventory_ids = Assigment.objects.filter(
             session_id=user_id,
             job__status__in=['TRANSFERT', 'ENTAME']
@@ -99,19 +99,19 @@ class SyncRepository:
     
     def get_countings_by_user_assignments(self, user_id, inventory_id=None):
         """
-        Récupère les comptages liés aux assignments ACTIFS (TRANSFERT) de l'utilisateur
+        Récupère les comptages liés aux assignments ACTIFS (TRANSFERT ou ENTAME) de l'utilisateur
         
         Args:
             user_id: ID de l'utilisateur
             inventory_id: ID de l'inventaire pour filtrer (optionnel)
             
         Returns:
-            Queryset des countings des assignments actifs (TRANSFERT) de l'utilisateur
+            Queryset des countings des assignments actifs (TRANSFERT ou ENTAME) de l'utilisateur
         """
-        # Récupérer les counting_id des assignments ACTIFS (TRANSFERT) de l'utilisateur uniquement
+        # Récupérer les counting_id des assignments ACTIFS (TRANSFERT ou ENTAME) de l'utilisateur uniquement
         assignment_filter = Assigment.objects.filter(
             session_id=user_id,
-            status='TRANSFERT',  # ⭐ Seulement les assignments actifs
+            status__in=['TRANSFERT', 'ENTAME'],  # ⭐ Seulement les assignments actifs
             job__status__in=['TRANSFERT', 'ENTAME']
         )
         
@@ -129,25 +129,25 @@ class SyncRepository:
     
     def get_assignments_by_jobs(self, jobs):
         """
-        Récupère les assignations pour les jobs donnés avec statut TRANSFERT uniquement
+        Récupère les assignations pour les jobs donnés avec statut TRANSFERT ou ENTAME uniquement
         
         Returns:
-            Queryset des assignments avec statut TRANSFERT pour ces jobs
+            Queryset des assignments avec statut TRANSFERT ou ENTAME pour ces jobs
         """
-        return Assigment.objects.filter(job__in=jobs, status='TRANSFERT')
+        return Assigment.objects.filter(job__in=jobs, status__in=['TRANSFERT', 'ENTAME'])
     
     def get_assignments_by_jobs_and_user(self, jobs, user_id):
         """
-        Récupère les assignations pour les jobs donnés, filtrées par utilisateur et statut TRANSFERT uniquement
+        Récupère les assignations pour les jobs donnés, filtrées par utilisateur et statut TRANSFERT ou ENTAME uniquement
         
         Args:
             jobs: Queryset des jobs
             user_id: ID de l'utilisateur pour filtrer les assignments
             
         Returns:
-            Queryset des assignments de l'utilisateur avec statut TRANSFERT pour ces jobs
+            Queryset des assignments de l'utilisateur avec statut TRANSFERT ou ENTAME pour ces jobs
         """
-        return Assigment.objects.filter(job__in=jobs, session_id=user_id, status='TRANSFERT')
+        return Assigment.objects.filter(job__in=jobs, session_id=user_id, status__in=['TRANSFERT', 'ENTAME'])
     
     def get_countings_by_inventories(self, inventories):
         """Récupère les comptages pour les inventaires donnés"""
@@ -250,7 +250,7 @@ class SyncRepository:
         Retourne une liste de jobs, un pour chaque job_detail.
         
         Filtre pour ne retourner que :
-        - Les job_details liés aux assignments ACTIFS (status='TRANSFERT') de l'utilisateur
+        - Les job_details liés aux assignments ACTIFS (status='TRANSFERT' ou 'ENTAME') de l'utilisateur
         - Les job_details avec status='EN ATTENTE' uniquement (pas les terminés)
         
         Args:
@@ -265,11 +265,11 @@ class SyncRepository:
         
         # Filtrer les job_details par assignments actifs de l'utilisateur si user_id est fourni
         if user_id:
-            # Récupérer les counting_id des assignments ACTIFS (TRANSFERT) de l'utilisateur pour ce job
+            # Récupérer les counting_id des assignments ACTIFS (TRANSFERT ou ENTAME) de l'utilisateur pour ce job
             user_counting_ids = Assigment.objects.filter(
                 job=job,
                 session_id=user_id,
-                status='TRANSFERT'  # ⭐ Seulement les assignments actifs
+                status__in=['TRANSFERT', 'ENTAME']  # ⭐ Seulement les assignments actifs
             ).values_list('counting_id', flat=True).distinct()
             
             # Filtrer les job_details par counting ET status EN ATTENTE
