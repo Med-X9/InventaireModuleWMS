@@ -1844,9 +1844,9 @@ class StockImportView(APIView):
         self.stock_service = StockService()
         self.validation_use_case = StockImportValidationUseCase()
 
-    def post(self, request, inventory_id, *args, **kwargs):
+    def post(self, request, inventory_id, warehouse_id, *args, **kwargs):
         """
-        Importe des stocks depuis un fichier Excel pour un inventaire spécifique.
+        Importe des stocks depuis un fichier Excel pour un inventaire et un entrepôt spécifiques.
         
         Règles métier:
         - Inventaire TOURNANT: Un seul import autorisé (refusé si stocks existants)
@@ -1854,6 +1854,7 @@ class StockImportView(APIView):
         
         Args:
             inventory_id: L'ID de l'inventaire
+            warehouse_id: L'ID de l'entrepôt
             request.FILES['file']: Le fichier Excel à importer
             
         Format attendu du fichier Excel:

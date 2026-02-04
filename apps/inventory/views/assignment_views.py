@@ -11,14 +11,14 @@ from ..serializers.assignment_serializer import (
     AssignmentRulesSerializer,
     SessionAssignmentsResponseSerializer,
     AssignmentSerializer,
-    JobBasicSerializer
+    JobBasicSerializer,
 )
 from ..serializers.inventory_resource_serializer import (
     AssignResourcesToInventorySerializer,
     AssignResourcesToInventorySimpleSerializer,
     AssignResourcesToInventoryDirectSerializer,
     InventoryResourceDetailSerializer,
-    InventoryResourceAssignmentResponseSerializer
+    InventoryResourceAssignmentResponseSerializer,
 )
 from ..usecases.job_assignment import JobAssignmentUseCase
 from ..services.inventory_resource_service import InventoryResourceService
@@ -28,12 +28,12 @@ from ..exceptions.assignment_exceptions import (
     AssignmentValidationError,
     AssignmentBusinessRuleError,
     AssignmentSessionError,
-    AssignmentNotFoundError
+    AssignmentNotFoundError,
 )
 from ..exceptions.inventory_resource_exceptions import (
     InventoryResourceValidationError,
     InventoryResourceBusinessRuleError,
-    InventoryResourceNotFoundError
+    InventoryResourceNotFoundError,
 )
 
 class AssignJobsToCountingView(APIView):
@@ -114,7 +114,7 @@ class AssignJobsToCountingView(APIView):
                 status_code=status.HTTP_404_NOT_FOUND
             )
             
-        except Exception as e:
+        except Exception:
             return error_response(
                 message="Une erreur inattendue s'est produite lors de l'affectation",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -183,7 +183,7 @@ class AssignResourcesToInventoryView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_404_NOT_FOUND)
         except InventoryResourceBusinessRuleError as e:
             return Response({'error': str(e)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
-        except Exception as e:
+        except Exception:
             return Response(
                 {'error': f'Erreur interne du serveur: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -221,7 +221,7 @@ class InventoryResourcesView(APIView):
             
         except InventoryResourceNotFoundError as e:
             return Response({'error': str(e)}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
+        except Exception:
             return Response(
                 {'error': f'Erreur interne du serveur: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -297,7 +297,7 @@ class SessionAssignmentsView(APIView):
                 status_code=status.HTTP_400_BAD_REQUEST
             )
             
-        except Exception as e:
+        except Exception:
             return error_response(
                 message="Une erreur inattendue s'est produite",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -583,4 +583,59 @@ class AutoAssignJobsFromInventoryLocationJobView(APIView):
             return error_response(
                 message=f"Une erreur inattendue s'est produite: {str(e)}",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class AssignmentReopenView(APIView):
+    """
+    Remet un assignment du statut TERMINE au statut ENTAME.
+
+    POST /api/inventory/assignments/<int:assignment_id>/reopen/
+
+    Comportement :
+    - Vérifie que l'assignment existe
+    - Vérifie que son statut actuel est TERMINE
+    - Met à jour le statut à ENTAME et renseigne la date entame_date
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, assignment_id: int):
+        """
+        Remet un assignment terminé en statut ENTAME.
+
+        Args:
+            request: Requête HTTP
+            assignment_id: ID de l'assignment à mettre à jour
+
+        Returns:
+            Response: Détails de l'assignment mis à jour
+        """
+        service = AssignmentService()
+
+        try:
+            result = service.reopen_assignment_from_termine_to_entame(assignment_id)
+
+            return success_response(
+                data=result,
+                message="Assignment remis au statut 'ENTAME' avec succès",
+                status_code=status.HTTP_200_OK,
+            )
+
+        except AssignmentNotFoundError as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+
+        except AssignmentBusinessRuleError as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        except Exception:
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la remise de l'assignment à ENTAME",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )

@@ -171,13 +171,14 @@ class AutoCreateRegroupementWidget(widgets.ForeignKeyWidget):
                             pass
                 
                 # Option 2: Si pas d'account dans la ligne, chercher via la sous_zone
+                warehouse = None
                 if not account and row:
                     sous_zone_name = row.get('sous zone', '')
                     if sous_zone_name:
                         try:
                             from .models import SousZone
                             sous_zone = SousZone.objects.get(sous_zone_name=sous_zone_name)
-                            # Essayer de trouver l'account via la zone -> warehouse
+                            # Essayer de trouver l'account et le warehouse via la zone -> warehouse
                             if hasattr(sous_zone, 'zone') and sous_zone.zone:
                                 zone = sous_zone.zone
                                 if hasattr(zone, 'warehouse') and zone.warehouse:
@@ -194,21 +195,46 @@ class AutoCreateRegroupementWidget(widgets.ForeignKeyWidget):
                     if not account:
                         raise ValueError("Aucun compte disponible pour créer le regroupement. Veuillez créer un compte d'abord.")
                 
+                # Si le warehouse n'a pas été trouvé via la sous_zone, essayer de le trouver via l'account
+                if not warehouse:
+                    # Chercher un warehouse associé à l'account (si une telle relation existe)
+                    # Sinon, utiliser le premier warehouse disponible comme fallback
+                    from .models import Warehouse
+                    warehouse = Warehouse.objects.first()
+                    if not warehouse:
+                        raise ValueError("Aucun warehouse disponible pour créer le regroupement. Veuillez créer un warehouse d'abord.")
+                
                 # Vérifier si l'account a déjà un regroupement (OneToOneField)
                 if hasattr(account, 'regroupement_emplacement'):
-                    # Si l'account a déjà un regroupement, le retourner
-                    # (même si le nom est différent, car c'est une contrainte OneToOneField)
-                    return account.regroupement_emplacement
+                    # Si l'account a déjà un regroupement, vérifier qu'il a le même warehouse
+                    existing_regroupement = account.regroupement_emplacement
+                    if existing_regroupement.warehouse.id != warehouse.id:
+                        raise ValueError(
+                            f"Le regroupement existant '{existing_regroupement.nom}' pour le compte '{account.account_name}' "
+                            f"appartient au warehouse '{existing_regroupement.warehouse.warehouse_name}', "
+                            f"mais l'emplacement appartient au warehouse '{warehouse.warehouse_name}'. "
+                            f"Les warehouses doivent correspondre."
+                        )
+                    return existing_regroupement
                 
                 # Vérifier si un regroupement avec ce nom existe déjà pour un autre account
                 existing_regroupement = RegroupementEmplacement.objects.filter(nom=value).first()
                 if existing_regroupement:
+                    # Vérifier que le warehouse correspond
+                    if existing_regroupement.warehouse.id != warehouse.id:
+                        raise ValueError(
+                            f"Le regroupement '{value}' existe déjà mais appartient au warehouse "
+                            f"'{existing_regroupement.warehouse.warehouse_name}', "
+                            f"alors que l'emplacement appartient au warehouse '{warehouse.warehouse_name}'. "
+                            f"Les warehouses doivent correspondre."
+                        )
                     # Si un regroupement avec ce nom existe déjà, le retourner
                     return existing_regroupement
                 
-                # Créer le nouveau regroupement pour l'account
+                # Créer le nouveau regroupement pour l'account avec le warehouse
                 regroupement = RegroupementEmplacement.objects.create(
                     account=account,
+                    warehouse=warehouse,
                     nom=value
                 )
                 return regroupement
@@ -415,6 +441,34 @@ class LocationResource(resources.ModelResource):
             )
 
         return super().before_import_row(row, **kwargs)
+
+    def before_save_instance(self, instance, using_transactions, dry_run):
+        """
+        Validation avant la sauvegarde de l'instance.
+        Vérifie que l'emplacement et le regroupement ont le même warehouse.
+        """
+        # Vérifier si un regroupement est associé
+        if instance.regroupement and instance.sous_zone:
+            # Récupérer le warehouse de l'emplacement via sous_zone -> zone -> warehouse
+            location_warehouse = None
+            if instance.sous_zone and instance.sous_zone.zone:
+                location_warehouse = instance.sous_zone.zone.warehouse
+            
+            # Récupérer le warehouse du regroupement
+            regroupement_warehouse = instance.regroupement.warehouse
+            
+            # Valider que les warehouses correspondent
+            if location_warehouse and regroupement_warehouse:
+                if location_warehouse.id != regroupement_warehouse.id:
+                    raise ValueError(
+                        f"L'emplacement '{instance.location_reference}' appartient au warehouse "
+                        f"'{location_warehouse.warehouse_name}' (via la sous-zone '{instance.sous_zone.sous_zone_name}'), "
+                        f"mais le regroupement '{instance.regroupement.nom}' appartient au warehouse "
+                        f"'{regroupement_warehouse.warehouse_name}'. "
+                        f"Les warehouses doivent correspondre."
+                    )
+        
+        return super().before_save_instance(instance, using_transactions, dry_run)
 
 
 
@@ -1420,6 +1474,35 @@ class LocationForm(forms.ModelForm):
     def clean(self):
         cleaned_data = super().clean()
         # La validation du champ reference est gérée dans le modèle
+        
+        # Validation : vérifier que l'emplacement et le regroupement ont le même warehouse
+        sous_zone = cleaned_data.get('sous_zone')
+        regroupement = cleaned_data.get('regroupement')
+        
+        if regroupement and sous_zone:
+            # Récupérer le warehouse de l'emplacement via sous_zone -> zone -> warehouse
+            location_warehouse = None
+            if sous_zone and sous_zone.zone:
+                location_warehouse = sous_zone.zone.warehouse
+            
+            # Récupérer le warehouse du regroupement
+            regroupement_warehouse = regroupement.warehouse
+            
+            # Valider que les warehouses correspondent
+            if location_warehouse and regroupement_warehouse:
+                if location_warehouse.id != regroupement_warehouse.id:
+                    raise forms.ValidationError(
+                        {
+                            'regroupement': (
+                                f"L'emplacement appartient au warehouse '{location_warehouse.warehouse_name}' "
+                                f"(via la sous-zone '{sous_zone.sous_zone_name}'), "
+                                f"mais le regroupement '{regroupement.nom}' appartient au warehouse "
+                                f"'{regroupement_warehouse.warehouse_name}'. "
+                                f"Les warehouses doivent correspondre."
+                            )
+                        }
+                    )
+        
         return cleaned_data
 
 @admin.register(Location)
@@ -1823,8 +1906,14 @@ class NSerieAdmin(ImportExportModelAdmin):
 @admin.register(RegroupementEmplacement)
 class RegroupementEmplacementAdmin(ImportExportModelAdmin):
     resource_class = RegroupementEmplacementResource
-    list_display = ('nom', 'account')
+    list_display = ('nom', 'account', 'warehouse')
     search_fields = ('nom', 'account__account_name')
+    list_filter = ('warehouse__warehouse_name', 'account__account_name')
+
+    def get_warehouse_name(self, obj):
+        return obj.warehouse.warehouse_name if obj.warehouse else '-'
+    get_warehouse_name.short_description = 'Warehouse'
+    get_warehouse_name.admin_order_field = 'warehouse__warehouse_name'
 # @admin.register(ImportTask)
 # class ImportTaskAdmin(admin.ModelAdmin):
 #     """Admin pour les tâches d'import"""

@@ -114,7 +114,7 @@ class Warehouse(CodeGeneratorMixin, TimeStampedModel):
         ('SHIPPING', _('Expédition')),
         ('TRANSIT', _('Transit')),
     )
-    
+     
     reference = models.CharField(_('Code de l\'entrepôt'), max_length=20, unique=True)
     warehouse_name = models.CharField(_('Nom de l\'entrepôt'), max_length=100)
     warehouse_type = models.CharField(_('Type d\'entrepôt'), choices=Warehouse_CHOICES)
@@ -390,6 +390,7 @@ class Stock(TimeStampedModel):
     quantity_in_receiving = models.IntegerField(validators=[MinValueValidator(0)], blank=True, null=True)
     unit_of_measure = models.ForeignKey(UnitOfMeasure, on_delete=models.CASCADE)
     inventory = models.ForeignKey('inventory.Inventory', on_delete=models.CASCADE)
+    warehouse = models.ForeignKey('Warehouse', on_delete=models.CASCADE)
     history = HistoricalRecords()
 
     def save(self, *args, **kwargs):
@@ -437,7 +438,8 @@ class Procedure(CodeGeneratorMixin, TimeStampedModel):
     """
 
 class RegroupementEmplacement(models.Model):
-    account = models.OneToOneField('Account', on_delete=models.CASCADE, related_name='regroupement_emplacement')
+    account = models.ForeignKey('Account', on_delete=models.CASCADE, related_name='regroupement_emplacement')
+    warehouse = models.ForeignKey('Warehouse', on_delete=models.CASCADE, related_name='regroupement_emplacement')
     nom = models.CharField(max_length=255)
 
     def __str__(self):

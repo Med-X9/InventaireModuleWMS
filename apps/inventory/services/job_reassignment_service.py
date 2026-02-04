@@ -222,6 +222,10 @@ class JobReassignmentService:
         - Si au moins un assignment est ENTAME -> job = ENTAME (priorité haute)
         - Si au moins un assignment est TRANSFERT -> job = TRANSFERT (priorité basse)
         - Si les deux assignments sont TRANSFERT -> job = TRANSFERT
+
+        Règle supplémentaire :
+        - Ne jamais rétrograder un job de ENTAME vers TRANSFERT uniquement
+          parce qu'un assignment passe en TRANSFERT lors d'une réaffectation.
         """
         # Récupérer les assignments des comptages 1 et 2
         assignments = Assigment.objects.filter(job=job)
@@ -238,10 +242,19 @@ class JobReassignmentService:
         elif transfert_count >= 1:
             new_status = 'TRANSFERT'
 
-        if new_status:
-            job.status = new_status
-            if new_status == 'TRANSFERT':
-                job.transfert_date = timezone.now()
-            elif new_status == 'ENTAME':
-                job.entame_date = timezone.now()
-            job.save()
+        # Si aucun nouveau statut calculé, ne rien faire
+        if not new_status:
+            return
+
+        # Règle métier : si le job est déjà ENTAME, on ne le rétrograde pas à TRANSFERT
+        # lors d'une réaffectation (cas: assignment TRANSFERT mais job déjà ENTAME).
+        if job.status == 'ENTAME' and new_status == 'TRANSFERT':
+            return
+
+        # Appliquer le nouveau statut et mettre à jour les dates associées
+        job.status = new_status
+        if new_status == 'TRANSFERT':
+            job.transfert_date = timezone.now()
+        elif new_status == 'ENTAME':
+            job.entame_date = timezone.now()
+        job.save()
