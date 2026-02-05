@@ -1267,7 +1267,7 @@ class JobCancelView(APIView):
     - Si un job n'est pas dans un de ces statuts, il sera exclu avec un message d'erreur
     - Met le job au statut ANNULE avec annule_date
     - Met tous les JobDetails associés au statut ANNULE avec annule_date
-    - Met tous les Assigments associés au statut ANNULE avec annule_date
+    - Met tous les Assigments associés au statut ANNULE
     """
     
     def post(self, request):

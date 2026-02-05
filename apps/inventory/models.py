@@ -241,9 +241,9 @@ class Job(TimeStampedModel):
     
 def validate_numero_format(value):
     """
-    Valide le format du numéro avec le préfixe 'opr-' suivi de '000' et au moins un chiffre.
-    Format attendu: opr-000x où x est au moins un chiffre
-    Exemples valides: opr-0002, opr-00012, opr-00034
+    Valide le format du numéro avec le préfixe 'opr-' suivi de 4 chiffres.
+    Format attendu: opr-XXXX où XXXX est un nombre de 1 à 4 chiffres (avec zéros à gauche)
+    Exemples valides: opr-0001, opr-0010, opr-0100, opr-1000
     """
     if value is None or value == '':
         return
@@ -254,23 +254,28 @@ def validate_numero_format(value):
     # Vérifier que le format commence par 'opr-'
     if not numero_str.startswith('opr-'):
         raise ValidationError(
-            _('Le numéro doit commencer par "opr-" (ex: opr-0002, opr-00012, opr-00034)')
+            _('Le numéro doit commencer par "opr-" (ex: opr-0001, opr-0010, opr-0100)')
         )
 
     # Extraire la partie après 'opr-'
     suffix = numero_str[4:]  # Enlever 'opr-'
 
-    # Vérifier que la partie après 'opr-' commence par '000' suivi d'au moins un chiffre
-    if not suffix.startswith('000'):
+    # Vérifier que la partie après 'opr-' est composée uniquement de chiffres
+    if not suffix.isdigit():
         raise ValidationError(
-            _('Le numéro doit avoir le format "opr-000x" où x est au moins un chiffre (ex: opr-0002, opr-00012, opr-00034)')
+            _('Le numéro doit avoir le format "opr-XXXX" où XXXX est un nombre (ex: opr-0001, opr-0010, opr-0100)')
         )
 
-    # Vérifier que la partie après '000' contient au moins un chiffre
-    remaining = suffix[3:]  # Enlever '000'
-    if not remaining or not remaining.isdigit() or len(remaining) == 0:
+    # Vérifier que le numéro est entre 1 et 9999 (4 chiffres max)
+    try:
+        num_value = int(suffix)
+        if num_value < 1 or num_value > 9999:
+            raise ValidationError(
+                _('Le numéro doit être entre 1 et 9999 (ex: opr-0001 à opr-9999)')
+            )
+    except ValueError:
         raise ValidationError(
-            _('Le numéro doit avoir le format "opr-000x" où x est au moins un chiffre (ex: opr-0002, opr-00012, opr-00034)')
+            _('Le numéro doit avoir le format "opr-XXXX" où XXXX est un nombre valide (ex: opr-0001, opr-0010, opr-0100)')
         )
 
 
@@ -318,7 +323,8 @@ class Assigment(TimeStampedModel, ReferenceMixin):
         ('TRANSFERT', 'TRANSFERT'), 
         ('ENTAME', 'ENTAME'),
         ('TERMINE', 'TERMINE'),
-        ('ANNULE', 'ANNULE'),
+        ('BLOQUE', 'BLOQUE'),
+        ('DEBLOQUE', 'DEBLOQUE'),
     )
     REFERENCE_PREFIX = 'ASS'
     reference = models.CharField(unique=True, max_length=20, null=False)
@@ -329,7 +335,8 @@ class Assigment(TimeStampedModel, ReferenceMixin):
     entame_date = models.DateTimeField(null=True, blank=True)
     affecte_date = models.DateTimeField(null=True, blank=True)
     pret_date = models.DateTimeField(null=True, blank=True)
-    annule_date = models.DateTimeField(null=True, blank=True)
+    bloqued_date = models.DateTimeField(null=True, blank=True)
+    debloqued_date = models.DateTimeField(null=True, blank=True)
     job = models.ForeignKey('Job', on_delete=models.CASCADE)
     date_start = models.DateTimeField(null=True, blank=True)
     termine_date = models.DateTimeField(null=True, blank=True)

@@ -934,7 +934,7 @@ class AssignmentService:
         
         # Mettre à jour le statut vers bloqué
         now = timezone.now()
-        assignment.status = 'bloqué'
+        assignment.status = 'BLOQUE'
         assignment.bloqued_date = now
         assignment.save(update_fields=['status', 'bloqued_date', 'updated_at'])
         
@@ -982,10 +982,10 @@ class AssignmentService:
         assignment = self.verify_user_assignment(assignment_id, user_id)
         
         # Vérifier que l'assignment est en statut bloqué
-        if assignment.status != 'bloqué':
+        if assignment.status != 'BLOQUE':
             raise AssignmentNotBloqueException(
                 f"L'assignment {assignment_id} ne peut pas être débloqué car son statut est '{assignment.status}'. "
-                f"Seuls les assignments en statut 'bloqué' peuvent être débloqués."
+                f"Seuls les assignments en statut 'BLOQUE' peuvent être débloqués."
             )
         
         # Récupérer l'inventory associé au job de l'assignment
@@ -1020,7 +1020,7 @@ class AssignmentService:
                 'id': assignment.id,
                 'reference': assignment.reference,
                 'status': assignment.status,
-                'previous_status': 'bloqué',
+                'previous_status': 'BLOQUE',
                 'debloqued_date': assignment.debloqued_date,
                 'updated_at': assignment.updated_at
             },
