@@ -1604,7 +1604,7 @@ class JobService(JobServiceInterface):
         - Seuls les jobs avec les statuts suivants peuvent être annulés : EN ATTENTE, VALIDE, AFFECTE, PRET
         - Met le job au statut ANNULE avec annule_date
         - Met tous les JobDetails associés au statut ANNULE avec annule_date
-        - Met tous les Assigments associés au statut ANNULE avec annule_date
+        - Met tous les Assigments associés au statut ANNULE
         
         Args:
             job_ids: Liste des IDs des jobs à annuler
@@ -1669,7 +1669,7 @@ class JobService(JobServiceInterface):
             
             # Annuler tous les Assigments associés
             updated_assignments = self.repository.update_assignments_status(
-                job, 'ANNULE', 'annule_date'
+                job, 'ANNULE', None
             )
             assignments_cancelled += updated_assignments
         

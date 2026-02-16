@@ -10,7 +10,10 @@ from apps.mobile.exceptions import (
     InvalidStatusTransitionException,
     JobNotFoundException,
     AssignmentAlreadyStartedException,
-    PersonValidationException
+    PersonValidationException,
+    AssignmentNotEntameException,
+    AssignmentNotBloqueException,
+    MaxEntameAssignmentsException
     
 )
 
@@ -115,6 +118,14 @@ class AssignmentService:
             
         Returns:
             Dictionnaire avec les informations mises à jour
+            
+        Raises:
+            AssignmentNotFoundException: Si l'assignment n'existe pas
+            UserNotAssignedException: Si l'utilisateur n'est pas affecté à l'assignment
+            InvalidStatusTransitionException: Si la transition de statut n'est pas autorisée
+            JobNotFoundException: Si le job associé n'existe pas
+            AssignmentAlreadyStartedException: Si l'assignment est déjà en statut ENTAME
+            MaxEntameAssignmentsException: Si l'utilisateur a déjà 3 assignments ENTAME pour le même inventory
         """
         # Vérifier que l'utilisateur est autorisé
         assignment = self.verify_user_assignment(assignment_id, user_id)
@@ -133,12 +144,30 @@ class AssignmentService:
             )
         
         # Récupérer le job associé
-
         job = assignment.job
         if not job:
             raise JobNotFoundException(f"Job non trouvé pour l'assignment {assignment_id}")
         
-
+        # Vérifier la limite de 3 assignments ENTAME pour le même utilisateur et le même inventory
+        # Cette vérification s'applique uniquement si on passe à ENTAME
+        if new_status == 'ENTAME':
+            # Récupérer l'inventory associé au job de l'assignment
+            inventory = job.inventory
+            
+            # Compter les assignments ENTAME de l'utilisateur pour le même inventory
+            # (exclure l'assignment actuel qui n'est pas encore en statut ENTAME)
+            entame_count = Assigment.objects.filter(
+                session_id=user_id,
+                job__inventory=inventory,
+                status='ENTAME'
+            ).exclude(id=assignment_id).count()
+            
+            # Vérifier si l'utilisateur a déjà 3 assignments ENTAME
+            if entame_count >= 3:
+                raise MaxEntameAssignmentsException(
+                    f"Vous ne pouvez pas lancer (entamer) cet assignment car vous avez déjà {entame_count} assignments "
+                    f"en statut ENTAME pour le même inventaire. Maximum autorisé: 3."
+                )
         
         # Mettre à jour le statut de l'assignment et la date correspondante
         assignment.status = new_status
@@ -874,3 +903,131 @@ class AssignmentService:
             else:
                 # Plus de 2 comptages : conserver le résultat actuel s'il existe
                 return current_result
+    
+    @transaction.atomic
+    def block_assignment(self, assignment_id: int, user_id: int) -> dict:
+        """
+        Bloque un assignment en changeant son statut vers ANNULE.
+        Cette opération n'est autorisée que si l'assignment est en statut ENTAME.
+        
+        Args:
+            assignment_id: ID de l'assignment à bloquer
+            user_id: ID de l'utilisateur
+            
+        Returns:
+            Dictionnaire avec les informations de l'assignment bloqué
+            
+        Raises:
+            AssignmentNotFoundException: Si l'assignment n'existe pas
+            UserNotAssignedException: Si l'utilisateur n'est pas affecté à l'assignment
+            AssignmentNotEntameException: Si l'assignment n'est pas en statut ENTAME
+        """
+        # Vérifier que l'utilisateur est autorisé
+        assignment = self.verify_user_assignment(assignment_id, user_id)
+        
+        # Vérifier que l'assignment est en statut ENTAME
+        if assignment.status != 'ENTAME':
+            raise AssignmentNotEntameException(
+                f"L'assignment {assignment_id} ne peut pas être bloqué car son statut est '{assignment.status}'. "
+                f"Seuls les assignments en statut 'ENTAME' peuvent être bloqués."
+            )
+        
+        # Mettre à jour le statut vers bloqué
+        now = timezone.now()
+        assignment.status = 'BLOQUE'
+        assignment.bloqued_date = now
+        assignment.save(update_fields=['status', 'bloqued_date', 'updated_at'])
+        
+        # Récupérer le job associé pour information
+        job = assignment.job
+        
+        return {
+            'assignment': {
+                'id': assignment.id,
+                'reference': assignment.reference,
+                'status': assignment.status,
+                'previous_status': 'ENTAME',
+                'bloqued_date': assignment.bloqued_date,
+                'updated_at': assignment.updated_at
+            },
+            'job': {
+                'id': job.id,
+                'reference': job.reference,
+                'status': job.status
+            } if job else None,
+            'message': f'Assignment {assignment.reference} bloqué avec succès'
+        }
+    
+    @transaction.atomic
+    def unblock_assignment(self, assignment_id: int, user_id: int) -> dict:
+        """
+        Débloque un assignment en changeant son statut vers ENTAME.
+        Cette opération n'est autorisée que si l'assignment est en statut bloqué.
+        Vérifie également qu'il n'y a pas déjà 3 assignments ENTAME pour le même utilisateur et inventory.
+        
+        Args:
+            assignment_id: ID de l'assignment à débloquer
+            user_id: ID de l'utilisateur
+            
+        Returns:
+            Dictionnaire avec les informations de l'assignment débloqué
+            
+        Raises:
+            AssignmentNotFoundException: Si l'assignment n'existe pas
+            UserNotAssignedException: Si l'utilisateur n'est pas affecté à l'assignment
+            AssignmentNotBloqueException: Si l'assignment n'est pas en statut bloqué
+            MaxEntameAssignmentsException: Si l'utilisateur a déjà 3 assignments ENTAME pour le même inventory
+        """
+        # Vérifier que l'utilisateur est autorisé
+        assignment = self.verify_user_assignment(assignment_id, user_id)
+        
+        # Vérifier que l'assignment est en statut bloqué
+        if assignment.status != 'BLOQUE':
+            raise AssignmentNotBloqueException(
+                f"L'assignment {assignment_id} ne peut pas être débloqué car son statut est '{assignment.status}'. "
+                f"Seuls les assignments en statut 'BLOQUE' peuvent être débloqués."
+            )
+        
+        # Récupérer l'inventory associé au job de l'assignment
+        inventory = assignment.job.inventory
+        
+        # Compter les assignments ENTAME de l'utilisateur pour le même inventory
+        # (exclure l'assignment actuel qui est encore en statut bloqué)
+        entame_count = Assigment.objects.filter(
+            session_id=user_id,
+            job__inventory=inventory,
+            status='ENTAME'
+        ).exclude(id=assignment_id).count()
+        
+        # Vérifier si l'utilisateur a déjà 3 assignments ENTAME
+        if entame_count >= 3:
+            raise MaxEntameAssignmentsException(
+                f"Vous ne pouvez pas débloquer cet assignment car vous avez déjà {entame_count} assignments en statut ENTAME "
+                f"pour le même inventaire. Pour débloquer, vous devez terminer ou bloquer un assignment."
+            )
+        
+        # Mettre à jour le statut vers ENTAME
+        now = timezone.now()
+        assignment.status = 'ENTAME'
+        assignment.debloqued_date = now
+        assignment.save(update_fields=['status', 'debloqued_date', 'updated_at'])
+        
+        # Récupérer le job associé pour information
+        job = assignment.job
+        
+        return {
+            'assignment': {
+                'id': assignment.id,
+                'reference': assignment.reference,
+                'status': assignment.status,
+                'previous_status': 'BLOQUE',
+                'debloqued_date': assignment.debloqued_date,
+                'updated_at': assignment.updated_at
+            },
+            'job': {
+                'id': job.id,
+                'reference': job.reference,
+                'status': job.status
+            } if job else None,
+            'message': f'Assignment {assignment.reference} débloqué avec succès'
+        }

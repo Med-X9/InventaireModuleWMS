@@ -181,7 +181,7 @@ class PersonneAdmin(ImportExportModelAdmin):
                             with transaction.atomic():
                                 # Vérifier rapidement quelles personnes existent déjà dans la plage exacte à créer
                                 numeros_to_check = [
-                                    f'opr-000{next_available_num + i}'
+                                    f'opr-{str(next_available_num + i).zfill(4)}'
                                     for i in range(nombre_personnes)
                                 ]
                                 
@@ -219,7 +219,7 @@ class PersonneAdmin(ImportExportModelAdmin):
                                 
                                 for i in range(nombre_personnes):
                                     person_num = next_available_num + i
-                                    numero = f'opr-000{person_num}'
+                                    numero = f'opr-{str(person_num).zfill(4)}'
                                     
                                     # Exclure ceux qui existent déjà
                                     if numero not in already_existing_set:
@@ -254,7 +254,7 @@ class PersonneAdmin(ImportExportModelAdmin):
                                     last_person = next_available_num + created_count - 1
                                     messages.success(
                                         request,
-                                        f'{created_count} personne(s) créée(s) avec succès (de opr-000{first_person} à opr-000{last_person})'
+                                        f'{created_count} personne(s) créée(s) avec succès (de opr-{str(first_person).zfill(4)} à opr-{str(last_person).zfill(4)})'
                                     )
                                 
                                 # Si certaines personnes n'ont pas pu être créées
@@ -283,7 +283,7 @@ class PersonneAdmin(ImportExportModelAdmin):
                             
                             for i in range(nombre_personnes):
                                 person_num = next_available_num + i
-                                numero = f'opr-000{person_num}'
+                                numero = f'opr-{str(person_num).zfill(4)}'
                                 
                                 if numero not in already_existing_set:
                                     try:
@@ -307,7 +307,7 @@ class PersonneAdmin(ImportExportModelAdmin):
                                 last_person = created_persons[-1]
                                 messages.success(
                                     request,
-                                    f'{created_count} personne(s) créée(s) avec succès (de opr-000{first_person} à opr-000{last_person})'
+                                    f'{created_count} personne(s) créée(s) avec succès (de opr-{str(first_person).zfill(4)} à opr-{str(last_person).zfill(4)})'
                                 )
                             
                             if errors and len(errors) <= 50:

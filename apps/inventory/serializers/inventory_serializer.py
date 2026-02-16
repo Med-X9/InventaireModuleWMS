@@ -373,6 +373,8 @@ class InventoryDetailModeFieldsSerializer(serializers.ModelSerializer):
         magasins = []
         for setting in settings:
             magasins.append({
+                'id': setting.warehouse.id,
+                'reference': setting.warehouse.reference or '',
                 'nom': setting.warehouse.warehouse_name,
                 'date': setting.created_at.date() if setting.created_at else None
             })
@@ -544,11 +546,10 @@ class InventoryWarehousesSerializer(serializers.Serializer):
     """
     Serializer pour la liste des magasins d'un inventaire.
     Ne fait que du formatage, les données viennent du service.
+    Chaque magasin contient : id, reference, nom, date.
     """
     magasins = serializers.ListField(
-        child=serializers.DictField(
-            child=serializers.CharField()
-        )
+        child=serializers.DictField()
     )
 
 

@@ -102,6 +102,8 @@ class InventoryDetailService:
         magasins = []
         for setting in settings:
             magasins.append({
+                'id': setting.warehouse.id,
+                'reference': setting.warehouse.reference or '',
                 'nom': setting.warehouse.warehouse_name,
                 'date': setting.created_at.date() if setting.created_at else None
             })
