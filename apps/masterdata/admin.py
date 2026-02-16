@@ -442,10 +442,15 @@ class LocationResource(resources.ModelResource):
 
         return super().before_import_row(row, **kwargs)
 
-    def before_save_instance(self, instance, using_transactions, dry_run):
+    def before_save_instance(self, instance, *args, **kwargs):
         """
         Validation avant la sauvegarde de l'instance.
         Vérifie que l'emplacement et le regroupement ont le même warehouse.
+
+        La signature utilise *args / **kwargs pour rester compatible avec
+        les différentes versions de django-import-export, qui peuvent passer
+        les paramètres `using_transactions` / `dry_run` à la fois en
+        positionnel et en mot-clé.
         """
         # Vérifier si un regroupement est associé
         if instance.regroupement and instance.sous_zone:
@@ -453,10 +458,10 @@ class LocationResource(resources.ModelResource):
             location_warehouse = None
             if instance.sous_zone and instance.sous_zone.zone:
                 location_warehouse = instance.sous_zone.zone.warehouse
-            
+
             # Récupérer le warehouse du regroupement
             regroupement_warehouse = instance.regroupement.warehouse
-            
+
             # Valider que les warehouses correspondent
             if location_warehouse and regroupement_warehouse:
                 if location_warehouse.id != regroupement_warehouse.id:
@@ -467,6 +472,9 @@ class LocationResource(resources.ModelResource):
                         f"'{regroupement_warehouse.warehouse_name}'. "
                         f"Les warehouses doivent correspondre."
                     )
+
+        # Appeler l'implémentation parente pour conserver le comportement par défaut
+        return super().before_save_instance(instance, *args, **kwargs)
         
         return super().before_save_instance(instance, using_transactions, dry_run)
 

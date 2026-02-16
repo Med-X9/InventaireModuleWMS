@@ -30,7 +30,7 @@ UTILISATION RAPIDE:
                 return MyModel.objects.all()
     
     La vue supporte automatiquement:
-    - Tri multi-colonnes (sort ou sortBy/sortDir)
+    - Tri multi-colonnes (sort)
     - Filtres complexes (filters)
     - Pagination classique (page/pageSize)
     - Recherche globale (search)
@@ -79,12 +79,20 @@ class QueryModelMixin:
     
     # Configuration requise
     serializer_class: Optional[type] = None
-    column_field_mapping: Dict[str, str] = {}  # col_id -> field_name
+    column_field_mapping: Dict[str, str] = {}  # col_id -> field_name (optionnel, auto-détecté si vide)
     
-    # Configuration optionnelle
-    default_page_size: int = 100
-    max_page_size: int = 1000
-    search_fields: List[str] = []  # Champs pour la recherche globale
+    # Configuration optionnelle avec valeurs par défaut améliorées
+    default_page_size: int = 20  # Taille de page par défaut (au lieu de 100)
+    max_page_size: int = 100     # Taille maximale (au lieu de 1000)
+    search_fields: List[str] = []  # Champs pour la recherche globale (auto-détecté si vide)
+    # Configuration optionnelle pour les options de filtres avancés (type Excel)
+    # Exemple :
+    #   datatable_filter_options = {
+    #       "client": "client__name",
+    #       "status": "status",
+    #   }
+    # Utilisé par get_distinct_filter_values() et les vues dédiées aux options de filtre.
+    datatable_filter_options: Dict[str, str] = {}
     
     def get_queryset(self) -> QuerySet:
         """
@@ -105,12 +113,21 @@ class QueryModelMixin:
         Par défaut, utilise get_queryset(). Peut être surchargé pour
         utiliser une liste de dictionnaires ou une fonction callable.
         
-        OPTIMISATION AUTOMATIQUE:
-        - Si la vue définit explicitement select_related_fields, prefetch_related_fields, etc., ils sont utilisés
-        - Sinon, détection automatique depuis le modèle et le serializer
+        OPTIMISATIONS:
+        - Les optimisations doivent être définies explicitement via :
+          - select_related_fields : Liste de champs pour select_related()
+          - prefetch_related_fields : Liste de champs pour prefetch_related()
+          - only_fields : Liste de champs à charger uniquement
+          - defer_fields : Liste de champs à exclure
+        
+        Exemple:
+            class MyView(QueryModelView):
+                model = MyModel
+                serializer_class = MySerializer
+                select_related_fields = ['category', 'author']
+                prefetch_related_fields = ['tags', 'comments']
         """
         from .datasource import DataSourceFactory
-        from .optimizations import auto_detect_optimizations
         
         queryset = self.get_queryset()
 
@@ -123,7 +140,7 @@ class QueryModelMixin:
         )
         
         if has_explicit_optimizations:
-            # Utiliser les optimisations explicites
+            # Appliquer les optimisations explicites
             queryset = optimize_queryset(
                 queryset,
                 select_related=getattr(self, 'select_related_fields', None),
@@ -131,48 +148,7 @@ class QueryModelMixin:
                 only=getattr(self, 'only_fields', None),
                 defer=getattr(self, 'defer_fields', None),
             )
-        else:
-            # Détection automatique intelligente
-            # Vérifier si le queryset a déjà des optimisations appliquées
-            has_existing_optimizations = (
-                hasattr(queryset.query, 'select_related') and queryset.query.select_related
-            ) or (
-                hasattr(queryset.query, 'prefetch_related') and queryset.query.prefetch_related
-            )
-            
-            if not has_existing_optimizations:
-                # Seulement appliquer les optimisations automatiques si le queryset n'est pas déjà optimisé
-                model = getattr(self, 'model', None)
-                serializer_class = getattr(self, 'serializer_class', None)
-                column_field_mapping = self.get_column_field_mapping()
-                
-                if model:
-                    auto_optimizations = auto_detect_optimizations(
-                        model=model,
-                        serializer_class=serializer_class,
-                        column_field_mapping=column_field_mapping
-                    )
-                    
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            f"🔍 Optimisations automatiques détectées pour {self.__class__.__name__}: "
-                            f"select_related={auto_optimizations['select_related']}, "
-                            f"prefetch_related={auto_optimizations['prefetch_related']}"
-                        )
-                    
-                    queryset = optimize_queryset(
-                        queryset,
-                        select_related=auto_optimizations['select_related'] or None,
-                        prefetch_related=auto_optimizations['prefetch_related'] or None,
-                        only=auto_optimizations['only_fields'],
-                        defer=auto_optimizations['defer_fields'],
-                    )
-            else:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        f"⏭️ Queryset déjà optimisé pour {self.__class__.__name__}, "
-                        "ignorant les optimisations automatiques"
-                    )
+        # Sinon, retourner le queryset tel quel (pas d'optimisation automatique)
 
         return DataSourceFactory.create(queryset)
     
@@ -180,10 +156,171 @@ class QueryModelMixin:
         """
         Retourne le mapping colonnes -> champs Django.
         
-        Par défaut, utilise self.column_field_mapping.
-        Peut être surchargé pour un mapping dynamique.
+        Fusion intelligente : auto-détection + mappings explicites.
+        
+        Stratégie :
+        1. Auto-détecter depuis le serializer (tous les champs)
+        2. Fusionner avec column_field_mapping explicite (écrase l'auto-détection)
+        3. Résultat : mapping complet avec personnalisations
+        
+        Avantage : Définir seulement les champs personnalisés !
+        
+        Exemple :
+            # Au lieu de 20 lignes pour 20 champs :
+            column_field_mapping = {
+                'id': 'id',
+                'name': 'name',
+                # ... 18 autres lignes identiques
+            }
+            
+            # Maintenant, seulement les champs personnalisés :
+            column_field_mapping = {
+                'account_name': 'awi_links__account__account_name',  # Seulement les relations
+                'warehouse_name': 'awi_links__warehouse__warehouse_name'
+            }
+            # Les 18 autres champs sont auto-détectés depuis le serializer !
+        
+        Returns:
+            Dict[str, str]: Mapping col_id -> field_name Django (fusionné)
         """
-        return getattr(self, 'column_field_mapping', {})
+        # Étape 1 : Auto-détection depuis le serializer
+        auto_mapping = {}
+        try:
+            serializer_class = self.get_serializer_class()
+            if serializer_class:
+                auto_mapping = self._auto_detect_mapping_from_serializer(serializer_class)
+                if auto_mapping and logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Auto-détection du column_field_mapping depuis {serializer_class.__name__}: "
+                        f"{len(auto_mapping)} champs détectés"
+                    )
+        except (NotImplementedError, AttributeError):
+            # Serializer non disponible, continuer
+            pass
+        
+        # Étape 2 : Récupérer les mappings explicites (personnalisations)
+        explicit_mapping = getattr(self, 'column_field_mapping', {})
+        
+        # Étape 3 : Fusionner (mappings explicites écrasent l'auto-détection)
+        if explicit_mapping:
+            # Fusion : auto-détection + personnalisations
+            merged_mapping = {**auto_mapping, **explicit_mapping}
+            
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Fusion du mapping : {len(auto_mapping)} auto-détectés + "
+                    f"{len(explicit_mapping)} personnalisés = {len(merged_mapping)} total"
+                )
+            
+            return merged_mapping
+        
+        # Si pas de mapping explicite, retourner l'auto-détection
+        if auto_mapping:
+            return auto_mapping
+        
+        # Fallback : mapping vide (utiliser col_id directement)
+        return {}
+    
+    def _auto_detect_mapping_from_serializer(self, serializer_class: type) -> Dict[str, str]:
+        """
+        Auto-détecte le mapping colonnes -> champs depuis le serializer.
+        
+        Parcourt les champs du serializer et crée un mapping :
+        - col_id = nom du champ dans le serializer
+        - field_name = source du champ (si défini) ou nom du champ
+        
+        Args:
+            serializer_class: Classe du serializer DRF
+            
+        Returns:
+            Dict[str, str]: Mapping col_id -> field_name Django
+        """
+        mapping = {}
+        
+        try:
+            # Créer une instance du serializer sans données
+            serializer = serializer_class()
+            fields = getattr(serializer, 'fields', {})
+            
+            for field_name, field_instance in fields.items():
+                # Utiliser le nom du champ comme col_id
+                col_id = field_name
+                
+                # Déterminer le field_name Django réel
+                # Si le champ a un 'source', utiliser le source
+                if hasattr(field_instance, 'source') and field_instance.source:
+                    field_name_django = field_instance.source
+                else:
+                    # Sinon, utiliser le nom du champ directement
+                    field_name_django = field_name
+                
+                # Ajouter au mapping
+                mapping[col_id] = field_name_django
+                
+        except Exception as e:
+            logger.warning(
+                f"Erreur lors de l'auto-détection du mapping depuis {serializer_class.__name__}: {str(e)}"
+            )
+        
+        return mapping
+    
+    def get_distinct_filter_values(self, field_key: str) -> List[Any]:
+        """
+        Retourne les valeurs distinctes pour un champ de filtre configuré.
+        
+        Cette méthode est conçue pour les filtres "Excel-like" où l'on affiche
+        toutes les valeurs possibles d'une colonne (même si elles ne sont pas
+        présentes sur la page actuelle).
+        
+        Configuration côté vue :
+            class InventoryListView(QueryModelView):
+                model = Inventory
+                serializer_class = InventoryDetailSerializer
+                
+                # Colonnes exposées pour les filtres avancés
+                datatable_filter_options = {
+                    "client": "client__name",
+                    "status": "status",
+                    "warehouse": "warehouse__warehouse_name",
+                }
+        
+        Args:
+            field_key: Nom de la colonne côté frontend (ex: "client", "status").
+        
+        Returns:
+            List[Any]: Liste des valeurs distinctes ordonnées.
+        """
+        # Récupérer le mapping des colonnes filtrables
+        options_mapping = getattr(self, "datatable_filter_options", {}) or {}
+        field_path = options_mapping.get(field_key)
+        
+        if not field_path:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Aucun mapping trouvé pour le filtre avancé '{field_key}' "
+                    f"dans datatable_filter_options de {self.__class__.__name__}."
+                )
+            return []
+        
+        queryset = self.get_queryset()
+        
+        try:
+            # Utiliser values_list + distinct() pour récupérer toutes les valeurs uniques
+            values_qs = (
+                queryset.values_list(field_path, flat=True)
+                .order_by(field_path)
+                .distinct()
+            )
+            # Retourner une simple liste (sérialisable en JSON)
+            return list(values_qs)
+        except Exception as e:
+            # On log l'erreur mais on ne lève pas d'exception ici pour ne pas
+            # casser l'API principale si l'endpoint de métadonnées est utilisé.
+            logger.warning(
+                f"Erreur lors de la récupération des valeurs distinctes pour "
+                f"'{field_key}' ({field_path}) dans {self.__class__.__name__}: {e}"
+            )
+            return []
     
     def get_serializer_class(self) -> type:
         """Retourne la classe de serializer"""
@@ -277,11 +414,8 @@ class QueryModelMixin:
             if query_model.search:
                 search_clean = query_model.search.strip()
                 if search_clean:
-                    # Utiliser search_fields si défini, sinon utiliser tous les champs du mapping
-                    search_fields = getattr(self, 'search_fields', [])
-                    if not search_fields:
-                        # Fallback : utiliser tous les champs du column_field_mapping
-                        search_fields = list(self.get_column_field_mapping().values())
+                    # Récupérer les champs de recherche (auto-détecté si vide)
+                    search_fields = self.get_search_fields()
                     
                     if isinstance(data, QuerySet):
                         # Recherche sur QuerySet
@@ -522,6 +656,42 @@ class QueryModelView(QueryModelMixin, APIView):
         """
         return self.process_request(request, *args, **kwargs)
     
+    def get_filter_options(self, request: HttpRequest, *args, **kwargs) -> Response:
+        """
+        Endpoint générique pour récupérer les valeurs distinctes d'un filtre.
+        
+        Cet endpoint permet d'implémenter facilement des filtres avancés
+        "type Excel" côté frontend.
+        
+        Utilisation dans urls.py :
+        
+            path(
+                "inventories/filter-options/",
+                InventoryListView.as_view(action=\"filter-options\"),
+                name=\"inventory-filter-options\",
+            )
+        
+        Requête :
+            GET /api/inventories/filter-options/?field=client
+        
+        Paramètres :
+            - field : nom de la colonne côté frontend (clé de datatable_filter_options)
+        
+        Réponse :
+            - 200 OK : liste des valeurs distinctes
+            - 400 BAD REQUEST : si le paramètre 'field' est manquant
+        """
+        field_key = request.GET.get("field")
+        
+        if not field_key:
+            return Response(
+                {"detail": "Le paramètre 'field' est requis."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        values = self.get_distinct_filter_values(field_key)
+        return Response(values, status=status.HTTP_200_OK)
+    
     def get(self, request, *args, **kwargs):
         """
         GET pour requêtes QueryModel (format query params).
@@ -530,7 +700,7 @@ class QueryModelView(QueryModelMixin, APIView):
         - page: int (numéro de page, 1-indexed)
         - pageSize: int (taille de page)
         - search: string (recherche globale)
-        - sort: JSON string (array de {colId, sort}) ou sortBy/sortDir pour tri simple
+        - sort: JSON string (array de {colId, sort})
         - filters: JSON string (dict de filtres)
         """
         return self.process_request(request, *args, **kwargs) 

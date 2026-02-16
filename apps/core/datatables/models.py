@@ -136,9 +136,9 @@ class FilterModelItem:
 @dataclass
 class QueryModel:
     """
-    Modèle de requête pour le nouveau format.
+    Modèle de requête QueryModel (format standard).
     
-    Format de requête :
+    Format de requête standard :
     {
         "page": 1,
         "pageSize": 10,
@@ -154,17 +154,7 @@ class QueryModel:
         }
     }
     
-    Ou format simple pour le tri :
-    {
-        "page": 2,
-        "pageSize": 10,
-        "search": "ink",
-        "sortBy": "created_at",
-        "sortDir": "desc",
-        "filters": {
-            "status": ["active", "pending"]
-        }
-    }
+    Note: Le format sortBy/sortDir est déprécié. Utilisez "sort" (array) à la place.
     """
     page: int = 1
     page_size: int = 10
@@ -196,32 +186,40 @@ class QueryModel:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'QueryModel':
         """
-        Crée depuis un dictionnaire (nouveau format uniquement).
+        Crée depuis un dictionnaire (format standard uniquement).
 
         Format attendu :
-        - page, pageSize, search, sort (ou sortBy/sortDir), filters
+        - page, pageSize, search, sort (array), filters
+        
+        Note: Le format sortBy/sortDir est déprécié mais toujours supporté pour compatibilité.
         """
         # Vérifier que data est bien un dictionnaire
         if not isinstance(data, dict):
             # Si data n'est pas un dict, retourner un QueryModel par défaut
             return cls()
 
-        # Support de deux formats de tri :
-        # 1. Format simple : sortBy + sortDir
-        # 2. Format multiple : sort (array)
+        # Format standard : sort (array)
         sort_list = data.get("sort", [])
+        
+        # Compatibilité ascendante : support sortBy/sortDir (déprécié)
         if not sort_list and data.get("sortBy"):
-            # Format simple : convertir en format multiple
+            logger.warning(
+                "Le format sortBy/sortDir est déprécié. "
+                "Utilisez 'sort': [{'colId': '...', 'sort': '...'}] à la place."
+            )
+            # Convertir format déprécié en format standard
             sort_list = [{
                 "colId": data.get("sortBy"),
                 "sort": data.get("sortDir", "asc")
             }]
+        
         # Créer le modèle de tri en filtrant les éléments mal formés
         sort_model = []
         for item in sort_list:
             if isinstance(item, dict):
                 sort_model.append(SortModelItem.from_dict(item))
-            # Ignorer les éléments qui ne sont pas des dict
+            else:
+                logger.warning(f"Élément de tri ignoré (type invalide): {type(item)}")
         
         # Convertir nouveau format de filtres vers FilterModelItem
         filters_dict = data.get("filters", {})
@@ -343,39 +341,36 @@ class QueryModel:
     @classmethod
     def from_request(cls, request) -> 'QueryModel':
         """
-        Crée depuis une requête HTTP (nouveau format uniquement).
-
+        Crée depuis une requête HTTP (format standard).
+        
         Supporte :
-        - POST avec JSON body : page, pageSize, search, sort, filters
-        - GET avec query params : page, pageSize, search, sort, filters (ou sortBy/sortDir)
-        - GET avec format array : sort[0][colId], sort[0][sort]
+        - POST avec JSON body : page, pageSize, search, sort (array), filters
+        - GET avec query params : page, pageSize, search, sort (JSON string), filters (JSON string)
+        
+        Note: Le format sortBy/sortDir est déprécié mais toujours supporté pour compatibilité.
         """
         import json
 
-        # Essayer POST avec JSON body (ou GET avec body)
+        # PRIORITÉ 1 : POST avec JSON body (format recommandé)
         if hasattr(request, 'data') and request.data:
             if isinstance(request.data, dict):
                 # Vérifier si request.data contient des données QueryModel pertinentes
                 if any(key in request.data for key in ['page', 'pageSize', 'search', 'sort', 'filters']):
                     return cls.from_dict(request.data)
 
-        # Essayer aussi request.body pour les requêtes avec body JSON
+        # PRIORITÉ 2 : Essayer request.body pour les requêtes avec body JSON
         # ⚠️ ATTENTION: Ne pas accéder à request.body si les données ont déjà été lues par DRF
         if hasattr(request, '_load_data_called') and not request._load_data_called:
-            # Les données n'ont pas encore été chargées par DRF, on peut accéder au body
             try:
                 if hasattr(request, 'body') and request.body:
                     body_data = json.loads(request.body)
                     if isinstance(body_data, dict) and any(key in body_data for key in ['page', 'pageSize', 'search', 'sort', 'filters']):
                         return cls.from_dict(body_data)
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                # Body n'est pas du JSON valide, ignorer
-                pass
-            except (json.JSONDecodeError, TypeError, ValueError, UnicodeDecodeError, AttributeError):
-                # AttributeError peut se produire si _load_data_called n'existe pas
+            except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
+                # Body n'est pas du JSON valide ou erreur d'attribut, ignorer
                 pass
         
-        # GET params - nouveau format uniquement
+        # PRIORITÉ 3 : GET params (format JSON string pour sort et filters)
         data = {
             "page": int(request.GET.get('page', 1)),
             "pageSize": int(request.GET.get('pageSize', request.GET.get('page_size', 10))),
@@ -384,8 +379,7 @@ class QueryModel:
         if request.GET.get('search'):
             data['search'] = request.GET.get('search')
         
-        # Support de plusieurs formats de tri
-        # 1. Format JSON string : sort=[{"colId":"name","sort":"asc"}]
+        # Format standard : sort comme JSON string
         if request.GET.get('sort'):
             try:
                 sort_value = request.GET.get('sort')
@@ -395,18 +389,20 @@ class QueryModel:
                 else:
                     # Sinon, parser comme JSON string
                     data['sort'] = json.loads(sort_value)
-            except (json.JSONDecodeError, TypeError, ValueError):
-                # 2. Format array : sort[0][colId], sort[0][sort]
-                sort_list = cls._parse_sort_array_format(request.GET)
-                if sort_list:
-                    data['sort'] = sort_list
-                else:
-                    data['sort'] = []
+            except (json.JSONDecodeError, TypeError, ValueError) as e:
+                logger.warning(f"Format de tri invalide dans GET params: {e}. Tri ignoré.")
+                data['sort'] = []
+        
+        # Compatibilité ascendante : support sortBy/sortDir (déprécié)
         elif request.GET.get('sortBy'):
-            # Format simple : sortBy + sortDir
+            logger.warning(
+                "Le format sortBy/sortDir dans GET params est déprécié. "
+                "Utilisez 'sort' (JSON string) à la place."
+            )
             data['sortBy'] = request.GET.get('sortBy')
             data['sortDir'] = request.GET.get('sortDir', 'asc')
         
+        # Format standard : filters comme JSON string
         if request.GET.get('filters'):
             try:
                 filter_value = request.GET.get('filters')
@@ -414,40 +410,9 @@ class QueryModel:
                     data['filters'] = filter_value
                 else:
                     data['filters'] = json.loads(filter_value)
-            except (json.JSONDecodeError, TypeError, ValueError):
+            except (json.JSONDecodeError, TypeError, ValueError) as e:
+                logger.warning(f"Format de filtres invalide dans GET params: {e}. Filtres ignorés.")
                 data['filters'] = {}
         
         return cls.from_dict(data)
-    
-    @staticmethod
-    def _parse_sort_array_format(get_params) -> List[Dict[str, Any]]:
-        """
-        Parse le format array pour sort : sort[0][colId], sort[0][sort], etc.
-        
-        Args:
-            get_params: request.GET (QueryDict)
-            
-        Returns:
-            Liste de dictionnaires [{"colId": "...", "sort": "..."}]
-        """
-        sort_list = []
-        index = 0
-        
-        while True:
-            col_id_key = f'sort[{index}][colId]'
-            sort_key = f'sort[{index}][sort]'
-            
-            col_id = get_params.get(col_id_key)
-            sort_dir = get_params.get(sort_key)
-            
-            if not col_id:
-                break
-            
-            sort_list.append({
-                "colId": col_id,
-                "sort": sort_dir or "asc"
-            })
-            index += 1
-        
-        return sort_list
 

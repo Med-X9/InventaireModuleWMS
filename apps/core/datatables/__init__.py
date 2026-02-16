@@ -32,7 +32,10 @@ from .models import (
 from .engines import (
     FilterEngine,             # Moteur de filtrage (QueryModel → Q())
     SortEngine,               # Moteur de tri multi-colonnes
-    PaginationEngine          # Moteur de pagination (infinite scroll)
+    PaginationEngine,         # Moteur de pagination (infinite scroll)
+    FilterError,              # Exception pour erreurs de filtrage
+    SortError,                # Exception pour erreurs de tri
+    PaginationError           # Exception pour erreurs de pagination
 )
 
 # QueryModel Operators - Registry d'opérateurs
@@ -91,6 +94,9 @@ __all__ = [
     'FilterEngine',                  # Moteur de filtrage
     'SortEngine',                    # Moteur de tri multi-colonnes
     'PaginationEngine',              # Moteur de pagination (infinite scroll)
+    'FilterError',                    # Exception pour erreurs de filtrage
+    'SortError',                      # Exception pour erreurs de tri
+    'PaginationError',               # Exception pour erreurs de pagination
     'OperatorRegistry',              # Registry d'opérateurs
     'IDataSource',                   # Interface pour sources de données
     'QuerySetDataSource',            # DataSource pour QuerySet

@@ -11,6 +11,25 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+# =============================================================================
+# EXCEPTIONS SPÉCIFIQUES
+# =============================================================================
+
+class FilterError(Exception):
+    """Exception levée lors d'erreurs de filtrage"""
+    pass
+
+
+class SortError(Exception):
+    """Exception levée lors d'erreurs de tri"""
+    pass
+
+
+class PaginationError(Exception):
+    """Exception levée lors d'erreurs de pagination"""
+    pass
+
+
 class FilterEngine:
     """
     Moteur de filtrage qui convertit QueryModel.filters en Q() Django.
@@ -89,9 +108,13 @@ class FilterEngine:
                     q_objects.append(q_expr)
                     
             except Exception as e:
-                logger.warning(
-                    f"Erreur lors de l'application du filtre {col_id}: {str(e)}"
+                # Erreur sur un filtre spécifique : logger et continuer avec les autres filtres
+                # (comportement tolérant : ignorer le filtre invalide plutôt que de tout casser)
+                error_msg = (
+                    f"Impossible d'appliquer le filtre '{col_id}' sur le champ '{field_name}': {str(e)}. "
+                    f"Le filtre sera ignoré."
                 )
+                logger.warning(error_msg)
                 continue
         
         # Combiner tous les filtres avec AND
@@ -102,11 +125,13 @@ class FilterEngine:
                     combined_q &= q_obj
                 data = data.filter(combined_q)
             except Exception as e:
-                logger.error(
-                    f"Erreur lors de l'application des filtres: {str(e)}. "
-                    f"Les filtres seront ignorés."
+                # Erreur critique lors de l'application des filtres : lever une exception
+                error_msg = (
+                    f"Erreur critique lors de l'application des filtres sur le queryset: {str(e)}. "
+                    f"Vérifiez que les champs de filtrage existent dans le modèle."
                 )
-                # Retourner le queryset sans filtres en cas d'erreur
+                logger.error(error_msg)
+                raise FilterError(error_msg) from e
         
         return data
     
@@ -171,7 +196,9 @@ class FilterEngine:
                     
                     try:
                         filter_num = float(filter_value)
-                    except (ValueError, TypeError):
+                    except (ValueError, TypeError) as e:
+                        # Valeur non numérique : ignorer ce filtre
+                        logger.debug(f"Filtre numérique '{col_id}' ignoré : valeur '{filter_value}' n'est pas numérique")
                         continue
                     
                     operator = filter_item.operator
@@ -194,11 +221,18 @@ class FilterEngine:
                             try:
                                 filter_to_num = float(filter_to)
                                 filtered = [item for item in filtered if self._compare_numeric_range(item.get(field_name), filter_num, filter_to_num)]
-                            except (ValueError, TypeError):
-                                pass
+                            except (ValueError, TypeError) as e:
+                                # Valeur 'to' non numérique : ignorer ce filtre range
+                                logger.debug(f"Filtre range '{col_id}' ignoré : valeur 'to' '{filter_to}' n'est pas numérique")
+                                continue
                 
             except Exception as e:
-                logger.warning(f"Erreur lors de l'application du filtre {col_id} sur liste: {str(e)}")
+                # Erreur sur un filtre spécifique : logger et continuer avec les autres filtres
+                error_msg = (
+                    f"Impossible d'appliquer le filtre '{col_id}' sur liste: {str(e)}. "
+                    f"Le filtre sera ignoré."
+                )
+                logger.warning(error_msg)
                 continue
         
         return filtered
@@ -293,21 +327,25 @@ class SortEngine:
                 
                 order_by.append(field_name)
             except Exception as e:
-                logger.warning(
-                    f"Erreur lors de la préparation du tri pour {col_id}: {str(e)}. "
+                # Erreur sur une colonne de tri : logger et continuer avec les autres colonnes
+                error_msg = (
+                    f"Impossible de préparer le tri pour la colonne '{col_id}' (champ '{field_name}'): {str(e)}. "
                     f"Le tri sur cette colonne sera ignoré."
                 )
+                logger.warning(error_msg)
                 continue
         
         if order_by:
             try:
                 data = data.order_by(*order_by)
             except Exception as e:
-                logger.error(
-                    f"Erreur lors de l'application du tri sur les champs {order_by}: {str(e)}. "
-                    f"Le queryset sera retourné sans tri."
+                # Erreur critique lors de l'application du tri : lever une exception
+                error_msg = (
+                    f"Erreur critique lors de l'application du tri sur les champs {order_by}: {str(e)}. "
+                    f"Vérifiez que les champs de tri existent dans le modèle."
                 )
-                # Retourner le queryset sans tri en cas d'erreur
+                logger.error(error_msg)
+                raise SortError(error_msg) from e
         
         return data
     
