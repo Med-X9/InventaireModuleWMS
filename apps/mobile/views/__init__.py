@@ -36,6 +36,12 @@ from .assignment import (
     UnblockAssignmentView
 )
 
+# Vues job
+from .job import (
+    JobsWithBothCountingsTerminatedView,
+    JobResultsView,
+)
+
 # Vues de comptage
 from .counting import (
     CountingDetailView
@@ -72,6 +78,10 @@ __all__ = [
     'CloseJobView',
     'BlockAssignmentView',
     'UnblockAssignmentView',
+
+    # Job views
+    'JobsWithBothCountingsTerminatedView',
+    'JobResultsView',
 
     # Counting views
     'CountingDetailView',
