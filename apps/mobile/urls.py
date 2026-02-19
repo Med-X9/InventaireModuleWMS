@@ -68,6 +68,17 @@ urlpatterns = [
         views.CloseJobView.as_view(),
         name="mobile_close_job",
     ),
+    path(
+        "job/<int:job_id>/results/",
+        views.JobResultsView.as_view(),
+        name="mobile_job_results",
+    ),
+    # Jobs dont le 1er et 2ème comptage sont terminés
+    path(
+        "inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/both-countings-terminated/",
+        views.JobsWithBothCountingsTerminatedView.as_view(),
+        name="mobile_jobs_both_countings_terminated",
+    ),
     # Gestion des CountingDetail et NumeroSerie
     path(
         "job/<int:job_id>/counting-detail/",

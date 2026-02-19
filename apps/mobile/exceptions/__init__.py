@@ -58,6 +58,12 @@ from .counting_detail_exceptions import (
     EcartComptageResoluError,
 )
 
+from .job_exceptions import (
+    JobException,
+    JobFilterValidationException,
+    WarehouseNotFoundException,
+)
+
 __all__ = [
     # Auth exceptions
     'AuthException',
@@ -110,4 +116,9 @@ __all__ = [
     'CountingDetailNotFoundError',
     'CountingDetailUpdateError',
     'EcartComptageResoluError',
+
+    # Job exceptions
+    'JobException',
+    'JobFilterValidationException',
+    'WarehouseNotFoundException',
 ] 
