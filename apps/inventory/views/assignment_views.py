@@ -12,6 +12,7 @@ from ..serializers.assignment_serializer import (
     SessionAssignmentsResponseSerializer,
     AssignmentSerializer,
     JobBasicSerializer,
+    AssignmentReopenWithLocationsSerializer,
 )
 from ..serializers.inventory_resource_serializer import (
     AssignResourcesToInventorySerializer,
@@ -637,5 +638,87 @@ class AssignmentReopenView(APIView):
         except Exception:
             return error_response(
                 message="Une erreur inattendue s'est produite lors de la remise de l'assignment à ENTAME",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class AssignmentReopenWithLocationsView(APIView):
+    """
+    Remet un assignment du statut TERMINE au statut ENTAME et les emplacements
+    spécifiés du statut TERMINE au statut EN ATTENTE.
+
+    POST /api/inventory/assignments/<int:assignment_id>/reopen-with-locations/
+
+    Body:
+    {
+        "emplacement_ids": [1, 2, 3]   // ou "location_ids": [1, 2, 3]
+    }
+
+    Comportement :
+    - Vérifie que l'assignment existe et est au statut TERMINE
+    - Remet l'assignment à ENTAME
+    - Remet les JobDetails des emplacements spécifiés (même job, même comptage) à EN ATTENTE
+    - Si le job était TERMINE, le remet à ENTAME
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, assignment_id: int):
+        """
+        Remet un assignment terminé en ENTAME et les emplacements spécifiés en EN ATTENTE.
+
+        Args:
+            request: Requête HTTP contenant emplacement_ids ou location_ids
+            assignment_id: ID de l'assignment à modifier
+
+        Returns:
+            Response: Détails des mises à jour effectuées
+        """
+        service = AssignmentService()
+
+        try:
+            serializer = AssignmentReopenWithLocationsSerializer(data=request.data)
+            if not serializer.is_valid():
+                return validation_error_response(
+                    serializer.errors,
+                    message="Erreur de validation des données",
+                )
+
+            location_ids = serializer.validated_data['location_ids']
+            result = service.reopen_assignment_with_locations(
+                assignment_id=assignment_id,
+                location_ids=location_ids,
+            )
+
+            return success_response(
+                data=result,
+                message=(
+                    f"Assignment remis au statut 'ENTAME' et "
+                    f"{result['emplacements_updated_count']} emplacement(s) remis en 'EN ATTENTE'."
+                ),
+                status_code=status.HTTP_200_OK,
+            )
+
+        except AssignmentNotFoundError as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+
+        except AssignmentBusinessRuleError as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        except AssignmentValidationError as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        except Exception:
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la réouverture de l'assignment avec emplacements",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )

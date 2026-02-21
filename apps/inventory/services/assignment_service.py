@@ -12,7 +12,7 @@ from ..exceptions.assignment_exceptions import (
     AssignmentSessionError,
     AssignmentNotFoundError,
 )
-from ..models import Job, Counting, Assigment
+from ..models import Job, Counting, Assigment, JobDetail
 from apps.users.models import UserApp
 
 
@@ -352,5 +352,99 @@ class AssignmentService(IAssignmentService):
             'new_status': assignment.status,
             'job_old_status': old_job_status,
             'job_new_status': job.status if job else None,
+            'updated_at': current_time,
+        }
+
+    def reopen_assignment_with_locations(
+        self, assignment_id: int, location_ids: List[int]
+    ) -> Dict[str, Any]:
+        """
+        Remet un assignment du statut TERMINE au statut ENTAME et les emplacements
+        spécifiés du statut TERMINE au statut EN ATTENTE.
+
+        Règles métier :
+        - L'assignment doit exister et être au statut TERMINE
+        - Les emplacements doivent appartenir au job et au comptage de l'assignment
+        - Seuls les JobDetails au statut TERMINE sont remis à EN ATTENTE
+
+        Args:
+            assignment_id: ID de l'assignment à modifier
+            location_ids: Liste des IDs d'emplacements (Location) à remettre en attente
+
+        Returns:
+            Dict[str, Any]: Informations sur les mises à jour effectuées
+
+        Raises:
+            AssignmentNotFoundError: Si l'assignment n'existe pas
+            AssignmentBusinessRuleError: Si l'assignment n'est pas TERMINE
+            AssignmentValidationError: Si les données sont invalides
+        """
+        if not location_ids or not isinstance(location_ids, list):
+            raise AssignmentValidationError(
+                "La liste des emplacements est obligatoire et doit être non vide."
+            )
+
+        invalid_ids = [lid for lid in location_ids if not isinstance(lid, int) or lid <= 0]
+        if invalid_ids:
+            raise AssignmentValidationError(
+                f"IDs d'emplacements invalides : {invalid_ids}. "
+                "Les IDs doivent être des entiers positifs."
+            )
+
+        assignment = self.repository.get_by_id(assignment_id)
+
+        if assignment.status != 'TERMINE':
+            raise AssignmentBusinessRuleError(
+                "Seuls les assignments avec le statut 'TERMINE' peuvent être remis à 'ENTAME'."
+            )
+
+        current_time = timezone.now()
+
+        with transaction.atomic():
+            # Récupérer les JobDetails concernés : même job, même counting, location dans la liste
+            job_details = JobDetail.objects.filter(
+                job=assignment.job,
+                counting=assignment.counting,
+                location_id__in=location_ids,
+                status='TERMINE',
+            )
+
+            # Vérifier que tous les emplacements demandés existent et sont TERMINE
+            found_location_ids = set(job_details.values_list('location_id', flat=True))
+            requested_ids = set(location_ids)
+            missing_or_not_termine = requested_ids - found_location_ids
+
+            if missing_or_not_termine:
+                raise AssignmentValidationError(
+                    f"Emplacements non trouvés ou non au statut TERMINE pour ce job/comptage : "
+                    f"{sorted(missing_or_not_termine)}. "
+                    "Vérifiez que les emplacements appartiennent bien à l'assignment et sont terminés."
+                )
+
+            # Mettre l'assignment en ENTAME
+            assignment.status = 'ENTAME'
+            assignment.entame_date = current_time
+            assignment.save(update_fields=['status', 'entame_date', 'updated_at'])
+
+            # Mettre le job en ENTAME si nécessaire
+            job = assignment.job
+            if job and job.status == 'TERMINE':
+                job.status = 'ENTAME'
+                job.entame_date = current_time
+                job.save(update_fields=['status', 'entame_date', 'updated_at'])
+
+            # Mettre les JobDetails en EN ATTENTE
+            updated_count = job_details.update(
+                status='EN ATTENTE',
+                en_attente_date=current_time,
+                termine_date=None,
+            )
+
+        return {
+            'assignment_id': assignment.id,
+            'job_id': assignment.job_id,
+            'assignment_new_status': 'ENTAME',
+            'emplacements_updated_count': updated_count,
+            'location_ids_updated': list(requested_ids),
             'updated_at': current_time,
         }
