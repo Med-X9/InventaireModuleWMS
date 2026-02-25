@@ -58,7 +58,13 @@ class LoginView(APIView):
                                 'user_id': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
                                 'nom': openapi.Schema(type=openapi.TYPE_STRING, example='Doe'),
                                 'prenom': openapi.Schema(type=openapi.TYPE_STRING, example='John'),
-                                'username': openapi.Schema(type=openapi.TYPE_STRING, example='john.doe')
+                                'username': openapi.Schema(type=openapi.TYPE_STRING, example='john.doe'),
+                                'groupes': openapi.Schema(
+                                    type=openapi.TYPE_ARRAY,
+                                    items=openapi.Schema(type=openapi.TYPE_STRING),
+                                    description='Noms des groupes de l\'utilisateur',
+                                    example=['Operateurs', 'Manutention']
+                                )
                             }
                         )
                     }

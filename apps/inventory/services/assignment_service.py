@@ -379,9 +379,13 @@ class AssignmentService(IAssignmentService):
             AssignmentBusinessRuleError: Si l'assignment n'est pas TERMINE
             AssignmentValidationError: Si les données sont invalides
         """
-        if not location_ids or not isinstance(location_ids, list):
+        # Rendre la liste des emplacements optionnelle
+        if location_ids is None:
+            location_ids = []
+
+        if not isinstance(location_ids, list):
             raise AssignmentValidationError(
-                "La liste des emplacements est obligatoire et doit être non vide."
+                "La liste des emplacements doit être une liste (tableau)."
             )
 
         invalid_ids = [lid for lid in location_ids if not isinstance(lid, int) or lid <= 0]
@@ -399,46 +403,42 @@ class AssignmentService(IAssignmentService):
             )
 
         current_time = timezone.now()
+        requested_ids = set(location_ids)
 
         with transaction.atomic():
-            # Récupérer les JobDetails concernés : même job, même counting, location dans la liste
-            job_details = JobDetail.objects.filter(
-                job=assignment.job,
-                counting=assignment.counting,
-                location_id__in=location_ids,
-                status='TERMINE',
-            )
+            updated_count = 0
 
-            # Vérifier que tous les emplacements demandés existent et sont TERMINE
-            found_location_ids = set(job_details.values_list('location_id', flat=True))
-            requested_ids = set(location_ids)
-            missing_or_not_termine = requested_ids - found_location_ids
+            if requested_ids:
+                # Récupérer les JobDetails concernés : même job, même counting, location dans la liste
+                job_details = JobDetail.objects.filter(
+                    job=assignment.job,
+                    counting=assignment.counting,
+                    location_id__in=location_ids,
+                    status='TERMINE',
+                )
 
-            if missing_or_not_termine:
-                raise AssignmentValidationError(
-                    f"Emplacements non trouvés ou non au statut TERMINE pour ce job/comptage : "
-                    f"{sorted(missing_or_not_termine)}. "
-                    "Vérifiez que les emplacements appartiennent bien à l'assignment et sont terminés."
+                # Vérifier que tous les emplacements demandés existent et sont TERMINE
+                found_location_ids = set(job_details.values_list('location_id', flat=True))
+                missing_or_not_termine = requested_ids - found_location_ids
+
+                if missing_or_not_termine:
+                    raise AssignmentValidationError(
+                        f"Emplacements non trouvés ou non au statut TERMINE pour ce job/comptage : "
+                        f"{sorted(missing_or_not_termine)}. "
+                        "Vérifiez que les emplacements appartiennent bien à l'assignment et sont terminés."
+                    )
+
+                # Mettre les JobDetails en EN ATTENTE
+                updated_count = job_details.update(
+                    status='EN ATTENTE',
+                    en_attente_date=current_time,
+                    termine_date=None,
                 )
 
             # Mettre l'assignment en ENTAME
             assignment.status = 'ENTAME'
             assignment.entame_date = current_time
             assignment.save(update_fields=['status', 'entame_date', 'updated_at'])
-
-            # Mettre le job en ENTAME si nécessaire
-            job = assignment.job
-            if job and job.status == 'TERMINE':
-                job.status = 'ENTAME'
-                job.entame_date = current_time
-                job.save(update_fields=['status', 'entame_date', 'updated_at'])
-
-            # Mettre les JobDetails en EN ATTENTE
-            updated_count = job_details.update(
-                status='EN ATTENTE',
-                en_attente_date=current_time,
-                termine_date=None,
-            )
 
         return {
             'assignment_id': assignment.id,

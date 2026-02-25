@@ -138,15 +138,11 @@ class AssignmentReopenWithLocationsSerializer(serializers.Serializer):
     )
 
     def validate(self, data):
-        """Accepte emplacement_ids ou location_ids, normalise en location_ids."""
+        """Accepte emplacement_ids ou location_ids, normalise en location_ids (liste optionnelle)."""
         emplacement_ids = data.get('emplacement_ids') or []
         location_ids = data.get('location_ids') or []
         combined = list(dict.fromkeys(emplacement_ids + location_ids))  # fusion sans doublons
-        if not combined:
-            raise serializers.ValidationError(
-                "La liste des emplacements est obligatoire. "
-                "Fournissez 'emplacement_ids' ou 'location_ids' (liste non vide)."
-            )
+        # Ici, la liste peut être vide : dans ce cas, seul l'assignment est remis à ENTAME
         data['location_ids'] = combined
         return data
 
