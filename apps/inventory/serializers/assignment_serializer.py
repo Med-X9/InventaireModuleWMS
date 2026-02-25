@@ -121,6 +121,32 @@ class AssignmentSerializer(serializers.ModelSerializer):
                   'entame_date', 'affecte_date', 'pret_date', 'counting_order', 
                   'counting_reference', 'counting_count_mode', 'job_reference']
 
+class AssignmentReopenWithLocationsSerializer(serializers.Serializer):
+    """
+    Serializer pour la requête de réouverture d'un assignment avec remise des emplacements en attente.
+    Body: { "emplacement_ids": [1, 2, 3] } ou { "location_ids": [1, 2, 3] }
+    """
+    emplacement_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        required=False,
+        help_text="Liste des IDs des emplacements (Location) à remettre en attente"
+    )
+    location_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        required=False,
+        help_text="Alias de emplacement_ids - liste des IDs des emplacements"
+    )
+
+    def validate(self, data):
+        """Accepte emplacement_ids ou location_ids, normalise en location_ids (liste optionnelle)."""
+        emplacement_ids = data.get('emplacement_ids') or []
+        location_ids = data.get('location_ids') or []
+        combined = list(dict.fromkeys(emplacement_ids + location_ids))  # fusion sans doublons
+        # Ici, la liste peut être vide : dans ce cas, seul l'assignment est remis à ENTAME
+        data['location_ids'] = combined
+        return data
+
+
 class SessionAssignmentsResponseSerializer(serializers.Serializer):
     """
     Serializer pour la réponse de récupération des affectations d'une session

@@ -49,6 +49,7 @@ from .views.assignment_views import (
     AssignJobsToBothCountingsView,
     AutoAssignJobsFromInventoryLocationJobView,
     AssignmentReopenView,
+    AssignmentReopenWithLocationsView,
 )
 from .views.resource_assignment_views import AssignResourcesToJobsView, JobResourcesView, RemoveResourcesFromJobView
 from .views.counting_tracking_views import InventoryCountingTrackingView, JobDetailTrackingView
@@ -161,6 +162,8 @@ urlpatterns = [
     path('inventory/assign-jobs-both-countings/', AssignJobsToBothCountingsView.as_view(), name='assign-jobs-both-countings'),
     # URL pour remettre un assignment en statut ENTAME
     path('inventory/assignments/<int:assignment_id>/reopen/', AssignmentReopenView.as_view(), name='assignment-reopen'),
+    # URL pour remettre un assignment en ENTAME et des emplacements en EN ATTENTE
+    path('inventory/assignments/<int:assignment_id>/reopen-with-locations/', AssignmentReopenWithLocationsView.as_view(), name='assignment-reopen-with-locations'),
     path('inventory/assign-jobs-manual/', JobReassignmentView.as_view(), name='assign-jobs-manual'),
     # URL pour transférer les jobs par comptage
     path('jobs/transfer/', JobTransferView.as_view(), name='job-transfer'),

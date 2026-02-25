@@ -49,7 +49,10 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             'refresh': str(data['refresh']),
             'user': {
                 'user_id': user.id,
-                'username': user.username
+                'username': user.username,
+                'nom': getattr(user, 'nom', None) or '',
+                'prenom': getattr(user, 'prenom', None) or '',
+                'groupes': [g.name for g in user.groups.all()],
             }
         }
         
@@ -110,7 +113,13 @@ class JWTLoginView(TokenObtainPairView):
                             properties={
                                 'user_id': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
                                 'nom': openapi.Schema(type=openapi.TYPE_STRING, example='Doe'),
-                                'prenom': openapi.Schema(type=openapi.TYPE_STRING, example='John')
+                                'prenom': openapi.Schema(type=openapi.TYPE_STRING, example='John'),
+                                'groupes': openapi.Schema(
+                                    type=openapi.TYPE_ARRAY,
+                                    items=openapi.Schema(type=openapi.TYPE_STRING),
+                                    description='Noms des groupes de l\'utilisateur',
+                                    example=['Operateurs', 'Manutention']
+                                )
                             }
                         )
                     }

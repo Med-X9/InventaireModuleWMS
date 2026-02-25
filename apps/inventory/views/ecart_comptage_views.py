@@ -171,7 +171,7 @@ class EcartComptageBulkResolveView(APIView):
 
     def patch(self, request, inventory_id: int):
         try:
-            resolved_count = self.service.bulk_resolve_ecarts_by_inventory(
+            result = self.service.bulk_resolve_ecarts_and_close_jobs_by_inventory(
                 inventory_id=inventory_id
             )
         except InventoryNotFoundError as exc:
@@ -191,13 +191,17 @@ class EcartComptageBulkResolveView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        resolved_count = result.get("resolved_count", 0)
+        closed_jobs_count = result.get("closed_jobs_count", 0)
+
         return Response(
             {
                 "success": True,
                 "message": f"{resolved_count} écarts de comptage ont été marqués comme résolus.",
                 "data": {
                     "inventory_id": inventory_id,
-                    "resolved_count": resolved_count
+                    "resolved_count": resolved_count,
+                    "closed_jobs_count": closed_jobs_count,
                 },
             },
             status=status.HTTP_200_OK,

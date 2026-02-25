@@ -30,7 +30,8 @@ class AuthService:
         return {
             'user_id': user.id,
             'nom': user.nom or '',
-            'prenom': user.prenom or ''
+            'prenom': user.prenom or '',
+            'groupes': [g.name for g in user.groups.all()],
         }
     
     def login(self, username, password):

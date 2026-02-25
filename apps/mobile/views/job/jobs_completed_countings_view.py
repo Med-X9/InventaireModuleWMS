@@ -6,6 +6,8 @@ from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 
+from apps.mobile.permissions import MobileAdminOnlyPermission
+
 from apps.inventory.models import Job
 from apps.inventory.services.inventory_result_service import InventoryResultService
 from apps.inventory.exceptions import InventoryNotFoundError, InventoryValidationError
@@ -34,7 +36,7 @@ class JobsWithBothCountingsTerminatedView(APIView):
     URL: GET /mobile/api/inventory/<inventory_id>/warehouse/<warehouse_id>/jobs/both-countings-terminated/
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, MobileAdminOnlyPermission]
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -91,9 +93,10 @@ class JobResultsView(APIView):
     InventoryResultByWarehouseView, mais sans le champ de statut du job.
 
     URL: GET /mobile/api/job/<job_id>/results/
+    Réservé au groupe admin (opérateurs non autorisés).
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, MobileAdminOnlyPermission]
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

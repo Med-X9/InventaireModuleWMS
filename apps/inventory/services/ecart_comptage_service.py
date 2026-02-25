@@ -2,11 +2,17 @@ from typing import Optional, List, Dict, Any
 from collections import defaultdict
 
 from django.db import transaction
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
+from django.utils import timezone
 
 from ..models import (
-    EcartComptage, ComptageSequence, CountingDetail, 
-    Job, Inventory, Warehouse
+    EcartComptage,
+    ComptageSequence,
+    CountingDetail,
+    Job,
+    Inventory,
+    Warehouse,
+    JobDetail,
 )
 from ..repositories.ecart_comptage_repository import EcartComptageRepository
 from ..exceptions import InventoryValidationError
@@ -118,6 +124,79 @@ class EcartComptageService:
 
         # Marquer comme résolus uniquement les écarts qui ont un final_result
         return self.repository.bulk_resolve_ecarts_by_inventory(inventory_id)
+
+    @transaction.atomic
+    def close_jobs_with_all_locations_resolved_by_inventory(
+        self, inventory_id: int
+    ) -> int:
+        """
+        Met en statut TERMINE les jobs d'un inventaire dont :
+        - tous les emplacements (JobDetail) sont au statut TERMINE
+        - aucun écart de comptage lié au job n'est non résolu
+          (final_result NULL ou resolved = False).
+
+        Retourne le nombre de jobs clôturés.
+        """
+        # Jobs ayant au moins un EcartComptage non résolu (final_result NULL ou resolved False)
+        unresolved_job_ids = set(
+            CountingDetail.objects.filter(
+                job__inventory_id=inventory_id,
+                counting_sequences__ecart_comptage__inventory_id=inventory_id,
+            )
+            .filter(
+                Q(counting_sequences__ecart_comptage__final_result__isnull=True)
+                | Q(counting_sequences__ecart_comptage__resolved=False)
+            )
+            .values_list("job_id", flat=True)
+            .distinct()
+        )
+
+        # Jobs ayant au moins un emplacement (JobDetail) non terminé
+        jobs_with_non_termine_locations = set(
+            JobDetail.objects.filter(job__inventory_id=inventory_id)
+            .exclude(status="TERMINE")
+            .values_list("job_id", flat=True)
+            .distinct()
+        )
+
+        jobs_to_exclude = unresolved_job_ids.union(jobs_with_non_termine_locations)
+
+        candidate_jobs = Job.objects.filter(inventory_id=inventory_id).exclude(
+            id__in=jobs_to_exclude
+        )
+
+        now = timezone.now()
+        closed_count = 0
+
+        for job in candidate_jobs:
+            if job.status != "TERMINE":
+                job.status = "TERMINE"
+                job.termine_date = now
+                job.save(update_fields=["status", "termine_date"])
+                closed_count += 1
+
+        return closed_count
+
+    @transaction.atomic
+    def bulk_resolve_ecarts_and_close_jobs_by_inventory(
+        self, inventory_id: int
+    ) -> Dict[str, int]:
+        """
+        Combine la résolution en masse des écarts et la clôture des jobs :
+        - marque comme résolus tous les EcartComptage avec un final_result
+        - met en statut TERMINE les jobs dont tous les emplacements sont terminés
+          et n'ont plus d'écarts non résolus.
+
+        Retourne un dict avec les compteurs.
+        """
+        resolved_count = self.bulk_resolve_ecarts_by_inventory(inventory_id)
+        closed_jobs_count = self.close_jobs_with_all_locations_resolved_by_inventory(
+            inventory_id
+        )
+        return {
+            "resolved_count": resolved_count,
+            "closed_jobs_count": closed_jobs_count,
+        }
 
     def _calculate_consensus_result(
         self,
