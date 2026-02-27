@@ -3,6 +3,7 @@ from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from apps.mobile.permissions import MobileGroupPermission
 from apps.mobile.services.assignment_service import AssignmentService
 from apps.mobile.serializers import CloseJobSerializer
 from apps.mobile.utils import success_response, error_response, validation_error_response
@@ -18,7 +19,9 @@ from apps.mobile.exceptions import (
 class CloseJobView(APIView):
     """
     Vue pour clôturer un assignment et potentiellement le job associé.
-
+    
+    Accessible uniquement aux utilisateurs des groupes admin / operateur.
+    
     Cette API :
     1. Vérifie que l'assignment est affecté à l'utilisateur authentifié
     2. Marque l'assignment comme TERMINE
@@ -30,10 +33,10 @@ class CloseJobView(APIView):
     4. Vérifie si TOUS les assignments du job sont TERMINE
     5. Vérifie si TOUS les écarts du job ont été résolus (final_result != null)
     6. Si tous les assignments sont terminés ET tous les écarts sont résolus, marque le job comme TERMINE
-
+    
     URL: /api/mobile/job/{job_id}/close/{assignment_id}/
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, MobileGroupPermission]
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

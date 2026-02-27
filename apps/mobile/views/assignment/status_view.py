@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
+from apps.mobile.permissions import MobileGroupPermission
 from apps.mobile.services.assignment_service import AssignmentService
 from apps.mobile.utils import success_response, error_response
 from apps.mobile.exceptions import (
@@ -20,6 +21,8 @@ from apps.mobile.exceptions import (
 class AssignmentStatusView(APIView):
     """
     Vue pour la mise à jour des statuts d'un assignment et de son job associé.
+    
+    Accessible uniquement aux utilisateurs des groupes admin / operateur.
     
     Permet de mettre à jour le statut d'un assignment et de son job correspondant
     vers le statut "ENTAME" dans l'application mobile. Gère la cohérence des
@@ -47,7 +50,7 @@ class AssignmentStatusView(APIView):
     - 404: Assignment ou job non trouvé
     - 500: Erreur interne du serveur
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, MobileGroupPermission]
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

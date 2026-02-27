@@ -5,6 +5,7 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 import logging
 
+from apps.mobile.permissions import MobileGroupPermission
 from apps.mobile.services.assignment_service import AssignmentService
 from apps.mobile.utils import success_response, error_response
 from apps.mobile.exceptions import (
@@ -20,6 +21,8 @@ logger = logging.getLogger(__name__)
 class UnblockAssignmentView(APIView):
     """
     Vue pour débloquer un assignment.
+    
+    Accessible uniquement aux utilisateurs des groupes admin / operateur.
     
     Permet de débloquer un assignment en changeant son statut vers ENTAME.
     Cette opération n'est autorisée que si l'assignment est en statut bloqué.
@@ -46,7 +49,7 @@ class UnblockAssignmentView(APIView):
     - 404: Assignment non trouvé
     - 500: Erreur interne du serveur
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, MobileGroupPermission]
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
