@@ -224,11 +224,14 @@ class JobReassignmentService:
         - Si les deux assignments sont TRANSFERT -> job = TRANSFERT
 
         Règle supplémentaire :
-        - Ne jamais rétrograder un job de ENTAME vers TRANSFERT uniquement
-          parce qu'un assignment passe en TRANSFERT lors d'une réaffectation.
+        - Ne pas rétrograder un job de ENTAME vers TRANSFERT lorsqu'un seul assignment
+          passe en TRANSFERT (réaffectation partielle).
+        - Si les deux assignments sont en TRANSFERT (réaffectation des deux), le job
+          doit passer en TRANSFERT.
         """
         # Récupérer les assignments des comptages 1 et 2
         assignments = Assigment.objects.filter(job=job)
+        total_assignments = assignments.count()
 
         # Compter les statuts
         transfert_count = assignments.filter(status='TRANSFERT').count()
@@ -246,9 +249,9 @@ class JobReassignmentService:
         if not new_status:
             return
 
-        # Règle métier : si le job est déjà ENTAME, on ne le rétrograde pas à TRANSFERT
-        # lors d'une réaffectation (cas: assignment TRANSFERT mais job déjà ENTAME).
-        if job.status == 'ENTAME' and new_status == 'TRANSFERT':
+        # Règle métier : ne rétrograder ENTAME -> TRANSFERT que si tous les assignments
+        # sont en TRANSFERT (les deux réaffectés). Sinon garder ENTAME.
+        if job.status == 'ENTAME' and new_status == 'TRANSFERT' and transfert_count < total_assignments:
             return
 
         # Appliquer le nouveau statut et mettre à jour les dates associées
