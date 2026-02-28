@@ -22,6 +22,7 @@ from .models import (
     ImportTask, ImportError
 )
 from django.contrib.auth.admin import UserAdmin
+from django.contrib.auth.models import Group
 from apps.users.models import UserApp
 # ---------------- Resources ---------------- #
 
@@ -1164,6 +1165,9 @@ class UserAppAdmin(ImportExportMixin, UserAdmin):
                         # Hasher le mot de passe une seule fois au lieu de 1000 fois
                         hashed_password = make_password(password)
                         
+                        # Récupérer ou créer le groupe Operateur pour les équipes
+                        operateur_group, _ = Group.objects.get_or_create(name='Operateur')
+                        
                         # Créer toutes les équipes en une seule transaction avec bulk_create
                         try:
                             with transaction.atomic():
@@ -1215,7 +1219,15 @@ class UserAppAdmin(ImportExportMixin, UserAdmin):
                                     ignore_conflicts=True  # Ignorer les conflits silencieusement
                                 )
                                 
-                                created_count = len(created_users)
+                                # Associer les équipes créées au groupe Operateur (re-requête par username
+                                # car les objets retournés par bulk_create n'ont pas toujours de PK selon le SGBD)
+                                if users_to_create:
+                                    created_usernames = [u.username for u in users_to_create]
+                                    users_with_pk = UserApp.objects.filter(username__in=created_usernames)
+                                    operateur_group.user_web_groups.add(*users_with_pk)
+                                    created_count = users_with_pk.count()
+                                else:
+                                    created_count = 0
                                 
                                 if created_count > 0:
                                     first_team = next_available_num
@@ -1244,10 +1256,31 @@ class UserAppAdmin(ImportExportMixin, UserAdmin):
                                 f'Tentative de création individuelle...'
                             )
                             
+                            # Déterminer les numéros déjà existants dans la plage (existing_nums_set pas défini si PostgreSQL a été utilisé)
+                            usernames_to_check = [
+                                f'equipe-{next_available_num + i}' for i in range(nombre_equipes)
+                            ]
+                            existing_in_range = set(
+                                UserApp.objects.filter(
+                                    username__in=usernames_to_check
+                                ).values_list('username', flat=True)
+                            )
+                            existing_nums_set = set()
+                            for u in existing_in_range:
+                                try:
+                                    num_str = u.replace('equipe-', '')
+                                    if num_str.isdigit():
+                                        existing_nums_set.add(int(num_str))
+                                except (ValueError, AttributeError):
+                                    pass
+                            
                             # Fallback : création individuelle pour identifier les problèmes
                             created_count = 0
                             errors = []
                             created_teams = []
+                            
+                            # Récupérer ou créer le groupe Operateur pour les équipes
+                            operateur_group, _ = Group.objects.get_or_create(name='Operateur')
                             
                             for i in range(nombre_equipes):
                                 team_num = next_available_num + i
@@ -1264,6 +1297,7 @@ class UserAppAdmin(ImportExportMixin, UserAdmin):
                                             is_active=True,
                                             is_staff=False
                                         )
+                                        operateur_group.user_web_groups.add(user)
                                         created_count += 1
                                         created_teams.append(team_num)
                                     except Exception as ex:
