@@ -221,6 +221,15 @@ class QueryModelMixin:
         # Fallback : mapping vide (utiliser col_id directement)
         return {}
     
+    def get_search_fields(self) -> List[str]:
+        """
+        Retourne les champs utilisés pour la recherche globale.
+        
+        Par défaut retourne l'attribut de classe search_fields.
+        Peut être surchargé dans la vue pour un comportement dynamique.
+        """
+        return getattr(self, 'search_fields', [])
+    
     def _auto_detect_mapping_from_serializer(self, serializer_class: type) -> Dict[str, str]:
         """
         Auto-détecte le mapping colonnes -> champs depuis le serializer.
