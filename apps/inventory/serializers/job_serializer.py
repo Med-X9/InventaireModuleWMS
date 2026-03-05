@@ -182,13 +182,14 @@ class JobSetReadyRequestSerializer(serializers.Serializer):
 
 
 class JobAssignmentDetailSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(read_only=True)
     counting_order = serializers.IntegerField(source='counting.order', read_only=True)
     status = serializers.CharField()
     session = serializers.SerializerMethodField()
     date_start = serializers.DateTimeField(read_only=True)
     class Meta:
         model = Assigment
-        fields = ['counting_order', 'status', 'session', 'date_start']
+        fields = ['id', 'counting_order', 'status', 'session', 'date_start']
     def get_session(self, obj):
         if obj.session:
             return {'id': obj.session.id, 'username': obj.session.username}
