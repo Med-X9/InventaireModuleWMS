@@ -94,6 +94,9 @@ class QueryModelMixin:
     # Utilisé par get_distinct_filter_values() et les vues dédiées aux options de filtre.
     datatable_filter_options: Dict[str, str] = {}
     
+    # Virtual scrolling : si True, la réponse JSON inclut startRow et endRow (indices 0-based du bloc).
+    include_block_indices: bool = False
+    
     def get_queryset(self) -> QuerySet:
         """
         Retourne le QuerySet de base.
@@ -520,7 +523,10 @@ class QueryModelMixin:
                 page_size=query_model.page_size
             )
             
-            return Response(response_model.to_dict(), status=status.HTTP_200_OK)
+            return Response(
+                response_model.to_dict(include_block_indices=getattr(self, 'include_block_indices', False)),
+                status=status.HTTP_200_OK
+            )
             
         except Exception as e:
             logger.error(f"Erreur lors du traitement QueryModel: {str(e)}", exc_info=True)

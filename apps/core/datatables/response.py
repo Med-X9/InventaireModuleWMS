@@ -24,8 +24,14 @@ class ResponseModel:
     page: int = 1
     page_size: int = 10
     
-    def to_dict(self) -> Dict[str, Any]:
-        """Convertit en dictionnaire pour le nouveau format"""
+    def to_dict(self, include_block_indices: bool = False) -> Dict[str, Any]:
+        """
+        Convertit en dictionnaire pour le format QueryModel.
+
+        Args:
+            include_block_indices: Si True, ajoute startRow et endRow (indices 0-based
+                du bloc renvoyé). Optionnel, utile pour le virtual scrolling.
+        """
         result = {
             "rows": self.row_data,
             "total": self.row_count,
@@ -33,11 +39,15 @@ class ResponseModel:
             "pageSize": self.page_size,
         }
         
-        # Calculer totalPages
         if self.page_size > 0:
             result["totalPages"] = (self.row_count + self.page_size - 1) // self.page_size
         else:
             result["totalPages"] = 0
+        
+        if include_block_indices:
+            start_row = (self.page - 1) * self.page_size
+            result["startRow"] = start_row
+            result["endRow"] = start_row + len(self.row_data)
         
         return result
     

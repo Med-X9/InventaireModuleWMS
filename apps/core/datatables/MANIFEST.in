@@ -4,6 +4,7 @@ include pyproject.toml
 include setup.py
 
 # Documentation essentielle
+include DOCUMENTATION.md
 include INSTALLATION.md
 include PUBLISH_PYPI.md
 include REFACTORING_GUIDE.md
