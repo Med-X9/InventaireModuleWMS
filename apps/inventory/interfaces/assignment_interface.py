@@ -44,6 +44,22 @@ class IAssignmentService(ABC):
             bool: True si l'affectation est autorisée
         """
         pass
+    
+    @abstractmethod
+    def get_assignments_by_session(self, session_id: int) -> List[Any]:
+        """
+        Récupère toutes les affectations d'une session avec leurs jobs associés
+        
+        Args:
+            session_id: ID de la session (équipe)
+            
+        Returns:
+            List[Any]: Liste des affectations avec leurs jobs
+            
+        Raises:
+            AssignmentValidationError: Si la session n'existe pas
+        """
+        pass
 
 class IAssignmentRepository(ABC):
     """Interface pour le repository d'affectation des jobs"""
@@ -137,5 +153,18 @@ class IAssignmentRepository(ABC):
             
         Returns:
             List[Any]: Liste des affectations de la session
+        """
+        pass
+    
+    @abstractmethod
+    def get_assignments_by_session_with_jobs(self, session_id: int) -> List[Any]:
+        """
+        Récupère toutes les affectations d'une session avec leurs jobs associés
+        
+        Args:
+            session_id: ID de la session (équipe)
+            
+        Returns:
+            List[Any]: Liste des affectations avec leurs jobs (optimisée avec select_related)
         """
         pass 

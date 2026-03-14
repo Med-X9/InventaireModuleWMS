@@ -7,16 +7,18 @@ from django.db import transaction
 from ..interfaces.assignment_interface import IAssignmentService
 from ..repositories.assignment_repository import AssignmentRepository
 from ..exceptions.assignment_exceptions import (
-    AssignmentValidationError, 
+    AssignmentValidationError,
     AssignmentBusinessRuleError,
-    AssignmentSessionError
+    AssignmentSessionError,
+    AssignmentNotFoundError,
 )
-from ..models import Job, Counting, Assigment
+from ..models import Job, Counting, Assigment, JobDetail
 from apps.users.models import UserApp
 
+
 class AssignmentService(IAssignmentService):
-    """Service pour l'affectation des jobs de comptage."""
-    
+    """Service pour l'affectation des jobs de comptage et la gestion des assignments."""
+
     def __init__(self, repository: AssignmentRepository = None):
         self.repository = repository or AssignmentRepository()
 
@@ -86,15 +88,24 @@ class AssignmentService(IAssignmentService):
             assignments_updated = 0
             
             for job in jobs:
+                # Recharger le job pour avoir le statut à jour
+                job.refresh_from_db()
+                
                 # Vérifier s'il existe déjà une affectation pour ce job et ce comptage spécifique
                 existing_assignment = self.repository.get_existing_assignment_for_job_and_counting(job.id, counting.id)
                 
                 if existing_assignment:
-                    # Mettre à jour l'affectation existante pour ce comptage
+                    # Réaffectation : modifier la session et la date_start
+                    # Si l'assignment est ENTAME, le mettre en TRANSFERT lors de l'affectation
                     existing_assignment.date_start = date_start or timezone.now()
                     existing_assignment.session = session
-                    existing_assignment.status = 'AFFECTE'
-                    existing_assignment.affecte_date = timezone.now()
+                    
+                    # Si l'assignment est ENTAME, le mettre en TRANSFERT
+                    if existing_assignment.status == 'ENTAME':
+                        existing_assignment.status = 'TRANSFERT'
+                        existing_assignment.transfert_date = timezone.now()
+                    # Les autres statuts (PRET, TRANSFERT, TERMINE, etc.) restent inchangés
+                    
                     existing_assignment.save()
                     assignments_updated += 1
                 else:
@@ -111,15 +122,23 @@ class AssignmentService(IAssignmentService):
                     assignment = self.repository.create_assignment(assignment_data)
                     assignments_created += 1
                 
-                # Vérifier si les deux comptages ont des sessions pour ce job
+                # Vérifier si au moins un comptage a une session pour ce job
                 should_update_status = self.should_update_job_status_to_affecte(job.id, inventory_id)
                 
+                # Recharger le job pour avoir le statut à jour après les modifications
+                job.refresh_from_db()
+                
                 if should_update_status:
-                    # Mettre à jour le statut des affectations à AFFECTE
-                    self.update_assignments_status_to_affecte(job.id, inventory_id)
+                    # Statuts à préserver pour le job lors d'une réaffectation
+                    preserved_job_statuses = ['PRET', 'TRANSFERT', 'ENTAME', 'TERMINE']
                     
-                    # Mettre à jour le statut du job à AFFECTE
-                    self.repository.update_job_status(job.id, 'AFFECTE', 'affecte_date')
+                    # Ne pas modifier le statut du job s'il est déjà PRET, TRANSFERT, ENTAME ou TERMINE
+                    if job.status not in preserved_job_statuses:
+                        # Mettre à jour le statut des affectations à AFFECTE (sauf celles préservées)
+                        self.update_assignments_status_to_affecte(job.id, inventory_id)
+                        
+                        # Mettre à jour le statut du job à AFFECTE
+                        self.repository.update_job_status(job.id, 'AFFECTE', 'affecte_date')
                 else:
                     # Si le job est en attente, le mettre à VALIDE
                     if job.status == 'EN ATTENTE':
@@ -134,7 +153,7 @@ class AssignmentService(IAssignmentService):
                 'assignments_updated': assignments_updated,
                 'total_assignments': total_assignments,
                 'counting_order': counting_order,
-                'inventory_id': inventory_id
+                'inventory_id': inventory_id,
             }
 
     def validate_assignment_data(self, assignment_data: Dict[str, Any]) -> None:
@@ -165,8 +184,8 @@ class AssignmentService(IAssignmentService):
         if counting_order and not isinstance(counting_order, int):
             errors.append("counting_order doit être un entier")
         
-        if counting_order and counting_order not in [1, 2]:
-            errors.append("counting_order doit être 1 ou 2")
+        if counting_order and counting_order < 1:
+            errors.append("counting_order doit être supérieur ou égal à 1")
         
         # Validation de la date_start si fournie
         date_start = assignment_data.get('date_start')
@@ -215,8 +234,8 @@ class AssignmentService(IAssignmentService):
         Returns:
             bool: True si le statut doit être mis à AFFECTE
         """
-        # Récupérer les comptages de l'inventaire
-        countings = Counting.objects.filter(inventory_id=inventory_id, order__in=[1, 2]).order_by('order')
+        # Récupérer tous les comptages de l'inventaire (peut être 1, 2, 3, 4, 5, etc.)
+        countings = Counting.objects.filter(inventory_id=inventory_id).order_by('order')
         
         if countings.count() == 0:
             # S'il n'y a pas de comptages, ne pas mettre à jour le statut
@@ -235,6 +254,7 @@ class AssignmentService(IAssignmentService):
     def update_assignments_status_to_affecte(self, job_id: int, inventory_id: int) -> None:
         """
         Met à jour le statut des affectations à 'AFFECTE' pour un job donné
+        Ne modifie pas les affectations avec des statuts à préserver (PRET, TRANSFERT, ENTAME, TERMINE)
         
         Args:
             job_id: ID du job
@@ -246,9 +266,185 @@ class AssignmentService(IAssignmentService):
             counting__inventory_id=inventory_id
         )
         
+        # Statuts à préserver lors de la mise à jour
+        preserved_statuses = ['PRET', 'TRANSFERT', 'ENTAME', 'TERMINE']
+        
         # Mettre à jour le statut et la date d'affectation
         current_time = timezone.now()
         for assignment in assignments:
-            assignment.status = 'AFFECTE'
-            assignment.affecte_date = current_time
-            assignment.save() 
+            # Ne pas modifier les statuts à préserver
+            if assignment.status not in preserved_statuses:
+                assignment.status = 'AFFECTE'
+                assignment.affecte_date = current_time
+                assignment.save()
+
+    def get_assignments_by_session(self, session_id: int) -> List[Any]:
+        """
+        Récupère toutes les affectations d'une session avec leurs jobs associés
+        
+        Args:
+            session_id: ID de la session (équipe)
+            
+        Returns:
+            List[Any]: Liste des affectations avec leurs jobs
+            
+        Raises:
+            AssignmentValidationError: Si la session n'existe pas
+        """
+        # Vérifier que la session existe
+        try:
+            session = UserApp.objects.get(id=session_id, type='Mobile')
+        except UserApp.DoesNotExist:
+            raise AssignmentValidationError(f"Session avec l'ID {session_id} non trouvée ou n'est pas un mobile")
+        
+        # Récupérer les affectations avec leurs jobs
+        assignments = self.repository.get_assignments_by_session_with_jobs(session_id)
+
+        return list(assignments)
+
+    def reopen_assignment_from_termine_to_entame(self, assignment_id: int) -> Dict[str, Any]:
+        """
+        Remet un assignment du statut 'TERMINE' au statut 'ENTAME'.
+
+        Règles métier :
+        - L'assignment doit exister
+        - Seuls les assignments au statut 'TERMINE' peuvent être remis à 'ENTAME'
+
+        Args:
+            assignment_id: ID de l'assignment à modifier
+
+        Returns:
+            Dict[str, Any]: Informations sur l'assignment mis à jour
+
+        Raises:
+            AssignmentNotFoundError: Si l'assignment n'existe pas
+            AssignmentBusinessRuleError: Si la transition de statut est invalide
+        """
+        assignment = self.repository.get_by_id(assignment_id)
+
+        # Validation de la transition de statut pour l'assignment
+        if assignment.status != 'TERMINE':
+            raise AssignmentBusinessRuleError(
+                "Seuls les assignments avec le statut 'TERMINE' peuvent être remis à 'ENTAME'."
+            )
+
+        current_time = timezone.now()
+        old_assignment_status = assignment.status
+
+        # Mettre l'assignment en ENTAME
+        assignment.status = 'ENTAME'
+        assignment.entame_date = current_time
+        assignment.save()
+
+        # Si le job lié est également terminé, le remettre en ENTAME
+        job = assignment.job
+        old_job_status = job.status if job else None
+
+        if job and job.status == 'TERMINE':
+            job.status = 'ENTAME'
+            job.entame_date = current_time
+            job.save()
+
+        return {
+            'assignment_id': assignment.id,
+            'job_id': assignment.job_id,
+            'old_status': old_assignment_status,
+            'new_status': assignment.status,
+            'job_old_status': old_job_status,
+            'job_new_status': job.status if job else None,
+            'updated_at': current_time,
+        }
+
+    def reopen_assignment_with_locations(
+        self, assignment_id: int, location_ids: List[int]
+    ) -> Dict[str, Any]:
+        """
+        Remet un assignment du statut TERMINE au statut ENTAME et les emplacements
+        spécifiés du statut TERMINE au statut EN ATTENTE.
+
+        Règles métier :
+        - L'assignment doit exister et être au statut TERMINE
+        - Les emplacements doivent appartenir au job et au comptage de l'assignment
+        - Seuls les JobDetails au statut TERMINE sont remis à EN ATTENTE
+
+        Args:
+            assignment_id: ID de l'assignment à modifier
+            location_ids: Liste des IDs d'emplacements (Location) à remettre en attente
+
+        Returns:
+            Dict[str, Any]: Informations sur les mises à jour effectuées
+
+        Raises:
+            AssignmentNotFoundError: Si l'assignment n'existe pas
+            AssignmentBusinessRuleError: Si l'assignment n'est pas TERMINE
+            AssignmentValidationError: Si les données sont invalides
+        """
+        # Rendre la liste des emplacements optionnelle
+        if location_ids is None:
+            location_ids = []
+
+        if not isinstance(location_ids, list):
+            raise AssignmentValidationError(
+                "La liste des emplacements doit être une liste (tableau)."
+            )
+
+        invalid_ids = [lid for lid in location_ids if not isinstance(lid, int) or lid <= 0]
+        if invalid_ids:
+            raise AssignmentValidationError(
+                f"IDs d'emplacements invalides : {invalid_ids}. "
+                "Les IDs doivent être des entiers positifs."
+            )
+
+        assignment = self.repository.get_by_id(assignment_id)
+
+        if assignment.status != 'TERMINE':
+            raise AssignmentBusinessRuleError(
+                "Seuls les assignments avec le statut 'TERMINE' peuvent être remis à 'ENTAME'."
+            )
+
+        current_time = timezone.now()
+        requested_ids = set(location_ids)
+
+        with transaction.atomic():
+            updated_count = 0
+
+            if requested_ids:
+                # Récupérer les JobDetails concernés : même job, même counting, location dans la liste
+                job_details = JobDetail.objects.filter(
+                    job=assignment.job,
+                    counting=assignment.counting,
+                    location_id__in=location_ids,
+                    status='TERMINE',
+                )
+
+                # Vérifier que tous les emplacements demandés existent et sont TERMINE
+                found_location_ids = set(job_details.values_list('location_id', flat=True))
+                missing_or_not_termine = requested_ids - found_location_ids
+
+                if missing_or_not_termine:
+                    raise AssignmentValidationError(
+                        f"Emplacements non trouvés ou non au statut TERMINE pour ce job/comptage : "
+                        f"{sorted(missing_or_not_termine)}. "
+                        "Vérifiez que les emplacements appartiennent bien à l'assignment et sont terminés."
+                    )
+
+                # Mettre les JobDetails en EN ATTENTE
+                updated_count = job_details.update(
+                    status='EN ATTENTE',
+                    en_attente_date=current_time,
+                    termine_date=None,
+                )
+
+            # Mettre l'assignment en ENTAME
+            assignment.status = 'ENTAME'
+            assignment.entame_date = current_time
+            assignment.save(update_fields=['status', 'entame_date', 'updated_at'])
+
+        return {
+            'assignment_id': assignment.id,
+            'job_id': assignment.job_id,
+            'assignment_new_status': 'ENTAME',
+            'emplacements_updated_count': updated_count,
+            'location_ids_updated': list(requested_ids),
+            'updated_at': current_time,
+        }

@@ -5,8 +5,27 @@ from ..interfaces.assignment_interface import IAssignmentRepository
 from ..models import Job, Counting, Assigment
 from ..exceptions.assignment_exceptions import AssignmentNotFoundError
 
+
 class AssignmentRepository(IAssignmentRepository):
     """Repository pour l'affectation des jobs"""
+
+    def get_by_id(self, assignment_id: int) -> Assigment:
+        """
+        Récupère une affectation par son ID.
+
+        Args:
+            assignment_id: ID de l'affectation
+
+        Returns:
+            Assigment: L'affectation correspondante
+
+        Raises:
+            AssignmentNotFoundError: Si aucune affectation n'est trouvée
+        """
+        try:
+            return Assigment.objects.get(id=assignment_id)
+        except Assigment.DoesNotExist:
+            raise AssignmentNotFoundError(f"Assignment avec l'ID {assignment_id} non trouvé")
     
     def get_jobs_by_ids(self, job_ids: List[int]) -> List[Any]:
         """
@@ -125,6 +144,15 @@ class AssignmentRepository(IAssignmentRepository):
         except Assigment.DoesNotExist:
             return None
     
+    def get_assignment_by_job_and_order(self, job_id: int, counting_order: int) -> Optional[Any]:
+        """
+        Récupère l'affectation pour un job et un ordre de comptage.
+        """
+        return Assigment.objects.filter(
+            job_id=job_id,
+            counting__order=counting_order
+        ).order_by('-created_at').first()
+    
     def get_assignments_by_session(self, session_id: int) -> List[Any]:
         """
         Récupère toutes les affectations d'une session
@@ -150,4 +178,24 @@ class AssignmentRepository(IAssignmentRepository):
         try:
             return Job.objects.select_related('inventory').get(id=job_id)
         except Job.DoesNotExist:
-            return None 
+            return None
+    
+    def get_assignments_by_session_with_jobs(self, session_id: int) -> List[Any]:
+        """
+        Récupère toutes les affectations d'une session avec leurs jobs associés
+        
+        Args:
+            session_id: ID de la session (équipe)
+            
+        Returns:
+            List[Any]: Liste des affectations avec leurs jobs (optimisée avec select_related)
+        """
+        return Assigment.objects.filter(
+            session_id=session_id
+        ).select_related(
+            'job',
+            'job__inventory',
+            'job__warehouse',
+            'counting',
+            'session'
+        ).order_by('-created_at') 

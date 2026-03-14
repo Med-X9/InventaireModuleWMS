@@ -3,6 +3,7 @@ from ..exceptions import WarehouseNotFoundError
 from apps.inventory.models import Job, JobDetail
 import logging
 from django.db.models import Q
+from django.db import transaction
 from ..exceptions import LocationError
 from ..repositories.warehouse_repository import WarehouseRepository
 from ..repositories.location_repository import LocationRepository
@@ -12,6 +13,66 @@ logger = logging.getLogger(__name__)
 class LocationService:
     warehouse_repo = WarehouseRepository()
     location_repo = LocationRepository()
+
+    @staticmethod
+    def bulk_update_location_status(location_ids, is_active=False):
+        """
+        Met à jour le statut (is_active) de plusieurs locations en une seule opération
+
+        Args:
+            location_ids: Liste des IDs des locations à mettre à jour
+            is_active: Nouveau statut (False = inactive, True = active)
+
+        Returns:
+            dict: Résultat de l'opération avec les statistiques
+
+        Raises:
+            LocationError: En cas d'erreur pendant la mise à jour
+        """
+        try:
+            logger.info(f"Mise à jour du statut de {len(location_ids)} location(s) à is_active={is_active}")
+
+            with transaction.atomic():
+                # Compter les locations avant la mise à jour
+                locations_before = Location.objects.filter(
+                    id__in=location_ids,
+                    is_deleted=False
+                ).count()
+
+                if locations_before == 0:
+                    raise LocationError("Aucune location trouvée avec les IDs fournis")
+
+                # Mettre à jour les locations
+                updated_count = Location.objects.filter(
+                    id__in=location_ids,
+                    is_deleted=False
+                ).update(is_active=is_active)
+
+                # Récupérer les informations des locations mises à jour pour le log
+                updated_locations = Location.objects.filter(
+                    id__in=location_ids,
+                    is_deleted=False
+                ).values_list('id', 'location_reference')
+
+                logger.info(
+                    f"Statut mis à jour pour {updated_count} location(s): "
+                    f"{[f'{loc[1]} (ID: {loc[0]})' for loc in updated_locations]}"
+                )
+
+                return {
+                    'success': True,
+                    'updated_count': updated_count,
+                    'total_requested': len(location_ids),
+                    'is_active': is_active,
+                    'updated_locations': [
+                        {'id': loc[0], 'reference': loc[1]}
+                        for loc in updated_locations
+                    ]
+                }
+
+        except Exception as e:
+            logger.error(f"Erreur lors de la mise à jour du statut des locations: {str(e)}")
+            raise LocationError(f"Erreur lors de la mise à jour du statut: {str(e)}")
 
     @staticmethod
     def get_all_warehouse_locations(warehouse_id):

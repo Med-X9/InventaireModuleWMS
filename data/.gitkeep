@@ -1,0 +1,3 @@
+# Ce fichier permet de garder le dossier data dans Git
+# Les fichiers d'importation (.xlsx, .xls, .csv) seront ignorés par .gitignore
+

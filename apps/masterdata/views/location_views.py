@@ -4,7 +4,7 @@ from rest_framework import status, filters
 from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 from ..services.location_service import LocationService
-from ..serializers.location_serializer import LocationSerializer, UnassignedLocationSerializer
+from ..serializers.location_serializer import LocationSerializer, UnassignedLocationSerializer, LocationBulkDeactivateSerializer
 from rest_framework.permissions import IsAuthenticated
 from ..models import Location, SousZone
 import logging
@@ -13,13 +13,14 @@ from ..repositories.location_repository import LocationRepository
 from rest_framework.generics import ListAPIView
 from ..filters.location_filters import UnassignedLocationFilter
 from apps.inventory.models import Setting
+from apps.core.datatables.mixins import ServerSideDataTableView
 
 logger = logging.getLogger(__name__)
 
 class StandardResultsSetPagination(PageNumberPagination):
     page_size = 10
     page_size_query_param = 'page_size'
-    max_page_size = 100
+    max_page_size = 1000
 
 class AllWarehouseLocationListView(APIView):
     def get(self, request, warehouse_id):
@@ -122,54 +123,89 @@ class SousZoneLocationsView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-class UnassignedLocationsView(ListAPIView):
+class UnassignedLocationsView(ServerSideDataTableView):
     """
-    Vue pour lister les emplacements non affectés avec pagination et filtres.
+    Vue pour lister les emplacements non affectés avec pagination et filtres DataTable.
     """
+    model = Location
     serializer_class = UnassignedLocationSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_class = UnassignedLocationFilter
     search_fields = [
         'reference', 'location_reference', 'description',
         'sous_zone__reference', 'sous_zone__sous_zone_name',
         'sous_zone__zone__reference', 'sous_zone__zone__zone_name',
         'sous_zone__zone__warehouse__reference', 'sous_zone__zone__warehouse__warehouse_name'
     ]
-    ordering_fields = [
+    order_fields = [
         'reference', 'location_reference', 'created_at', 'updated_at',
         'sous_zone__sous_zone_name', 'sous_zone__zone__zone_name',
         'sous_zone__zone__warehouse__warehouse_name'
     ]
-    ordering = 'location_reference'  # Tri par défaut par référence d'emplacement
-    pagination_class = StandardResultsSetPagination
+    default_order = 'location_reference'
+    page_size = 20
+    min_page_size = 1
+    max_page_size = 1000
+    export_filename = 'emplacements_non_affectes'
+
+    # Mapping frontend -> backend pour le DataTable « Emplacements disponibles »
+    column_field_mapping = {
+        'id': 'id',
+        'reference': 'reference',
+        'location_reference': 'location_reference',
+        'zone_name': 'sous_zone__zone__zone_name',
+        'sous_zone_name': 'sous_zone__sous_zone_name',
+    }
+    
+    def get_column_field_mapping(self):
+        """
+        Retourne le mapping colonnes -> champs Django.
+        Utilise column_field_mapping pour le tri et le filtrage.
+        """
+        return self.column_field_mapping
 
     def get_queryset(self):
         """
-        Récupère les emplacements non affectés pour le warehouse et l'account spécifiés avec relations préchargées.
+        Récupère les emplacements non affectés pour le warehouse, l'account et l'inventaire
+        spécifiés avec relations préchargées.
+        Garantit que seuls les emplacements du warehouse spécifié sont retournés.
         """
+        from rest_framework.exceptions import ValidationError, NotFound
+        from apps.inventory.models import JobDetail
+        from ..models import Warehouse
+
         warehouse_id = self.kwargs.get('warehouse_id')
         account_id = self.kwargs.get('account_id')
+        inventory_id = self.kwargs.get('inventory_id')
+
         if not account_id:
-            from rest_framework.exceptions import ValidationError
-            raise ValidationError({'account_id': 'Ce paramètre est obligatoire dans l\'URL.'})
+            raise ValidationError({'account_id': "Ce paramètre est obligatoire dans l'URL."})
         if not warehouse_id:
-            from rest_framework.exceptions import ValidationError
-            raise ValidationError({'warehouse_id': 'Ce paramètre est obligatoire dans l\'URL.'})
+            raise ValidationError({'warehouse_id': "Ce paramètre est obligatoire dans l'URL."})
+        if not inventory_id:
+            raise ValidationError({'inventory_id': "Ce paramètre est obligatoire dans l'URL."})
 
-        queryset = Location.objects.filter(is_active=True)
-        # Filtrer par warehouse si spécifié
-        if warehouse_id:
-            queryset = queryset.filter(sous_zone__zone__warehouse_id=warehouse_id)
+        # Validation explicite : s'assurer que le warehouse existe
+        try:
+            warehouse = Warehouse.objects.get(id=warehouse_id, is_deleted=False)
+        except Warehouse.DoesNotExist:
+            raise NotFound(f"Entrepôt avec l'ID {warehouse_id} non trouvé")
 
-        # Filtrer par regroupement.account lié à l'account_id
-        queryset = queryset.filter(regroupement__account_id=account_id)
+        # Filtrer uniquement les locations du warehouse spécifié
+        queryset = Location.objects.filter(
+            is_active=True,
+            sous_zone__zone__warehouse_id=warehouse_id,
+            regroupement__account_id=account_id,
+        )
 
-        # Exclure les emplacements qui sont déjà affectés à des jobs
-        from apps.inventory.models import JobDetail
-        assigned_location_ids = JobDetail.objects.values_list('location_id', flat=True)
+        # Exclure les locations déjà assignées à cet inventaire
+        assigned_location_ids = JobDetail.objects.filter(
+            job__inventory_id=inventory_id,
+            job__warehouse_id=warehouse_id,  # S'assurer que les jobs sont aussi du bon warehouse
+            location_id__isnull=False,
+        ).values_list('location_id', flat=True)
+
         queryset = queryset.exclude(id__in=assigned_location_ids)
 
-        # Précharger les relations pour optimiser les performances
+        # Optimisations de requête
         queryset = queryset.select_related(
             'sous_zone',
             'sous_zone__zone',
@@ -179,28 +215,18 @@ class UnassignedLocationsView(ListAPIView):
             'regroupement__account',
         ).prefetch_related(
             'stock_set__product__Product_Family'
-        ).order_by('location_reference')
+        )
 
         return queryset
-
-    def get(self, request, *args, **kwargs):
+    
+    def get_datatable_queryset(self):
         """
-        Récupère les emplacements non affectés avec filtres et pagination.
+        Alias pour compatibilité avec l'ancien code.
+        Délègue à get_queryset().
         """
-        try:
-            # Utiliser la méthode parent pour le filtrage et la pagination
-            response = super().get(request, *args, **kwargs)
-            
-            # Ajouter un message de succès
-            response.data['message'] = "Liste des emplacements non affectés récupérée avec succès"
-            return response
+        return self.get_queryset()
 
-        except Exception as e:
-            logger.error(f"Erreur lors de la récupération de la liste des emplacements non affectés: {str(e)}", exc_info=True)
-            return Response({
-                'success': False,
-                'message': f'Erreur interne : {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 class LocationDetailView(APIView):
     permission_classes = [IsAuthenticated]
@@ -214,4 +240,87 @@ class LocationDetailView(APIView):
             return Response(
                 {"error": str(e)},
                 status=status.HTTP_404_NOT_FOUND
-            ) 
+            )
+
+
+class LocationBulkDeactivateView(APIView):
+    """
+    Vue pour désactiver plusieurs locations (mettre is_active = false) en une seule opération
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """
+        Désactive plusieurs locations (met is_active = false)
+
+        Corps de la requête :
+        {
+            "location_ids": [1, 2, 3]
+        }
+
+        Réponse de succès :
+        {
+            "success": true,
+            "message": "5 location(s) désactivée(s) avec succès",
+            "data": {
+                "updated_count": 5,
+                "total_requested": 5,
+                "is_active": false,
+                "updated_locations": [
+                    {"id": 1, "reference": "LOC-001"},
+                    {"id": 2, "reference": "LOC-002"},
+                    ...
+                ]
+            }
+        }
+        """
+        try:
+            # Valider les données d'entrée
+            serializer = LocationBulkDeactivateSerializer(data=request.data)
+            if not serializer.is_valid():
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Données invalides",
+                        "errors": serializer.errors
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Extraire les données validées
+            location_ids = serializer.validated_data['location_ids']
+
+            # Désactiver les locations (is_active = false)
+            result = LocationService.bulk_update_location_status(location_ids, is_active=False)
+
+            # Retourner la réponse de succès
+            message = f"{result['updated_count']} location(s) désactivée(s) avec succès"
+            return Response(
+                {
+                    "success": True,
+                    "message": message,
+                    "data": result
+                },
+                status=status.HTTP_200_OK
+            )
+
+        except LocationError as e:
+            logger.warning(f"Erreur métier lors de la désactivation des locations: {str(e)}")
+            return Response(
+                {
+                    "success": False,
+                    "message": str(e),
+                    "errors": [str(e)]
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Erreur inattendue lors de la désactivation des locations: {str(e)}")
+            return Response(
+                {
+                    "success": False,
+                    "message": "Une erreur inattendue est survenue lors de la désactivation des locations",
+                    "errors": [str(e)]
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

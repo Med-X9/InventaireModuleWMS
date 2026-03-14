@@ -1,8 +1,21 @@
 from rest_framework import serializers
-from ..models import Job, JobDetail, Location, Assigment, JobDetailRessource
+from ..models import Job, JobDetail, Location, Assigment, JobDetailRessource, CountingDetail, Counting
 from apps.masterdata.serializers.location_serializer import LocationSerializer
 from apps.masterdata.serializers.sous_zone_serializer import SousZoneSerializer
 from apps.masterdata.serializers.zone_serializer import ZoneSerializer
+
+
+class IntegerListField(serializers.ListField):
+    """
+    Champ utilitaire qui accepte une valeur entière unique ou une liste d'entiers.
+    Permet de rester rétrocompatible avec les appels front envoyant un seul entier.
+    """
+
+    def to_internal_value(self, data):
+        if isinstance(data, int):
+            data = [data]
+        return super().to_internal_value(data)
+
 
 class JobCreateRequestSerializer(serializers.Serializer):
     emplacements = serializers.ListField(
@@ -11,7 +24,10 @@ class JobCreateRequestSerializer(serializers.Serializer):
     )
 
 class JobRemoveEmplacementsSerializer(serializers.Serializer):
-    emplacement_id = serializers.IntegerField()
+    emplacement_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False
+    )
 
 class JobAddEmplacementsSerializer(serializers.Serializer):
     emplacement_ids = serializers.ListField(
@@ -31,9 +47,30 @@ class JobSerializer(serializers.ModelSerializer):
         fields = ['id', 'reference', 'status', 'warehouse', 'inventory']
 
 class JobDetailSerializer(serializers.ModelSerializer):
+    location_reference = serializers.CharField(source='location.location_reference', read_only=True)
+    
     class Meta:
         model = JobDetail
-        fields = ['id', 'reference', 'location', 'job', 'status']
+        fields = ['id', 'reference', 'location', 'location_reference', 'job', 'status']
+
+class JobDetailSimpleSerializer(serializers.ModelSerializer):
+    """
+    Serializer minimaliste pour JobDetail qui retourne les informations de location avec le statut et les dates
+    """
+    # Champs de location
+    id = serializers.IntegerField(source='location.id', read_only=True)
+    location_reference = serializers.CharField(source='location.location_reference', read_only=True)
+    is_active = serializers.BooleanField(source='location.is_active', read_only=True)
+    created_at = serializers.DateTimeField(source='location.created_at', read_only=True)
+    updated_at = serializers.DateTimeField(source='location.updated_at', read_only=True)
+    # Statut et dates du JobDetail
+    status = serializers.CharField(read_only=True)
+    en_attente_date = serializers.DateTimeField(read_only=True, allow_null=True)
+    termine_date = serializers.DateTimeField(read_only=True, allow_null=True)
+    
+    class Meta:
+        model = JobDetail
+        fields = ['id', 'location_reference', 'is_active', 'status', 'en_attente_date', 'termine_date', 'created_at', 'updated_at']
 
 class EmplacementSerializer(serializers.Serializer):
     emplacements = serializers.ListField(
@@ -85,32 +122,27 @@ class JobListWithLocationsSerializer(serializers.ModelSerializer):
         fields = ['id', 'reference', 'status', 'created_at', 'locations']
 
     def get_locations(self, obj):
-        # Récupérer les paramètres de filtrage depuis la requête
-        request = self.context.get('request')
-        if not request:
-            # Si pas de requête, retourner tous les emplacements
-            job_details = obj.jobdetail_set.select_related('location__sous_zone__zone').all()
-            return JobLocationDetailSerializer(job_details, many=True).data
-        
-        # Filtrer les emplacements selon les paramètres
-        job_details = obj.jobdetail_set.select_related('location__sous_zone__zone').all()
-        
-        # Filtre par location_reference
-        location_reference = request.query_params.get('location_reference')
-        if location_reference:
-            job_details = job_details.filter(location__location_reference__icontains=location_reference)
-        
-        # Filtre par sous_zone
-        sous_zone = request.query_params.get('sous_zone')
-        if sous_zone:
-            job_details = job_details.filter(location__sous_zone_id=sous_zone)
-        
-        # Filtre par zone
-        zone = request.query_params.get('zone')
-        if zone:
-            job_details = job_details.filter(location__sous_zone__zone_id=zone)
-        
-        return JobLocationDetailSerializer(job_details, many=True).data 
+        """
+        Récupère les emplacements uniques du job.
+        Les données doivent idéalement être préchargées via prefetch_related dans la vue.
+        """
+        # Utiliser les données préchargées si disponibles pour éviter des requêtes supplémentaires
+        prefetched_cache = getattr(obj, "_prefetched_objects_cache", {})
+        job_details = prefetched_cache.get("jobdetail_set")
+
+        if job_details is None:
+            # Fallback sécurisé : récupérer les données depuis le manager (une seule requête)
+            job_details = list(obj.jobdetail_set.all())
+
+        unique_details = {}
+        for detail in job_details:
+            location_id = getattr(detail, "location_id", None)
+            if location_id is None:
+                continue
+            if location_id not in unique_details:
+                unique_details[location_id] = detail
+
+        return JobLocationDetailSerializer(list(unique_details.values()), many=True).data 
 
 class JobDeleteRequestSerializer(serializers.Serializer):
     job_ids = serializers.ListField(
@@ -123,17 +155,41 @@ class JobReadyRequestSerializer(serializers.Serializer):
     job_ids = serializers.ListField(
         child=serializers.IntegerField(),
         min_length=1,
+        required=True,
         help_text="Liste des IDs des jobs à marquer comme PRET"
     )
+    counting_order = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=3,
+        help_text="Paramètre ignoré (conservé pour rétrocompatibilité). Tous les assignments avec statut AFFECTE seront marqués comme PRET."
+    )
+
+
+class JobSetReadyRequestSerializer(serializers.Serializer):
+    """
+    Serializer pour la requête de mise en PRET des jobs et assignments
+
+    job_ids est obligatoire et doit contenir au moins un ID de job.
+    """
+    job_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        min_length=1,
+        required=True,
+        help_text="Liste des IDs des jobs à marquer comme PRET (au moins un ID requis)"
+    )
+
 
 class JobAssignmentDetailSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(read_only=True)
     counting_order = serializers.IntegerField(source='counting.order', read_only=True)
     status = serializers.CharField()
     session = serializers.SerializerMethodField()
     date_start = serializers.DateTimeField(read_only=True)
     class Meta:
         model = Assigment
-        fields = ['counting_order', 'status', 'session', 'date_start']
+        fields = ['id', 'counting_order', 'status', 'session', 'date_start']
     def get_session(self, obj):
         if obj.session:
             return {'id': obj.session.id, 'username': obj.session.username}
@@ -161,13 +217,122 @@ class JobFullDetailSerializer(serializers.ModelSerializer):
         model = Job
         fields = ['id', 'reference', 'status', 'emplacements', 'assignments', 'ressources']
     def get_emplacements(self, obj):
-        job_details = obj.jobdetail_set.select_related('location__sous_zone__zone').all()
-        return JobEmplacementDetailSerializer(job_details, many=True).data
+        """
+        Récupère les emplacements (job_details) d'un job.
+        Filtre par counting pour éviter les doublons (un JobDetail a un champ counting).
+        Utilise le counting du premier assignment actif, ou retourne les emplacements uniques par location.
+        OPTIMISÉ: Utilise les données préchargées au lieu de faire des requêtes SQL supplémentaires.
+        """
+        # Utiliser les données préchargées (pas de requête SQL supplémentaire)
+        all_assignments = list(obj.assigment_set.all())
+        first_assignment = all_assignments[0] if all_assignments else None
+        
+        # Récupérer tous les job_details préchargés
+        all_job_details = list(obj.jobdetail_set.all())
+        
+        # Filtrer en mémoire par counting si nécessaire
+        if first_assignment and hasattr(first_assignment, 'counting') and first_assignment.counting:
+            counting_id = first_assignment.counting.id
+            job_details = [jd for jd in all_job_details if jd.counting_id == counting_id]
+        else:
+            job_details = all_job_details
+        
+        # Trier en mémoire (évite une requête SQL ORDER BY)
+        job_details.sort(key=lambda jd: (jd.location_id, -jd.id))
+        
+        # Éliminer les doublons par location_id (garder le plus récent)
+        seen_locations = set()
+        unique_job_details = []
+        for job_detail in job_details:
+            if job_detail.location_id not in seen_locations:
+                seen_locations.add(job_detail.location_id)
+                unique_job_details.append(job_detail)
+        
+        return JobEmplacementDetailSerializer(unique_job_details, many=True).data
+
     def get_assignments(self, obj):
-        assignments = obj.assigment_set.select_related('counting', 'session').all()
-        return JobAssignmentDetailSerializer(assignments, many=True).data
+        """
+        Récupère et standardise les assignments du job.
+
+        Tous les jobs retournent le même nombre d'assignments (max trouvé),
+        avec des valeurs null pour les comptages manquants.
+        """
+        # Utiliser les données préchargées (pas de requête SQL supplémentaire)
+        assignments = list(obj.assigment_set.all())
+
+        # Sérialiser les assignments existants
+        serialized_assignments = JobAssignmentDetailSerializer(assignments, many=True).data
+
+        # Standardiser : tous les jobs doivent avoir le même nombre d'assignments
+        return self._standardize_assignments_for_job(serialized_assignments)
+
+    def _standardize_assignments_for_job(self, assignments_data):
+        """
+        Standardise les assignments pour qu'ils aient tous la même longueur.
+
+        Args:
+            assignments_data: Liste des assignments sérialisés
+
+        Returns:
+            Liste standardisée avec des assignments vides si nécessaire
+        """
+        if not assignments_data:
+            return []
+
+        # Trouver le nombre maximum de comptages (dans tout le contexte)
+        # Pour cela, on utilise une approche globale : on regarde tous les jobs du serializer
+        # Cette méthode sera appelée pour chaque job, donc on utilise une approche statique
+        max_counting_order = self._get_max_counting_order_from_context()
+
+        # Créer un dictionnaire des assignments par counting_order
+        assignments_by_order = {}
+        for assignment in assignments_data:
+            counting_order = assignment.get('counting_order')
+            if counting_order is not None:
+                assignments_by_order[counting_order] = assignment
+
+        # Créer la liste standardisée
+        standardized_assignments = []
+        for order in range(1, max_counting_order + 1):
+            if order in assignments_by_order:
+                # Assignment existant
+                standardized_assignments.append(assignments_by_order[order])
+            else:
+                # Assignment vide pour ce comptage
+                standardized_assignments.append({
+                    'counting_order': order,
+                    'status': None,
+                    'session': None,
+                    'date_start': None
+                })
+
+        return standardized_assignments
+
+    def _get_max_counting_order_from_context(self):
+        """
+        Détermine le nombre maximum de comptages dans le contexte actuel.
+
+        Cette méthode examine tous les objets du serializer pour trouver le max.
+        """
+        # Cette approche examine tous les objets du serializer courant
+        # pour déterminer le nombre maximum de comptages
+        max_order = 1  # Minimum 1 comptage
+
+        # Si on a accès aux données du serializer parent (many=True context)
+        if hasattr(self, 'parent') and hasattr(self.parent, 'instance'):
+            # Dans le contexte many=True, self.parent.instance contient la queryset
+            if hasattr(self.parent.instance, '__iter__'):
+                for job in self.parent.instance:
+                    job_assignments = list(job.assigment_set.all())
+                    for assignment in job_assignments:
+                        if assignment.counting and assignment.counting.order > max_order:
+                            max_order = assignment.counting.order
+
+        return max(2, max_order)  # Au minimum 2 comptages (1er et 2ème)
+
     def get_ressources(self, obj):
-        ressources = obj.jobdetailressource_set.select_related('ressource').all()
+        # Utiliser les données préchargées (pas de requête SQL supplémentaire)
+        ressources = list(obj.jobdetailressource_set.all())
         return JobRessourceSerializer(ressources, many=True).data
 
 class JobPendingSerializer(serializers.ModelSerializer):
@@ -180,15 +345,47 @@ class JobPendingSerializer(serializers.ModelSerializer):
         fields = ['id', 'reference', 'status', 'emplacements', 'assignments', 'ressources']
     
     def get_emplacements(self, obj):
-        job_details = obj.jobdetail_set.select_related('location__sous_zone__zone').all()
-        return JobEmplacementDetailSerializer(job_details, many=True).data
+        """
+        Récupère les emplacements (job_details) d'un job.
+        Filtre par counting pour éviter les doublons (un JobDetail a un champ counting).
+        Utilise le counting du premier assignment actif, ou retourne les emplacements uniques par location.
+        OPTIMISÉ: Utilise les données préchargées au lieu de faire des requêtes SQL supplémentaires.
+        """
+        # Utiliser les données préchargées (pas de requête SQL supplémentaire)
+        all_assignments = list(obj.assigment_set.all())
+        first_assignment = all_assignments[0] if all_assignments else None
+        
+        # Récupérer tous les job_details préchargés
+        all_job_details = list(obj.jobdetail_set.all())
+        
+        # Filtrer en mémoire par counting si nécessaire
+        if first_assignment and hasattr(first_assignment, 'counting') and first_assignment.counting:
+            counting_id = first_assignment.counting.id
+            job_details = [jd for jd in all_job_details if jd.counting_id == counting_id]
+        else:
+            job_details = all_job_details
+        
+        # Trier en mémoire (évite une requête SQL ORDER BY)
+        job_details.sort(key=lambda jd: (jd.location_id, -jd.id))
+        
+        # Éliminer les doublons par location_id (garder le plus récent)
+        seen_locations = set()
+        unique_job_details = []
+        for job_detail in job_details:
+            if job_detail.location_id not in seen_locations:
+                seen_locations.add(job_detail.location_id)
+                unique_job_details.append(job_detail)
+        
+        return JobEmplacementDetailSerializer(unique_job_details, many=True).data
     
     def get_assignments(self, obj):
-        assignments = obj.assigment_set.select_related('counting', 'session').all()
+        # Utiliser les données préchargées (pas de requête SQL supplémentaire)
+        assignments = list(obj.assigment_set.all())
         return JobAssignmentDetailSerializer(assignments, many=True).data
     
     def get_ressources(self, obj):
-        ressources = obj.jobdetailressource_set.select_related('ressource').all()
+        # Utiliser les données préchargées (pas de requête SQL supplémentaire)
+        ressources = list(obj.jobdetailressource_set.all())
         return JobRessourceSerializer(ressources, many=True).data 
 
 class PendingJobReferenceSerializer(serializers.Serializer):
@@ -223,14 +420,258 @@ class JobResetAssignmentsRequestSerializer(serializers.Serializer):
 
 class JobTransferRequestSerializer(serializers.Serializer):
     """
-    Serializer pour transférer les jobs par comptage
+    Serializer pour transférer les assignments par comptage.
+    Accepte job_ids et counting_order, puis récupère automatiquement les assignments correspondants.
+    Transfère uniquement les assignments au statut PRET selon counting_order.
     """
     job_ids = serializers.ListField(
         child=serializers.IntegerField(),
         allow_empty=False,
-        help_text="Liste des IDs des jobs à transférer"
+        help_text="Liste des IDs des jobs pour lesquels transférer les assignments"
     )
-    counting_order = serializers.IntegerField(
+    counting_order = IntegerListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+        help_text="Liste des ordres de comptage pour lesquels transférer les assignments (ex: [1, 2, 3])"
+    )
+
+class JobTransferAllRequestSerializer(serializers.Serializer):
+    """
+    Serializer pour transférer tous les assignments de tous les comptages pour des jobs.
+    Accepte uniquement job_ids, puis récupère automatiquement tous les assignments PRET de tous les counting_order.
+    Transfère tous les assignments au statut PRET pour tous les counting_order des jobs spécifiés.
+    """
+    job_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False,
+        help_text="Liste des IDs des jobs pour lesquels transférer tous les assignments PRET de tous les counting_order"
+    )
+
+class JobTransferByInventoryWarehouseRequestSerializer(serializers.Serializer):
+    """
+    Serializer pour transférer automatiquement tous les jobs et leurs assignments PRET
+    liés à un inventaire et un entrepôt spécifiques.
+
+    Accepte inventory_id et warehouse_id, puis récupère automatiquement tous les jobs
+    et assignments PRET liés à cet inventaire/warehouse.
+
+    Logique tout-ou-rien : si un job ou assignment n'est pas PRET, bloque tout le transfert.
+    """
+    inventory_id = serializers.IntegerField(
         min_value=1,
-        help_text="Ordre du comptage pour lequel transférer les jobs"
+        help_text="ID de l'inventaire pour lequel transférer tous les jobs et assignments PRET"
+    )
+    warehouse_id = serializers.IntegerField(
+        min_value=1,
+        help_text="ID de l'entrepôt pour lequel transférer tous les jobs et assignments PRET"
+    )
+
+class JobManualEntryRequestSerializer(serializers.Serializer):
+    """
+    Serializer pour mettre les jobs et leurs assignments en statut SAISIE MANUELLE.
+    Accepte job_ids et counting_order, puis récupère automatiquement les assignments correspondants.
+    Met en statut SAISIE MANUELLE les jobs et assignments selon counting_order.
+    """
+    job_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False,
+        help_text="Liste des IDs des jobs pour lesquels mettre en saisie manuelle"
+    )
+    counting_order = IntegerListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+        help_text="Liste des ordres de comptage pour lesquels mettre en saisie manuelle (ex: [1, 2, 3])"
+    )
+
+class JobCancelRequestSerializer(serializers.Serializer):
+    """
+    Serializer pour annuler des jobs avec leurs jobdetails et assignments.
+    Vérifie que les jobs ne sont pas dans les statuts interdits (EN ATTENTE, VALIDE, AFFECTE, PRET).
+    """
+    job_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False,
+        min_length=1,
+        help_text="Liste des IDs des jobs à annuler"
     ) 
+
+class JobProgressByCountingSerializer(serializers.Serializer):
+    """
+    Sérialiseur pour l'avancement des emplacements par job et par counting
+    """
+    job_id = serializers.IntegerField()
+    job_reference = serializers.CharField()
+    job_status = serializers.CharField()
+    counting_order = serializers.IntegerField()
+    counting_reference = serializers.CharField()
+    counting_count_mode = serializers.CharField()
+    total_emplacements = serializers.IntegerField()
+    completed_emplacements = serializers.IntegerField()
+    progress_percentage = serializers.FloatField()
+    emplacements_details = serializers.ListField(child=serializers.DictField())
+
+class EmplacementProgressSerializer(serializers.Serializer):
+    """
+    Sérialiseur pour les détails de progression d'un em broadcasting
+    """
+    location_id = serializers.IntegerField()
+    location_reference = serializers.CharField()
+    sous_zone_name = serializers.CharField()
+    zone_name = serializers.CharField()
+    status = serializers.CharField()
+    counting_details = serializers.ListField(child=serializers.DictField())
+
+class InventoryJobsPdfRequestSerializer(serializers.Serializer):
+    """Serializer pour la requête de génération du PDF des jobs d'inventaire (obsolète - plus utilisé)"""
+    pass
+
+class AssignmentWithDatesSerializer(serializers.ModelSerializer):
+    """
+    Serializer pour les assignments avec toutes les dates et informations
+    """
+    counting_order = serializers.IntegerField(source='counting.order', read_only=True)
+    counting_reference = serializers.CharField(source='counting.reference', read_only=True)
+    session_info = serializers.SerializerMethodField()
+    personne_info = serializers.SerializerMethodField()
+    personne_two_info = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Assigment
+        fields = [
+            'id',
+            'reference',
+            'status',
+            'counting_order',
+            'counting_reference',
+            'transfert_date',
+            'entame_date',
+            'affecte_date',
+            'pret_date',
+            'date_start',
+            'created_at',
+            'updated_at',
+            'session_info',
+            'personne_info',
+            'personne_two_info'
+        ]
+    
+    def get_session_info(self, obj):
+        """Retourne les informations de la session si elle existe"""
+        if obj.session:
+            return {
+                'id': obj.session.id,
+                'username': obj.session.username
+            }
+        return None
+    
+    def get_personne_info(self, obj):
+        """Retourne les informations de la première personne si elle existe"""
+        if obj.personne:
+            return {
+                'id': obj.personne.id,
+                'reference': obj.personne.reference,
+                'nom': obj.personne.nom,
+                'prenom': obj.personne.prenom
+            }
+        return None
+    
+    def get_personne_two_info(self, obj):
+        """Retourne les informations de la deuxième personne si elle existe"""
+        if obj.personne_two:
+            return {
+                'id': obj.personne_two.id,
+                'reference': obj.personne_two.reference,
+                'nom': obj.personne_two.nom,
+                'prenom': obj.personne_two.prenom
+            }
+        return None
+
+class AssignmentFlatSerializer(serializers.ModelSerializer):
+    """
+    Serializer pour les assignments avec format plat incluant les infos du job
+    Format demandé : liste plate avec job_id, reference, id, status, dates, etc.
+    """
+    job_id = serializers.IntegerField(source='job.id', read_only=True)
+    reference = serializers.CharField(source='job.reference', read_only=True)
+    counting_order = serializers.IntegerField(source='counting.order', read_only=True)
+    counting_reference = serializers.CharField(source='counting.reference', read_only=True)
+    session_info = serializers.SerializerMethodField()
+    personne_1 = serializers.SerializerMethodField()
+    personne_2 = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Assigment
+        fields = [
+            'job_id',
+            'reference',
+            'id',
+            'status',
+            'counting_order',
+            'counting_reference',
+            'transfert_date',
+            'entame_date',
+            'affecte_date',
+            'pret_date',
+            'date_start',
+            'created_at',
+            'updated_at',
+            'session_info',
+            'personne_1',
+            'personne_2'
+        ]
+    
+    def get_session_info(self, obj):
+        """Retourne le username de la session si elle existe"""
+        if obj.session:
+            return obj.session.username
+        return None
+    
+    def get_personne_1(self, obj):
+        """Retourne le format "NOM Prénom" de la première personne si elle existe"""
+        if obj.personne:
+            return f"{obj.personne.nom} {obj.personne.prenom}"
+        return None
+    
+    def get_personne_2(self, obj):
+        """Retourne le format "NOM Prénom" de la deuxième personne si elle existe"""
+        if obj.personne_two:
+            return f"{obj.personne_two.nom} {obj.personne_two.prenom}"
+        return None
+
+class JobWithAssignmentsSerializer(serializers.ModelSerializer):
+    """
+    Serializer pour les jobs avec leurs assignments et toutes les dates
+    """
+    assignments = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Job
+        fields = [
+            'id',
+            'reference',
+            'status',
+            'en_attente_date',
+            'affecte_date',
+            'pret_date',
+            'transfert_date',
+            'entame_date',
+            'valide_date',
+            'termine_date',
+            'saisie_manuelle_date',
+            'created_at',
+            'updated_at',
+            'assignments'
+        ]
+    
+    def get_assignments(self, obj):
+        """
+        Récupère les assignments du job filtrés par counting_order si fourni dans le contexte
+        """
+        assignments = obj.assigment_set.all()
+        
+        # Filtrer par counting_order si fourni dans le contexte
+        counting_order = self.context.get('counting_order')
+        if counting_order is not None:
+            assignments = assignments.filter(counting__order=counting_order)
+        
+        return AssignmentWithDatesSerializer(assignments, many=True).data 

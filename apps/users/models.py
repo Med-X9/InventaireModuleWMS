@@ -40,9 +40,11 @@ class UserApp(AbstractBaseUser, PermissionsMixin, models.Model):
 
     username = models.CharField(_('Nom d\'utilisateur'), max_length=150, unique=True)
     email = models.EmailField(_('Email'), blank=True, null=True)
-    nom = models.CharField(_('Nom'), max_length=255)
-    prenom = models.CharField(_('Prénom'), max_length=255)
+    nom = models.CharField(_('Nom'), max_length=255, null=True, blank=True)
+    prenom = models.CharField(_('Prénom'), max_length=255, null=True, blank=True)
+    comptage = models.IntegerField(_('Comptage'), null=True, blank=True)
     type = models.CharField(_('Type'), max_length=100, choices=TYPES)
+    compte=models.ForeignKey('masterdata.Account', on_delete=models.CASCADE, null=True, blank=True)
     is_active = models.BooleanField(_('Actif'), default=True)
     is_staff = models.BooleanField(_('Administrateur'), default=False)
     
@@ -66,7 +68,7 @@ class UserApp(AbstractBaseUser, PermissionsMixin, models.Model):
     )
 
     def __str__(self):
-        return f"{self.prenom} {self.nom}"
+        return self.username
 
     class Meta:
         verbose_name = _('Utilisateur')

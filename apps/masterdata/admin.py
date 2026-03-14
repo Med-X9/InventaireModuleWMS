@@ -5,20 +5,24 @@ import random
 import hashlib
 import uuid
 from datetime import datetime
+import os
 
 # Register your models here.
 from django.contrib import admin
-from import_export.admin import ImportExportModelAdmin
+from import_export.admin import ImportExportModelAdmin, ImportExportMixin
 from import_export import resources, fields, widgets
 from import_export.formats.base_formats import XLSX, CSV, XLS
 from import_export.widgets import ForeignKeyWidget
+from django.db import transaction
 
 from .models import (
     Account, Family, Warehouse, ZoneType, Zone,
     LocationType, Location, Product, UnitOfMeasure,Stock,SousZone,
-    Ressource, TypeRessource, RegroupementEmplacement
+    Ressource, TypeRessource, RegroupementEmplacement, NSerie,
+    ImportTask, ImportError
 )
 from django.contrib.auth.admin import UserAdmin
+from django.contrib.auth.models import Group
 from apps.users.models import UserApp
 # ---------------- Resources ---------------- #
 
@@ -75,20 +79,28 @@ class AutoCreateAccountWidget(widgets.ForeignKeyWidget):
                 raise ValueError(f"Impossible de créer le compte '{value}': {str(e)}")
 
 class FamilyLookupWidget(widgets.ForeignKeyWidget):
-    """Widget personnalisé pour rechercher les familles par ID ou nom"""
+    """
+    Widget pour rechercher les familles par ID ou nom (insensible à la casse).
+    Lève ValueError avec le nom de la famille si non trouvée, pour afficher
+    « La famille X n'existe pas » au lieu de « Family matching query does not exist ».
+    """
     
     def clean(self, value, row=None, *args, **kwargs):
-        if not value:
+        if not value or not str(value).strip():
             return None
-        
+        value = str(value).strip()
         try:
-            # Essayer d'abord par ID
-            if str(value).isdigit():
-                return Family.objects.get(id=value)
-            # Puis par nom
-            return Family.objects.get(family_name=value)
+            if value.isdigit():
+                return Family.objects.get(id=int(value))
+            # Recherche insensible à la casse (Excel vs base)
+            family = Family.objects.filter(family_name__iexact=value).first()
+            if family:
+                return family
+            raise ValueError(f"La famille « {value} » n'existe pas dans la base de données.")
+        except ValueError:
+            raise
         except Family.DoesNotExist:
-            raise ValueError(f"La famille '{value}' n'existe pas dans la base de données.")
+            raise ValueError(f"La famille « {value} » n'existe pas dans la base de données.")
 
 class ProductLookupWidget(widgets.ForeignKeyWidget):
     """Widget personnalisé pour rechercher les produits par ID ou référence"""
@@ -116,11 +128,133 @@ class StockUnitWidget(widgets.CharWidget):
         # Tronquer à 3 caractères maximum
         return str(value)[:3].upper()
 
+class OptionalBooleanWidget(widgets.BooleanWidget):
+    """Widget booléen personnalisé qui gère les valeurs vides/optionnelles"""
+    
+    def clean(self, value, row=None, *args, **kwargs):
+        """
+        Nettoie la valeur booléenne.
+        Les valeurs vides, None, ou chaînes vides retournent False (valeur par défaut).
+        """
+        if value is None:
+            return False
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            value = value.strip()
+            if value == '' or value.lower() in ('none', 'null', 'n/a', 'na', ''):
+                return False
+            if value.lower() in ('true', '1', 'yes', 'oui', 'o', 'y', 't'):
+                return True
+            if value.lower() in ('false', '0', 'no', 'non', 'n', 'f'):
+                return False
+        if isinstance(value, (int, float)):
+            return bool(value)
+        # Par défaut, retourner False si la valeur ne peut pas être convertie
+        return False
+
+class AutoCreateRegroupementWidget(widgets.ForeignKeyWidget):
+    """Widget personnalisé qui crée automatiquement les regroupements manquants"""
+    
+    def clean(self, value, row=None, *args, **kwargs):
+        if not value:
+            return None
+        
+        try:
+            # Essayer d'abord de trouver le regroupement existant
+            return RegroupementEmplacement.objects.get(nom=value)
+        except RegroupementEmplacement.DoesNotExist:
+            # Créer automatiquement le regroupement s'il n'existe pas
+            try:
+                # Essayer de trouver l'account à partir de la ligne ou utiliser un account par défaut
+                account = None
+                
+                # Option 1: Chercher un account dans la ligne d'import
+                if row:
+                    # Chercher un champ account dans la ligne
+                    account_name = row.get('account', row.get('nom de compte', ''))
+                    if account_name:
+                        try:
+                            account = Account.objects.get(account_name=account_name)
+                        except Account.DoesNotExist:
+                            pass
+                
+                # Option 2: Si pas d'account dans la ligne, chercher via la sous_zone
+                warehouse = None
+                if not account and row:
+                    sous_zone_name = row.get('sous zone', '')
+                    if sous_zone_name:
+                        try:
+                            from .models import SousZone
+                            sous_zone = SousZone.objects.get(sous_zone_name=sous_zone_name)
+                            # Essayer de trouver l'account et le warehouse via la zone -> warehouse
+                            if hasattr(sous_zone, 'zone') and sous_zone.zone:
+                                zone = sous_zone.zone
+                                if hasattr(zone, 'warehouse') and zone.warehouse:
+                                    warehouse = zone.warehouse
+                                    # Si le warehouse a un account, l'utiliser
+                                    if hasattr(warehouse, 'account'):
+                                        account = warehouse.account
+                        except Exception:
+                            pass
+                
+                # Option 3: Utiliser le premier account disponible comme fallback
+                if not account:
+                    account = Account.objects.first()
+                    if not account:
+                        raise ValueError("Aucun compte disponible pour créer le regroupement. Veuillez créer un compte d'abord.")
+                
+                # Si le warehouse n'a pas été trouvé via la sous_zone, essayer de le trouver via l'account
+                if not warehouse:
+                    # Chercher un warehouse associé à l'account (si une telle relation existe)
+                    # Sinon, utiliser le premier warehouse disponible comme fallback
+                    from .models import Warehouse
+                    warehouse = Warehouse.objects.first()
+                    if not warehouse:
+                        raise ValueError("Aucun warehouse disponible pour créer le regroupement. Veuillez créer un warehouse d'abord.")
+                
+                # Vérifier si l'account a déjà un regroupement (OneToOneField)
+                if hasattr(account, 'regroupement_emplacement'):
+                    # Si l'account a déjà un regroupement, vérifier qu'il a le même warehouse
+                    existing_regroupement = account.regroupement_emplacement
+                    if existing_regroupement.warehouse.id != warehouse.id:
+                        raise ValueError(
+                            f"Le regroupement existant '{existing_regroupement.nom}' pour le compte '{account.account_name}' "
+                            f"appartient au warehouse '{existing_regroupement.warehouse.warehouse_name}', "
+                            f"mais l'emplacement appartient au warehouse '{warehouse.warehouse_name}'. "
+                            f"Les warehouses doivent correspondre."
+                        )
+                    return existing_regroupement
+                
+                # Vérifier si un regroupement avec ce nom existe déjà pour un autre account
+                existing_regroupement = RegroupementEmplacement.objects.filter(nom=value).first()
+                if existing_regroupement:
+                    # Vérifier que le warehouse correspond
+                    if existing_regroupement.warehouse.id != warehouse.id:
+                        raise ValueError(
+                            f"Le regroupement '{value}' existe déjà mais appartient au warehouse "
+                            f"'{existing_regroupement.warehouse.warehouse_name}', "
+                            f"alors que l'emplacement appartient au warehouse '{warehouse.warehouse_name}'. "
+                            f"Les warehouses doivent correspondre."
+                        )
+                    # Si un regroupement avec ce nom existe déjà, le retourner
+                    return existing_regroupement
+                
+                # Créer le nouveau regroupement pour l'account avec le warehouse
+                regroupement = RegroupementEmplacement.objects.create(
+                    account=account,
+                    warehouse=warehouse,
+                    nom=value
+                )
+                return regroupement
+            except Exception as e:
+                raise ValueError(f"Impossible de créer le regroupement '{value}': {str(e)}")
+
 class FamilyResource(resources.ModelResource):
     compte = fields.Field(
         column_name='nom de compte',
         attribute='compte',
-        widget=ForeignKeyWidget(Account, 'account_name')
+        widget=AutoCreateAccountWidget(Account, 'account_name')
     )
     name = fields.Field(
         column_name='nom de famille',
@@ -135,6 +269,63 @@ class FamilyResource(resources.ModelResource):
         model = Family
         fields = ('name', 'compte', 'statut')
         import_id_fields = ('name',)
+    
+    def _check_import_id_fields(self, headers):
+        """
+        Surcharge pour mapper les noms de champs aux column_name.
+        Permet d'utiliser 'nom de famille' dans le fichier d'import
+        alors que le champ s'appelle 'name' dans la ressource.
+        Gère aussi les variations de casse et d'espaces.
+        """
+        # Mapping des noms de champs vers les column_name
+        field_to_column = {
+            'name': 'nom de famille',
+        }
+        
+        # Vérifier que les column_name correspondants sont présents dans les en-têtes
+        missing_fields = []
+        for field_name in self.get_import_id_fields():
+            column_name = field_to_column.get(field_name, field_name)
+            # Vérifier aussi avec différentes variations (casse, espaces)
+            found = False
+            for header in headers:
+                if header.lower().strip() == column_name.lower().strip():
+                    found = True
+                    break
+            if not found:
+                missing_fields.append(column_name)
+        
+        if missing_fields:
+            from import_export import exceptions
+            raise exceptions.FieldError(
+                f"The following fields are declared in 'import_id_fields' but are not present in the file headers: {', '.join(missing_fields)}"
+            )
+    
+    def before_import_row(self, row, **kwargs):
+        """
+        Valide et prépare les données avant l'import.
+        S'assure que le champ 'nom de compte' est présent et non vide.
+        """
+        # Vérifier que le compte est fourni
+        compte_value = row.get('nom de compte', '').strip()
+        if not compte_value:
+            raise ValueError(
+                "Le champ 'nom de compte' est obligatoire pour créer une famille. "
+                "Veuillez fournir un nom de compte valide."
+            )
+    
+    def get_or_init_instance(self, instance_loader, row):
+        """
+        Surcharge pour utiliser le column_name 'nom de famille' 
+        au lieu du nom de champ 'name' lors de la recherche.
+        Gère aussi les variations de casse et d'espaces.
+        """
+        # Mapper le column_name vers le nom de champ (gérer les variations)
+        for key in row.keys():
+            if key.lower().strip() == 'nom de famille':
+                row['name'] = row[key]
+                break
+        return super().get_or_init_instance(instance_loader, row)
 
 class WarehouseResource(resources.ModelResource):
     name = fields.Field(column_name='nom de warehouse', attribute='warehouse_name')
@@ -201,7 +392,7 @@ class LocationResource(resources.ModelResource):
     regroupement = fields.Field(
         column_name='regroupement',
         attribute='regroupement',
-        widget=ForeignKeyWidget(RegroupementEmplacement, 'nom')
+        widget=AutoCreateRegroupementWidget(RegroupementEmplacement, 'nom')
     )
 
     location_reference = fields.Field(
@@ -212,7 +403,101 @@ class LocationResource(resources.ModelResource):
     class Meta:
         model = Location
         fields = ('location_reference', 'location_type', 'sous_zone', 'regroupement')
-        import_id_fields = ('location_reference',)
+        import_id_fields = ()
+
+    def get_or_init_instance(self, instance_loader, row):
+        """
+        Surcharge pour gérer les variations de noms de colonnes pour location_reference.
+        Permet d'accepter différentes variations de casse et d'espaces.
+        """
+        # Mapping des variations possibles pour location_reference
+        location_ref_variations = [
+            'location reference', 'location_reference', 'Location Reference',
+            'LOCATION REFERENCE', 'emplacement', 'Emplacement', 'EMPLACEMENT',
+            'reference', 'Reference', 'REFERENCE', 'ref', 'Ref', 'REF',
+            'location_ref', 'Location_Ref', 'LOCATION_REF'
+        ]
+
+        # Chercher la colonne location_reference dans les variations possibles
+        for key in row.keys():
+            if key.lower().strip() in [v.lower().strip() for v in location_ref_variations]:
+                row['location_reference'] = row[key]
+                break
+
+        return super().get_or_init_instance(instance_loader, row)
+
+    def before_import_row(self, row, **kwargs):
+        """
+        Validation avant l'import de chaque ligne.
+        S'assurer que location_reference n'est pas vide.
+        """
+        # Vérifier que location_reference existe et n'est pas vide
+        location_ref = row.get('location_reference', '').strip()
+        if not location_ref:
+            # Essayer de chercher dans d'autres colonnes possibles
+            possible_columns = ['location reference', 'location_reference', 'Location Reference',
+                                'emplacement', 'Emplacement', 'reference', 'Reference']
+            for col in possible_columns:
+                if col in row and row[col] and str(row[col]).strip():
+                    row['location_reference'] = str(row[col]).strip()
+                    break
+
+        # Validation finale
+        if not row.get('location_reference', '').strip():
+            raise ValueError(
+                "Le champ 'location reference' est obligatoire et ne peut pas être vide. "
+                "Colonnes disponibles dans le fichier: " + ", ".join(row.keys())
+            )
+
+        return super().before_import_row(row, **kwargs)
+
+    def before_save_instance(self, instance, *args, **kwargs):
+        """
+        Validation avant la sauvegarde de l'instance.
+        Vérifie que l'emplacement et le regroupement ont le même warehouse.
+
+        La signature utilise *args / **kwargs pour rester compatible avec
+        les différentes versions de django-import-export, qui peuvent passer
+        les paramètres `using_transactions` / `dry_run` à la fois en
+        positionnel et en mot-clé.
+        """
+        # Vérifier si un regroupement est associé
+        if instance.regroupement and instance.sous_zone:
+            # Récupérer le warehouse de l'emplacement via sous_zone -> zone -> warehouse
+            location_warehouse = None
+            if instance.sous_zone and instance.sous_zone.zone:
+                location_warehouse = instance.sous_zone.zone.warehouse
+
+            # Récupérer le warehouse du regroupement
+            regroupement_warehouse = instance.regroupement.warehouse
+
+            # Valider que les warehouses correspondent
+            if location_warehouse and regroupement_warehouse:
+                if location_warehouse.id != regroupement_warehouse.id:
+                    raise ValueError(
+                        f"L'emplacement '{instance.location_reference}' appartient au warehouse "
+                        f"'{location_warehouse.warehouse_name}' (via la sous-zone '{instance.sous_zone.sous_zone_name}'), "
+                        f"mais le regroupement '{instance.regroupement.nom}' appartient au warehouse "
+                        f"'{regroupement_warehouse.warehouse_name}'. "
+                        f"Les warehouses doivent correspondre."
+                    )
+
+        # Appeler l'implémentation parente pour conserver le comportement par défaut
+        return super().before_save_instance(instance, *args, **kwargs)
+        
+        return super().before_save_instance(instance, using_transactions, dry_run)
+
+
+
+from import_export import resources, fields
+from import_export.widgets import ForeignKeyWidget
+from .models import Product, Family  # adapte selon tes modèles
+from django.db import transaction
+
+
+from import_export import resources, fields, exceptions
+from import_export.widgets import ForeignKeyWidget, BooleanWidget
+from .models import Product, Family
 
 class ProductResource(resources.ModelResource):
     short_description = fields.Field(column_name='short description', attribute='Short_Description')
@@ -221,12 +506,156 @@ class ProductResource(resources.ModelResource):
     stock_unit = fields.Field(column_name='stock unit', attribute='Stock_Unit')
     product_status = fields.Field(column_name='product status', attribute='Product_Status')
     internal_product_code = fields.Field(column_name='internal product code', attribute='Internal_Product_Code')
-    product_family = fields.Field(column_name='product family', attribute='Product_Family', widget=ForeignKeyWidget(Family, 'family_name'))
+    product_family = fields.Field(
+        column_name='product family',
+        attribute='Product_Family',
+        widget=FamilyLookupWidget(Family, 'family_name')
+    )
+    n_lot = fields.Field(column_name='n lot', attribute='n_lot', widget=OptionalBooleanWidget())
+    n_serie = fields.Field(column_name='n serie', attribute='n_serie', widget=OptionalBooleanWidget())
+    dlc = fields.Field(column_name='dlc', attribute='dlc', widget=OptionalBooleanWidget())
+    is_variant = fields.Field(column_name='is variant', attribute='Is_Variant', widget=OptionalBooleanWidget())
 
     class Meta:
         model = Product
-        fields = ('short_description', 'barcode', 'product_group', 'stock_unit', 'product_status', 'internal_product_code', 'product_family')
-        import_id_fields = ('barcode',)
+        fields = (
+            'short_description', 'barcode', 'product_group', 'stock_unit',
+            'product_status', 'internal_product_code', 'product_family',
+            'n_lot', 'n_serie', 'dlc', 'is_variant'
+        )
+        import_id_fields = ()
+        skip_unchanged = True
+        report_skipped = True
+        use_transactions = True
+        batch_size = 500  # Import par lots pour éviter timeout
+
+    # Vérifie que toutes les lignes ont un product_family existant
+
+    def _normalize_boolean(self, value):
+        """
+        Normalise une valeur en booléen.
+        Retourne False si la valeur est None, vide, ou ne peut pas être convertie.
+        """
+        if value is None:
+            return False
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            value = value.strip().lower()
+            if value in ('', 'none', 'null', 'n/a', 'na'):
+                return False
+            if value in ('true', '1', 'yes', 'oui', 'o', 'y', 't'):
+                return True
+            if value in ('false', '0', 'no', 'non', 'n', 'f'):
+                return False
+        if isinstance(value, (int, float)):
+            return bool(value)
+        return False
+
+    def before_import_row(self, row, **kwargs):
+        family_name = row.get('product family')
+        if not family_name or not family_name.strip():
+            raise exceptions.ImportError(
+                "La colonne 'product family' est obligatoire pour chaque produit."
+            )
+        if not Family.objects.filter(family_name__iexact=family_name.strip()).exists():
+            raise exceptions.ImportError(
+                f"La famille « {family_name.strip()} » n'existe pas dans la base de données."
+            )
+        
+        # Normaliser les valeurs booléennes pour éviter les NULL
+        boolean_fields = ['is variant', 'n lot', 'n serie', 'dlc']
+        for field in boolean_fields:
+            if field in row:
+                row[field] = self._normalize_boolean(row[field])
+            else:
+                # Si la colonne n'existe pas, définir à False par défaut
+                row[field] = False
+    
+    def after_import_row(self, row, row_result, **kwargs):
+        """
+        Appelé après l'import d'une ligne pour s'assurer que les champs booléens ne sont jamais None.
+        """
+        if row_result.instance and row_result.instance.pk:
+            # S'assurer que Is_Variant et les autres booléens ne sont jamais None
+            needs_save = False
+            if row_result.instance.Is_Variant is None:
+                row_result.instance.Is_Variant = False
+                needs_save = True
+            if row_result.instance.n_lot is None:
+                row_result.instance.n_lot = False
+                needs_save = True
+            if row_result.instance.n_serie is None:
+                row_result.instance.n_serie = False
+                needs_save = True
+            if row_result.instance.dlc is None:
+                row_result.instance.dlc = False
+                needs_save = True
+            # Sauvegarder si des modifications ont été apportées
+            if needs_save:
+                row_result.instance.save(update_fields=['Is_Variant', 'n_lot', 'n_serie', 'dlc'])
+
+
+    # Surcharge pour gérer les variations de noms de colonne pour internal_product_code et barcode
+    # et gérer les doublons sur barcode
+    def get_or_init_instance(self, instance_loader, row):
+        field_variations = {
+            'internal_product_code': ['internal product code', 'Internal Product Code', 'INTERNAL PRODUCT CODE', 
+                                     'internal_product_code', 'Internal_Product_Code', 'code produit', 
+                                     'Code Produit', 'CODE PRODUIT'],
+            'barcode': ['barcode', 'Barcode', 'BARCODE', 'code barre', 'Code Barre', 'CODE BARRE',
+                       'code-barres', 'Code-Barres', 'CODE-BARRES'],
+        }
+        for field_name, variations in field_variations.items():
+            for key in row.keys():
+                if key.lower().strip() in [v.lower().strip() for v in variations]:
+                    row[field_name] = row[key]
+                    break
+
+        # Essayer de trouver une instance existante par barcode
+        barcode_value = row.get('barcode')
+        if barcode_value and str(barcode_value).strip():
+            try:
+                # Essayer de trouver un produit avec ce barcode
+                instance = self._meta.model.objects.get(Barcode=str(barcode_value).strip())
+                return instance, False  # False = instance exists, will be updated
+            except self._meta.model.DoesNotExist:
+                # Aucun produit trouvé, créer une nouvelle instance
+                instance = self._meta.model()
+                return instance, True  # True = new instance
+            except self._meta.model.MultipleObjectsReturned:
+                # Plusieurs produits avec le même barcode, créer une nouvelle instance
+                # pour éviter l'erreur "get() returned more than one"
+                instance = self._meta.model()
+                return instance, True  # True = new instance
+        else:
+            # Pas de barcode fourni, créer une nouvelle instance
+            instance = self._meta.model()
+            return instance, True  # True = new instance
+
+    # Vérifie que la colonne barcode est présente
+    def _check_import_id_fields(self, headers):
+        field_to_columns = {
+            'barcode': ['barcode', 'Barcode', 'BARCODE', 'code barre', 'Code Barre', 'CODE BARRE',
+                       'code-barres', 'Code-Barres', 'CODE-BARRES'],
+        }
+        normalized_headers = {h.lower().strip(): h for h in headers}
+        available_headers = ', '.join(headers[:10])
+        if len(headers) > 10:
+            available_headers += f', ... ({len(headers)} en-têtes au total)'
+
+        # Vérifier que la colonne barcode est présente
+        found = False
+        for possible_column in field_to_columns.get('barcode', ['barcode']):
+            if possible_column.lower().strip() in normalized_headers:
+                found = True
+                break
+
+        if not found:
+            raise exceptions.FieldError(
+                f"La colonne 'barcode' est obligatoire pour l'import. "
+                f"En-têtes disponibles dans le fichier: {available_headers}"
+            )
 
 class UnitOfMeasureResource(resources.ModelResource):
     name = fields.Field(column_name='nom', attribute='name')
@@ -280,31 +709,345 @@ class RegroupementEmplacementResource(resources.ModelResource):
         attribute='account',
         widget=ForeignKeyWidget(Account, 'account_name')
     )
+    nom = fields.Field(column_name='nom', attribute='nom')
+
     class Meta:
         model = RegroupementEmplacement
         import_id_fields = ('nom',)
         fields = ('nom', 'account')
 
 
+class NSerieResource(resources.ModelResource):
+    """
+    Resource pour l'import/export des numéros de série
+    """
+    product = fields.Field(
+        column_name='produit',
+        attribute='product',
+        widget=ForeignKeyWidget(Product, 'Internal_Product_Code')
+    )
+    n_serie = fields.Field(column_name='numéro de série', attribute='n_serie')
+    status = fields.Field(column_name='statut', attribute='status')
+    description = fields.Field(column_name='description', attribute='description')
+    date_fabrication = fields.Field(column_name='date fabrication', attribute='date_fabrication')
+    date_expiration = fields.Field(column_name='date expiration', attribute='date_expiration')
+    warranty_end_date = fields.Field(column_name='date fin garantie', attribute='warranty_end_date')
+
+    class Meta:
+        model = NSerie
+        fields = ('n_serie', 'product', 'status', 'description', 'date_fabrication', 'date_expiration', 'warranty_end_date')
+        import_id_fields = ('n_serie', 'product')
+
+
+class OptionalAccountWidget(widgets.ForeignKeyWidget):
+    """Widget personnalisé pour gérer les comptes optionnels"""
+    
+    def clean(self, value, row=None, *args, **kwargs):
+        if not value or str(value).strip() == '':
+            return None
+        return super().clean(value, row, *args, **kwargs)
+
+
+class PasswordWidget(widgets.Widget):
+    """
+    Widget personnalisé pour gérer les mots de passe lors de l'import
+    Le mot de passe n'est pas exporté (sécurité) mais peut être importé et hashé
+    """
+    
+    def clean(self, value, row=None, *args, **kwargs):
+        """Retourne le mot de passe en clair pour le hashage ultérieur"""
+        if not value:
+            return None
+        return str(value).strip()
+    
+    def render(self, value, obj=None):
+        """Ne pas exporter le mot de passe pour des raisons de sécurité"""
+        return ""  # Toujours retourner une chaîne vide à l'export
+
+
+class UserAppResource(resources.ModelResource):
+    """
+    Resource pour l'import/export des utilisateurs
+    """
+    username = fields.Field(column_name='Nom d\'utilisateur', attribute='username')
+    email = fields.Field(column_name='Email', attribute='email')
+    nom = fields.Field(column_name='Nom', attribute='nom')
+    prenom = fields.Field(column_name='Prénom', attribute='prenom')
+    type = fields.Field(column_name='Type', attribute='type')
+    compte = fields.Field(
+        column_name='Compte',
+        attribute='compte',
+        widget=OptionalAccountWidget(Account, 'account_name')
+    )
+    comptage = fields.Field(column_name='Ordre de comptage', attribute='comptage')
+    is_active = fields.Field(column_name='Actif', attribute='is_active')
+    is_staff = fields.Field(column_name='Administrateur', attribute='is_staff')
+    # Le champ password n'est pas dans les fields pour éviter l'assignation directe
+    # Il est géré manuellement via before_import_row et after_save_instance
+
+    class Meta:
+        model = UserApp
+        fields = ('username', 'email', 'nom', 'prenom', 'type', 'compte', 'comptage', 'is_active', 'is_staff')
+        import_id_fields = ('username',)
+        skip_unchanged = True
+        report_skipped = False
+    
+    def before_import_row(self, row, **kwargs):
+        """
+        Méthode appelée avant l'import de chaque ligne
+        Permet de valider et transformer les données
+        """
+        # Convertir les valeurs booléennes depuis les colonnes Excel
+        if 'Actif' in row:
+            actif_value = str(row['Actif']).strip().lower()
+            row['Actif'] = actif_value in ['oui', 'yes', 'true', '1', 'o', 'vrai']
+        
+        if 'Administrateur' in row:
+            admin_value = str(row['Administrateur']).strip().lower()
+            row['Administrateur'] = admin_value in ['oui', 'yes', 'true', '1', 'o', 'vrai']
+        
+        # Récupérer le mot de passe et sa confirmation
+        password = None
+        confirm_password = None
+        
+        # Chercher le mot de passe dans différentes colonnes possibles
+        password_keys = ['Mot de passe', 'mot de passe', 'password', 'Password', 'MOT DE PASSE']
+        for key in password_keys:
+            if key in row and row.get(key):
+                password = str(row[key]).strip()
+                break
+        
+        # Chercher la confirmation du mot de passe
+        confirm_keys = ['Confirme mot de passe', 'confirme mot de passe', 'Confirme Mot de passe',
+                       'confirm password', 'Confirm password', 'CONFIRME MOT DE PASSE',
+                       'confirme_password', 'confirm_password']
+        for key in confirm_keys:
+            if key in row and row.get(key):
+                confirm_password = str(row[key]).strip()
+                break
+        
+        # Valider que les mots de passe correspondent si les deux sont fournis
+        if password and confirm_password:
+            if password != confirm_password:
+                from import_export import exceptions
+                # Récupérer le nom d'utilisateur depuis différentes colonnes possibles
+                username = (row.get('Nom d\'utilisateur') or 
+                           row.get('nom d\'utilisateur') or 
+                           row.get('username') or 
+                           row.get('Username') or
+                           'N/A')
+                raise exceptions.ImportError(
+                    f"Les mots de passe ne correspondent pas pour l'utilisateur '{username}'"
+                )
+        
+        # Stocker le password dans la row pour le récupérer dans import_obj
+        # On utilise le password (ou confirm_password s'il n'y a pas de password mais qu'il y a confirm_password)
+        if password:
+            row['_temp_password'] = password
+        elif confirm_password:
+            # Si seulement confirm_password est fourni, l'utiliser
+            row['_temp_password'] = confirm_password
+        
+        return super().before_import_row(row, **kwargs)
+    
+    def after_save_instance(self, instance, row, **kwargs):
+        """
+        Méthode appelée après la sauvegarde de l'instance
+        Gère le hashage du mot de passe si fourni dans les données originales
+        
+        Args:
+            instance: L'instance sauvegardée
+            row: Les données de la ligne importée (peut être un dict ou un objet)
+            **kwargs: Arguments supplémentaires (peut contenir 'file_name', 'dry_run', etc.)
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Récupérer dry_run depuis kwargs
+        dry_run = kwargs.get('dry_run', False)
+        
+        # Récupérer le mot de passe depuis plusieurs sources possibles
+        password = None
+        
+        # Convertir row en dict si ce n'est pas déjà le cas
+        row_dict = row
+        if row and not isinstance(row, dict):
+            try:
+                row_dict = dict(row) if hasattr(row, '__iter__') else {}
+            except:
+                row_dict = {}
+        
+        # 1. Depuis l'attribut temporaire de l'instance (stocké dans import_obj)
+        if hasattr(instance, '_temp_password') and instance._temp_password:
+            password = str(instance._temp_password).strip()
+            logger.debug(f"Password récupéré depuis instance._temp_password pour {instance.username}")
+        # 2. Depuis row['_temp_password'] (stocké dans before_import_row)
+        elif row_dict and '_temp_password' in row_dict and row_dict.get('_temp_password'):
+            password = str(row_dict['_temp_password']).strip()
+            logger.debug(f"Password récupéré depuis row['_temp_password'] pour {instance.username}")
+        # 3. Depuis les colonnes directes du fichier Excel
+        else:
+            password_keys = ['Mot de passe', 'mot de passe', 'password', 'Password', 'MOT DE PASSE']
+            for key in password_keys:
+                if row_dict and key in row_dict and row_dict.get(key):
+                    password = str(row_dict[key]).strip()
+                    logger.debug(f"Password récupéré depuis colonne '{key}' pour {instance.username}")
+                    break
+        
+        # Hasher le mot de passe si présent et si ce n'est pas un dry_run
+        if password and password != '' and not dry_run:
+            try:
+                instance.set_password(password)
+                instance.save(update_fields=['password'])
+                logger.info(f"Mot de passe hashé et sauvegardé pour l'utilisateur {instance.username}")
+            except Exception as e:
+                logger.error(f"Erreur lors du hashage du mot de passe pour {instance.username}: {str(e)}")
+                raise
+        
+        # Nettoyer l'attribut temporaire s'il existe
+        if hasattr(instance, '_temp_password'):
+            delattr(instance, '_temp_password')
+        
+        # Appeler la méthode parente en passant tous les arguments
+        return super().after_save_instance(instance, row, **kwargs)
+    
+    def import_obj(self, obj, data, dry_run, **kwargs):
+        """
+        Méthode appelée lors de l'import d'un objet
+        Gère le stockage temporaire du mot de passe pour le hashage ultérieur
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Extraire le mot de passe depuis _temp_password stocké dans before_import_row
+        # ou directement depuis les colonnes du fichier
+        password = None
+        confirm_password = None
+        
+        # 1. D'abord chercher dans _temp_password (stocké dans before_import_row)
+        if '_temp_password' in data and data.get('_temp_password'):
+            password = str(data['_temp_password']).strip()
+            logger.debug(f"Password trouvé dans _temp_password pour {data.get('Nom d\'utilisateur', 'N/A')}")
+        
+        # 2. Sinon chercher directement dans les colonnes du fichier Excel
+        if not password:
+            password_keys = ['Mot de passe', 'mot de passe', 'password', 'Password', 'MOT DE PASSE']
+            for key in password_keys:
+                if key in data and data.get(key):
+                    password = str(data[key]).strip()
+                    logger.debug(f"Password trouvé dans colonne '{key}' pour {data.get('Nom d\'utilisateur', 'N/A')}")
+                    break
+        
+        # Chercher la confirmation du mot de passe
+        confirm_keys = ['Confirme mot de passe', 'confirme mot de passe', 'Confirme Mot de passe',
+                       'confirm password', 'Confirm password', 'CONFIRME MOT DE PASSE',
+                       'confirme_password', 'confirm_password']
+        for key in confirm_keys:
+            if key in data and data.get(key):
+                confirm_password = str(data[key]).strip()
+                logger.debug(f"Confirmation password trouvée dans colonne '{key}' pour {data.get('Nom d\'utilisateur', 'N/A')}")
+                break
+        
+        # Valider que les mots de passe correspondent si les deux sont fournis
+        if password and confirm_password:
+            if password != confirm_password:
+                from import_export import exceptions
+                username = data.get('Nom d\'utilisateur') or data.get('username', 'N/A')
+                raise exceptions.ImportError(
+                    f"Les mots de passe ne correspondent pas pour l'utilisateur '{username}'"
+                )
+        
+        # Utiliser le mot de passe (ou confirm_password si seul celui-ci est fourni)
+        final_password = password or confirm_password
+        
+        # Stocker le mot de passe temporairement sur l'objet pour le hasher après la sauvegarde
+        if final_password and final_password != '':
+            obj._temp_password = final_password
+            logger.info(f"Password stocké sur l'instance pour {data.get('Nom d\'utilisateur', 'N/A')}")
+            # Retirer password des données pour éviter l'assignation directe
+            if '_temp_password' in data:
+                del data['_temp_password']
+            for key in password_keys + confirm_keys:
+                if key in data:
+                    del data[key]
+        else:
+            logger.warning(f"Aucun password trouvé pour {data.get('Nom d\'utilisateur', 'N/A')}. Colonnes disponibles: {list(data.keys())}")
+        
+        # Appeler la méthode parente pour créer/mettre à jour l'objet
+        result = super().import_obj(obj, data, dry_run, **kwargs)
+        
+        return result
+
+
 # ---------------- Admins ---------------- #
 
 
 
-@admin.register(UserApp)
-class UserAppAdmin(UserAdmin):
-    list_display = ('nom', 'prenom', 'username', 'email', 'type','is_staff', 'is_active')
-    list_filter = ('type','is_staff', 'is_active')
-    search_fields = ('username', 'email', 'nom', 'prenom')
-    ordering = ('username',)
-
+class CreateTeamsForm(forms.Form):
+    """Formulaire pour créer des équipes"""
     
+    ordre_comptage = forms.IntegerField(
+        label='Ordre de comptage',
+        required=True,
+        min_value=1,
+        max_value=999,  # Limiter à un nombre raisonnable d'ordres
+        help_text='Saisissez un nombre (1, 2, 3, 4, ...). Ordre N: équipes de N001 à N999'
+    )
+    nombre_equipes = forms.IntegerField(
+        label='Nombre d\'équipes',
+        required=True,
+        min_value=1,
+        max_value=999,
+        help_text='Nombre d\'équipes à créer (maximum 999 par ordre)'
+    )
+    compte = forms.ModelChoiceField(
+        label='Compte',
+        queryset=None,  # Sera défini dans __init__
+        required=True,
+        help_text='Compte associé aux équipes'
+    )
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['compte'].queryset = Account.objects.all()
+    
+    def clean(self):
+        cleaned_data = super().clean()
+        ordre = cleaned_data.get('ordre_comptage')
+        nombre_equipes = cleaned_data.get('nombre_equipes')
+        
+        if ordre and nombre_equipes:
+            # Vérifier que le nombre d'équipes ne dépasse pas 999
+            if nombre_equipes > 999:
+                raise forms.ValidationError(
+                    f'Le nombre maximum d\'équipes par ordre est 999. '
+                    f'Vous avez demandé {nombre_equipes} équipes.'
+                )
+        
+        return cleaned_data
 
+
+@admin.register(UserApp)
+class UserAppAdmin(ImportExportMixin, UserAdmin):
+    """
+    Admin pour les utilisateurs avec support d'import/export
+    Utilise ImportExportMixin pour éviter les conflits avec UserAdmin
+    """
+    resource_class = UserAppResource
+    list_display = ('username', 'comptage', 'type', 'is_staff', 'is_active', 'compte')
+    list_filter = ('comptage', 'type', 'is_staff', 'is_active', 'compte')
+    search_fields = ('username', 'comptage', 'compte__account_name')
+    ordering = ('comptage', 'username')
+    
     filter_horizontal = ('groups', 'user_permissions')
+    
+    # Spécifier explicitement le template pour le changelist
+    change_list_template = 'admin/users/userapp/change_list.html'
 
     # Champs à afficher dans le formulaire d'édition
     fieldsets = (
         (None, {'fields': ('username', 'email', 'password')}),
-        ('Informations personnelles', {'fields': ('nom', 'prenom', 'type')}),
+        ('Informations personnelles', {'fields': ('nom', 'prenom', 'type', 'compte', 'comptage')}),
         ('Permissions', {'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')}),
         ('Dates importantes', {'fields': ('last_login',)}),
     )
@@ -313,9 +1056,316 @@ class UserAppAdmin(UserAdmin):
     add_fieldsets = (
         (None, {
             'classes': ('wide',),
-            'fields': ('username', 'email', 'nom', 'prenom', 'type', 'password1', 'password2', 'is_staff', 'is_superuser', 'groups')}
+            'fields': ('username', 'email', 'nom', 'prenom', 'type', 'compte', 'comptage', 'password1', 'password2', 'is_staff', 'is_superuser', 'groups')}
         ),
     )
+
+    def get_urls(self):
+        """Ajouter les URLs personnalisées pour la création d'équipes"""
+        urls = super().get_urls()
+        from django.urls import path
+        custom_urls = [
+            path(
+                'create-teams/',
+                self.admin_site.admin_view(self.create_teams_view),
+                name='users_userapp_create_teams',
+            ),
+        ]
+        return custom_urls + urls
+
+    def create_teams_view(self, request):
+        """Vue pour créer des équipes"""
+        from django.contrib import messages
+        from django.shortcuts import redirect
+        from django.template.response import TemplateResponse
+        from django.urls import reverse
+        
+        if request.method == 'POST':
+            form = CreateTeamsForm(request.POST)
+            if form.is_valid():
+                ordre = int(form.cleaned_data['ordre_comptage'])
+                nombre_equipes = form.cleaned_data['nombre_equipes']
+                compte = form.cleaned_data['compte']
+                
+                # Déterminer la plage de numéros en fonction de l'ordre
+                # Ordre 1: 1001-1999, Ordre 2: 2001-2999, Ordre 3: 3001-3999, etc.
+                range_start = (ordre * 1000) + 1
+                range_end = (ordre * 1000) + 999
+                
+                # Optimisation : Trouver le prochain numéro disponible de manière efficace
+                from django.contrib.auth.hashers import make_password
+                from django.db import connection
+                
+                # Méthode optimisée : trouver le prochain numéro disponible
+                # On utilise une requête qui cherche directement le premier numéro manquant
+                next_available_num = None
+                
+                try:
+                    # Essayer d'abord avec une requête SQL optimisée (PostgreSQL)
+                    db_vendor = connection.vendor
+                    if db_vendor == 'postgresql':
+                        with connection.cursor() as cursor:
+                            cursor.execute("""
+                                SELECT MIN(t.num) as next_num
+                                FROM (
+                                    SELECT generate_series(%s, %s) as num
+                                ) t
+                                WHERE NOT EXISTS (
+                                    SELECT 1 FROM users_userapp 
+                                    WHERE username = 'equipe-' || t.num::text
+                                )
+                                LIMIT 1
+                            """, [range_start, range_end])
+                            
+                            result = cursor.fetchone()
+                            next_available_num = result[0] if result and result[0] else None
+                except Exception:
+                    # Si la requête SQL échoue, utiliser la méthode Django
+                    pass
+                
+                # Fallback : méthode Django optimisée
+                if next_available_num is None:
+                    # Récupérer uniquement les usernames dans la plage avec une requête optimisée
+                    # Utiliser une requête qui extrait directement les numéros
+                    existing_usernames = UserApp.objects.filter(
+                        username__startswith='equipe-'
+                    ).values_list('username', flat=True)
+                    
+                    # Extraire rapidement les numéros existants dans la plage
+                    existing_nums_set = set()
+                    for username in existing_usernames:
+                        try:
+                            num_str = username.replace('equipe-', '')
+                            if num_str.isdigit():
+                                num = int(num_str)
+                                if range_start <= num <= range_end:
+                                    existing_nums_set.add(num)
+                        except (ValueError, AttributeError):
+                            continue
+                    
+                    # Trouver le prochain numéro disponible
+                    for num in range(range_start, range_end + 1):
+                        if num not in existing_nums_set:
+                            next_available_num = num
+                            break
+                
+                if next_available_num is None:
+                    messages.error(
+                        request,
+                        f'Aucun numéro disponible dans la plage {range_start}-{range_end} pour l\'ordre {ordre}. '
+                        f'Toutes les équipes de cette plage ont déjà été créées.'
+                    )
+                    form = CreateTeamsForm(request.POST)
+                else:
+                    # Vérifier qu'on peut créer le nombre d'équipes demandé
+                    end_num = next_available_num + nombre_equipes - 1
+                    if end_num > range_end:
+                        available_slots = range_end - next_available_num + 1
+                        messages.error(
+                            request,
+                            f'Il ne reste que {available_slots} emplacement(s) disponible(s) dans la plage {range_start}-{range_end}. '
+                            f'Vous pouvez créer au maximum {available_slots} équipe(s) à partir de {next_available_num}.'
+                        )
+                        form = CreateTeamsForm(request.POST)
+                    else:
+                        # Créer les équipes en masse avec bulk_create pour de meilleures performances
+                        password = 'user1234'
+                        # Hasher le mot de passe une seule fois au lieu de 1000 fois
+                        hashed_password = make_password(password)
+                        
+                        # Récupérer ou créer le groupe Operateur pour les équipes
+                        operateur_group, _ = Group.objects.get_or_create(name='Operateur')
+                        
+                        # Créer toutes les équipes en une seule transaction avec bulk_create
+                        try:
+                            with transaction.atomic():
+                                # Vérifier rapidement quelles équipes existent déjà dans la plage exacte à créer
+                                # Générer la liste exacte des usernames à vérifier
+                                usernames_to_check = [
+                                    f'equipe-{next_available_num + i}' 
+                                    for i in range(nombre_equipes)
+                                ]
+                                
+                                # Requête optimisée : vérifier seulement les équipes dans la plage à créer
+                                already_existing_set = set(
+                                    UserApp.objects.filter(
+                                        username__in=usernames_to_check
+                                    ).values_list('username', flat=True)
+                                )
+                                
+                                # Préparer tous les objets UserApp en mémoire avec le mot de passe déjà hashé
+                                users_to_create = []
+                                for i in range(nombre_equipes):
+                                    team_num = next_available_num + i
+                                    username = f'equipe-{team_num}'
+                                    
+                                    # Exclure ceux qui existent déjà
+                                    if username not in already_existing_set:
+                                        user = UserApp(
+                                            username=username,
+                                            type='Mobile',
+                                            compte=compte,
+                                            comptage=ordre,  # Stocker l'ordre dans le champ comptage
+                                            is_active=True,
+                                            is_staff=False,
+                                            password=hashed_password  # Utiliser le hash pré-calculé
+                                        )
+                                        users_to_create.append(user)
+                                
+                                if not users_to_create:
+                                    messages.warning(
+                                        request,
+                                        f'Toutes les équipes demandées existent déjà dans la plage {next_available_num} à {next_available_num + nombre_equipes - 1}.'
+                                    )
+                                    return redirect('admin:users_userapp_changelist')
+                                
+                                # Utiliser bulk_create avec batch_size pour optimiser les grandes insertions
+                                # ignore_conflicts=True pour éviter les erreurs si un doublon apparaît entre temps
+                                created_users = UserApp.objects.bulk_create(
+                                    users_to_create,
+                                    batch_size=1000,  # Augmenter le batch_size pour de meilleures performances
+                                    ignore_conflicts=True  # Ignorer les conflits silencieusement
+                                )
+                                
+                                # Associer les équipes créées au groupe Operateur (re-requête par username
+                                # car les objets retournés par bulk_create n'ont pas toujours de PK selon le SGBD)
+                                if users_to_create:
+                                    created_usernames = [u.username for u in users_to_create]
+                                    users_with_pk = UserApp.objects.filter(username__in=created_usernames)
+                                    operateur_group.user_web_groups.add(*users_with_pk)
+                                    created_count = users_with_pk.count()
+                                else:
+                                    created_count = 0
+                                
+                                if created_count > 0:
+                                    first_team = next_available_num
+                                    last_team = next_available_num + created_count - 1
+                                    messages.success(
+                                        request,
+                                        f'{created_count} équipe(s) créée(s) avec succès (ordre {ordre}, de equipe-{first_team} à equipe-{last_team})'
+                                    )
+                                
+                                # Si certaines équipes n'ont pas pu être créées
+                                skipped = len(users_to_create) - created_count
+                                if skipped > 0:
+                                    messages.warning(
+                                        request,
+                                        f'{skipped} équipe(s) n\'ont pas pu être créées (probablement créées entre temps par un autre processus). '
+                                        f'Les équipes disponibles ont été créées avec succès.'
+                                    )
+                                
+                                return redirect('admin:users_userapp_changelist')
+                                
+                        except Exception as e:
+                            # En cas d'erreur, essayer de créer les équipes une par une pour identifier le problème
+                            messages.error(
+                                request,
+                                f'Erreur lors de la création en masse : {str(e)}. '
+                                f'Tentative de création individuelle...'
+                            )
+                            
+                            # Déterminer les numéros déjà existants dans la plage (existing_nums_set pas défini si PostgreSQL a été utilisé)
+                            usernames_to_check = [
+                                f'equipe-{next_available_num + i}' for i in range(nombre_equipes)
+                            ]
+                            existing_in_range = set(
+                                UserApp.objects.filter(
+                                    username__in=usernames_to_check
+                                ).values_list('username', flat=True)
+                            )
+                            existing_nums_set = set()
+                            for u in existing_in_range:
+                                try:
+                                    num_str = u.replace('equipe-', '')
+                                    if num_str.isdigit():
+                                        existing_nums_set.add(int(num_str))
+                                except (ValueError, AttributeError):
+                                    pass
+                            
+                            # Fallback : création individuelle pour identifier les problèmes
+                            created_count = 0
+                            errors = []
+                            created_teams = []
+                            
+                            # Récupérer ou créer le groupe Operateur pour les équipes
+                            operateur_group, _ = Group.objects.get_or_create(name='Operateur')
+                            
+                            for i in range(nombre_equipes):
+                                team_num = next_available_num + i
+                                username = f'equipe-{team_num}'
+                                
+                                if team_num not in existing_nums_set:
+                                    try:
+                                        user = UserApp.objects.create_user(
+                                            username=username,
+                                            type='Mobile',
+                                            password=password,
+                                            compte=compte,
+                                            comptage=ordre,  # Stocker l'ordre dans le champ comptage
+                                            is_active=True,
+                                            is_staff=False
+                                        )
+                                        operateur_group.user_web_groups.add(user)
+                                        created_count += 1
+                                        created_teams.append(team_num)
+                                    except Exception as ex:
+                                        errors.append(f'Erreur lors de la création de {username}: {str(ex)}')
+                            
+                            if created_count > 0:
+                                first_team = created_teams[0]
+                                last_team = created_teams[-1]
+                                messages.success(
+                                    request,
+                                    f'{created_count} équipe(s) créée(s) avec succès (ordre {ordre}, de equipe-{first_team} à equipe-{last_team})'
+                                )
+                            
+                            if errors and len(errors) <= 50:
+                                for error in errors:
+                                    messages.warning(request, error)
+                            elif errors:
+                                messages.warning(
+                                    request,
+                                    f'{len(errors)} équipe(s) n\'ont pas pu être créées. '
+                                    f'Les équipes disponibles ont été créées avec succès.'
+                                )
+                            
+                            return redirect('admin:users_userapp_changelist')
+        else:
+            form = CreateTeamsForm()
+        
+        # Préparer le contexte
+        opts = self.model._meta
+        context = {
+            **self.admin_site.each_context(request),
+            'opts': opts,
+            'form': form,
+            'title': 'Créer des équipes',
+            'has_view_permission': self.has_view_permission(request),
+            'has_add_permission': self.has_add_permission(request),
+        }
+        
+        return TemplateResponse(
+            request,
+            'admin/users/userapp/create_teams.html',
+            context
+        )
+
+    def changelist_view(self, request, extra_context=None):
+        """Ajouter le bouton de création d'équipes dans le changelist"""
+        extra_context = extra_context or {}
+        from django.urls import reverse
+        
+        try:
+            create_teams_url = reverse('admin:users_userapp_create_teams')
+        except Exception as e:
+            create_teams_url = '/admin/users/userapp/create-teams/'
+        
+        extra_context['create_teams_url'] = create_teams_url
+        
+        # Obtenir la réponse normale
+        response = super().changelist_view(request, extra_context)
+        
+        return response
 
     
 
@@ -474,6 +1524,35 @@ class LocationForm(forms.ModelForm):
     def clean(self):
         cleaned_data = super().clean()
         # La validation du champ reference est gérée dans le modèle
+        
+        # Validation : vérifier que l'emplacement et le regroupement ont le même warehouse
+        sous_zone = cleaned_data.get('sous_zone')
+        regroupement = cleaned_data.get('regroupement')
+        
+        if regroupement and sous_zone:
+            # Récupérer le warehouse de l'emplacement via sous_zone -> zone -> warehouse
+            location_warehouse = None
+            if sous_zone and sous_zone.zone:
+                location_warehouse = sous_zone.zone.warehouse
+            
+            # Récupérer le warehouse du regroupement
+            regroupement_warehouse = regroupement.warehouse
+            
+            # Valider que les warehouses correspondent
+            if location_warehouse and regroupement_warehouse:
+                if location_warehouse.id != regroupement_warehouse.id:
+                    raise forms.ValidationError(
+                        {
+                            'regroupement': (
+                                f"L'emplacement appartient au warehouse '{location_warehouse.warehouse_name}' "
+                                f"(via la sous-zone '{sous_zone.sous_zone_name}'), "
+                                f"mais le regroupement '{regroupement.nom}' appartient au warehouse "
+                                f"'{regroupement_warehouse.warehouse_name}'. "
+                                f"Les warehouses doivent correspondre."
+                            )
+                        }
+                    )
+        
         return cleaned_data
 
 @admin.register(Location)
@@ -540,6 +1619,16 @@ class ProductAdmin(ImportExportModelAdmin):
     search_fields = ('reference', 'Short_Description', 'Barcode', 'Internal_Product_Code','n_lot','n_serie','dlc')
     exclude = ('created_at', 'updated_at', 'deleted_at', 'is_deleted')
     readonly_fields = ('reference',)
+    
+    class Media:
+        js = ('admin/js/import_async_button.js',)
+    
+    def changelist_view(self, request, extra_context=None):
+        from django.urls import reverse
+        extra_context = extra_context or {}
+        extra_context['show_async_import'] = True
+        extra_context['import_async_url'] = reverse('admin:masterdata_product_import_async')
+        return super().changelist_view(request, extra_context)
 
     def get_family_name(self, obj):
         return obj.Product_Family.family_name if obj.Product_Family else '-'
@@ -551,7 +1640,190 @@ class ProductAdmin(ImportExportModelAdmin):
         if not obj:  # Si c'est un nouveau produit
             form.base_fields['reference'] = forms.CharField(required=False, widget=forms.HiddenInput())
         return form
-
+    
+    def get_urls(self):
+        urls = super().get_urls()
+        from django.urls import path
+        custom_urls = [
+            path(
+                'import-async/',
+                self.admin_site.admin_view(self.import_async_view),
+                name='masterdata_product_import_async',
+            ),
+            path(
+                'import-status/<int:task_id>/',
+                self.admin_site.admin_view(self.import_status_view),
+                name='masterdata_product_import_status',
+            ),
+            path(
+                'import-errors/<int:task_id>/',
+                self.admin_site.admin_view(self.import_errors_view),
+                name='masterdata_product_import_errors',
+            ),
+            path(
+                'import-errors-file/<int:task_id>/',
+                self.admin_site.admin_view(self.download_errors_file),
+                name='masterdata_product_download_errors',
+            ),
+        ]
+        return custom_urls + urls
+    
+    def import_async_view(self, request):
+        """Vue pour démarrer un import asynchrone (mode tout ou rien)"""
+        from django.contrib import messages
+        from django.shortcuts import redirect
+        from django.template.response import TemplateResponse
+        from django.utils.html import format_html
+        from django.urls import reverse
+        import tempfile
+        import time
+        import threading
+        import os
+        from .models import ImportTask
+        from .services.import_service import ProductImportService
+        
+        if request.method == 'POST':
+            if 'import_file' not in request.FILES:
+                messages.error(request, "Aucun fichier fourni")
+                return redirect('admin:masterdata_product_changelist')
+            
+            uploaded_file = request.FILES['import_file']
+            
+            # Sauvegarder le fichier temporairement
+            temp_dir = tempfile.gettempdir()
+            file_path = os.path.join(
+                temp_dir, 
+                f'import_product_{request.user.id}_{int(time.time())}.xlsx'
+            )
+            
+            with open(file_path, 'wb+') as destination:
+                for chunk in uploaded_file.chunks():
+                    destination.write(chunk)
+            
+            # Créer la tâche d'import
+            import_task = ImportTask.objects.create(
+                user=request.user,
+                file_path=file_path,
+                file_name=uploaded_file.name,
+                status='PENDING',
+            )
+            
+            # Démarrer le traitement en arrière-plan
+            service = ProductImportService(ProductResource)
+            thread = threading.Thread(
+                target=service.process_file_chunked,
+                args=(file_path, import_task),
+                daemon=True
+            )
+            thread.start()
+            
+            messages.success(
+                request,
+                format_html(
+                    'Import démarré en mode "tout ou rien" en arrière-plan. '
+                    '<a href="{}">Suivre la progression</a>',
+                    reverse('admin:masterdata_product_import_status', args=[import_task.id])
+                )
+            )
+            
+            return redirect('admin:masterdata_product_changelist')
+        
+        # GET: Afficher le formulaire
+        context = {
+            **self.admin_site.each_context(request),
+            'title': 'Import asynchrone de produits (tout ou rien)',
+            'opts': self.model._meta,
+        }
+        return TemplateResponse(
+            request,
+            'admin/masterdata/product/import_async.html',
+            context
+        )
+    
+    def import_status_view(self, request, task_id):
+        """Vue pour suivre le statut d'un import"""
+        from django.http import JsonResponse
+        from django.template.response import TemplateResponse
+        from django.shortcuts import get_object_or_404
+        from .models import ImportTask
+        
+        import_task = get_object_or_404(ImportTask, id=task_id, user=request.user)
+        
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            # Requête AJAX pour mise à jour
+            progress = 0
+            if import_task.total_rows > 0:
+                if import_task.status == 'VALIDATING':
+                    progress = int((import_task.validated_rows / import_task.total_rows) * 50)  # 50% max pour validation
+                elif import_task.status == 'PROCESSING':
+                    progress = 50 + int((import_task.processed_rows / import_task.total_rows) * 50)  # 50-100% pour import
+                elif import_task.status in ['COMPLETED', 'CANCELLED', 'FAILED']:
+                    progress = 100
+            
+            return JsonResponse({
+                'status': import_task.status,
+                'progress': progress,
+                'validated_rows': import_task.validated_rows,
+                'processed_rows': import_task.processed_rows,
+                'total_rows': import_task.total_rows,
+                'imported_count': import_task.imported_count,
+                'updated_count': import_task.updated_count,
+                'error_count': import_task.error_count,
+                'error_message': import_task.error_message,
+                'has_errors_file': bool(import_task.errors_file_path),
+            })
+        
+        # Vue HTML
+        context = {
+            **self.admin_site.each_context(request),
+            'import_task': import_task,
+            'opts': self.model._meta,
+        }
+        return TemplateResponse(
+            request,
+            'admin/masterdata/product/import_status.html',
+            context
+        )
+    
+    def import_errors_view(self, request, task_id):
+        """Vue pour afficher les erreurs détaillées"""
+        from django.template.response import TemplateResponse
+        from django.shortcuts import get_object_or_404
+        from .models import ImportTask, ImportError
+        
+        import_task = get_object_or_404(ImportTask, id=task_id, user=request.user)
+        errors = ImportError.objects.filter(import_task=import_task).order_by('row_number')
+        
+        context = {
+            **self.admin_site.each_context(request),
+            'import_task': import_task,
+            'errors': errors,
+            'opts': self.model._meta,
+        }
+        return TemplateResponse(
+            request,
+            'admin/masterdata/product/import_errors.html',
+            context
+        )
+    
+    def download_errors_file(self, request, task_id):
+        """Télécharger le fichier Excel des erreurs"""
+        from django.contrib import messages
+        from django.shortcuts import redirect, get_object_or_404
+        from django.http import FileResponse
+        from .models import ImportTask
+        
+        import_task = get_object_or_404(ImportTask, id=task_id, user=request.user)
+        
+        if not import_task.errors_file_path or not os.path.exists(import_task.errors_file_path):
+            messages.error(request, "Le fichier d'erreurs n'existe pas.")
+            return redirect('admin:masterdata_product_import_status', task_id=task_id)
+        
+        return FileResponse(
+            open(import_task.errors_file_path, 'rb'),
+            as_attachment=True,
+            filename=f'erreurs_import_{import_task.id}.xlsx'
+        )
 
 @admin.register(UnitOfMeasure)
 class UnitOfMeasureAdmin(ImportExportModelAdmin):
@@ -654,11 +1926,110 @@ class RessourceAdmin(ImportExportModelAdmin):
     get_type_ressource.admin_order_field = 'type_ressource__libelle'
 
 
+@admin.register(NSerie)
+class NSerieAdmin(ImportExportModelAdmin):
+    resource_class = NSerieResource
+    list_display = ('reference', 'n_serie', 'get_product_name', 'status', 'get_product_family', 'date_fabrication', 'date_expiration', 'warranty_end_date', 'is_expired', 'is_warranty_valid')
+    list_filter = ('status', 'product__Product_Family', 'date_fabrication', 'date_expiration', 'warranty_end_date')
+    search_fields = ('reference', 'n_serie', 'product__Short_Description', 'product__Internal_Product_Code', 'description')
+    exclude = ('created_at', 'updated_at', 'deleted_at', 'is_deleted', 'reference')
+    readonly_fields = ('reference',)
+    date_hierarchy = 'created_at'
+    
+    def get_product_name(self, obj):
+        return obj.product.Short_Description if obj.product else '-'
+    get_product_name.short_description = 'Produit'
+    get_product_name.admin_order_field = 'product__Short_Description'
+    
+    def get_product_family(self, obj):
+        return obj.product.Product_Family.family_name if obj.product and obj.product.Product_Family else '-'
+    get_product_family.short_description = 'Famille'
+    get_product_family.admin_order_field = 'product__Product_Family__family_name'
+    
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        if not obj:  # Si c'est un nouveau numéro de série
+            form.base_fields['reference'] = forms.CharField(required=False, widget=forms.HiddenInput())
+        return form
+
+
 @admin.register(RegroupementEmplacement)
 class RegroupementEmplacementAdmin(ImportExportModelAdmin):
     resource_class = RegroupementEmplacementResource
-    list_display = ('nom', 'account')
+    list_display = ('nom', 'account', 'warehouse')
     search_fields = ('nom', 'account__account_name')
+    list_filter = ('warehouse__warehouse_name', 'account__account_name')
+
+    def get_warehouse_name(self, obj):
+        return obj.warehouse.warehouse_name if obj.warehouse else '-'
+    get_warehouse_name.short_description = 'Warehouse'
+    get_warehouse_name.admin_order_field = 'warehouse__warehouse_name'
+# @admin.register(ImportTask)
+# class ImportTaskAdmin(admin.ModelAdmin):
+#     """Admin pour les tâches d'import"""
+#     list_display = ('id', 'file_name', 'user', 'status', 'total_rows', 'imported_count', 'error_count', 'created_at')
+#     list_filter = ('status', 'created_at')
+#     search_fields = ('file_name', 'user__username', 'user__email')
+#     readonly_fields = ('file_path', 'file_name', 'user', 'total_rows', 'validated_rows', 'processed_rows', 
+#                       'imported_count', 'updated_count', 'error_count', 'status', 'error_message', 
+#                       'errors_file_path', 'created_at', 'updated_at')
+#     date_hierarchy = 'created_at'
+    
+#     fieldsets = (
+#         ('Informations générales', {
+#             'fields': ('file_name', 'user', 'status', 'created_at', 'updated_at')
+#         }),
+#         ('Progression', {
+#             'fields': ('total_rows', 'validated_rows', 'processed_rows')
+#         }),
+#         ('Résultats', {
+#             'fields': ('imported_count', 'updated_count', 'error_count')
+#         }),
+#         ('Erreurs', {
+#             'fields': ('error_message', 'errors_file_path'),
+#             'classes': ('collapse',)
+#         }),
+#         ('Fichier', {
+#             'fields': ('file_path',),
+#             'classes': ('collapse',)
+#         }),
+#     )
+    
+#     def has_add_permission(self, request):
+#         return False  # Les tâches sont créées automatiquement
+    
+#     def has_change_permission(self, request, obj=None):
+#         return False  # Les tâches ne peuvent pas être modifiées manuellement
+
+
+# @admin.register(ImportError)
+# class ImportErrorAdmin(admin.ModelAdmin):
+#     """Admin pour les erreurs d'import"""
+#     list_display = ('row_number', 'import_task', 'error_type', 'field_name', 'error_message', 'created_at')
+#     list_filter = ('error_type', 'import_task', 'created_at')
+#     search_fields = ('error_message', 'field_name', 'import_task__file_name')
+#     readonly_fields = ('import_task', 'row_number', 'error_type', 'error_message', 'field_name', 
+#                       'field_value', 'row_data', 'created_at', 'updated_at')
+#     date_hierarchy = 'created_at'
+    
+#     fieldsets = (
+#         ('Informations', {
+#             'fields': ('import_task', 'row_number', 'error_type', 'created_at', 'updated_at')
+#         }),
+#         ('Détails de l\'erreur', {
+#             'fields': ('error_message', 'field_name', 'field_value')
+#         }),
+#         ('Données de la ligne', {
+#             'fields': ('row_data',),
+#             'classes': ('collapse',)
+#         }),
+#     )
+    
+#     def has_add_permission(self, request):
+#         return False  # Les erreurs sont créées automatiquement
+    
+#     def has_change_permission(self, request, obj=None):
+#         return False  # Les erreurs ne peuvent pas être modifiées manuellement
 
 
 

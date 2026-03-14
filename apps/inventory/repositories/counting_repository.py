@@ -1,8 +1,9 @@
-from django.db.models import Q, Max
+from django.db.models import Q, Max, Sum, F, IntegerField
+from django.db.models.functions import Cast
 from ..models import Counting, CountingDetail, Inventory
 from apps.inventory.exceptions.counting_exceptions import CountingNotFoundError
 from ..interfaces.counting_interface import ICountingRepository
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from django.utils import timezone
 from django.db import transaction
 
@@ -162,6 +163,12 @@ class CountingRepository(ICountingRepository):
             ).get(id=counting_id)
         except Counting.DoesNotExist:
             raise CountingNotFoundError(f"Le comptage avec l'ID {counting_id} n'existe pas.")
+    
+    def get_by_inventory_and_order(self, inventory_id: int, order: int) -> Optional[Counting]:
+        """
+        Récupère un comptage par inventaire et ordre.
+        """
+        return Counting.objects.filter(inventory_id=inventory_id, order=order).first()
 
     # Méthodes spécialisées supplémentaires
 
@@ -305,3 +312,152 @@ class CountingRepository(ICountingRepository):
                 except CountingNotFoundError:
                     continue
             return count 
+
+    def get_inventory_results_by_warehouse(
+        self,
+        inventory_id: int,
+        warehouse_id: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Récupère les quantités inventoriées agrégées par entrepôt, emplacement,
+        produit (le cas échéant) et ordre de comptage.
+
+        Args:
+            inventory_id: Identifiant de l'inventaire ciblé.
+            warehouse_id: Identifiant de l'entrepôt à filtrer (optionnel).
+
+        Returns:
+            Liste de dictionnaires contenant les quantités agrégées.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Log initial pour débogage
+        logger.debug(f"🔍 Récupération des résultats pour inventory_id={inventory_id}, warehouse_id={warehouse_id}")
+        
+        # Vérifier d'abord combien de CountingDetail existent pour cet inventaire
+        all_counting_details = CountingDetail.objects.filter(
+            counting__inventory_id=inventory_id
+        )
+        logger.debug(f"📊 Nombre total de CountingDetail pour inventory_id={inventory_id}: {all_counting_details.count()}")
+        
+        queryset = CountingDetail.objects.filter(
+            counting__inventory_id=inventory_id
+        )
+
+        if warehouse_id is not None:
+            # Vérifier combien de CountingDetail existent avant le filtre warehouse
+            before_warehouse_filter = queryset.count()
+            logger.debug(f"📊 Nombre de CountingDetail avant filtre warehouse: {before_warehouse_filter}")
+            
+            queryset = queryset.filter(job__warehouse_id=warehouse_id)
+            
+            # Vérifier combien de CountingDetail existent après le filtre warehouse
+            after_warehouse_filter = queryset.count()
+            logger.debug(f"📊 Nombre de CountingDetail après filtre warehouse_id={warehouse_id}: {after_warehouse_filter}")
+            
+            # Si aucun résultat, vérifier les jobs pour cet entrepôt
+            if after_warehouse_filter == 0:
+                from ..models import Job
+                jobs_count = Job.objects.filter(
+                    inventory_id=inventory_id,
+                    warehouse_id=warehouse_id
+                ).count()
+                logger.warning(f"⚠️ Aucun CountingDetail trouvé. Nombre de jobs pour inventory_id={inventory_id}, warehouse_id={warehouse_id}: {jobs_count}")
+                
+                # Vérifier les countings pour cet inventaire
+                from ..models import Counting
+                countings = Counting.objects.filter(inventory_id=inventory_id)
+                logger.debug(f"📊 Nombre de Counting pour inventory_id={inventory_id}: {countings.count()}")
+                for counting in countings:
+                    logger.debug(f"   - Counting id={counting.id}, order={counting.order}, count_mode={counting.count_mode}")
+
+        # Sous-requêtes pour récupérer les infos d'EcartComptage (final_result, id)
+        # Un EcartComptage est identifié par (product_id, location_id, inventory_id)
+        # via ComptageSequence qui lie CountingDetail à EcartComptage
+        from django.db.models import OuterRef, Subquery
+        from ..models import ComptageSequence
+        
+        # Récupérer directement le final_result de l'EcartComptage via ComptageSequence.
+        base_ecart_qs = ComptageSequence.objects.filter(
+            counting_detail__product_id=OuterRef('product_id'),
+            counting_detail__location_id=OuterRef('location_id'),
+            counting_detail__counting__inventory_id=OuterRef('counting__inventory_id')
+        ).order_by('-sequence_number').select_related('ecart_comptage')
+
+        final_result_subquery = base_ecart_qs.values('ecart_comptage__final_result')[:1]
+        ecart_id_subquery = base_ecart_qs.values('ecart_comptage_id')[:1]
+        resolved_subquery = base_ecart_qs.values('ecart_comptage__resolved')[:1]
+        manual_result_subquery = base_ecart_qs.values('ecart_comptage__manual_result')[:1]
+        
+        # Sous-requête pour récupérer le statut de l'assignment pour ce job et ce comptage
+        from ..models import Assigment
+        assignment_status_subquery = Assigment.objects.filter(
+            job_id=OuterRef('job_id'),
+            counting_id=OuterRef('counting_id')
+        ).values('status')[:1]
+        
+        annotated_queryset = queryset.annotate(
+            warehouse_id_alias=F('job__warehouse_id'),
+            warehouse_reference_alias=F('job__warehouse__reference'),
+            warehouse_name_alias=F('job__warehouse__warehouse_name'),
+            location_reference_alias=F('location__location_reference'),
+            location_code_alias=F('location__reference'),
+            counting_order_alias=F('counting__order'),
+            product_reference_alias=F('product__reference'),
+            product_barcode_alias=F('product__Barcode'),
+            product_description_alias=F('product__Short_Description'),
+            product_internal_code_alias=F('product__Internal_Product_Code'),
+            product_family_name_alias=F('product__Product_Family__family_name'),
+            job_reference_alias=F('job__reference'),
+            job_status_alias=F('job__status'),
+            assignment_status_alias=Subquery(assignment_status_subquery),
+            final_result_alias=Subquery(final_result_subquery),
+            ecart_id_alias=Subquery(ecart_id_subquery),
+            resolved_alias=Subquery(resolved_subquery),
+            manual_result_alias=Subquery(manual_result_subquery),
+        )
+
+        aggregated_queryset = annotated_queryset.values(
+            'warehouse_id_alias',
+            'warehouse_reference_alias',
+            'warehouse_name_alias',
+            'location_id',
+            'location_reference_alias',
+            'location_code_alias',
+            'counting_order_alias',
+            'product_id',
+            'product_reference_alias',
+            'product_barcode_alias',
+            'product_description_alias',
+            'product_internal_code_alias',
+            'product_family_name_alias',
+            'job_id',
+            'job_reference_alias',
+            'job_status_alias',
+            'assignment_status_alias',
+            'ecart_id_alias',
+            'resolved_alias',
+            'manual_result_alias',
+        ).annotate(
+            total_quantity=Sum('quantity_inventoried'),
+            # Prendre le final_result (sera le même pour tous les CountingDetail d'une même combinaison)
+            final_result_agg=Max('final_result_alias'),
+            # Prendre le resolved (sera le même pour tous les CountingDetail d'une même combinaison)
+            # Cast en entier car PostgreSQL ne supporte pas MAX() sur les booléens
+            resolved_agg=Max(Cast('resolved_alias', IntegerField())),
+            # Prendre le manual_result (sera le même pour tous les CountingDetail d'une même combinaison)
+            # Cast en entier car PostgreSQL ne supporte pas MAX() sur les booléens
+            manual_result_agg=Max(Cast('manual_result_alias', IntegerField()))
+        ).order_by(
+            'warehouse_id_alias',
+            'job_id',
+            'location_reference_alias',
+            'product_reference_alias',
+            'counting_order_alias',
+        )
+
+        result_list = list(aggregated_queryset)
+        logger.debug(f"✅ Nombre de résultats agrégés retournés: {len(result_list)}")
+        
+        return result_list

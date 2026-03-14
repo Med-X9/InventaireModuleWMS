@@ -1,0 +1,76 @@
+from rest_framework.views import APIView
+from django.http import HttpResponse
+from ..services.job_export_service import JobExportService
+from ..exceptions.job_exceptions import JobCreationError
+from ..exceptions.inventory_exceptions import InventoryNotFoundError
+from ..exceptions.warehouse_exceptions import WarehouseNotFoundError
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class JobExportView(APIView):
+    """
+    Vue pour l'export Excel des jobs avec assignments PRET ou TRANSFERT
+    Exporte par défaut un fichier Excel
+    Utilise la même logique que l'API PDF pour la récupération des jobs
+    """
+    
+    def get(self, request, inventory_id, warehouse_id):
+        """
+        Exporte les jobs avec assignments PRET ou TRANSFERT en Excel pour un inventaire et un warehouse
+        Utilise la même logique que l'API PDF : récupère les jobs via les assignments
+        
+        URL params:
+            inventory_id: ID de l'inventaire
+            warehouse_id: ID de l'entrepôt
+        
+        Returns:
+            Fichier Excel avec les jobs avec assignments PRET ou TRANSFERT
+        """
+        try:
+            # Appeler le service pour exporter les jobs en Excel
+            # La validation de l'inventaire et du warehouse est faite dans le service
+            service = JobExportService()
+            excel_buffer = service.generate_excel_export(inventory_id, warehouse_id)
+            
+            # Nom du fichier : FICHE DE COMPTAGE
+            filename = "FICHE DE COMPTAGE.xlsx"
+            
+            # Créer la réponse HTTP avec le fichier Excel
+            response = HttpResponse(
+                excel_buffer.getvalue(),
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            return response
+            
+        except InventoryNotFoundError as e:
+            logger.warning(f"Export Excel échoué - Inventaire non trouvé: {inventory_id}")
+            return HttpResponse(
+                f"Erreur: {str(e)}",
+                status=404,
+                content_type='text/plain'
+            )
+        except WarehouseNotFoundError as e:
+            logger.warning(f"Export Excel échoué - Entrepôt non trouvé: {warehouse_id}")
+            return HttpResponse(
+                f"Erreur: {str(e)}",
+                status=404,
+                content_type='text/plain'
+            )
+        except JobCreationError as e:
+            logger.error(f"Export Excel échoué - Erreur métier: {str(e)}")
+            return HttpResponse(
+                f"Erreur: {str(e)}",
+                status=400,
+                content_type='text/plain'
+            )
+        except Exception as e:
+            logger.error(f"Erreur inattendue lors de l'export Excel: {str(e)}", exc_info=True)
+            return HttpResponse(
+                f"Erreur lors de l'export: {str(e)}",
+                status=500,
+                content_type='text/plain'
+            )
+

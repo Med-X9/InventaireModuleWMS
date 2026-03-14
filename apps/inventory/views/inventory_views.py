@@ -2,90 +2,258 @@
 Vues pour la gestion des inventaires.
 """
 import logging
+from collections import defaultdict
 from rest_framework import status, filters
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
-from ..models import Inventory
+from ..models import Inventory, Job
+from ..services.inventory_result_service import InventoryResultService
 from ..services.inventory_service import InventoryService
 from ..serializers.inventory_serializer import (
-    InventoryCreateSerializer, 
+    InventoryCreateSerializer,
+    InventoryDuplicateSerializer,
     InventoryDetailSerializer,
     InventoryGetByIdSerializer,
     InventoryTeamSerializer,
     InventoryWarehouseStatsSerializer,
     InventoryUpdateSerializer,
     InventoryDetailModeFieldsSerializer,
-    InventoryDetailWithWarehouseSerializer
+    InventoryDetailWithWarehouseSerializer,
+    InventoryBasicInfoSerializer,
+    InventoryAccountSerializer,
+    InventoryWarehousesSerializer,
+    InventoryCountingsSerializer,
+    InventoryTeamDetailSerializer,
+    InventoryResourcesDetailSerializer,
 )
+from ..serializers import InventoryWarehouseResultSerializer, InventoryWarehouseResultEntrySerializer
 from ..exceptions import InventoryValidationError, InventoryNotFoundError, StockValidationError
 from ..filters import InventoryFilter
 from ..repositories import InventoryRepository
 from ..interfaces import IInventoryRepository
+from ..services.inventory_detail_service import InventoryDetailService
+from ..utils.response_utils import success_response, error_response, validation_error_response
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from apps.inventory.usecases.inventory_launch_validation import InventoryLaunchValidationUseCase
+from apps.core.datatables.mixins import QueryModelMixin, ServerSideDataTableView
 
 # Configuration du logger
 logger = logging.getLogger(__name__)
 
-class StandardResultsSetPagination(PageNumberPagination):
-    page_size = 10
-    page_size_query_param = 'page_size'
-    max_page_size = 100
 
-class InventoryListView(APIView):
+class InventoryListView(ServerSideDataTableView):
     """
-    Vue pour lister les inventaires avec pagination et filtres.
+    Vue ultra-simplifiée - Configuration minimale absolue
+    
+    Supporte automatiquement :
+    - Format QueryModel (POST JSON ou GET query params)
+    - Format DataTable standard (GET query params)
+    - Format REST API (GET query params)
+    
+    Le package détecte automatiquement :
+    - Champs de recherche depuis le serializer
+    - Champs de tri depuis le serializer
+    - Champs de date depuis le modèle (DateTimeField, DateField)
+    - Champs de statut depuis le modèle (CharField avec choices)
+    - Optimisations de requêtes
+    
+    ENDPOINTS:
+    - GET  /web/api/inventory/ (tous formats supportés)
+    - POST /web/api/inventory/ (format QueryModel uniquement)
+    
+    DOCUMENTATION: Voir INVENTORY_QUERYMODEL_API.md
     """
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    
+    # Configuration minimale
+    model = Inventory
+    serializer_class = InventoryDetailSerializer
+    
+    # Champs de recherche - uniquement les CharField/TextField (pas de DateField)
+    search_fields = [
+        'reference', 'label', 'status', 'inventory_type',
+        # Relations pour account_name, account_reference, warehouse_name
+        'awi_links__account__account_name',
+        'awi_links__account__reference',
+        'awi_links__warehouse__warehouse_name',
+        'awi_links__warehouse__reference'
+    ]
+    
+    # Champs de tri - tous les champs disponibles
+    order_fields = [
+        'id', 'reference', 'label', 'date', 'status', 'inventory_type',
+        'en_preparation_status_date', 'en_realisation_status_date',
+        'termine_status_date', 'cloture_status_date', 'created_at',
+        'awi_links__account__account_name',
+        'awi_links__warehouse__warehouse_name'
+    ]
+    
+    # Mapping frontend -> backend pour le filtrage par colonnes (utilisé par QueryModel)
+    filter_aliases = {
+        'reference': 'reference',
+        'label': 'label',
+        'date': 'date',
+        'status': 'status',
+        'inventory_type': 'inventory_type',
+        'en_preparation_status_date': 'en_preparation_status_date',
+        'en_realisation_status_date': 'en_realisation_status_date',
+        'termine_status_date': 'termine_status_date',
+        'cloture_status_date': 'cloture_status_date',
+        'created_at': 'created_at',
+        'account_name': 'awi_links__account__account_name',
+        'account_reference': 'awi_links__account__reference',
+        'warehouse_name': 'awi_links__warehouse__warehouse_name',
+        'warehouse_references': 'awi_links__warehouse__reference'
+    }
+    
+    # Mapping explicite pour QueryModel (colId -> field_name)
+    # Utilisé par _get_column_field_mapping_for_querymodel() pour le tri et filtrage
+    column_field_mapping = {
+        'id': 'id',
+        'reference': 'reference',
+        'label': 'label',
+        'date': 'date',
+        'status': 'status',
+        'inventory_type': 'inventory_type',
+        'en_preparation_status_date': 'en_preparation_status_date',
+        'en_realisation_status_date': 'en_realisation_status_date',
+        'termine_status_date': 'termine_status_date',
+        'cloture_status_date': 'cloture_status_date',
+        'created_at': 'created_at',
+        'updated_at': 'updated_at',
+        'account_name': 'awi_links__account__account_name',
+        'account_reference': 'awi_links__account__reference',
+        'warehouse_name': 'awi_links__warehouse__warehouse_name',
+        'warehouse_references': 'awi_links__warehouse__reference'
+    }
+    
+    # Optionnel : seulement si vous voulez personnaliser
+    default_order = '-created_at'
+    page_size = 20
+    export_filename = 'inventaires'
+
+    def get_datatable_queryset(self):
+        """Optimisation automatique des requêtes"""
+        queryset = super().get_datatable_queryset()
+        # awi_links est une relation inverse (reverse relation), utiliser prefetch_related
+        return queryset.prefetch_related(
+            'awi_links__account',
+            'awi_links__warehouse',
+            'countings'
+        )
+
+
+
+# Exemples d'utilisation de ServerSideDataTableView pour différents cas d'usage
+
+class SimpleInventoryListView(ServerSideDataTableView):
+    """
+    Exemple simple - configuration minimale
+    Supporte automatiquement : tri, recherche, pagination
+    """
+    model = Inventory
+    serializer_class = InventoryDetailSerializer
+    search_fields = ['label', 'reference']
+    order_fields = ['id', 'label', 'created_at']
+    export_filename = 'inventaires_simples'
+
+class AdvancedInventoryListView(ServerSideDataTableView):
+    """
+    Exemple avancé - avec tous les types de filtres
+    Supporte : tri, recherche, filtres django-filter, filtres de date, filtres de statut
+    """
+    model = Inventory
+    serializer_class = InventoryDetailSerializer
     filterset_class = InventoryFilter
-    ordering = '-created_at'  # Tri par défaut par date décroissante
-    pagination_class = StandardResultsSetPagination
+    search_fields = ['label', 'reference', 'status', 'inventory_type']
+    order_fields = ['id', 'reference', 'label', 'date', 'status', 'inventory_type', 'created_at']
+    default_order = '-created_at'
+    page_size = 50
+    filter_fields = ['status', 'inventory_type']
+    date_fields = ['date', 'created_at']
+    status_fields = ['status']
+    export_filename = 'inventaires_avances'
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.repository = InventoryRepository()
+class CustomInventoryListView(ServerSideDataTableView):
+    """
+    Exemple avec personnalisation avancée
+    Surcharge des méthodes pour comportement personnalisé
+    """
+    model = Inventory
+    serializer_class = InventoryDetailSerializer
+    search_fields = ['label', 'reference', 'status']
+    order_fields = ['id', 'label', 'created_at']
+    
+    def get_datatable_queryset(self):
+        """Queryset personnalisé - seulement les inventaires non supprimés"""
+        return Inventory.objects.filter(is_deleted=False)
+    
+    def get_datatable_config(self):
+        """Configuration personnalisée"""
+        config = super().get_datatable_config()
+        # Personnaliser la configuration si nécessaire
+        return config
+    
+    export_filename = 'inventaires_personnalises'
 
-    def get(self, request, *args, **kwargs):
-        """
-        Récupère la liste des inventaires avec filtres et pagination.
-        """
-        try:
-            # Récupérer les paramètres de filtrage
-            filters_dict = request.query_params.dict()
+class InventoryOrderingTestView(APIView):
+    """Vue de test pour vérifier le tri"""
+    
+    def get(self, request):
+        """Teste différents paramètres de tri"""
+        from apps.core.datatables.base import DataTableProcessor
+        
+        # Créer une instance de InventoryListView pour récupérer la configuration
+        inventory_view = InventoryListView()
+        queryset = inventory_view.get_datatable_queryset()
+        config = inventory_view.get_datatable_config()
+        
+        # Test avec différents paramètres de tri
+        test_params = [
+            ('ordering=label', 'Tri par label'),
+            ('ordering=-label', 'Tri par label décroissant'),
+            ('order[0][column]=2&order[0][dir]=asc', 'Tri DataTable colonne 2'),
+            ('order[0][column]=2&order[0][dir]=desc', 'Tri DataTable colonne 2 décroissant'),
+        ]
+        
+        results = []
+        for param, description in test_params:
+            # Créer une requête de test
+            from django.test import RequestFactory
+            factory = RequestFactory()
+            test_request = factory.get(f'/test/?{param}')
             
-            # Récupérer le queryset filtré via le repository
-            queryset = self.repository.get_by_filters(filters_dict)
-
             # Appliquer le tri
-            ordering = request.query_params.get('ordering', self.ordering)
-            if ordering:
-                if ordering.startswith('-'):
-                    field = ordering[1:]
-                    queryset = queryset.order_by(f'-{field}')
-                else:
-                    queryset = queryset.order_by(ordering)
-
-            # Appliquer la pagination
-            paginator = self.pagination_class()
-            page = paginator.paginate_queryset(queryset, request)
-
-            # Sérialiser les résultats
-            serializer = InventoryDetailSerializer(page, many=True)
-
-            # Retourner la réponse paginée avec un message de succès
-            response = paginator.get_paginated_response(serializer.data)
-            response.data['message'] = "Liste des inventaires récupérée avec succès"
-            return response
-
-        except Exception as e:
-            logger.error(f"Erreur lors de la récupération de la liste des inventaires: {str(e)}", exc_info=True)
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            processor = DataTableProcessor(
+                config=config,
+                filter_handler=inventory_view.get_datatable_filter(),
+                serializer_handler=inventory_view.get_datatable_serializer()
             )
+            
+            # Tester le tri
+            try:
+                response = processor.process(test_request, queryset)
+                results.append({
+                    'param': param,
+                    'description': description,
+                    'success': True,
+                    'response': response.content.decode()[:200] + '...'
+                })
+            except Exception as e:
+                results.append({
+                    'param': param,
+                    'description': description,
+                    'success': False,
+                    'error': str(e)
+                })
+        
+        return Response({
+            'test_results': results,
+            'order_fields': config.get_order_fields(),
+            'default_order': config.get_default_order()
+        })
 
 class InventoryCreateView(APIView):
     """
@@ -108,9 +276,9 @@ class InventoryCreateView(APIView):
             serializer = self.serializer_class(data=request.data)
             if not serializer.is_valid():
                 logger.warning(f"Données invalides lors de la création d'un inventaire: {serializer.errors}")
-                return Response(
+                return validation_error_response(
                     serializer.errors,
-                    status=status.HTTP_400_BAD_REQUEST
+                    message="Erreur de validation lors de la création de l'inventaire"
                 )
             
             # ÉTAPE 2: Validation métier avec le service
@@ -118,29 +286,100 @@ class InventoryCreateView(APIView):
                 self.service.validate_create_data(serializer.validated_data)
             except InventoryValidationError as e:
                 logger.warning(f"Erreur de validation métier lors de la création: {str(e)}")
-                return Response(
-                    {"error": str(e)},
-                    status=status.HTTP_400_BAD_REQUEST
+                return error_response(
+                    message=str(e),
+                    status_code=status.HTTP_400_BAD_REQUEST
                 )
             
             # ÉTAPE 3: Création avec le service (qui utilise le use case)
             result = self.service.create_inventory(serializer.validated_data)
             
-            # ÉTAPE 4: Retour de la réponse
-            return Response(result, status=status.HTTP_201_CREATED)
+            # ÉTAPE 4: Retour de la réponse standardisée
+            return success_response(
+                data=result,
+                message="Inventaire créé avec succès",
+                status_code=status.HTTP_201_CREATED
+            )
             
         except InventoryValidationError as e:
             logger.warning(f"Erreur de validation lors de la création: {str(e)}")
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_400_BAD_REQUEST
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
             )
         except Exception as e:
             logger.error(f"Erreur lors de la création d'un inventaire: {str(e)}", exc_info=True)
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la création de l'inventaire",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class InventoryDuplicateView(APIView):
+    """
+    Vue pour dupliquer un inventaire existant en utilisant la configuration de comptages source.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from ..services.inventory_duplication_service import InventoryDuplicationService
+        self.service = InventoryDuplicationService()
+        self.serializer_class = InventoryDuplicateSerializer
+
+    def post(self, request, pk, *args, **kwargs):
+        """
+        Duplique un inventaire en conservant la configuration des comptages.
+        """
+        serializer = self.serializer_class(data=request.data)
+        if not serializer.is_valid():
+            logger.warning(
+                "Données invalides lors de la duplication d'un inventaire: %s",
+                serializer.errors
+            )
+            return validation_error_response(
+                serializer.errors,
+                message="Erreur de validation lors de la duplication de l'inventaire"
+            )
+
+        try:
+            result = self.service.duplicate_inventory(pk, serializer.validated_data)
+            return success_response(
+                data=result,
+                message="Inventaire dupliqué avec succès",
+                status_code=status.HTTP_201_CREATED
+            )
+        except InventoryNotFoundError as e:
+            logger.warning(
+                "Inventaire source introuvable pour la duplication (id=%s): %s",
+                pk,
+                str(e)
+            )
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        except InventoryValidationError as e:
+            logger.warning(
+                "Erreur métier lors de la duplication d'inventaire (id=%s): %s",
+                pk,
+                str(e)
+            )
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(
+                "Erreur inattendue lors de la duplication d'inventaire (id=%s): %s",
+                pk,
+                str(e),
+                exc_info=True
+            )
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la duplication de l'inventaire",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 
 class InventoryDetailView(APIView):
     """
@@ -157,21 +396,21 @@ class InventoryDetailView(APIView):
         try:
             inventory = self.repository.get_with_related_data(pk)
             serializer = InventoryDetailWithWarehouseSerializer(inventory)
-            return Response({
-                "message": "Détails de l'inventaire récupérés avec succès",
-                "data": serializer.data
-            })
+            return success_response(
+                data=serializer.data,
+                message="Détails de l'inventaire récupérés avec succès"
+            )
         except InventoryNotFoundError as e:
             logger.warning(f"Inventaire non trouvé: {str(e)}")
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_404_NOT_FOUND
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
             )
         except Exception as e:
             logger.error(f"Erreur lors de la récupération des détails d'un inventaire: {str(e)}", exc_info=True)
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la récupération des détails de l'inventaire",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
 class InventoryDetailByReferenceView(APIView):
@@ -189,21 +428,21 @@ class InventoryDetailByReferenceView(APIView):
         try:
             inventory = self.service.get_inventory_with_related_data_by_reference(reference)
             serializer = InventoryDetailWithWarehouseSerializer(inventory)
-            return Response({
-                "message": "Détails de l'inventaire récupérés avec succès",
-                "data": serializer.data
-            })
+            return success_response(
+                data=serializer.data,
+                message="Détails de l'inventaire récupérés avec succès"
+            )
         except InventoryNotFoundError as e:
             logger.warning(f"Inventaire non trouvé: {str(e)}")
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_404_NOT_FOUND
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
             )
         except Exception as e:
             logger.error(f"Erreur lors de la récupération des détails d'un inventaire: {str(e)}", exc_info=True)
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la récupération des détails de l'inventaire",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
 class InventoryUpdateView(APIView):
@@ -225,9 +464,9 @@ class InventoryUpdateView(APIView):
             serializer = self.serializer_class(data=request.data)
             if not serializer.is_valid():
                 logger.warning(f"Données invalides lors de la mise à jour d'un inventaire: {serializer.errors}")
-                return Response(
+                return validation_error_response(
                     serializer.errors,
-                    status=status.HTTP_400_BAD_REQUEST
+                    message="Erreur de validation lors de la mise à jour de l'inventaire"
                 )
             
             # ÉTAPE 2: Validation métier avec le service
@@ -235,34 +474,37 @@ class InventoryUpdateView(APIView):
                 self.service.validate_update_data(serializer.validated_data)
             except InventoryValidationError as e:
                 logger.warning(f"Erreur de validation métier lors de la mise à jour: {str(e)}")
-                return Response(
-                    {"error": str(e)},
-                    status=status.HTTP_400_BAD_REQUEST
+                return error_response(
+                    message=str(e),
+                    status_code=status.HTTP_400_BAD_REQUEST
                 )
             
             # ÉTAPE 3: Mise à jour avec le service (qui utilise le use case)
             result = self.service.update_inventory(pk, serializer.validated_data)
             
-            # ÉTAPE 4: Retour de la réponse
-            return Response(result, status=status.HTTP_200_OK)
+            # ÉTAPE 4: Retour de la réponse standardisée
+            return success_response(
+                data=result,
+                message="Inventaire mis à jour avec succès"
+            )
             
         except InventoryNotFoundError as e:
             logger.warning(f"Inventaire non trouvé lors de la mise à jour: {str(e)}")
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_404_NOT_FOUND
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
             )
         except InventoryValidationError as e:
             logger.warning(f"Erreur de validation lors de la mise à jour: {str(e)}")
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_400_BAD_REQUEST
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
             )
         except Exception as e:
             logger.error(f"Erreur lors de la mise à jour d'un inventaire: {str(e)}", exc_info=True)
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la mise à jour de l'inventaire",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
 class InventoryDeleteView(APIView):
@@ -280,18 +522,27 @@ class InventoryDeleteView(APIView):
         try:
             service = InventoryService()
             service.delete_inventory(pk)
-            return Response({
-                "message": "L'inventaire a été supprimé avec succès"
-            }, status=status.HTTP_200_OK)
+            return success_response(
+                message="L'inventaire a été supprimé avec succès"
+            )
         except InventoryNotFoundError as e:
             logger.warning(f"Inventaire non trouvé lors de la suppression: {str(e)}")
-            return Response({"error": str(e)}, status=status.HTTP_404_NOT_FOUND)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
         except InventoryValidationError as e:
             logger.warning(f"Erreur de validation lors de la suppression: {str(e)}")
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
         except Exception as e:
             logger.error(f"Erreur lors de la suppression d'un inventaire: {str(e)}", exc_info=True)
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la suppression de l'inventaire",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class InventoryLaunchView(APIView):
     """
@@ -311,33 +562,42 @@ class InventoryLaunchView(APIView):
             self.service.launch_inventory(pk)
             
             # Préparer la réponse avec les informations de validation
-            response_data = {
-                "message": "L'inventaire a été lancé avec succès"
-            }
-            
-            # Ajouter les messages d'information s'ils existent
+            extra_data = {}
             if validation_result and 'infos' in validation_result:
-                response_data['infos'] = validation_result['infos']
+                extra_data['infos'] = validation_result['infos']
             
-            return Response(response_data, status=status.HTTP_200_OK)
+            return success_response(
+                message="L'inventaire a été lancé avec succès",
+                **extra_data
+            )
         except InventoryNotFoundError as e:
             logger.warning(f"Inventaire non trouvé lors du lancement: {str(e)}")
-            return Response({"error": str(e)}, status=status.HTTP_404_NOT_FOUND)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
         except InventoryValidationError as e:
             logger.warning(f"Erreur de validation lors du lancement: {str(e)}")
             # Séparer les erreurs multiples si elles sont séparées par " | "
             error_message = str(e)
             if " | " in error_message:
                 errors = error_message.split(" | ")
-                return Response({
-                    "errors": errors,
-                    "message": "Plusieurs erreurs de validation ont été détectées"
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response(
+                    message="Plusieurs erreurs de validation ont été détectées",
+                    errors=errors,
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
             else:
-                return Response({"error": error_message}, status=status.HTTP_400_BAD_REQUEST)
+                return error_response(
+                    message=error_message,
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
         except Exception as e:
             logger.error(f"Erreur lors du lancement de l'inventaire: {str(e)}", exc_info=True)
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors du lancement de l'inventaire",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class InventoryCancelView(APIView):
     """
@@ -353,18 +613,27 @@ class InventoryCancelView(APIView):
         """
         try:
             self.service.cancel_inventory(pk)
-            return Response({
-                "message": "L'inventaire a été annulé avec succès"
-            }, status=status.HTTP_200_OK)
+            return success_response(
+                message="L'inventaire a été annulé avec succès"
+            )
         except InventoryNotFoundError as e:
             logger.warning(f"Inventaire non trouvé lors de l'annulation: {str(e)}")
-            return Response({"error": str(e)}, status=status.HTTP_404_NOT_FOUND)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
         except InventoryValidationError as e:
             logger.warning(f"Erreur de validation lors de l'annulation: {str(e)}")
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
         except Exception as e:
             logger.error(f"Erreur lors de l'annulation de l'inventaire: {str(e)}", exc_info=True)
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de l'annulation de l'inventaire",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class InventoryTeamView(APIView):
     """
@@ -381,77 +650,881 @@ class InventoryTeamView(APIView):
         try:
             inventory = self.repository.get_with_related_data(pk)
             serializer = InventoryDetailModeFieldsSerializer(inventory)
-            return Response({
-                "message": "Détails de l'inventaire récupérés avec succès",
-                "data": serializer.data
-            })
+            return success_response(
+                data=serializer.data,
+                message="Détails de l'inventaire récupérés avec succès"
+            )
         except InventoryNotFoundError as e:
             logger.warning(f"Inventaire non trouvé: {str(e)}")
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_404_NOT_FOUND
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
             )
         except Exception as e:
             logger.error(f"Erreur lors de la récupération des détails de l'inventaire: {str(e)}", exc_info=True)
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la récupération des détails de l'inventaire",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-class InventoryWarehouseStatsView(APIView):
-    """
-    Vue pour récupérer les statistiques des warehouses d'un inventaire.
-    """
-    permission_classes = [IsAuthenticated]
 
-    def get(self, request, inventory_id):
+# ========================================
+# Vues séparées pour les endpoints décomposés
+# ========================================
+
+class InventoryBasicInfoView(APIView):
+    """
+    Vue pour récupérer les informations de base d'un inventaire.
+    Respecte l'architecture : View -> Service -> Repository
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.service = InventoryDetailService()
+
+    def get(self, request, pk, *args, **kwargs):
         """
-        Récupère les statistiques des warehouses pour un inventaire.
-        
-        Args:
-            request: La requête HTTP
-            inventory_id: L'ID de l'inventaire
-            
-        Returns:
-            Response: La réponse HTTP avec les statistiques des warehouses
+        Récupère les informations de base d'un inventaire.
         """
         try:
-            # Récupérer les statistiques via le service
-            inventory_service = InventoryService()
-            stats_data = inventory_service.get_warehouse_stats_for_inventory(inventory_id)
-            
-            # Sérialiser les données
-            serializer = InventoryWarehouseStatsSerializer(stats_data, many=True)
-            
-            return Response({
-                'status': 'success',
-                'message': 'Statistiques des warehouses récupérées avec succès',
-                'inventory_id': inventory_id,
-                'warehouses_count': len(stats_data),
-                'data': serializer.data
-            })
-            
+            # Appel du service pour récupérer les données
+            data = self.service.get_basic_info(pk)
+            # Formatage via le serializer
+            serializer = InventoryBasicInfoSerializer(data)
+            return success_response(
+                data=serializer.data,
+                message="Informations de base de l'inventaire récupérées avec succès"
+            )
         except InventoryNotFoundError as e:
-            return Response({
-                'status': 'error',
-                'message': 'Inventaire non trouvé',
-                'error': str(e)
-            }, status=status.HTTP_404_NOT_FOUND)
-            
-        except InventoryValidationError as e:
-            return Response({
-                'status': 'error',
-                'message': 'Erreur de validation',
-                'error': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
-            
+            logger.warning(f"Inventaire non trouvé: {str(e)}")
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
         except Exception as e:
-            logger.error(f"Erreur lors de la récupération des statistiques des warehouses: {str(e)}")
-            return Response({
-                'status': 'error',
-                'message': 'Erreur lors de la récupération des statistiques des warehouses',
-                'error': str(e)
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.error(f"Erreur lors de la récupération des informations de base: {str(e)}", exc_info=True)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la récupération des informations de base",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class InventoryAccountView(APIView):
+    """
+    Vue pour récupérer les informations du compte d'un inventaire.
+    Respecte l'architecture : View -> Service -> Repository
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.service = InventoryDetailService()
+
+    def get(self, request, pk, *args, **kwargs):
+        """
+        Récupère les informations du compte d'un inventaire.
+        """
+        try:
+            # Appel du service pour récupérer les données
+            data = self.service.get_account_info(pk)
+            # Formatage via le serializer
+            serializer = InventoryAccountSerializer(data)
+            return success_response(
+                data=serializer.data,
+                message="Informations du compte récupérées avec succès"
+            )
+        except InventoryNotFoundError as e:
+            logger.warning(f"Inventaire non trouvé: {str(e)}")
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des informations du compte: {str(e)}", exc_info=True)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la récupération des informations du compte",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class InventoryWarehousesDetailView(APIView):
+    """
+    Vue pour récupérer la liste des magasins d'un inventaire.
+    Respecte l'architecture : View -> Service -> Repository
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.service = InventoryDetailService()
+
+    def get(self, request, pk, *args, **kwargs):
+        """
+        Récupère la liste des magasins d'un inventaire.
+        """
+        try:
+            # Appel du service pour récupérer les données
+            magasins = self.service.get_warehouses(pk)
+            # Formatage via le serializer
+            serializer = InventoryWarehousesSerializer({'magasins': magasins})
+            return success_response(
+                data=serializer.data,
+                message="Liste des magasins récupérée avec succès"
+            )
+        except InventoryNotFoundError as e:
+            logger.warning(f"Inventaire non trouvé: {str(e)}")
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des magasins: {str(e)}", exc_info=True)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la récupération des magasins",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class InventoryCountingsView(APIView):
+    """
+    Vue pour récupérer la liste des comptages d'un inventaire.
+    Respecte l'architecture : View -> Service -> Repository
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.service = InventoryDetailService()
+
+    def get(self, request, pk, *args, **kwargs):
+        """
+        Récupère la liste des comptages d'un inventaire.
+        """
+        try:
+            # Appel du service pour récupérer les données
+            comptages = self.service.get_countings(pk)
+            # Formatage via le serializer
+            serializer = InventoryCountingsSerializer({'comptages': comptages})
+            return success_response(
+                data=serializer.data,
+                message="Liste des comptages récupérée avec succès"
+            )
+        except InventoryNotFoundError as e:
+            logger.warning(f"Inventaire non trouvé: {str(e)}")
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des comptages: {str(e)}", exc_info=True)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la récupération des comptages",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class InventoryTeamDetailView(APIView):
+    """
+    Vue pour récupérer l'équipe d'un inventaire.
+    Respecte l'architecture : View -> Service -> Repository
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.service = InventoryDetailService()
+
+    def get(self, request, pk, *args, **kwargs):
+        """
+        Récupère l'équipe d'un inventaire.
+        """
+        try:
+            # Appel du service pour récupérer les données
+            equipe = self.service.get_team(pk)
+            # Formatage via le serializer
+            serializer = InventoryTeamDetailSerializer({'equipe': equipe})
+            return success_response(
+                data=serializer.data,
+                message="Équipe de l'inventaire récupérée avec succès"
+            )
+        except InventoryNotFoundError as e:
+            logger.warning(f"Inventaire non trouvé: {str(e)}")
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération de l'équipe: {str(e)}", exc_info=True)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la récupération de l'équipe",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class InventoryResourcesDetailView(APIView):
+    """
+    Vue pour récupérer les ressources d'un inventaire.
+    Respecte l'architecture : View -> Service -> Repository
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.service = InventoryDetailService()
+
+    def get(self, request, pk, *args, **kwargs):
+        """
+        Récupère les ressources d'un inventaire.
+        """
+        try:
+            # Appel du service pour récupérer les données
+            ressources = self.service.get_resources(pk)
+            # Formatage via le serializer
+            serializer = InventoryResourcesDetailSerializer({'ressources': ressources})
+            return success_response(
+                data=serializer.data,
+                message="Ressources de l'inventaire récupérées avec succès"
+            )
+        except InventoryNotFoundError as e:
+            logger.warning(f"Inventaire non trouvé: {str(e)}")
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des ressources: {str(e)}", exc_info=True)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la récupération des ressources",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class InventoryWarehouseStatsView(ServerSideDataTableView):
+    """
+    Vue pour récupérer les statistiques des warehouses d'un inventaire.
+    Support DataTable avec tri, recherche et pagination.
+    """
+    serializer_class = InventoryWarehouseStatsSerializer
+
+    # Configuration de pagination
+    default_page_size = 20
+    max_page_size = 100
+    export_filename = 'statistiques_warehouses_inventaire'
+
+    # Champs de recherche
+    search_fields = [
+        'warehouse_name', 'warehouse_reference', 'account_name',
+        'total_jobs', 'completed_jobs', 'pending_jobs', 'in_progress_jobs'
+    ]
+
+    # Mapping colonnes frontend -> backend
+    column_field_mapping = {
+        'warehouse_name': 'warehouse_name',
+        'warehouse_reference': 'warehouse_reference',
+        'account_name': 'account_name',
+        'total_jobs': 'total_jobs',
+        'completed_jobs': 'completed_jobs',
+        'pending_jobs': 'pending_jobs',
+        'in_progress_jobs': 'in_progress_jobs',
+        'completion_percentage': 'completion_percentage'
+    }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.service = InventoryService()
+
+    def get_data_source(self):
+        """
+        Retourne la source de données depuis le service InventoryService.
+        Les données sont récupérées sous forme de liste de dictionnaires.
+        """
+        from apps.core.datatables.datasource import DataSourceFactory
+
+        inventory_id = self.kwargs.get('inventory_id')
+
+        if not inventory_id:
+            raise InventoryValidationError("inventory_id est requis")
+
+        try:
+            # Récupérer les statistiques via le service
+            stats_data = self.service.get_warehouse_stats_for_inventory(inventory_id)
+
+            # Retourner la source de données
+            return DataSourceFactory.create(stats_data)
+
+        except InventoryNotFoundError:
+            # Retourner une liste vide si inventaire non trouvé
+            return DataSourceFactory.create([])
+        except Exception as e:
+            logger.error(f"Erreur dans get_data_source pour InventoryWarehouseStatsView: {str(e)}")
+            # Retourner une liste vide en cas d'erreur
+            return DataSourceFactory.create([])
+
+
+class InventoryResultByWarehouseView(ServerSideDataTableView):
+    """
+    Vue permettant de récupérer les résultats d'un inventaire agrégés par entrepôt.
+    Utilise QueryModel (format AG-Grid) pour gérer automatiquement :
+    - Tri multi-colonnes (sortModel)
+    - Filtres complexes (filterModel)
+    - Pagination (startRow/endRow)
+    - Support des listes de dictionnaires via get_data_source()
+    """
+    
+    serializer_class = InventoryWarehouseResultSerializer
+    
+    # Configuration de pagination
+    default_page_size = 20
+    max_page_size = 1000
+    export_filename = 'resultats_inventaire_par_warehouse'
+    
+    # Champs pour la recherche globale
+    search_fields = [
+        'location', 'location_id', 'product', 'product_description', 'product_internal_code',
+        'job_id', 'job_reference', 'final_result', 'manual_result', 'resolved', 'result_id', 'ecart_comptage_id',
+        # Comptages dynamiques
+        '1er comptage', '2er comptage', '3er comptage', '4er comptage', '5er comptage',
+        # Écarts dynamiques
+        'ecart_1_2', 'ecart_2_3', 'ecart_3_4', 'ecart_4_5', 'ecart_1_3', 'ecart_2_4', 'ecart_3_5',
+        # Statuts d'assignment par comptage
+        'statut_1er_comptage', 'statut_2er_comptage'
+    ]
+    
+    # Mapping des colonnes frontend -> backend (utilisé par QueryModel)
+    column_field_mapping = {
+        # Colonnes principales reçues du frontend
+        'job_reference': 'job_reference',
+        'emplacement': 'location',
+        'article': 'product',
+        'contage_1': '1er comptage',
+        'contage_2': '2er comptage',
+        'contage_3': '3er comptage',
+        'contage_4': '4er comptage',
+        'contage_5': '5er comptage',
+        'ecart_1_2': 'ecart_1_2',
+        'resultats': 'final_result',
+        'resolved': 'resolved',
+
+        # Colonnes additionnelles (pour compatibilité et autres usages)
+        'id': 'location_id',
+        'location_id': 'location_id',
+        'product': 'product',
+        'product_description': 'product_description',
+        'product_internal_code': 'product_internal_code',
+        'location': 'location',
+        'job_id': 'job_id',
+        'job': 'job_reference',  # Alias pour job_reference
+        'final_result': 'final_result',
+        'result_id': 'result_id',
+        'ecart_comptage_id': 'ecart_comptage_id',
+
+        # Écarts supplémentaires (pour tri/filtrage avancé)
+        'ecart_2_3': 'ecart_2_3',
+        'ecart_3_4': 'ecart_3_4',
+        'ecart_4_5': 'ecart_4_5',
+        'ecart_1_3': 'ecart_1_3',
+        'ecart_2_4': 'ecart_2_4',
+        'ecart_3_5': 'ecart_3_5',
+
+        # Statuts d'assignment par comptage
+        'statut_1er_comptage': 'statut_1er_comptage',
+        'statut_2er_comptage': 'statut_2er_comptage',
+        'statut_comptage_1': 'statut_1er_comptage',  # Alias
+        'statut_comptage_2': 'statut_2er_comptage',  # Alias
+    }
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.service = InventoryResultService()
+    
+    def get_data_source(self):
+        """Retourne la source de données depuis le service."""
+        from apps.core.datatables.datasource import DataSourceFactory
+        
+        inventory_id = self.kwargs.get('inventory_id')
+        warehouse_id = self.kwargs.get('warehouse_id')
+        
+        if not inventory_id or not warehouse_id:
+            raise InventoryValidationError("inventory_id et warehouse_id sont requis")
+        
+        # Récupérer les données depuis le service
+        data_list = self.service.get_inventory_results_for_warehouse(inventory_id, warehouse_id)
+        
+        return DataSourceFactory.create(data_list)
+    
+    def serialize_data(self, data):
+        """
+        Sérialise les données avec InventoryWarehouseResultEntrySerializer.
+        
+        Surcharge pour utiliser le serializer d'entrée au lieu du serializer racine
+        qui attend un format avec 'success' et 'data'.
+        """
+        if isinstance(data, list):
+            # Liste de dicts -> sérialiser chaque élément avec EntrySerializer
+            serializer = InventoryWarehouseResultEntrySerializer(data, many=True)
+            return serializer.data
+        else:
+            # Convertir en liste si nécessaire
+            data_list = list(data) if hasattr(data, '__iter__') else [data]
+            serializer = InventoryWarehouseResultEntrySerializer(data_list, many=True)
+            return serializer.data
+
+
+class InventoryResultExportExcelView(APIView):
+    """
+    Vue pour exporter les résultats d'inventaire en Excel.
+    """
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.service = InventoryResultService()
+    
+    def get(self, request, inventory_id: int, warehouse_id: int, *args, **kwargs):
+        """
+        Exporte les résultats d'un inventaire pour un entrepôt en fichier Excel.
+        
+        Args:
+            inventory_id: ID de l'inventaire
+            warehouse_id: ID de l'entrepôt
+            
+        Returns:
+            Fichier Excel avec les résultats
+        """
+        try:
+            # Récupérer les résultats via le service
+            results = self.service.get_inventory_results_for_warehouse(
+                inventory_id=inventory_id,
+                warehouse_id=warehouse_id,
+            )
+            
+            if not results:
+                return error_response(
+                    message="Aucun résultat trouvé pour cet inventaire et cet entrepôt",
+                    status_code=status.HTTP_404_NOT_FOUND
+                )
+
+            # Enrichir les résultats avec les statuts des jobs et assignments
+            enriched_results = self._enrich_results_with_statuses(results, inventory_id, warehouse_id)
+
+            # Générer le fichier Excel
+            excel_buffer = self._generate_excel(enriched_results, inventory_id, warehouse_id)
+            
+            # Récupérer les informations de l'inventaire pour le nom du fichier
+            try:
+                inventory = Inventory.objects.get(id=inventory_id)
+                inventory_ref = inventory.reference.replace(' ', '_')
+            except Inventory.DoesNotExist:
+                inventory_ref = f"inventaire_{inventory_id}"
+            
+            # Définir le nom du fichier
+            filename = f"resultats_{inventory_ref}_warehouse_{warehouse_id}.xlsx"
+            
+            # Créer la réponse HTTP avec le fichier Excel
+            from django.http import HttpResponse
+            response = HttpResponse(
+                excel_buffer.getvalue(),
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            
+            return response
+            
+        except InventoryNotFoundError as error:
+            logger.warning(
+                "Inventaire introuvable lors de l'export Excel (id=%s, warehouse_id=%s).",
+                inventory_id,
+                warehouse_id,
+            )
+            return error_response(
+                message=str(error),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        except InventoryValidationError as error:
+            logger.warning(
+                "Erreur de validation lors de l'export Excel (id=%s, warehouse_id=%s): %s",
+                inventory_id,
+                warehouse_id,
+                error,
+            )
+            return error_response(
+                message=str(error),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except ValueError as error:
+            logger.warning(
+                "Erreur de valeur lors de l'export Excel (id=%s, warehouse_id=%s): %s",
+                inventory_id,
+                warehouse_id,
+                error,
+            )
+            return error_response(
+                message=str(error),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except ImportError as error:
+            logger.error(
+                "Dépendance manquante pour l'export Excel (id=%s, warehouse_id=%s): %s",
+                inventory_id,
+                warehouse_id,
+                error,
+            )
+            return error_response(
+                message=f"Configuration manquante pour l'export Excel: {str(error)}",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        except Exception as error:
+            logger.error(
+                "Erreur inattendue lors de l'export Excel (id=%s, warehouse_id=%s): %s",
+                inventory_id,
+                warehouse_id,
+                error,
+                exc_info=True,
+            )
+            return error_response(
+                message=f"Une erreur inattendue est survenue lors de l'export Excel: {str(error)}",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def _generate_excel(self, results, inventory_id: int, warehouse_id: int):
+        """
+        Génère un fichier Excel à partir des résultats.
+        
+        Les colonnes suivantes sont exclues de l'export :
+        - location_id
+        - job_id
+        - ecart_comptage_id
+        
+        Args:
+            results: Liste des résultats à exporter
+            inventory_id: ID de l'inventaire
+            warehouse_id: ID de l'entrepôt
+            
+        Returns:
+            BytesIO: Buffer contenant le fichier Excel
+            
+        Raises:
+            ValueError: Si les résultats sont vides ou invalides
+            ImportError: Si pandas ou openpyxl ne sont pas installés
+        """
+        try:
+            import pandas as pd
+        except ImportError:
+            raise ImportError(
+                "pandas est requis pour l'export Excel. "
+                "Installez-le avec: pip install pandas"
+            )
+        
+        try:
+            import openpyxl
+        except ImportError:
+            raise ImportError(
+                "openpyxl est requis pour l'export Excel. "
+                "Installez-le avec: pip install openpyxl"
+            )
+        
+        import io
+        
+        # Vérifier que les résultats ne sont pas vides
+        if not results:
+            raise ValueError("Aucune donnée à exporter")
+        
+        # Mettre le code interne dans la clé product si présent
+        transformed_results = []
+        for result in results:
+            transformed_result = dict(result)
+            if 'product_internal_code' in transformed_result:
+                transformed_result['product'] = transformed_result.pop('product_internal_code')
+            transformed_results.append(transformed_result)
+        
+        # Convertir les résultats en DataFrame
+        try:
+            df = pd.DataFrame(transformed_results)
+        except Exception as e:
+            logger.error(f"Erreur lors de la conversion en DataFrame: {e}", exc_info=True)
+            raise ValueError(f"Impossible de convertir les résultats en DataFrame: {str(e)}")
+        
+        # Vérifier que le DataFrame n'est pas vide
+        if df.empty:
+            raise ValueError("Le DataFrame est vide après conversion")
+        
+        # Vérifier que le DataFrame a des colonnes
+        if len(df.columns) == 0:
+            raise ValueError("Le DataFrame n'a aucune colonne")
+        
+        # Colonnes à exclure de l'export
+        excluded_columns = ['location_id', 'job_id', 'ecart_comptage_id']
+        
+        # Construire l'ordre des colonnes selon les spécifications
+        column_order = []
+
+        # 1. Colonnes de base du job
+        if 'job_reference' in df.columns:
+            column_order.append('job_reference')
+        if 'job_status' in df.columns:
+            column_order.append('job_status')
+
+        # 2. Colonne d'emplacement
+        if 'location' in df.columns:
+            column_order.append('location')
+
+        # 3. Colonnes produit
+        if 'product' in df.columns:
+            column_order.append('product')  # Code Barre en premier
+        if 'product_internal_code' in df.columns:
+            column_order.append('product_internal_code')  # Code Interne en deuxième
+        if 'product_barcode' in df.columns:
+            column_order.append('product_barcode')  # BarCode en troisième
+        if 'product_description' in df.columns:
+            column_order.append('product_description')
+        if 'product_family' in df.columns:
+            column_order.append('product_family')
+
+        # 4. Colonnes de comptage et statuts par ordre de comptage
+        # D'abord identifier tous les comptages disponibles
+        counting_numbers = set()
+
+        # Collecter les numéros de comptage depuis les colonnes de comptage
+        for col in df.columns:
+            if col.endswith(' comptage'):
+                try:
+                    # Extraire le numéro (ex: "1er comptage" -> 1, "2e comptage" -> 2)
+                    num_str = col.split()[0]
+                    if num_str.endswith('er') or num_str.endswith('e'):
+                        num = int(num_str[:-2]) if num_str[:-2].isdigit() else int(num_str[:-1])
+                    else:
+                        num = int(num_str)
+                    counting_numbers.add(num)
+                except (ValueError, IndexError):
+                    continue
+
+        # Collecter aussi depuis les colonnes de statut
+        for col in df.columns:
+            if col.startswith('statut_') or col.startswith('assignment_status_counting_'):
+                try:
+                    if col.startswith('statut_'):
+                        # Ex: "statut_1er_comptage" -> 1
+                        parts = col.split('_')
+                        if len(parts) >= 2:
+                            num_str = parts[1]
+                            if num_str.endswith('er') or num_str.endswith('e'):
+                                num = int(num_str[:-2]) if num_str[:-2].isdigit() else int(num_str[:-1])
+                            else:
+                                num = int(num_str) if num_str.isdigit() else None
+                            if num:
+                                counting_numbers.add(num)
+                    elif col.startswith('assignment_status_counting_'):
+                        # Ex: "assignment_status_counting_1" -> 1
+                        num = int(col.split('_')[-1])
+                        counting_numbers.add(num)
+                except (ValueError, IndexError):
+                    continue
+
+        # Trier les numéros de comptage
+        counting_numbers = sorted(counting_numbers)
+
+        # Pour chaque comptage, ajouter la colonne de comptage puis le statut
+        for num in counting_numbers:
+            # Colonne de comptage (ex: "1er comptage", "2e comptage", etc.)
+            counting_col = f"{num}er comptage" if num == 1 else f"{num}e comptage"
+            if counting_col in df.columns:
+                column_order.append(counting_col)
+
+            # Colonne de statut pour ce comptage (priorité au nouveau format)
+            status_col_new = f"assignment_status_counting_{num}"
+            if status_col_new in df.columns:
+                column_order.append(status_col_new)
+            else:
+                # Fallback vers l'ancien format seulement si le nouveau n'existe pas
+                status_col_old = f"statut_{num}er_comptage" if num == 1 else f"statut_{num}e_comptage"
+                if status_col_old in df.columns:
+                    column_order.append(status_col_old)
+
+            # Ajouter l'écart 1-2 après le 2ème comptage
+            if num == 2 and 'ecart_1_2' in df.columns:
+                column_order.append('ecart_1_2')
+
+        # 6. Colonnes finales
+        if 'final_result' in df.columns:
+            column_order.append('final_result')
+        if 'resolved' in df.columns:
+            column_order.append('resolved')
+        if 'manual_result' in df.columns:
+            column_order.append('manual_result')
+        
+        # Filtrer les colonnes exclues
+        column_order = [col for col in column_order if col not in excluded_columns]
+        
+        # Réorganiser le DataFrame en excluant les colonnes non désirées
+        existing_columns = [col for col in column_order if col in df.columns]
+        
+        # Exclure également toutes les colonnes de la liste excluded_columns qui pourraient être présentes
+        existing_columns = [col for col in existing_columns if col not in excluded_columns]
+        
+        if not existing_columns:
+            # Si aucune colonne n'est trouvée, utiliser toutes les colonnes disponibles sauf celles exclues
+            existing_columns = [col for col in df.columns if col not in excluded_columns]
+        
+        df = df[existing_columns]
+        
+        # Mapping des noms de colonnes techniques vers des noms conviviaux en français
+        column_name_mapping = {
+            'location': 'Emplacement',
+            'job_reference': 'Référence Job',
+            'job_status': 'Statut Job',
+            'product': 'Code Barre',
+            'product_internal_code': 'Code Interne',
+            'product_barcode': 'BarCode',
+            'product_description': 'Désignation',
+            'product_family': 'Famille',
+            'final_result': 'Résultat Final',
+            'manual_result': 'Résultat Manuel',
+            'resolved': 'Résolu',
+        }
+        
+        # Ajouter le mapping pour les colonnes de comptage dynamiquement
+        for col in df.columns:
+            if col.endswith(' comptage'):
+                # Extraire le numéro du comptage (ex: "1er comptage" -> "1er Comptage")
+                order_num = col.split()[0]
+                # Capitaliser la première lettre pour uniformiser
+                column_name_mapping[col] = f'{order_num.capitalize()} Comptage'
+            elif col.startswith('statut_'):
+                # Extraire le numéro du comptage (ex: "statut_1er_comptage" -> "Statut Comptage 1")
+                parts = col.split('_')
+                if len(parts) >= 2:
+                    # Reconstituer le numéro du comptage
+                    order_part = '_'.join(parts[1:])  # "1er_comptage"
+                    order_num = order_part.split('_')[0]  # "1er"
+                    # Extraire le numéro numérique
+                    if order_num.endswith('er') or order_num.endswith('e'):
+                        num = int(order_num[:-2]) if order_num[:-2].isdigit() else int(order_num[:-1]) if order_num[:-1].isdigit() else None
+                    else:
+                        num = int(order_num) if order_num.isdigit() else None
+                    if num:
+                        column_name_mapping[col] = f'Statut Comptage {num}'
+            elif col.startswith('assignment_status_counting_'):
+                # Extraire le numéro du comptage (ex: "assignment_status_counting_1" -> "Statut Comptage 1")
+                parts = col.split('_')
+                if len(parts) >= 4 and parts[-1].isdigit():
+                    counting_order = parts[-1]
+                    column_name_mapping[col] = f'Statut Comptage {counting_order}'
+            elif col.startswith('ecart_'):
+                # Extraire les numéros des comptages (ex: "ecart_1_2" -> "Écart Comptage 1-2")
+                parts = col.split('_')
+                if len(parts) >= 3 and parts[1].isdigit() and parts[2].isdigit():
+                    column_name_mapping[col] = f'Écart Comptage {parts[1]}-{parts[2]}'
+        
+        # Renommer les colonnes avec les noms conviviaux
+        df = df.rename(columns=column_name_mapping)
+        
+        # Créer le fichier Excel en mémoire
+        excel_buffer = io.BytesIO()
+        try:
+            with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name='Résultats')
+                
+                # Récupérer la feuille pour appliquer des formats
+                worksheet = writer.sheets['Résultats']
+                
+                # Ajuster la largeur des colonnes
+                from openpyxl.utils import get_column_letter
+                for idx, col in enumerate(df.columns, start=1):
+                    try:
+                        # Remplacer les valeurs None par des chaînes vides pour éviter les erreurs
+                        col_data = df[col].fillna('').astype(str)
+                        
+                        # Calculer la longueur maximale
+                        if len(col_data) > 0:
+                            max_data_length = col_data.map(len).max()
+                        else:
+                            max_data_length = 0
+                        
+                        max_length = max(max_data_length, len(str(col)))
+                        # Limiter la largeur maximale à 50
+                        adjusted_width = min(max_length + 2, 50)
+                        worksheet.column_dimensions[get_column_letter(idx)].width = adjusted_width
+                    except Exception as e:
+                        # Si l'ajustement de la largeur échoue, utiliser une largeur par défaut
+                        logger.warning(f"Impossible d'ajuster la largeur de la colonne {col}: {e}")
+                        worksheet.column_dimensions[get_column_letter(idx)].width = 15
+        except Exception as e:
+            logger.error(f"Erreur lors de la génération du fichier Excel: {e}", exc_info=True)
+            raise ValueError(f"Impossible de générer le fichier Excel: {str(e)}")
+        
+        excel_buffer.seek(0)
+        return excel_buffer
+
+    def _enrich_results_with_statuses(
+        self,
+        results: list,
+        inventory_id: int,
+        warehouse_id: int
+    ) -> list:
+        """
+        Enrichit les résultats avec les statuts des jobs et des assignments.
+
+        Les résultats peuvent déjà contenir les statuts des assignments pour les comptages 1 et 2
+        dans les colonnes 'statut_1er_comptage' et 'statut_2er_comptage'.
+        On ajoute :
+        - Le statut du job
+        - Les statuts des assignments pour tous les comptages (standardisation)
+
+        Args:
+            results: Liste des résultats d'inventaire
+            inventory_id: ID de l'inventaire
+            warehouse_id: ID de l'entrepôt
+
+        Returns:
+            Liste des résultats enrichis avec les statuts
+        """
+        # Récupérer tous les job_ids uniques des résultats
+        job_ids = set()
+        for result in results:
+            if result.get('job_id'):
+                job_ids.add(result['job_id'])
+
+        if not job_ids:
+            # Si aucun job_id, retourner les résultats tels quels
+            return results
+
+        # Récupérer tous les jobs avec leurs assignments en une seule requête
+        jobs = Job.objects.filter(
+            id__in=job_ids,
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id
+        ).select_related(
+            'inventory',
+            'warehouse'
+        ).prefetch_related(
+            'assigment_set__counting',
+            'assigment_set__session'
+        )
+
+        # Créer un dictionnaire pour accès rapide : job_id -> job
+        jobs_dict = {job.id: job for job in jobs}
+
+        # Créer un dictionnaire pour les assignments par job et counting order
+        # Structure: {job_id: {counting_order: assignment}}
+        assignments_dict = defaultdict(dict)
+
+        for job in jobs:
+            for assignment in job.assigment_set.all():
+                if assignment.counting:
+                    counting_order = assignment.counting.order
+                    assignments_dict[job.id][counting_order] = assignment
+
+        # Enrichir les résultats
+        enriched_results = []
+        for result in results:
+            enriched_result = dict(result)
+            job_id = result.get('job_id')
+
+            if job_id and job_id in jobs_dict:
+                job = jobs_dict[job_id]
+
+                # Ajouter le statut du job
+                enriched_result['job_status'] = job.status
+
+                # Ajouter les statuts des assignments pour chaque counting order
+                job_assignments = assignments_dict.get(job_id, {})
+
+                # Pour tous les comptages, ajouter le statut de l'assignment
+                # On utilise un format standardisé : assignment_status_counting_X
+                for counting_order, assignment in job_assignments.items():
+                    enriched_result[f'assignment_status_counting_{counting_order}'] = assignment.status
+
+            enriched_results.append(enriched_result)
+
+        return enriched_results
+
 
 class InventoryImportView(APIView):
     """
@@ -504,19 +1577,19 @@ class InventoryImportView(APIView):
         try:
             # Validation du format de la requête
             if 'inventories' not in request.data:
-                return Response({
-                    'success': False,
-                    'message': 'Le champ "inventories" est requis'
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response(
+                    message='Le champ "inventories" est requis',
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
             
             inventories_data = request.data['inventories']
             options = request.data.get('options', {})
             
             if not isinstance(inventories_data, list):
-                return Response({
-                    'success': False,
-                    'message': 'Le champ "inventories" doit être une liste'
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response(
+                    message='Le champ "inventories" doit être une liste',
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
             
             # Options d'importation
             validate_only = options.get('validate_only', False)
@@ -589,13 +1662,25 @@ class InventoryImportView(APIView):
                         break
             
             # Préparation de la réponse
+            summary = {
+                'total': len(inventories_data),
+                'success_count': success_count,
+                'error_count': error_count
+            }
+            
+            # Détermination du code de statut
+            if error_count == 0:
+                status_code = status.HTTP_201_CREATED
+                message = 'Tous les inventaires ont été importés avec succès'
+            elif success_count > 0:
+                status_code = status.HTTP_207_MULTI_STATUS
+                message = f'{success_count} inventaire(s) importé(s) avec succès, {error_count} erreur(s)'
+            else:
+                status_code = status.HTTP_400_BAD_REQUEST
+                message = 'Aucun inventaire n\'a pu être importé'
+            
             response_data = {
-                'success': error_count == 0 or not stop_on_error,
-                'summary': {
-                    'total': len(inventories_data),
-                    'success_count': success_count,
-                    'error_count': error_count
-                }
+                'summary': summary
             }
             
             if return_details:
@@ -604,22 +1689,147 @@ class InventoryImportView(APIView):
                 if errors:
                     response_data['errors'] = errors
             
-            # Détermination du code de statut
             if error_count == 0:
-                status_code = status.HTTP_201_CREATED
-            elif success_count > 0:
-                status_code = status.HTTP_207_MULTI_STATUS
+                return success_response(
+                    data=response_data,
+                    message=message,
+                    status_code=status_code
+                )
             else:
-                status_code = status.HTTP_400_BAD_REQUEST
-            
-            return Response(response_data, status=status_code)
+                return error_response(
+                    message=message,
+                    errors=[err.get('error', 'Erreur inconnue') for err in errors] if errors else [],
+                    status_code=status_code,
+                    **response_data
+                )
             
         except Exception as e:
             logger.error(f"Erreur lors de l'importation des inventaires: {str(e)}", exc_info=True)
-            return Response({
-                'success': False,
-                'message': 'Une erreur inattendue s\'est produite lors de l\'importation'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response(
+                message='Une erreur inattendue s\'est produite lors de l\'importation',
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class InventoryCompleteView(APIView):
+    """
+    Vue pour finaliser un inventaire.
+    Marque un inventaire comme terminé uniquement si tous ses jobs sont terminés.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.service = InventoryService()
+
+    def post(self, request, pk, *args, **kwargs):
+        """
+        Finalise un inventaire en vérifiant que tous les jobs sont terminés.
+        Retourne la liste des jobs non terminés si l'inventaire ne peut pas être finalisé.
+        
+        Args:
+            pk: L'ID de l'inventaire à finaliser
+            
+        Returns:
+            Response: Réponse HTTP avec le statut de l'opération et la liste des jobs non terminés
+        """
+        try:
+            # Finaliser l'inventaire via le service
+            result = self.service.complete_inventory(pk)
+            
+            # Si l'inventaire a été finalisé avec succès
+            if result['success']:
+                # Sérialiser l'inventaire mis à jour
+                serializer = InventoryDetailSerializer(result['inventory'])
+                
+                return success_response(
+                    data=serializer.data,
+                    message=result['message'],
+                    jobs_not_completed=[],
+                    total_jobs=result['total_jobs'],
+                    completed_jobs=result['completed_jobs']
+                )
+            
+            # Si l'inventaire n'a pas pu être finalisé (jobs non terminés)
+            else:
+                return error_response(
+                    message=result['message'],
+                    errors=[f"Job {job.get('reference', job.get('id', 'inconnu'))} non terminé" for job in result.get('jobs_not_completed', [])],
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    jobs_not_completed=result['jobs_not_completed'],
+                    total_jobs=result['total_jobs'],
+                    completed_jobs=result['completed_jobs']
+                )
+            
+        except InventoryNotFoundError as e:
+            logger.warning(f"Inventaire non trouvé lors de la finalisation: {str(e)}")
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+            
+        except InventoryValidationError as e:
+            logger.warning(f"Erreur de validation lors de la finalisation: {str(e)}")
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de la finalisation de l'inventaire: {str(e)}", exc_info=True)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la finalisation de l'inventaire",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class InventoryCloseView(APIView):
+    """
+    Vue pour clôturer un inventaire.
+    Marque un inventaire comme clôturé uniquement s'il est déjà terminé.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.service = InventoryService()
+
+    def post(self, request, pk, *args, **kwargs):
+        """
+        Clôture un inventaire en vérifiant qu'il est déjà terminé.
+        
+        Args:
+            pk: L'ID de l'inventaire à clôturer
+            
+        Returns:
+            Response: Réponse HTTP avec le statut de l'opération
+        """
+        try:
+            # Clôturer l'inventaire via le service
+            inventory = self.service.close_inventory(pk)
+            
+            # Sérialiser l'inventaire mis à jour
+            serializer = InventoryDetailSerializer(inventory)
+            
+            return success_response(
+                data=serializer.data,
+                message="L'inventaire a été marqué comme clôturé avec succès"
+            )
+            
+        except InventoryNotFoundError as e:
+            logger.warning(f"Inventaire non trouvé lors de la clôture: {str(e)}")
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+            
+        except InventoryValidationError as e:
+            logger.warning(f"Erreur de validation lors de la clôture: {str(e)}")
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de la clôture de l'inventaire: {str(e)}", exc_info=True)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la clôture de l'inventaire",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class StockImportView(APIView):
     """
@@ -634,9 +1844,9 @@ class StockImportView(APIView):
         self.stock_service = StockService()
         self.validation_use_case = StockImportValidationUseCase()
 
-    def post(self, request, inventory_id, *args, **kwargs):
+    def post(self, request, inventory_id, warehouse_id, *args, **kwargs):
         """
-        Importe des stocks depuis un fichier Excel pour un inventaire spécifique.
+        Importe des stocks depuis un fichier Excel pour un inventaire et un entrepôt spécifiques.
         
         Règles métier:
         - Inventaire TOURNANT: Un seul import autorisé (refusé si stocks existants)
@@ -644,6 +1854,7 @@ class StockImportView(APIView):
         
         Args:
             inventory_id: L'ID de l'inventaire
+            warehouse_id: L'ID de l'entrepôt
             request.FILES['file']: Le fichier Excel à importer
             
         Format attendu du fichier Excel:
@@ -655,89 +1866,84 @@ class StockImportView(APIView):
         try:
             # Vérifier qu'un fichier a été fourni
             if 'file' not in request.FILES:
-                return Response({
-                    'success': False,
-                    'message': 'Aucun fichier fourni. Utilisez le champ "file" pour uploader le fichier Excel.'
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response(
+                    message='Aucun fichier fourni. Utilisez le champ "file" pour uploader le fichier Excel.',
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
             
             excel_file = request.FILES['file']
             
             # Vérifier l'extension du fichier
             if not excel_file.name.endswith(('.xlsx', '.xls')):
-                return Response({
-                    'success': False,
-                    'message': 'Le fichier doit être au format Excel (.xlsx ou .xls)'
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response(
+                    message='Le fichier doit être au format Excel (.xlsx ou .xls)',
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
             
             # ÉTAPE 1: Validation selon le type d'inventaire via le use case
             validation_result = self.validation_use_case.validate_stock_import(inventory_id)
             
             # Si l'import n'est pas autorisé, retourner l'erreur
             if not validation_result['can_import']:
-                return Response({
-                    'success': False,
-                    'message': validation_result['message'],
-                    'inventory_type': validation_result['inventory_type'],
-                    'existing_stocks_count': validation_result['existing_stocks_count'],
-                    'action_required': validation_result['action_required']
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return error_response(
+                    message=validation_result['message'],
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    inventory_type=validation_result['inventory_type'],
+                    existing_stocks_count=validation_result['existing_stocks_count'],
+                    action_required=validation_result['action_required']
+                )
             
             # ÉTAPE 2: Si l'import est autorisé, procéder à l'import
             result = self.stock_service.import_stocks_from_excel(inventory_id, excel_file)
             
             # Préparer la réponse
-            if result['success']:
-                response_data = {
-                    'success': True,
-                    'message': result['message'],
-                    'inventory_type': validation_result['inventory_type'],
-                    'summary': {
-                        'total_rows': result['total_rows'],
-                        'valid_rows': result['valid_rows'],
-                        'invalid_rows': result['invalid_rows']
-                    }
-                }
-                
-                # Ajouter les détails des stocks importés si disponibles
-                if result.get('imported_stocks'):
-                    response_data['imported_stocks'] = result['imported_stocks']
-                
-                status_code = status.HTTP_201_CREATED
-            else:
-                response_data = {
-                    'success': False,
-                    'message': result['message'],
-                    'inventory_type': validation_result['inventory_type'],
-                    'summary': {
-                        'total_rows': result['total_rows'],
-                        'valid_rows': result['valid_rows'],
-                        'invalid_rows': result['invalid_rows']
-                    },
-                    'errors': result.get('errors', [])
-                }
-                status_code = status.HTTP_400_BAD_REQUEST
+            summary = {
+                'total_rows': result['total_rows'],
+                'valid_rows': result['valid_rows'],
+                'invalid_rows': result['invalid_rows']
+            }
             
-            return Response(response_data, status=status_code)
+            extra_data = {
+                'inventory_type': validation_result['inventory_type'],
+                'summary': summary
+            }
+            
+            if result.get('imported_stocks'):
+                extra_data['imported_stocks'] = result['imported_stocks']
+            
+            if result['success']:
+                return success_response(
+                    data=extra_data,
+                    message=result['message'],
+                    status_code=status.HTTP_201_CREATED
+                )
+            else:
+                return error_response(
+                    message=result['message'],
+                    errors=result.get('errors', []),
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    **extra_data
+                )
             
         except InventoryNotFoundError as e:
             logger.warning(f"Inventaire non trouvé lors de l'import de stocks: {str(e)}")
-            return Response({
-                'success': False,
-                'message': str(e)
-            }, status=status.HTTP_404_NOT_FOUND)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
             
         except StockValidationError as e:
             logger.warning(f"Erreur de validation lors de l'import de stocks: {str(e)}")
-            return Response({
-                'success': False,
-                'message': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
             
         except Exception as e:
             logger.error(f"Erreur lors de l'import de stocks: {str(e)}", exc_info=True)
-            return Response({
-                'success': False,
-                'message': 'Une erreur inattendue s\'est produite lors de l\'import'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
+            return error_response(
+                message='Une erreur inattendue s\'est produite lors de l\'import',
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            ) 
 
  

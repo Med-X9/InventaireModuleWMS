@@ -4,31 +4,16 @@ from datetime import datetime
 
 class JobBatchAssignmentSerializer(serializers.Serializer):
     """
-    Serializer pour l'affectation en lot de sessions et ressources aux jobs (nouveau format)
+    Serializer pour l'affectation en lot de sessions et ressources aux jobs
+    Supporte les comptages dynamiques (1, 2, 3, 4, 5, ...) via team1, team2, team3, team4, etc.
     """
     job_id = serializers.IntegerField(help_text="ID du job")
-    team1 = serializers.IntegerField(required=False, allow_null=True, help_text="ID de la session du 1er comptage (optionnel)")
-    date1 = serializers.DateTimeField(required=False, allow_null=True, help_text="Date d'affectation du 1er comptage (optionnel)")
-    team2 = serializers.IntegerField(required=False, allow_null=True, help_text="ID de la session du 2ème comptage (optionnel)")
-    date2 = serializers.DateTimeField(required=False, allow_null=True, help_text="Date d'affectation du 2ème comptage (optionnel)")
     resources = serializers.ListField(
         child=serializers.IntegerField(),
         required=False,
         default=list,
         help_text="Liste des IDs de ressources à affecter au job (optionnel)"
     )
-
-    def validate_team1(self, value):
-        """Valider team1"""
-        if value is not None and (not isinstance(value, int) or value <= 0):
-            raise serializers.ValidationError("team1 doit être un ID valide (nombre positif)")
-        return value
-
-    def validate_team2(self, value):
-        """Valider team2"""
-        if value is not None and (not isinstance(value, int) or value <= 0):
-            raise serializers.ValidationError("team2 doit être un ID valide (nombre positif)")
-        return value
 
     def validate_job_id(self, value):
         """Valider job_id"""
@@ -43,6 +28,31 @@ class JobBatchAssignmentSerializer(serializers.Serializer):
                 if not isinstance(resource_id, int) or resource_id <= 0:
                     raise serializers.ValidationError(f"Ressource ID {resource_id} doit être un nombre positif")
         return value
+    
+    def to_internal_value(self, data):
+        """
+        Accepte les champs dynamiques team1, team2, team3, team4, etc.
+        avec leurs counting_order et date correspondants
+        """
+        # Appeler la méthode parente pour valider les champs définis
+        validated_data = super().to_internal_value(data)
+        
+        # Extraire tous les teams dynamiques (team1, team2, team3, etc.)
+        teams_data = {}
+        for key, value in data.items():
+            if key.startswith('team') and key[4:].isdigit():
+                team_num = int(key[4:])
+                if value is not None:
+                    if not isinstance(value, int) or value <= 0:
+                        raise serializers.ValidationError(f"{key} doit être un ID valide (nombre positif)")
+                    teams_data[team_num] = {
+                        'session_id': value,
+                        'counting_order': data.get(f'counting_order{team_num}', team_num),
+                        'date': data.get(f'date{team_num}')
+                    }
+        
+        validated_data['teams'] = teams_data
+        return validated_data
 
 class JobBatchAssignmentRequestSerializer(serializers.Serializer):
     """
@@ -90,21 +100,36 @@ class JobBatchAssignmentRequestSerializer(serializers.Serializer):
                 if not job_id:
                     raise serializers.ValidationError("job_id est obligatoire pour chaque job")
                 
-                has_team1 = job_data.get('team1') is not None
-                has_team2 = job_data.get('team2') is not None
-                has_resources = job_data.get('resources', [])
+                teams = job_data.get('teams', {})
+                has_resources = len(job_data.get('resources', [])) > 0
                 
-                if not (has_team1 or has_team2 or has_resources):
+                # Vérifier qu'au moins une affectation est fournie
+                if not (teams or has_resources):
                     raise serializers.ValidationError(
-                        f"Le job {job_id} doit avoir au moins une affectation (team1, team2 ou resources)"
+                        f"Le job {job_id} doit avoir au moins une affectation (team1, team2, team3, etc. ou resources)"
                     )
                 
-                # Si team1 fourni sans date1, date1 = now
-                if has_team1 and job_data.get('date1') is None:
-                    job_data['date1'] = timezone.now()
-                # Si team2 fourni sans date2, date2 = now
-                if has_team2 and job_data.get('date2') is None:
-                    job_data['date2'] = timezone.now()
+                # Vérifier les ordres de comptage et les doublons
+                counting_orders = []
+                for team_num, team_info in teams.items():
+                    counting_order = team_info.get('counting_order', team_num)
+                    if counting_order < 1:
+                        raise serializers.ValidationError(
+                            f"Le job {job_id} a un counting_order invalide pour team{team_num}: {counting_order}"
+                        )
+                    counting_orders.append(counting_order)
+                    
+                    # Si date n'est pas fournie, utiliser maintenant
+                    if team_info.get('date') is None:
+                        team_info['date'] = timezone.now()
+                
+                # Vérifier qu'il n'y a pas de doublons d'ordre de comptage
+                if len(counting_orders) != len(set(counting_orders)):
+                    duplicates = [order for order in counting_orders if counting_orders.count(order) > 1]
+                    raise serializers.ValidationError(
+                        f"Le job {job_id} a des ordres de comptage en double: {set(duplicates)}"
+                    )
+                        
         except Exception as e:
             raise serializers.ValidationError(f"Erreur de validation: {str(e)}")
         
@@ -119,6 +144,74 @@ class JobBatchAssignmentResponseSerializer(serializers.Serializer):
     total_jobs_processed = serializers.IntegerField()
     jobs_results = serializers.ListField()
     processing_date = serializers.DateTimeField()
+
+class JobReassignmentSerializer(serializers.Serializer):
+    """
+    Serializer pour la réaffectation d'une équipe à un job pour un comptage spécifique
+
+    Format:
+    {
+        "job_id": 1,
+        "team": 5,
+        "counting_order": 1,
+        "complete": true/false
+    }
+    """
+    job_id = serializers.IntegerField(help_text="ID du job à réaffecter")
+    team = serializers.IntegerField(help_text="ID de l'équipe (session) à affecter")
+    counting_order = serializers.IntegerField(help_text="Ordre du comptage (1 ou 2)")
+    complete = serializers.BooleanField(
+        default=False,
+        help_text="Si true, supprime toutes les données liées et remet à zéro"
+    )
+
+    def validate_job_id(self, value):
+        """Valider job_id"""
+        if not isinstance(value, int) or value <= 0:
+            raise serializers.ValidationError("job_id doit être un ID valide (nombre positif)")
+        return value
+
+    def validate_team(self, value):
+        """Valider team (session ID)"""
+        if not isinstance(value, int) or value <= 0:
+            raise serializers.ValidationError("team doit être un ID valide (nombre positif)")
+        return value
+
+    def validate_counting_order(self, value):
+        """Valider counting_order"""
+        if not isinstance(value, int) or value not in [1, 2]:
+            raise serializers.ValidationError("counting_order doit être 1 ou 2")
+        return value
+
+class JobReassignmentRequestSerializer(serializers.Serializer):
+    """
+    Serializer pour la requête de réaffectation
+    """
+    job_id = serializers.IntegerField(help_text="ID du job à réaffecter")
+    team = serializers.IntegerField(help_text="ID de l'équipe (session) à affecter")
+    counting_order = serializers.IntegerField(help_text="Ordre du comptage (1 ou 2)")
+    complete = serializers.BooleanField(
+        default=False,
+        help_text="Si true, supprime toutes les données liées et remet à zéro"
+    )
+
+    def validate_job_id(self, value):
+        """Valider job_id"""
+        if not isinstance(value, int) or value <= 0:
+            raise serializers.ValidationError("job_id doit être un ID valide (nombre positif)")
+        return value
+
+    def validate_team(self, value):
+        """Valider team (session ID)"""
+        if not isinstance(value, int) or value <= 0:
+            raise serializers.ValidationError("team doit être un ID valide (nombre positif)")
+        return value
+
+    def validate_counting_order(self, value):
+        """Valider counting_order"""
+        if not isinstance(value, int) or value not in [1, 2]:
+            raise serializers.ValidationError("counting_order doit être 1 ou 2")
+        return value
 
 class JobAssignmentResultSerializer(serializers.Serializer):
     """

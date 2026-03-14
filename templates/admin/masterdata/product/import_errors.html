@@ -1,0 +1,614 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static %}
+
+{% block title %}Erreurs d'import | {{ site_title|default:_('Django site admin') }}{% endblock %}
+
+{% block extrahead %}
+{{ block.super }}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">{% trans 'Home' %}</a>
+    &rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
+    &rsaquo; <a href="{% url 'admin:masterdata_product_changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
+    &rsaquo; <a href="{% url 'admin:masterdata_product_import_status' import_task.id %}">Statut de l'import</a>
+    &rsaquo; {% trans 'Erreurs' %}
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="errors-container">
+    <div class="errors-header">
+        <div class="header-content">
+            <div class="error-icon">
+                <i class="fas fa-exclamation-triangle"></i>
+            </div>
+            <div>
+                <h1>Erreurs d'import</h1>
+                <p class="file-name">{{ import_task.file_name }}</p>
+            </div>
+        </div>
+        {% if import_task.errors_file_path %}
+        <a href="{% url 'admin:masterdata_product_download_errors' import_task.id %}" class="btn-download-excel">
+            <i class="fas fa-file-excel"></i>
+            <span>Télécharger Excel</span>
+        </a>
+        {% endif %}
+    </div>
+
+    <div class="summary-cards">
+        <div class="summary-card">
+            <div class="card-icon total">
+                <i class="fas fa-list"></i>
+            </div>
+            <div class="card-content">
+                <div class="card-value">{{ import_task.total_rows }}</div>
+                <div class="card-label">Total lignes</div>
+            </div>
+        </div>
+        <div class="summary-card">
+            <div class="card-icon success">
+                <i class="fas fa-check-circle"></i>
+            </div>
+            <div class="card-content">
+                <div class="card-value">{{ import_task.imported_count }}</div>
+                <div class="card-label">Importées</div>
+            </div>
+        </div>
+        <div class="summary-card">
+            <div class="card-icon updated">
+                <i class="fas fa-sync-alt"></i>
+            </div>
+            <div class="card-content">
+                <div class="card-value">{{ import_task.updated_count }}</div>
+                <div class="card-label">Mises à jour</div>
+            </div>
+        </div>
+        <div class="summary-card error">
+            <div class="card-icon error-icon">
+                <i class="fas fa-times-circle"></i>
+            </div>
+            <div class="card-content">
+                <div class="card-value">{{ import_task.error_count }}</div>
+                <div class="card-label">Erreurs</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="status-badge-container">
+        <span class="status-badge status-{{ import_task.status|lower }}">
+            <i class="fas {% if import_task.status == 'CANCELLED' %}fa-ban{% elif import_task.status == 'FAILED' %}fa-times-circle{% else %}fa-info-circle{% endif %}"></i>
+            {{ import_task.get_status_display }}
+        </span>
+    </div>
+
+    {% if errors %}
+    <div class="errors-table-card">
+        <div class="table-header">
+            <h2>
+                <i class="fas fa-list-ul"></i>
+                Détail des erreurs ({{ errors|length }})
+            </h2>
+            <div class="table-actions">
+                <button class="btn-filter active" data-filter="all">
+                    <i class="fas fa-filter"></i> Toutes
+                </button>
+                <button class="btn-filter" data-filter="validation">
+                    <i class="fas fa-exclamation-circle"></i> Validation
+                </button>
+            </div>
+        </div>
+        
+        <div class="table-wrapper">
+            <table id="errors-table" class="errors-table">
+                <thead>
+                    <tr>
+                        <th><i class="fas fa-hashtag"></i> Ligne</th>
+                        <th><i class="fas fa-tag"></i> Type</th>
+                        <th><i class="fas fa-columns"></i> Champ</th>
+                        <th><i class="fas fa-keyboard"></i> Valeur</th>
+                        <th><i class="fas fa-exclamation-triangle"></i> Message</th>
+                        <th><i class="fas fa-barcode"></i> Barcode</th>
+                        <th><i class="fas fa-code"></i> Code produit</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for error in errors %}
+                    <tr data-error-type="{{ error.error_type|lower }}">
+                        <td class="row-number">{{ error.row_number }}</td>
+                        <td>
+                            <span class="error-badge error-{{ error.error_type|lower }}">
+                                <i class="fas {% if error.error_type == 'VALIDATION_ERROR' %}fa-exclamation-circle{% else %}fa-times-circle{% endif %}"></i>
+                                {{ error.error_type }}
+                            </span>
+                        </td>
+                        <td class="field-name">{{ error.field_name|default:"-" }}</td>
+                        <td class="field-value">{{ error.field_value|truncatewords:10|default:"-" }}</td>
+                        <td class="error-message">
+                            <i class="fas fa-info-circle"></i>
+                            {{ error.error_message }}
+                        </td>
+                        <td class="barcode">{{ error.row_data.barcode|default:"-" }}</td>
+                        <td class="product-code">{{ error.row_data.internal_product_code|default:"-" }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% else %}
+    <div class="no-errors-card">
+        <div class="no-errors-icon">
+            <i class="fas fa-check-circle"></i>
+        </div>
+        <h3>Aucune erreur enregistrée</h3>
+        <p>L'import s'est déroulé sans erreur.</p>
+    </div>
+    {% endif %}
+
+    <div class="action-buttons">
+        <a href="{% url 'admin:masterdata_product_import_status' import_task.id %}" class="btn-secondary">
+            <i class="fas fa-arrow-left"></i>
+            Retour au statut
+        </a>
+        <a href="{% url 'admin:masterdata_product_changelist' %}" class="btn-primary">
+            <i class="fas fa-list"></i>
+            Retour à la liste
+        </a>
+    </div>
+</div>
+
+<style>
+.errors-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 30px 20px;
+}
+
+.errors-header {
+    background: white;
+    border-radius: 16px;
+    padding: 30px;
+    margin-bottom: 30px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 20px;
+}
+
+.header-content {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.error-icon {
+    width: 60px;
+    height: 60px;
+    background: linear-gradient(135deg, #f44336 0%, #c62828 100%);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 28px;
+    box-shadow: 0 4px 15px rgba(244, 67, 54, 0.3);
+}
+
+.errors-header h1 {
+    margin: 0 0 5px 0;
+    font-size: 28px;
+    color: #2c3e50;
+    font-weight: 700;
+}
+
+.file-name {
+    margin: 0;
+    color: #7f8c8d;
+    font-size: 14px;
+}
+
+.btn-download-excel {
+    background: linear-gradient(135deg, #4caf50 0%, #2e7d32 100%);
+    color: white;
+    padding: 12px 24px;
+    border-radius: 10px;
+    text-decoration: none;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 4px 15px rgba(76, 175, 80, 0.4);
+    transition: all 0.3s ease;
+}
+
+.btn-download-excel:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(76, 175, 80, 0.5);
+}
+
+.summary-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.summary-card {
+    background: white;
+    border-radius: 12px;
+    padding: 25px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.summary-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
+}
+
+.summary-card.error {
+    border-left: 4px solid #f44336;
+}
+
+.card-icon {
+    width: 60px;
+    height: 60px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    color: white;
+    flex-shrink: 0;
+}
+
+.card-icon.total {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.card-icon.success {
+    background: linear-gradient(135deg, #4caf50 0%, #2e7d32 100%);
+}
+
+.card-icon.updated {
+    background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%);
+}
+
+.card-icon.error-icon {
+    background: linear-gradient(135deg, #f44336 0%, #c62828 100%);
+}
+
+.card-value {
+    font-size: 32px;
+    font-weight: 700;
+    color: #2c3e50;
+    line-height: 1;
+}
+
+.card-label {
+    font-size: 14px;
+    color: #7f8c8d;
+    margin-top: 5px;
+}
+
+.status-badge-container {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.status-badge {
+    padding: 12px 24px;
+    border-radius: 12px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 16px;
+}
+
+.status-cancelled, .status-failed {
+    background: linear-gradient(135deg, #f44336 0%, #c62828 100%);
+    color: white;
+}
+
+.errors-table-card {
+    background: white;
+    border-radius: 16px;
+    padding: 30px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+    margin-bottom: 30px;
+}
+
+.table-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 25px;
+    flex-wrap: wrap;
+    gap: 15px;
+}
+
+.table-header h2 {
+    margin: 0;
+    font-size: 20px;
+    color: #2c3e50;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.table-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.btn-filter {
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+    background: white;
+    color: #666;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.3s ease;
+}
+
+.btn-filter:hover {
+    background: #f5f5f5;
+    border-color: #667eea;
+}
+
+.btn-filter.active {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-color: transparent;
+}
+
+.table-wrapper {
+    overflow-x: auto;
+}
+
+.errors-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+.errors-table thead {
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+}
+
+.errors-table th {
+    padding: 15px;
+    text-align: left;
+    font-weight: 600;
+    color: #2c3e50;
+    border-bottom: 2px solid #dee2e6;
+    white-space: nowrap;
+}
+
+.errors-table th i {
+    margin-right: 8px;
+    color: #667eea;
+}
+
+.errors-table td {
+    padding: 15px;
+    border-bottom: 1px solid #f0f0f0;
+    color: #555;
+}
+
+.errors-table tbody tr {
+    transition: background-color 0.2s ease;
+}
+
+.errors-table tbody tr:hover {
+    background-color: #f8f9fa;
+}
+
+.row-number {
+    font-weight: 600;
+    color: #667eea;
+    text-align: center;
+}
+
+.error-badge {
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.error-validation_error {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.error-validation_error i {
+    color: #ffc107;
+}
+
+.error-other {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.error-other i {
+    color: #f44336;
+}
+
+.error-message {
+    color: #f44336;
+    font-weight: 500;
+    max-width: 300px;
+}
+
+.error-message i {
+    margin-right: 6px;
+    opacity: 0.7;
+}
+
+.field-name, .field-value {
+    color: #666;
+    font-size: 13px;
+}
+
+.barcode, .product-code {
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    color: #555;
+}
+
+.no-errors-card {
+    background: white;
+    border-radius: 16px;
+    padding: 60px 30px;
+    text-align: center;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+    margin-bottom: 30px;
+}
+
+.no-errors-icon {
+    width: 100px;
+    height: 100px;
+    margin: 0 auto 20px;
+    background: linear-gradient(135deg, #4caf50 0%, #2e7d32 100%);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 48px;
+    color: white;
+    box-shadow: 0 10px 30px rgba(76, 175, 80, 0.3);
+}
+
+.no-errors-card h3 {
+    margin: 0 0 10px 0;
+    font-size: 24px;
+    color: #2c3e50;
+}
+
+.no-errors-card p {
+    margin: 0;
+    color: #7f8c8d;
+    font-size: 16px;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.btn-primary, .btn-secondary {
+    padding: 14px 30px;
+    border-radius: 10px;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 15px;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    transition: all 0.3s ease;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+}
+
+.btn-secondary {
+    background: #f5f5f5;
+    color: #666;
+    border: 1px solid #e0e0e0;
+}
+
+.btn-secondary:hover {
+    background: #eeeeee;
+    transform: translateY(-2px);
+}
+
+@media (max-width: 768px) {
+    .errors-header {
+        flex-direction: column;
+        text-align: center;
+    }
+    
+    .summary-cards {
+        grid-template-columns: 1fr;
+    }
+    
+    .table-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .errors-table {
+        font-size: 12px;
+    }
+    
+    .errors-table th,
+    .errors-table td {
+        padding: 10px 8px;
+    }
+    
+    .action-buttons {
+        flex-direction: column;
+    }
+    
+    .btn-primary, .btn-secondary {
+        width: 100%;
+        justify-content: center;
+    }
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const filterButtons = document.querySelectorAll('.btn-filter');
+    const tableRows = document.querySelectorAll('#errors-table tbody tr');
+    
+    filterButtons.forEach(btn => {
+        btn.addEventListener('click', function() {
+            // Mettre à jour les boutons actifs
+            filterButtons.forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            
+            const filter = this.dataset.filter;
+            
+            // Filtrer les lignes
+            tableRows.forEach(row => {
+                if (filter === 'all') {
+                    row.style.display = '';
+                } else if (filter === 'validation') {
+                    const errorType = row.dataset.errorType;
+                    row.style.display = errorType && errorType.includes('validation') ? '' : 'none';
+                }
+            });
+        });
+    });
+});
+</script>
+{% endblock %}

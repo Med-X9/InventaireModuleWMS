@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from django.utils import timezone
 from datetime import datetime
+from ..models import Assigment, Job
 
 class JobAssignmentSerializer(serializers.Serializer):
     """
@@ -15,8 +16,7 @@ class JobAssignmentSerializer(serializers.Serializer):
     )
     counting_order = serializers.IntegerField(
         min_value=1,
-        max_value=2,
-        help_text="Ordre du comptage (1 ou 2)"
+        help_text="Ordre du comptage (1, 2, 3, 4, 5, ...)"
     )
     session_id = serializers.IntegerField(
         required=False,
@@ -45,8 +45,8 @@ class JobAssignmentSerializer(serializers.Serializer):
         """
         Valide l'ordre du comptage
         """
-        if value not in [1, 2]:
-            raise serializers.ValidationError("L'ordre du comptage doit être 1 ou 2")
+        if value < 1:
+            raise serializers.ValidationError("L'ordre du comptage doit être supérieur ou égal à 1")
         
         return value
     
@@ -88,4 +88,73 @@ class AssignmentRulesSerializer(serializers.Serializer):
     """
     Serializer pour les règles d'affectation
     """
-    rules = serializers.DictField() 
+    rules = serializers.DictField()
+
+class JobBasicSerializer(serializers.ModelSerializer):
+    """
+    Serializer basique pour un job
+    Utilise les références au lieu des IDs
+    """
+    warehouse_reference = serializers.CharField(source='warehouse.reference', read_only=True)
+    warehouse_name = serializers.CharField(source='warehouse.warehouse_name', read_only=True)
+    inventory_reference = serializers.CharField(source='inventory.reference', read_only=True)
+    inventory_label = serializers.CharField(source='inventory.label', read_only=True)
+    
+    class Meta:
+        model = Job
+        fields = ['id', 'reference', 'status', 'warehouse_reference', 'warehouse_name', 
+                  'inventory_reference', 'inventory_label']
+
+class AssignmentSerializer(serializers.ModelSerializer):
+    """
+    Serializer pour une affectation (sans le job imbriqué)
+    Utilise les références au lieu des IDs
+    """
+    counting_order = serializers.IntegerField(source='counting.order', read_only=True)
+    counting_reference = serializers.CharField(source='counting.reference', read_only=True)
+    counting_count_mode = serializers.CharField(source='counting.count_mode', read_only=True)
+    job_reference = serializers.CharField(source='job.reference', read_only=True)
+    
+    class Meta:
+        model = Assigment
+        fields = ['reference', 'status', 'date_start', 'transfert_date', 
+                  'entame_date', 'affecte_date', 'pret_date', 'counting_order', 
+                  'counting_reference', 'counting_count_mode', 'job_reference']
+
+class AssignmentReopenWithLocationsSerializer(serializers.Serializer):
+    """
+    Serializer pour la requête de réouverture d'un assignment avec remise des emplacements en attente.
+    Body: { "emplacement_ids": [1, 2, 3] } ou { "location_ids": [1, 2, 3] }
+    """
+    emplacement_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        required=False,
+        help_text="Liste des IDs des emplacements (Location) à remettre en attente"
+    )
+    location_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        required=False,
+        help_text="Alias de emplacement_ids - liste des IDs des emplacements"
+    )
+
+    def validate(self, data):
+        """Accepte emplacement_ids ou location_ids, normalise en location_ids (liste optionnelle)."""
+        emplacement_ids = data.get('emplacement_ids') or []
+        location_ids = data.get('location_ids') or []
+        combined = list(dict.fromkeys(emplacement_ids + location_ids))  # fusion sans doublons
+        # Ici, la liste peut être vide : dans ce cas, seul l'assignment est remis à ENTAME
+        data['location_ids'] = combined
+        return data
+
+
+class SessionAssignmentsResponseSerializer(serializers.Serializer):
+    """
+    Serializer pour la réponse de récupération des affectations d'une session
+    Les jobs sont séparés des assignments
+    """
+    session_id = serializers.IntegerField()
+    session_username = serializers.CharField()
+    jobs = JobBasicSerializer(many=True)
+    assignments = AssignmentSerializer(many=True)
+    total_assignments = serializers.IntegerField()
+    total_jobs = serializers.IntegerField() 

@@ -6,23 +6,34 @@ networks:
 
 services:
   web:
-    # Use pre-built image with environment variable for tag
-    image: smatchdigital/backend-app:${IMAGE_TAG:-prod-latest}
+    # Use pre-built image with environment variable for tag (IMAGE_TAG must be défini dans .env)
+    # Utilisation d'une valeur par défaut pour éviter les erreurs "invalid reference format"
+    # si IMAGE_TAG n'est pas défini correctement dans l'environnement ou le fichier .env.
+    image: smatchdigital/backend-app:${IMAGE_TAG:-latest}
     container_name: inventaire-web
     networks:
       - inventaire-net
+    # Mapping host.docker.internal vers l'IP de l'hôte pour accéder à PostgreSQL installé sur le VPS
+    # Note: host-gateway nécessite Docker Compose v2.1.0+
+    # Alternative si version plus ancienne: utiliser l'IP directe (ex: "172.17.0.1:172.17.0.1")
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Commande mise sur une seule ligne pour éviter les problèmes de shell ("--workers not found")
     command: >
-      sh -c "
-        python manage.py migrate --noinput &&
-        python manage.py collectstatic --noinput &&
-        gunicorn project.wsgi:application -b 0.0.0.0:8000
-      "
+        sh -c "python manage.py migrate --noinput &&
+              python manage.py collectstatic --noinput --clear --verbosity=0 &&
+              exec gunicorn project.wsgi:application -b 0.0.0.0:8000 --workers 2 --threads 4 --timeout 600 --preload --log-level info"
+
+
     # Removed: .:/app volume (don't override production image code)
     volumes:
       - static_volume:/app/staticfiles
       - media_volume:/app/media
       - logs_volume:/app/logs
       - static_dir:/app/static
+      # Volume pour les fichiers d'importation
+      # Utilise le chemin absolu pour s'assurer que le dossier existe sur le serveur
+      - /tmp/deployment/backend/data:/app/data
     ports:
       - "8000:8000"
     env_file: .env
@@ -37,6 +48,8 @@ services:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
       CORS_ALLOW_ALL_ORIGINS: ${CORS_ALLOW_ALL_ORIGINS}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+    cpus: 2
+    mem_limit: 6g
 
   nginx:
     networks:
@@ -46,8 +59,12 @@ services:
     volumes:
       - static_volume:/app/staticfiles
       - media_volume:/app/media
+      # Montre les certificats SSL du host dans le container (à créer sur le serveur)
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+      - /etc/ssl/private:/etc/ssl/private:ro
     ports:
       - "80:80"
+      - "443:443"
     depends_on:
       - web
     restart: unless-stopped

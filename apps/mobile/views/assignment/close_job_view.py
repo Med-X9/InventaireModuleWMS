@@ -1,0 +1,131 @@
+from rest_framework import status
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+
+from apps.mobile.permissions import MobileGroupPermission
+from apps.mobile.services.assignment_service import AssignmentService
+from apps.mobile.serializers import CloseJobSerializer
+from apps.mobile.utils import success_response, error_response, validation_error_response
+from apps.mobile.exceptions import (
+    AssignmentNotFoundException,
+    InvalidStatusTransitionException,
+    JobNotFoundException,
+    PersonValidationException,
+    UserNotAssignedException
+)
+
+
+class CloseJobView(APIView):
+    """
+    Vue pour clôturer un assignment et potentiellement le job associé.
+    
+    Accessible uniquement aux utilisateurs des groupes admin / operateur.
+    
+    Cette API :
+    1. Vérifie que l'assignment est affecté à l'utilisateur authentifié
+    2. Marque l'assignment comme TERMINE
+    3. Si l'assignment a un counting_order de 1 ou 2, synchronise les CountingDetail :
+       - Vérifie si l'autre assignment (order 2 si order 1, ou order 1 si order 2) est TERMINE
+       - Si oui, compare les CountingDetail des deux countings en batch
+       - Crée les lignes manquantes dans chaque counting avec quantité 0
+       - Les lignes sont comparées par (location_id, product_id, dlc, n_lot)
+    4. Vérifie si TOUS les assignments du job sont TERMINE
+    5. Vérifie si TOUS les écarts du job ont été résolus (final_result != null)
+    6. Si tous les assignments sont terminés ET tous les écarts sont résolus, marque le job comme TERMINE
+    
+    URL: /api/mobile/job/{job_id}/close/{assignment_id}/
+    """
+    permission_classes = [IsAuthenticated, MobileGroupPermission]
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.assignment_service = AssignmentService()
+    
+    def post(self, request, job_id, assignment_id):
+        """
+        Clôture un assignment et vérifie si le job peut être clôturé.
+        
+        Args:
+            job_id: ID du job (depuis l'URL)
+            assignment_id: ID de l'assignment (depuis l'URL)
+            request.data: Doit contenir {"personnes": [id1, id2]} avec min 1, max 2 personnes
+            
+        Returns:
+            Response avec les informations de clôture incluant :
+            - Le statut de l'assignment (toujours TERMINE)
+            - Le statut du job (TERMINE si tous les assignments sont terminés)
+            - Les informations sur les conditions de clôture du job
+            - Les informations de synchronisation des CountingDetail (si applicable)
+        """
+        try:
+            # Valider les données d'entrée avec le serializer
+            serializer = CloseJobSerializer(data=request.data)
+            if not serializer.is_valid():
+                return validation_error_response(
+                    serializer.errors,
+                    message="Erreur de validation lors de la clôture du job"
+                )
+            
+            # Récupérer les IDs des personnes validés
+            personnes_ids = serializer.validated_data['personnes']
+            
+            # Récupérer l'ID de l'utilisateur authentifié
+            user_id = request.user.id
+            
+            # Clôturer l'assignment et vérifier si le job peut être clôturé
+            result = self.assignment_service.close_job(
+                job_id=job_id,
+                assignment_id=assignment_id,
+                personnes_ids=personnes_ids,
+                user_id=user_id
+            )
+            
+            # Message adapté selon si le job a été clôturé ou non
+            if result.get('job_closure_status', {}).get('job_closed', False):
+                message = "Assignment et job clôturés avec succès"
+            else:
+                message = "Assignment clôturé avec succès. Le job sera clôturé lorsque tous les assignments seront terminés."
+            
+            return success_response(
+                data=result,
+                message=message
+            )
+            
+        except JobNotFoundException as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+            
+        except AssignmentNotFoundException as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+            
+        except InvalidStatusTransitionException as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            
+        except PersonValidationException as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            
+        except UserNotAssignedException as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_403_FORBIDDEN
+            )
+            
+        except Exception as e:
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la clôture du job",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+

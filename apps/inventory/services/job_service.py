@@ -1,10 +1,14 @@
+import logging
 from django.db import transaction
 from ..repositories.job_repository import JobRepository
 from ..exceptions.job_exceptions import JobCreationError
-from ..models import Job, JobDetail, Assigment, JobDetailRessource
+from ..models import Job, JobDetail, Assigment, JobDetailRessource, CountingDetail, Counting
 from django.utils import timezone
 from ..interfaces.job_interface import JobServiceInterface
 from typing import List, Dict, Any
+from django.db.models import Q, Count, Case, When, IntegerField
+
+logger = logging.getLogger(__name__)
 
 class JobService(JobServiceInterface):
     """
@@ -60,8 +64,8 @@ class JobService(JobServiceInterface):
                 locations.append(location)
             
             # Créer un seul job pour tous les emplacements
+            # La référence sera générée automatiquement par la méthode save() du modèle
             job = self.repository.create_job(
-                reference=Job().generate_reference(Job.REFERENCE_PREFIX),
                 status='EN ATTENTE',
                 en_attente_date=timezone.now(),
                 warehouse=warehouse,
@@ -74,7 +78,8 @@ class JobService(JobServiceInterface):
                     reference=JobDetail().generate_reference(JobDetail.REFERENCE_PREFIX),
                     location=location,
                     job=job,
-                    status='EN ATTENTE'
+                    status='EN ATTENTE',
+                    en_attente_date=timezone.now(),
                 )
             
             # Créer les assignements selon la configuration des comptages
@@ -308,7 +313,12 @@ class JobService(JobServiceInterface):
         except JobCreationError:
             raise
         except Exception as e:
-            raise JobCreationError(f"Erreur inattendue lors de la validation des jobs : {str(e)}")
+            import traceback
+            logger.error(f"Erreur inattendue lors de la validation des jobs: {str(e)}", exc_info=True)
+            logger.error(f"Type d'erreur: {type(e).__name__}")
+            logger.error(f"Job IDs concernés: {job_ids}")
+            logger.error(f"Traceback complet: {traceback.format_exc()}")
+            raise JobCreationError(f"Erreur technique lors de la validation des jobs: {str(e)}")
 
     @transaction.atomic
     def make_jobs_ready(self, job_ids):
@@ -432,22 +442,34 @@ class JobService(JobServiceInterface):
         """
         from ..models import Assigment, Counting
         current_time = timezone.now()
-        updated_assignments = []
+        updated_jobs = []
         for job_id in job_ids:
+            job = Job.objects.filter(id=job_id).first()
+            if not job:
+                raise JobCreationError(f"Job avec l'ID {job_id} non trouvé.")
+            job_reference = job.reference
+            
             for order in orders:
                 assignment = Assigment.objects.select_related('counting').filter(job_id=job_id, counting__order=order).first()
                 if not assignment:
-                    raise JobCreationError(f"Aucune assignation trouvée pour le job {job_id} et le comptage d'ordre {order}.")
+                    raise JobCreationError(f"Aucune assignation trouvée pour le job {job_reference} et le comptage d'ordre {order}.")
                 if assignment.status == 'PRET':
-                    raise JobCreationError(f"Le job {job_id} pour le comptage d'ordre {order} est déjà au statut PRET.")
+                    raise JobCreationError(f"Le job {job_reference} pour le comptage d'ordre {order} est déjà au statut PRET.")
                 if assignment.status != 'AFFECTE':
-                    raise JobCreationError(f"Le job {job_id} pour le comptage d'ordre {order} n'est pas au statut AFFECTE (statut actuel : {assignment.status}).")
+                    raise JobCreationError(f"Le job {job_reference} pour le comptage d'ordre {order} n'est pas au statut AFFECTE (statut actuel : {assignment.status}).")
                 assignment.status = 'PRET'
                 assignment.pret_date = current_time
                 assignment.save()
-                updated_assignments.append({'job_id': job_id, 'order': order, 'assignment_id': assignment.id})
+            
+            # Ajouter le job une seule fois avec ses informations
+            if not any(j.get('job_reference') == job_reference for j in updated_jobs):
+                updated_jobs.append({
+                    'job_reference': job_reference,
+                    'counting_orders': [order for order in orders]
+                })
+        
         return {
-            'updated_assignments': updated_assignments,
+            'updated_jobs': updated_jobs,
             'ready_date': current_time
         }
 
@@ -522,7 +544,6 @@ class JobService(JobServiceInterface):
         from ..models import Assigment, Counting
         
         current_time = timezone.now()
-        transferred_assignments = []
         transferred_jobs = []
         errors = []
         
@@ -532,6 +553,13 @@ class JobService(JobServiceInterface):
             raise JobCreationError(f"Aucun comptage trouvé avec l'ordre {counting_order}")
         
         for job_id in job_ids:
+            # Récupérer le job pour obtenir sa référence
+            job = Job.objects.filter(id=job_id).first()
+            if not job:
+                errors.append(f"Job avec l'ID {job_id} non trouvé")
+                continue
+            job_reference = job.reference
+            
             # Récupérer l'assignement pour ce job et cet ordre de comptage
             assignment = Assigment.objects.select_related('job', 'counting').filter(
                 job_id=job_id, 
@@ -539,12 +567,12 @@ class JobService(JobServiceInterface):
             ).first()
             
             if not assignment:
-                errors.append(f"Aucune assignation trouvée pour le job {job_id} et le comptage d'ordre {counting_order}")
+                errors.append(f"Aucune assignation trouvée pour le job {job_reference} et le comptage d'ordre {counting_order}")
                 continue
                 
             # Vérifier que l'assignement est au statut PRET
             if assignment.status != 'PRET':
-                errors.append(f"Le job {job_id} pour le comptage d'ordre {counting_order} n'est pas au statut PRET (statut actuel : {assignment.status})")
+                errors.append(f"Le job {job_reference} pour le comptage d'ordre {counting_order} n'est pas au statut PRET (statut actuel : {assignment.status})")
                 continue
             
             # Transférer l'assignement
@@ -553,22 +581,137 @@ class JobService(JobServiceInterface):
             assignment.save()
             
             # Transférer le job lui-même
-            job = assignment.job
             job.status = 'TRANSFERT'
             job.transfert_date = current_time
             job.save()
             
-            transferred_assignments.append({
-                'job_id': job_id,
-                'job_reference': job.reference,
-                'counting_order': counting_order,
-                'counting_reference': assignment.counting.reference,
-                'assignment_id': assignment.id
-            })
+            # Ajouter le job une seule fois avec ses informations
+            if not any(j.get('job_reference') == job.reference for j in transferred_jobs):
+                transferred_jobs.append({
+                    'job_reference': job.reference,
+                    'counting_order': counting_order,
+                    'counting_reference': assignment.counting.reference
+                })
+        
+        # Si des erreurs ont été collectées, les lever
+        if errors:
+            error_message = " | ".join(errors)
+            raise JobCreationError(f"Erreurs lors du transfert : {error_message}")
+        
+        return {
+            'transferred_jobs': transferred_jobs,
+            'transfer_date': current_time,
+            'counting_order': counting_order,
+            'total_transferred': len(transferred_jobs)
+        }
+    
+    @transaction.atomic
+    def transfer_jobs_by_counting_orders(self, job_ids: list, counting_orders: list):
+        """
+        Transfère les jobs qui sont au statut PRET vers le statut TRANSFERT pour plusieurs ordres de comptage.
+        
+        Args:
+            job_ids: Liste des IDs des jobs à transférer
+            counting_orders: Liste des ordres de comptage pour lesquels transférer les jobs
             
+        Returns:
+            Dict contenant les informations sur les jobs transférés
+        """
+        from ..models import Assigment, Counting
+        
+        current_time = timezone.now()
+        transferred_jobs = []
+        errors = []
+        
+        # Vérifier que tous les comptages existent
+        countings = Counting.objects.filter(order__in=counting_orders).order_by('order')
+        found_orders = set(countings.values_list('order', flat=True))
+        requested_orders = set(counting_orders)
+        missing_orders = requested_orders - found_orders
+        
+        if missing_orders:
+            raise JobCreationError(f"Aucun comptage trouvé avec les ordres : {sorted(missing_orders)}")
+        
+        for job_id in job_ids:
+            # Récupérer tous les assignments de ce job
+            all_job_assignments = Assigment.objects.select_related('job', 'counting').filter(
+                job_id=job_id
+            )
+            
+            if not all_job_assignments.exists():
+                errors.append(f"Aucune assignation trouvée pour le job {job_id}")
+                continue
+            
+            # Vérifier que TOUS les assignments du job (qui ne sont pas déjà TRANSFERT) sont au statut PRET
+            # Cela permet de transférer progressivement les assignments
+            assignments_to_check = all_job_assignments.exclude(status='TRANSFERT')
+            assignments_not_pret = assignments_to_check.exclude(status='PRET')
+            
+            # Récupérer le job pour obtenir sa référence
+            job = all_job_assignments.first().job if all_job_assignments.exists() else None
+            if not job:
+                errors.append(f"Job avec l'ID {job_id} non trouvé")
+                continue
+            job_reference = job.reference
+            
+            if assignments_not_pret.exists():
+                not_pret_details = [
+                    f"comptage ordre {a.counting.order} (statut: {a.status})"
+                    for a in assignments_not_pret.select_related('counting')
+                ]
+                errors.append(
+                    f"Le job {job_reference} ne peut pas être transféré car certains comptages ne sont pas PRET : {', '.join(not_pret_details)}"
+                )
+                continue
+            
+            # Vérifier que les assignments demandés sont bien PRET (et non déjà TRANSFERT)
+            for counting_order in counting_orders:
+                assignment = all_job_assignments.filter(
+                    counting__order=counting_order
+                ).first()
+                
+                if not assignment:
+                    errors.append(f"Aucune assignation trouvée pour le job {job_reference} et le comptage d'ordre {counting_order}")
+                    continue
+                
+                if assignment.status != 'PRET':
+                    errors.append(
+                        f"Le job {job_reference} pour le comptage d'ordre {counting_order} n'est pas au statut PRET (statut actuel : {assignment.status})"
+                    )
+                    continue
+            
+            # Si toutes les vérifications passent, procéder au transfert
+            job_transferred = False
+            counting_references = []
+            
+            # Transférer les assignments pour les ordres de comptage demandés
+            for counting_order in counting_orders:
+                # Récupérer l'assignement pour ce job et cet ordre de comptage
+                assignment = all_job_assignments.filter(
+                    counting__order=counting_order
+                ).first()
+                
+                # Transférer l'assignement
+                assignment.status = 'TRANSFERT'
+                assignment.transfert_date = current_time
+                assignment.save()
+                
+                counting_references.append({
+                    'counting_order': counting_order,
+                    'counting_reference': assignment.counting.reference
+                })
+                
+                # Transférer le job lui-même (une seule fois par job, même s'il est déjà TRANSFERT)
+                if not job_transferred:
+                    job.status = 'TRANSFERT'
+                    job.transfert_date = current_time
+                    job.save()
+                    job_transferred = True
+            
+            # Ajouter le job une seule fois avec toutes ses informations de comptage
             transferred_jobs.append({
-                'job_id': job_id,
-                'job_reference': job.reference
+                'job_reference': job.reference,
+                'counting_references': counting_references
             })
         
         # Si des erreurs ont été collectées, les lever
@@ -577,9 +720,1081 @@ class JobService(JobServiceInterface):
             raise JobCreationError(f"Erreurs lors du transfert : {error_message}")
         
         return {
-            'transferred_assignments': transferred_assignments,
             'transferred_jobs': transferred_jobs,
             'transfer_date': current_time,
-            'counting_order': counting_order,
+            'counting_orders': counting_orders,
+            'total_transferred': len(transferred_jobs)
+        }
+    
+    @transaction.atomic
+    def transfer_assignments_by_jobs_and_counting_orders(self, job_ids: list, counting_orders: list):
+        """
+        Transfère les assignments qui sont au statut PRET vers le statut TRANSFERT 
+        pour des jobs et ordres de comptage spécifiques.
+        
+        Récupère automatiquement les assignments correspondants à partir de job_ids et counting_orders.
+        
+        Règles métier :
+        - Le job doit être au statut PRET, TRANSFERT ou ENTAME
+        - Seuls les assignments au statut PRET peuvent être transférés (pas ceux déjà en TRANSFERT ou ENTAME)
+        - L'assignment doit correspondre au counting_order spécifique demandé
+        - On vérifie uniquement l'assignment correspondant au counting_order spécifique, pas tous les assignments du job
+        - Si le job est ENTAME, il reste ENTAME même après le transfert d'un comptage (ne change pas en TRANSFERT)
+        - Si l'assignment ne correspond pas au counting_order ou n'est pas au statut PRET, 
+          retourner un message d'erreur avec la référence du job et la raison
+        
+        Args:
+            job_ids: Liste des IDs des jobs pour lesquels transférer les assignments
+            counting_orders: Liste des ordres de comptage pour lesquels transférer les assignments
+            
+        Returns:
+            Dict contenant les informations sur les assignments transférés
+            
+        Raises:
+            JobCreationError: Si des erreurs de validation sont détectées
+        """
+        from ..models import Assigment, Counting
+        
+        current_time = timezone.now()
+        transferred_assignments = []
+        errors = []
+        
+        # Vérifier que tous les comptages existent
+        countings = Counting.objects.filter(order__in=counting_orders)
+        found_orders = set(countings.values_list('order', flat=True))
+        requested_orders = set(counting_orders)
+        missing_orders = requested_orders - found_orders
+        
+        if missing_orders:
+            raise JobCreationError(f"Aucun comptage trouvé avec les ordres : {sorted(missing_orders)}")
+        
+        # Récupérer tous les assignments correspondants aux jobs et counting_orders
+        assignments = Assigment.objects.select_related(
+            'job', 'counting'
+        ).filter(
+            job_id__in=job_ids,
+            counting__order__in=counting_orders
+        )
+        
+        # Grouper les assignments par job pour faciliter le traitement
+        assignments_by_job = {}
+        for assignment in assignments:
+            job_id = assignment.job_id
+            if job_id not in assignments_by_job:
+                assignments_by_job[job_id] = []
+            assignments_by_job[job_id].append(assignment)
+        
+        # Dictionnaire pour suivre les jobs qui ont au moins un assignment transféré
+        jobs_to_transfer = {}
+        
+        # Traiter chaque job
+        for job_id in job_ids:
+            job_assignments = assignments_by_job.get(job_id, [])
+            
+            # Récupérer le job pour obtenir sa référence
+            job = None
+            if job_assignments:
+                job = job_assignments[0].job
+            else:
+                # Si aucun assignment trouvé, essayer de récupérer le job directement
+                try:
+                    from ..models import Job
+                    job = Job.objects.get(id=job_id)
+                except Job.DoesNotExist:
+                    errors.append(f"Job avec l'ID {job_id} non trouvé")
+                    continue
+            
+            job_reference = job.reference if job else f"ID {job_id}"
+            
+            # Vérifier que le job est au statut PRET, TRANSFERT ou ENTAME
+            # (permet un traitement progressif : le job peut déjà être TRANSFERT si un comptage précédent a été transféré)
+            # Si le job est ENTAME, il reste ENTAME même après transfert d'un comptage
+            if job.status not in ['PRET', 'TRANSFERT', 'ENTAME']:
+                errors.append(
+                    f"Job {job_reference} : statut actuel '{job.status}' (attendu: 'PRET', 'TRANSFERT' ou 'ENTAME')"
+                )
+                continue
+            
+            # Si aucun assignment trouvé pour ce job
+            if not job_assignments:
+                errors.append(
+                    f"Job {job_reference} : Aucun assignment trouvé pour les ordres de comptage {counting_orders}"
+                )
+                continue
+            
+            # Traiter chaque counting_order demandé
+            # On vérifie uniquement l'assignment correspondant au counting_order spécifique
+            for counting_order in counting_orders:
+                # Trouver l'assignment correspondant à ce job et ce counting_order
+                assignment = None
+                for ass in job_assignments:
+                    if ass.counting.order == counting_order:
+                        assignment = ass
+                        break
+                
+                if not assignment:
+                    errors.append(
+                        f"Job {job_reference} : Aucun assignment trouvé pour le comptage d'ordre {counting_order}"
+                    )
+                    continue
+                
+                # Validation 1: Vérifier que l'assignment est au statut PRET
+                if assignment.status != 'PRET':
+                    errors.append(
+                        f"Job {job_reference} : L'assignment pour le comptage d'ordre {counting_order} "
+                        f"n'est pas au statut PRET (statut actuel : {assignment.status})"
+                    )
+                    continue
+                
+                # Si toutes les validations passent, procéder au transfert
+                assignment.status = 'TRANSFERT'
+                assignment.transfert_date = current_time
+                assignment.save()
+                
+                # Marquer le job pour transfert (si au moins un assignment est transféré)
+                if job_id not in jobs_to_transfer:
+                    jobs_to_transfer[job_id] = job
+                
+                transferred_assignments.append({
+                    'assignment_id': assignment.id,
+                    'assignment_reference': assignment.reference,
+                    'job_reference': job_reference,
+                    'job_id': job.id if job else None,
+                    'counting_order': counting_order,
+                    'counting_reference': assignment.counting.reference
+                })
+        
+        # Mettre à jour le statut des jobs qui ont au moins un assignment transféré
+        # Si le job est déjà ENTAME, il reste ENTAME (ne pas le changer en TRANSFERT)
+        for job_id, job in jobs_to_transfer.items():
+            # Ne changer le statut que si le job n'est pas déjà ENTAME
+            if job.status != 'ENTAME':
+                job.status = 'TRANSFERT'
+                job.transfert_date = current_time
+            job.save()
+        
+        # Si des erreurs ont été collectées, les lever
+        if errors:
+            error_message = " | ".join(errors)
+            raise JobCreationError(f"Erreurs lors du transfert : {error_message}")
+        
+        return {
+            'transferred_assignments': transferred_assignments,
+            'transfer_date': current_time,
+            'counting_orders': counting_orders,
             'total_transferred': len(transferred_assignments)
-        } 
+        }
+    
+    @transaction.atomic
+    def transfer_all_assignments_by_jobs(self, job_ids: list):
+        """
+        Transfère tous les assignments qui sont au statut PRET vers le statut TRANSFERT 
+        pour tous les counting_order des jobs spécifiés.
+        
+        Récupère automatiquement tous les assignments PRET de tous les counting_order pour les jobs donnés.
+        
+        Règles métier :
+        - Le job doit être au statut PRET, TRANSFERT ou ENTAME
+        - Seuls les assignments au statut PRET peuvent être transférés (pas ceux déjà en TRANSFERT ou ENTAME)
+        - Tous les assignments PRET de tous les counting_order sont transférés
+        - Si le job est ENTAME, il reste ENTAME même après le transfert (ne change pas en TRANSFERT)
+        - Si un assignment n'est pas au statut PRET, un message d'erreur est retourné avec la référence du job et la raison
+        
+        Args:
+            job_ids: Liste des IDs des jobs pour lesquels transférer tous les assignments PRET
+            
+        Returns:
+            Dict contenant les informations sur les assignments transférés
+            
+        Raises:
+            JobCreationError: Si des erreurs de validation sont détectées
+        """
+        from ..models import Assigment
+        
+        current_time = timezone.now()
+        transferred_assignments = []
+        errors = []
+        
+        # Récupérer tous les jobs avec leurs assignments PRET
+        jobs = Job.objects.filter(id__in=job_ids).prefetch_related(
+            'assigment_set__counting'
+        )
+        
+        # Dictionnaire pour suivre les jobs qui ont au moins un assignment transféré
+        jobs_to_transfer = {}
+        
+        # Traiter chaque job
+        for job in jobs:
+            job_reference = job.reference if job else f"ID {job.id}"
+            
+            # Vérifier que le job est au statut PRET, TRANSFERT ou ENTAME
+            if job.status not in ['PRET', 'TRANSFERT', 'ENTAME']:
+                errors.append(
+                    f"Job {job_reference} : statut actuel '{job.status}' (attendu: 'PRET', 'TRANSFERT' ou 'ENTAME')"
+                )
+                continue
+            
+            # Récupérer tous les assignments PRET de ce job (tous les counting_order)
+            job_assignments = list(
+                job.assigment_set.filter(status='PRET')
+            )
+            
+            # Si aucun assignment PRET trouvé pour ce job
+            if not job_assignments:
+                errors.append(
+                    f"Job {job_reference} : Aucun assignment PRET trouvé pour ce job"
+                )
+                continue
+            
+            # Transférer tous les assignments PRET
+            for assignment in job_assignments:
+                # Si toutes les validations passent, procéder au transfert
+                assignment.status = 'TRANSFERT'
+                assignment.transfert_date = current_time
+                assignment.save()
+                
+                # Marquer le job pour transfert (si au moins un assignment est transféré)
+                if job.id not in jobs_to_transfer:
+                    jobs_to_transfer[job.id] = job
+                
+                transferred_assignments.append({
+                    'assignment_id': assignment.id,
+                    'assignment_reference': assignment.reference,
+                    'job_reference': job_reference,
+                    'job_id': job.id,
+                    'counting_order': assignment.counting.order,
+                    'counting_reference': assignment.counting.reference
+                })
+        
+        # Vérifier les jobs qui n'existent pas
+        found_job_ids = set(jobs.values_list('id', flat=True))
+        missing_job_ids = set(job_ids) - found_job_ids
+        if missing_job_ids:
+            for job_id in missing_job_ids:
+                errors.append(f"Job avec l'ID {job_id} non trouvé")
+        
+        # Mettre à jour le statut des jobs qui ont au moins un assignment transféré
+        # Si le job est déjà ENTAME, il reste ENTAME (ne pas le changer en TRANSFERT)
+        for job_id, job in jobs_to_transfer.items():
+            # Ne changer le statut que si le job n'est pas déjà ENTAME
+            if job.status != 'ENTAME':
+                job.status = 'TRANSFERT'
+                job.transfert_date = current_time
+            job.save()
+        
+        # Si des erreurs ont été collectées, les lever
+        if errors:
+            error_message = " | ".join(errors)
+            raise JobCreationError(f"Erreurs lors du transfert : {error_message}")
+        
+        # Récupérer tous les counting_order transférés pour la réponse
+        counting_orders = list(set([
+            ass['counting_order'] for ass in transferred_assignments
+        ]))
+        
+        return {
+            'transferred_assignments': transferred_assignments,
+            'transfer_date': current_time,
+            'counting_orders': counting_orders,
+            'total_transferred': len(transferred_assignments)
+        }
+
+    @transaction.atomic
+    def transfer_all_jobs_and_assignments_by_inventory_warehouse(self, inventory_id: int, warehouse_id: int):
+        """
+        Transfère automatiquement tous les jobs et leurs assignments PRET liés à un inventaire et entrepôt spécifiques.
+
+        Logique tout-ou-rien : vérifie d'abord que TOUS les jobs et assignments sont PRET,
+        puis transfère tout en une seule transaction. Si une erreur est détectée, rollback complet.
+
+        Règles métier :
+        - Tous les jobs liés à l'inventaire/warehouse doivent être au statut PRET
+        - Tous les assignments de ces jobs doivent être au statut PRET
+        - Si une seule condition n'est pas remplie, bloque tout le transfert
+        - Utilise une transaction atomique pour garantir la cohérence
+
+        Args:
+            inventory_id: ID de l'inventaire
+            warehouse_id: ID de l'entrepôt
+
+        Returns:
+            Dict contenant les informations sur les jobs et assignments transférés
+
+        Raises:
+            JobCreationError: Si des erreurs de validation sont détectées (tout-ou-rien)
+        """
+        from ..models import Assigment
+
+        current_time = timezone.now()
+        errors = []
+
+        # Étape 1: Récupérer tous les jobs liés à cet inventory/warehouse
+        jobs = Job.objects.filter(
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id
+        ).prefetch_related('assigment_set__counting')
+
+        if not jobs.exists():
+            raise JobCreationError(f"Aucun job trouvé pour l'inventaire {inventory_id} et l'entrepôt {warehouse_id}")
+
+        # Étape 2: Validation tout-ou-rien - vérifier que TOUS les jobs sont PRET
+        invalid_jobs = []
+        for job in jobs:
+            if job.status != 'PRET':
+                invalid_jobs.append(f"Job {job.reference} : statut actuel '{job.status}' (attendu: 'PRET')")
+
+        if invalid_jobs:
+            errors.extend(invalid_jobs)
+
+        # Étape 3: Validation tout-ou-rien - vérifier que TOUS les assignments sont PRET
+        invalid_assignments = []
+        all_assignments = []
+
+        for job in jobs:
+            job_assignments = list(job.assigment_set.all())
+            all_assignments.extend(job_assignments)
+
+            for assignment in job_assignments:
+                if assignment.status != 'PRET':
+                    invalid_assignments.append(
+                        f"Assignment {assignment.reference} (Job {job.reference}) : statut actuel '{assignment.status}' (attendu: 'PRET')"
+                    )
+
+        if invalid_assignments:
+            errors.extend(invalid_assignments)
+
+        # Étape 4: Si des erreurs détectées, lever une exception (rollback automatique)
+        if errors:
+            error_message = " | ".join(errors)
+            raise JobCreationError(f"Validation échouée - transfert annulé : {error_message}")
+
+        # Étape 5: Tout est valide, procéder au transfert
+        transferred_assignments = []
+        transferred_jobs = []
+
+        # Transférer tous les assignments
+        for job in jobs:
+            job_reference = job.reference
+
+            for assignment in job.assigment_set.all():
+                assignment.status = 'TRANSFERT'
+                assignment.transfert_date = current_time
+                assignment.save()
+
+                transferred_assignments.append({
+                    'assignment_id': assignment.id,
+                    'assignment_reference': assignment.reference,
+                    'job_reference': job_reference,
+                    'job_id': job.id,
+                    'counting_order': assignment.counting.order,
+                    'counting_reference': assignment.counting.reference
+                })
+
+            # Mettre à jour le statut du job
+            job.status = 'TRANSFERT'
+            job.transfert_date = current_time
+            job.save()
+
+            transferred_jobs.append({
+                'job_id': job.id,
+                'job_reference': job_reference,
+                'warehouse_id': warehouse_id,
+                'inventory_id': inventory_id
+            })
+
+        # Récupérer tous les counting_order transférés pour la réponse
+        counting_orders = list(set([
+            ass['counting_order'] for ass in transferred_assignments
+        ]))
+
+        return {
+            'transferred_jobs': transferred_jobs,
+            'transferred_assignments': transferred_assignments,
+            'transfer_date': current_time,
+            'counting_orders': counting_orders,
+            'total_jobs_transferred': len(transferred_jobs),
+            'total_assignments_transferred': len(transferred_assignments),
+            'inventory_id': inventory_id,
+            'warehouse_id': warehouse_id
+        }
+
+    @transaction.atomic
+    def set_manual_entry_status_by_jobs_and_counting_orders(self, job_ids: list, counting_orders: list):
+        """
+        Met les jobs et leurs assignments en statut SAISIE MANUELLE 
+        pour des jobs et ordres de comptage spécifiques.
+        
+        Récupère automatiquement les assignments correspondants à partir de job_ids et counting_orders.
+        
+        Règles métier :
+        - Le job doit être au statut PRET, TRANSFERT ou ENTAME
+        - Tous les assignments du job doivent avoir le statut PRET, TRANSFERT ou ENTAME pour permettre un traitement progressif
+        - Seuls les assignments au statut PRET, TRANSFERT ou ENTAME peuvent être mis en saisie manuelle
+        - L'assignment doit correspondre au counting_order spécifié
+        - Si le job est ENTAME, il reste ENTAME même après la mise en saisie manuelle d'un comptage (ne change pas en SAISIE MANUELLE)
+        - Si tous les assignments du job ne sont pas PRET, TRANSFERT ou ENTAME, ou si l'assignment ne correspond pas au counting_order, 
+          retourner un message d'erreur avec la référence du job et la raison
+        
+        Args:
+            job_ids: Liste des IDs des jobs pour lesquels mettre en saisie manuelle
+            counting_orders: Liste des ordres de comptage pour lesquels mettre en saisie manuelle
+            
+        Returns:
+            Dict contenant les informations sur les jobs et assignments mis en saisie manuelle
+            
+        Raises:
+            JobCreationError: Si des erreurs de validation sont détectées
+        """
+        from ..models import Assigment, Counting
+        
+        current_time = timezone.now()
+        manual_entry_jobs = []
+        manual_entry_assignments = []
+        errors = []
+        
+        # Vérifier que tous les comptages existent
+        countings = Counting.objects.filter(order__in=counting_orders)
+        found_orders = set(countings.values_list('order', flat=True))
+        requested_orders = set(counting_orders)
+        missing_orders = requested_orders - found_orders
+        
+        if missing_orders:
+            raise JobCreationError(f"Aucun comptage trouvé avec les ordres : {sorted(missing_orders)}")
+        
+        # Récupérer tous les assignments correspondants aux jobs et counting_orders
+        assignments = Assigment.objects.select_related(
+            'job', 'counting'
+        ).filter(
+            job_id__in=job_ids,
+            counting__order__in=counting_orders
+        )
+        
+        # Grouper les assignments par job pour faciliter le traitement
+        assignments_by_job = {}
+        for assignment in assignments:
+            job_id = assignment.job_id
+            if job_id not in assignments_by_job:
+                assignments_by_job[job_id] = []
+            assignments_by_job[job_id].append(assignment)
+        
+        # Dictionnaire pour suivre les jobs qui ont au moins un assignment mis en saisie manuelle
+        jobs_to_update = {}
+        
+        # Traiter chaque job
+        for job_id in job_ids:
+            job_assignments = assignments_by_job.get(job_id, [])
+            
+            # Récupérer le job pour obtenir sa référence
+            job = None
+            if job_assignments:
+                job = job_assignments[0].job
+            else:
+                # Si aucun assignment trouvé, essayer de récupérer le job directement
+                try:
+                    from ..models import Job
+                    job = Job.objects.get(id=job_id)
+                except Job.DoesNotExist:
+                    errors.append(f"Job avec l'ID {job_id} non trouvé")
+                    continue
+            
+            job_reference = job.reference if job else f"ID {job_id}"
+            
+            # Vérifier que le job est au statut PRET, TRANSFERT ou ENTAME
+            if job.status not in ['PRET', 'TRANSFERT', 'ENTAME']:
+                errors.append(
+                    f"Job {job_reference} : statut actuel '{job.status}' (attendu: 'PRET', 'TRANSFERT' ou 'ENTAME')"
+                )
+                continue
+            
+            # Si aucun assignment trouvé pour ce job
+            if not job_assignments:
+                errors.append(
+                    f"Job {job_reference} : Aucun assignment trouvé pour les ordres de comptage {counting_orders}"
+                )
+                continue
+            
+            # Vérifier que tous les assignments de ce job sont soit PRET, TRANSFERT ou ENTAME
+            all_job_assignments = Assigment.objects.filter(job=job)
+            assignments_invalid_status = all_job_assignments.exclude(status__in=['PRET', 'TRANSFERT', 'ENTAME'])
+            
+            if assignments_invalid_status.exists():
+                # Récupérer les références des assignments avec statut invalide pour le message d'erreur
+                invalid_status_details = [
+                    f"comptage ordre {a.counting.order} (statut: {a.status})"
+                    for a in assignments_invalid_status.select_related('counting')
+                ]
+                errors.append(
+                    f"Job {job_reference} : Tous les assignments doivent avoir le statut PRET, TRANSFERT ou ENTAME pour mettre en saisie manuelle. "
+                    f"Assignments avec statut invalide : {', '.join(invalid_status_details)}"
+                )
+                continue
+            
+            # Traiter chaque counting_order demandé
+            for counting_order in counting_orders:
+                # Trouver l'assignment correspondant à ce job et ce counting_order
+                assignment = None
+                for ass in job_assignments:
+                    if ass.counting.order == counting_order:
+                        assignment = ass
+                        break
+                
+                if not assignment:
+                    errors.append(
+                        f"Job {job_reference} : Aucun assignment trouvé pour le comptage d'ordre {counting_order}"
+                    )
+                    continue
+                
+                # Validation: Vérifier que l'assignment est au statut PRET, TRANSFERT ou ENTAME
+                if assignment.status not in ['PRET', 'TRANSFERT', 'ENTAME']:
+                    errors.append(
+                        f"Job {job_reference} : L'assignment pour le comptage d'ordre {counting_order} "
+                        f"n'est pas au statut PRET, TRANSFERT ou ENTAME (statut actuel : {assignment.status})"
+                    )
+                    continue
+                
+                # Si toutes les validations passent, procéder à la mise en saisie manuelle
+                # Note: Les assignments n'ont pas de statut SAISIE MANUELLE dans leur modèle,
+                # donc on les laisse dans leur statut actuel mais on marque le job
+                # Si besoin, on peut ajouter un champ ou un statut pour les assignments plus tard
+                
+                # Marquer le job pour mise à jour (si au moins un assignment est traité)
+                if job_id not in jobs_to_update:
+                    jobs_to_update[job_id] = job
+                
+                manual_entry_assignments.append({
+                    'assignment_id': assignment.id,
+                    'assignment_reference': assignment.reference,
+                    'job_reference': job_reference,
+                    'job_id': job.id if job else None,
+                    'counting_order': counting_order,
+                    'counting_reference': assignment.counting.reference,
+                    'previous_status': assignment.status
+                })
+        
+        # Mettre à jour le statut des jobs qui ont au moins un assignment traité
+        # Si le job est déjà ENTAME, il reste ENTAME (ne pas le changer en SAISIE MANUELLE)
+        for job_id, job in jobs_to_update.items():
+            # Ne changer le statut que si le job n'est pas déjà ENTAME
+            if job.status != 'ENTAME':
+                job.status = 'SAISIE MANUELLE'
+                job.saisie_manuelle_date = current_time
+            job.save()
+            
+            manual_entry_jobs.append({
+                'job_id': job.id,
+                'job_reference': job.reference,
+                'status': job.status,
+                'saisie_manuelle_date': job.saisie_manuelle_date
+            })
+        
+        # Si des erreurs ont été collectées, les lever
+        if errors:
+            error_message = " | ".join(errors)
+            raise JobCreationError(f"Erreurs lors de la mise en saisie manuelle : {error_message}")
+        
+        return {
+            'manual_entry_jobs': manual_entry_jobs,
+            'manual_entry_assignments': manual_entry_assignments,
+            'saisie_manuelle_date': current_time,
+            'counting_orders': counting_orders,
+            'total_jobs': len(manual_entry_jobs),
+            'total_assignments': len(manual_entry_assignments)
+        }
+
+    def get_job_progress_by_counting(self, job_id: int) -> Dict[str, Any]:
+        """
+        Calcule l'avancement des emplacements par job et par counting
+        """
+        try:
+            job = self.repository.get_job_by_id(job_id)
+            if not job:
+                raise JobCreationError(f"Job avec l'ID {job_id} non trouvé")
+            
+            # Récupérer tous les emplacements du job
+            job_details = job.jobdetail_set.select_related(
+                'location__sous_zone__zone'
+            ).all()
+            
+            # Récupérer tous les countings de l'inventaire
+            countings = job.inventory.countings.all().order_by('order')
+            
+            progress_data = []
+            
+            for counting in countings:
+                # Récupérer les affectations pour ce counting
+                assignments = job.assigment_set.filter(counting=counting)
+                
+                if not assignments.exists():
+                    continue
+                
+                # Calculer l'avancement pour ce counting
+                total_emplacements = job_details.count()
+                completed_emplacements = 0
+                emplacements_details = []
+                
+                for job_detail in job_details:
+                    location = job_detail.location
+                    
+                    # Vérifier si des CountingDetail existent pour cette location et ce counting
+                    counting_details = CountingDetail.objects.filter(
+                        location=location,
+                        counting=counting
+                    )
+                    
+                    # Déterminer le statut de l'emplacement
+                    if counting_details.exists():
+                        status = "TERMINE"
+                        completed_emplacements += 1
+                    else:
+                        status = "EN ATTENTE"
+                    
+                    # Récupérer les détails du comptage
+                    counting_details_data = []
+                    for cd in counting_details:
+                        counting_details_data.append({
+                            'id': cd.id,
+                            'reference': cd.reference,
+                            'quantity_inventoried': cd.quantity_inventoried,
+                            'product_reference': cd.product.reference if cd.product else None,
+                            'dlc': cd.dlc,
+                            'n_lot': cd.n_lot,
+                            'last_synced_at': cd.last_synced_at
+                        })
+                    
+                    emplacement_detail = {
+                        'location_id': location.id,
+                        'location_reference': location.location_reference,
+                        'sous_zone_name': location.sous_zone.sous_zone_name if location.sous_zone else None,
+                        'zone_name': location.sous_zone.zone.zone_name if location.sous_zone and location.sous_zone.zone else None,
+                        'status': status,
+                        'counting_details': counting_details_data
+                    }
+                    emplacements_details.append(emplacement_detail)
+                
+                # Calculer le pourcentage de progression
+                progress_percentage = (completed_emplacements / total_emplacements * 100) if total_emplacements > 0 else 0
+                
+                progress_info = {
+                    'job_id': job.id,
+                    'job_reference': job.reference,
+                    'job_status': job.status,
+                    'counting_order': counting.order,
+                    'counting_reference': counting.reference,
+                    'counting_count_mode': counting.count_mode,
+                    'total_emplacements': total_emplacements,
+                    'completed_emplacements': completed_emplacements,
+                    'progress_percentage': round(progress_percentage, 2),
+                    'emplacements_details': emplacements_details
+                }
+                
+                progress_data.append(progress_info)
+            
+            return {
+                'success': True,
+                'job_id': job.id,
+                'job_reference': job.reference,
+                'inventory_reference': job.inventory.reference,
+                'warehouse_name': job.warehouse.warehouse_name,
+                'progress_by_counting': progress_data
+            }
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def get_jobs_with_assignments_by_warehouse_and_counting(
+        self,
+        warehouse_id: int,
+        counting_order: int
+    ) -> List[Job]:
+        """
+        Récupère les jobs avec leurs assignments filtrés par warehouse et ordre de comptage.
+        
+        Args:
+            warehouse_id: ID de l'entrepôt
+            counting_order: Ordre du comptage
+            
+        Returns:
+            Liste des jobs avec leurs assignments préchargés
+        """
+        return self.repository.get_jobs_with_assignments_by_warehouse_and_counting(
+            warehouse_id=warehouse_id,
+            counting_order=counting_order
+        )
+    
+    def get_assignments_by_warehouse_and_counting(
+        self,
+        warehouse_id: int,
+        counting_order: int
+    ) -> List[Assigment]:
+        """
+        Récupère les assignments filtrés par warehouse et ordre de comptage.
+        
+        Args:
+            warehouse_id: ID de l'entrepôt
+            counting_order: Ordre du comptage
+            
+        Returns:
+            Liste des assignments avec leurs relations préchargées
+        """
+        return self.repository.get_assignments_by_warehouse_and_counting(
+            warehouse_id=warehouse_id,
+            counting_order=counting_order
+        )
+    
+    def get_assignments_by_warehouse_and_counting_queryset(
+        self,
+        warehouse_id: int,
+        counting_order: int
+    ):
+        """
+        Récupère un queryset d'assignments filtrés par warehouse et ordre de comptage.
+        Utilisé pour les vues DataTable.
+        
+        Args:
+            warehouse_id: ID de l'entrepôt
+            counting_order: Ordre du comptage
+            
+        Returns:
+            QuerySet des assignments avec leurs relations préchargées
+        """
+        return self.repository.get_assignments_by_warehouse_and_counting_queryset(
+            warehouse_id=warehouse_id,
+            counting_order=counting_order
+        )
+
+    def get_inventory_progress_by_counting(self, inventory_id: int) -> Dict[str, Any]:
+        """
+        Calcule l'avancement global de tous les jobs d'un inventaire par counting
+        """
+        try:
+            # Récupérer tous les jobs de l'inventaire
+            jobs = self.repository.get_jobs_by_inventory(inventory_id)
+            
+            if not jobs:
+                return {
+                    'success': False,
+                    'error': f"Aucun job trouvé pour l'inventaire {inventory_id}"
+                }
+            
+            # Récupérer tous les countings de l'inventaire
+            countings = jobs[0].inventory.countings.all().order_by('order')
+            
+            inventory_progress = []
+            
+            for counting in countings:
+                total_emplacements = 0
+                completed_emplacements = 0
+                jobs_progress = []
+                
+                for job in jobs:
+                    job_progress = self.get_job_progress_by_counting(job.id)
+                    
+                    if job_progress['success']:
+                        for progress in job_progress['progress_by_counting']:
+                            if progress['counting_order'] == counting.order:
+                                total_emplacements += progress['total_emplacements']
+                                completed_emplacements += progress['completed_emplacements']
+                                jobs_progress.append({
+                                    'job_id': job.id,
+                                    'job_reference': job.reference,
+                                    'job_status': job.status,
+                                    'total_emplacements': progress['total_emplacements'],
+                                    'completed_emplacements': progress['completed_emplacements'],
+                                    'progress_percentage': progress['progress_percentage']
+                                })
+                
+                progress_percentage = (completed_emplacements / total_emplacements * 100) if total_emplacements > 0 else 0
+                
+                counting_progress = {
+                    'counting_order': counting.order,
+                    'counting_reference': counting.reference,
+                    'counting_count_mode': counting.count_mode,
+                    'total_emplacements': total_emplacements,
+                    'completed_emplacements': completed_emplacements,
+                    'progress_percentage': round(progress_percentage, 2),
+                    'jobs_progress': jobs_progress
+                }
+                
+                inventory_progress.append(counting_progress)
+            
+            return {
+                'success': True,
+                'inventory_id': inventory_id,
+                'inventory_reference': jobs[0].inventory.reference,
+                'total_jobs': len(jobs),
+                'progress_by_counting': inventory_progress
+            }
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def get_jobs_with_assignments_by_warehouse_and_counting(
+        self,
+        warehouse_id: int,
+        counting_order: int
+    ) -> List[Job]:
+        """
+        Récupère les jobs avec leurs assignments filtrés par warehouse et ordre de comptage.
+        
+        Args:
+            warehouse_id: ID de l'entrepôt
+            counting_order: Ordre du comptage
+            
+        Returns:
+            Liste des jobs avec leurs assignments préchargés
+        """
+        return self.repository.get_jobs_with_assignments_by_warehouse_and_counting(
+            warehouse_id=warehouse_id,
+            counting_order=counting_order
+        )
+    
+    def get_assignments_by_warehouse_and_counting(
+        self,
+        warehouse_id: int,
+        counting_order: int
+    ) -> List[Assigment]:
+        """
+        Récupère les assignments filtrés par warehouse et ordre de comptage.
+        
+        Args:
+            warehouse_id: ID de l'entrepôt
+            counting_order: Ordre du comptage
+            
+        Returns:
+            Liste des assignments avec leurs relations préchargées
+        """
+        return self.repository.get_assignments_by_warehouse_and_counting(
+            warehouse_id=warehouse_id,
+            counting_order=counting_order
+        )
+    
+    def get_assignments_by_warehouse_and_counting_queryset(
+        self,
+        warehouse_id: int,
+        counting_order: int
+    ):
+        """
+        Récupère un queryset d'assignments filtrés par warehouse et ordre de comptage.
+        Utilisé pour les vues DataTable.
+        
+        Args:
+            warehouse_id: ID de l'entrepôt
+            counting_order: Ordre du comptage
+            
+        Returns:
+            QuerySet des assignments avec leurs relations préchargées
+        """
+        return self.repository.get_assignments_by_warehouse_and_counting_queryset(
+            warehouse_id=warehouse_id,
+            counting_order=counting_order
+        )
+    
+    @transaction.atomic
+    def cancel_jobs(self, job_ids: List[int]) -> Dict[str, Any]:
+        """
+        Annule des jobs avec leurs jobdetails et assignments.
+        
+        Règles métier :
+        - Seuls les jobs avec les statuts suivants peuvent être annulés : EN ATTENTE, VALIDE, AFFECTE, PRET
+        - Met le job au statut ANNULE avec annule_date
+        - Met tous les JobDetails associés au statut ANNULE avec annule_date
+        - Met tous les Assigments associés au statut ANNULE
+        
+        Args:
+            job_ids: Liste des IDs des jobs à annuler
+            
+        Returns:
+            Dict[str, Any]: Résultat du traitement avec les statistiques
+            
+        Raises:
+            JobCreationError: Si une erreur survient
+        """
+        # Statuts autorisés pour l'annulation
+        allowed_statuses = ['EN ATTENTE', 'VALIDE', 'AFFECTE', 'PRET']
+        
+        # Vérifier que tous les jobs existent
+        jobs = Job.objects.filter(id__in=job_ids)
+        found_job_ids = set(job.id for job in jobs)
+        requested_job_ids = set(job_ids)
+        
+        # Identifier les jobs qui n'existent pas
+        missing_job_ids = requested_job_ids - found_job_ids
+        if missing_job_ids:
+            missing_jobs_str = ', '.join(map(str, sorted(missing_job_ids)))
+            raise JobCreationError(f"Jobs non trouvés avec les IDs : {missing_jobs_str}")
+        
+        jobs_to_cancel = []
+        validation_errors = []
+        
+        # Première étape : vérifier que tous les jobs peuvent être annulés
+        for job in jobs:
+            if job.status not in allowed_statuses:
+                validation_errors.append(
+                    f"Job {job.reference} (ID: {job.id}) ne peut pas être annulé. "
+                    f"Statut actuel : {job.status} (statuts autorisés : {', '.join(allowed_statuses)})"
+                )
+            else:
+                jobs_to_cancel.append(job)
+        
+        # Si tous les jobs sont interdits, retourner une erreur
+        if validation_errors and not jobs_to_cancel:
+            error_message = "Aucun job ne peut être annulé. Vérifications échouées."
+            raise JobCreationError(f"{error_message}\nErreurs:\n" + "\n".join(validation_errors))
+        
+        # Deuxième étape : annuler les jobs valides
+        now = timezone.now()
+        jobs_cancelled = []
+        jobdetails_cancelled = 0
+        assignments_cancelled = 0
+        
+        for job in jobs_to_cancel:
+            # Annuler le job
+            self.repository.update_job_status(job, 'ANNULE', annule_date=now)
+            jobs_cancelled.append({
+                'id': job.id,
+                'reference': job.reference
+            })
+            
+            # Annuler tous les JobDetails associés
+            updated_job_details = self.repository.update_job_details_status(
+                job, 'ANNULE', 'annule_date'
+            )
+            jobdetails_cancelled += updated_job_details
+            
+            # Annuler tous les Assigments associés
+            updated_assignments = self.repository.update_assignments_status(
+                job, 'ANNULE', None
+            )
+            assignments_cancelled += updated_assignments
+        
+        response_data = {
+            'jobs_cancelled': jobs_cancelled,
+            'jobdetails_cancelled': jobdetails_cancelled,
+            'assignments_cancelled': assignments_cancelled,
+            'total_jobs_cancelled': len(jobs_cancelled)
+        }
+        
+        # Inclure les erreurs de validation s'il y en a (mais certains jobs ont été annulés)
+        if validation_errors:
+            response_data['validation_warnings'] = validation_errors
+
+        return response_data
+
+    def auto_validate_jobs(self, inventory_id, warehouse_id):
+        """
+        Valide automatiquement TOUS les jobs d'un warehouse pour un inventaire donné.
+        Logique "tous ou rien" : tous les jobs doivent être en statut "EN ATTENTE"
+        pour que la validation soit effectuée.
+
+        Args:
+            inventory_id (int): ID de l'inventaire
+            warehouse_id (int): ID du warehouse
+
+        Returns:
+            dict: Résultat de l'opération avec les jobs validés ou erreur
+        """
+        try:
+            # Vérifier que l'inventaire existe
+            inventory = self.repository.get_inventory_by_id(inventory_id)
+            if not inventory:
+                raise JobCreationError(f"Inventaire avec l'ID {inventory_id} non trouvé")
+
+            # Vérifier que le warehouse existe
+            warehouse = self.repository.get_warehouse_by_id(warehouse_id)
+            if not warehouse:
+                raise JobCreationError(f"Warehouse avec l'ID {warehouse_id} non trouvé")
+
+            # Récupérer TOUS les jobs pour ce warehouse et inventaire
+            all_jobs = self.repository.get_jobs_by_inventory_and_warehouse(inventory_id, warehouse_id)
+
+            if not all_jobs:
+                return {
+                    'success': True,
+                    'validated_jobs_count': 0,
+                    'validated_jobs': [],
+                    'message': 'Aucun job trouvé pour cet inventaire et warehouse'
+                }
+
+            # Vérifier que TOUS les jobs sont en statut "EN ATTENTE" (logique "tous ou rien")
+            non_pending_jobs = []
+            for job in all_jobs:
+                if job.status != 'EN ATTENTE':
+                    non_pending_jobs.append(job)
+
+            if non_pending_jobs:
+                # Certains jobs ne sont pas en attente - retourner une erreur détaillée
+                non_pending_details = [
+                    f"Job {job.reference} (statut: {job.status})"
+                    for job in non_pending_jobs
+                ]
+                raise JobCreationError(
+                    f"Impossible de valider automatiquement : {len(non_pending_jobs)} job(s) ne sont pas en statut 'EN ATTENTE'. "
+                    f"Jobs concernés : {', '.join(non_pending_details)}. "
+                    f"Logique 'tous ou rien' : tous les jobs doivent être en attente pour être validés automatiquement."
+                )
+
+            # Tous les jobs sont en attente - procéder à la validation
+            logger.info(f"Validation automatique de {len(all_jobs)} jobs pour inventaire {inventory_id}, warehouse {warehouse_id}")
+            job_ids = [job.id for job in all_jobs]
+            return self.validate_jobs(job_ids)
+
+        except JobCreationError:
+            logger.error("JobCreationError relayée")
+            raise
+        except Exception as e:
+            import traceback
+            logger.error(f"Erreur lors de la validation automatique des jobs: {str(e)}", exc_info=True)
+            logger.error(f"Type d'erreur: {type(e).__name__}")
+            logger.error(f"Job IDs concernés: {job_ids if 'job_ids' in locals() else 'Non défini'}")
+            logger.error(f"Inventory ID: {inventory_id}, Warehouse ID: {warehouse_id}")
+            logger.error(f"Traceback complet: {traceback.format_exc()}")
+            raise JobCreationError(f"Erreur lors de la validation automatique des jobs: {str(e)}")
+
+    def auto_set_ready_jobs(self, inventory_id, warehouse_id):
+        """
+        Met automatiquement en statut PRET tous les jobs éligibles d'un warehouse pour un inventaire donné
+
+        Args:
+            inventory_id (int): ID de l'inventaire
+            warehouse_id (int): ID du warehouse
+
+        Returns:
+            dict: Résultat de l'opération avec les jobs mis en PRET
+        """
+        try:
+            # Vérifier que l'inventaire existe
+            inventory = self.repository.get_inventory_by_id(inventory_id)
+            if not inventory:
+                raise JobCreationError(f"Inventaire avec l'ID {inventory_id} non trouvé")
+
+            # Vérifier que le warehouse existe
+            warehouse = self.repository.get_warehouse_by_id(warehouse_id)
+            if not warehouse:
+                raise JobCreationError(f"Warehouse avec l'ID {warehouse_id} non trouvé")
+
+            # Récupérer tous les jobs en statut AFFECTE pour ce warehouse et inventaire
+            # Ces jobs ont des assignments qui peuvent être mis en PRET
+            assigned_jobs = self.repository.get_assigned_jobs_for_warehouse(inventory_id, warehouse_id)
+
+            if not assigned_jobs:
+                raise JobCreationError('Aucun job en statut AFFECTE trouvé')
+
+            # Extraire les IDs des jobs
+            job_ids = [job.id for job in assigned_jobs]
+
+            # Utiliser l'usecase JobSetReadyUseCase pour mettre en PRET
+            from ..usecases.job_set_ready import JobSetReadyUseCase
+            use_case = JobSetReadyUseCase()
+            return use_case.execute(job_ids)
+
+        except JobCreationError:
+            raise
+        except Exception as e:
+            logger.error(f"Erreur lors de la mise automatique en PRET des jobs: {str(e)}", exc_info=True)
+            raise JobCreationError(f"Erreur lors de la mise automatique en PRET: {str(e)}")

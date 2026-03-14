@@ -8,27 +8,33 @@ from django.shortcuts import get_object_or_404
 from ..serializers.assignment_serializer import (
     JobAssignmentSerializer,
     JobAssignmentResponseSerializer,
-    AssignmentRulesSerializer
+    AssignmentRulesSerializer,
+    SessionAssignmentsResponseSerializer,
+    AssignmentSerializer,
+    JobBasicSerializer,
+    AssignmentReopenWithLocationsSerializer,
 )
 from ..serializers.inventory_resource_serializer import (
     AssignResourcesToInventorySerializer,
     AssignResourcesToInventorySimpleSerializer,
     AssignResourcesToInventoryDirectSerializer,
     InventoryResourceDetailSerializer,
-    InventoryResourceAssignmentResponseSerializer
+    InventoryResourceAssignmentResponseSerializer,
 )
 from ..usecases.job_assignment import JobAssignmentUseCase
 from ..services.inventory_resource_service import InventoryResourceService
+from ..services.assignment_service import AssignmentService
+from ..utils.response_utils import success_response, error_response, validation_error_response
 from ..exceptions.assignment_exceptions import (
     AssignmentValidationError,
     AssignmentBusinessRuleError,
     AssignmentSessionError,
-    AssignmentNotFoundError
+    AssignmentNotFoundError,
 )
 from ..exceptions.inventory_resource_exceptions import (
     InventoryResourceValidationError,
     InventoryResourceBusinessRuleError,
-    InventoryResourceNotFoundError
+    InventoryResourceNotFoundError,
 )
 
 class AssignJobsToCountingView(APIView):
@@ -40,10 +46,15 @@ class AssignJobsToCountingView(APIView):
     Body:
     {
         "job_ids": [1, 2, 3],
-        "counting_order": 1,
+        "counting_order": 1,  // Peut être 1, 2, 3, 4, 5, etc.
         "session_id": 5,
         "date_start": "2024-01-15T10:00:00Z"
     }
+    
+    Comportement :
+    - Si l'assignment existe déjà et est au statut ENTAME, il sera mis en TRANSFERT lors de l'affectation
+    - Les autres statuts (PRET, TRANSFERT, TERMINE, etc.) restent inchangés
+    - La session et la date_start sont mises à jour
     """
     permission_classes = [IsAuthenticated]
     
@@ -56,11 +67,10 @@ class AssignJobsToCountingView(APIView):
             # Validation des données d'entrée
             serializer = JobAssignmentSerializer(data=request_data)
             if not serializer.is_valid():
-                return Response({
-                    'success': False,
-                    'message': 'Données invalides',
-                    'errors': serializer.errors
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return validation_error_response(
+                    serializer.errors,
+                    message="Erreur de validation lors de l'affectation des jobs"
+                )
             
             # Traitement de l'affectation
             use_case = JobAssignmentUseCase()
@@ -68,53 +78,48 @@ class AssignJobsToCountingView(APIView):
             
             # Préparation de la réponse
             response_data = {
-                'success': result['success'],
-                'message': result['message'],
-                'assignments_created': result['assignments_created'],
-                'assignments_updated': result['assignments_updated'],
-                'total_assignments': result['total_assignments'],
-                'counting_order': result['counting_order'],
-                'inventory_id': result['inventory_id'],
+                # 'assignments_created': result['assignments_created'],
+                # 'assignments_updated': result['assignments_updated'],
+                # 'total_assignments': result['total_assignments'],
+                # 'counting_order': result['counting_order'],
                 'timestamp': timezone.now()
             }
             
-            response_serializer = JobAssignmentResponseSerializer(response_data)
-            return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+            return success_response(
+                data=response_data,
+                message=result['message'],
+                status_code=status.HTTP_201_CREATED
+            )
             
         except AssignmentValidationError as e:
-            return Response({
-                'success': False,
-                'message': 'Erreur de validation',
-                'error': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
             
         except AssignmentBusinessRuleError as e:
-            return Response({
-                'success': False,
-                'message': 'Règle métier non respectée',
-                'error': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
             
         except AssignmentSessionError as e:
-            return Response({
-                'success': False,
-                'message': 'Erreur d\'affectation de session',
-                'error': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
             
         except AssignmentNotFoundError as e:
-            return Response({
-                'success': False,
-                'message': 'Ressource non trouvée',
-                'error': str(e)
-            }, status=status.HTTP_404_NOT_FOUND)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND
+            )
             
-        except Exception as e:
-            return Response({
-                'success': False,
-                'message': 'Erreur interne du serveur',
-                'error': str(e)
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception:
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de l'affectation",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class AssignResourcesToInventoryView(APIView):
@@ -179,7 +184,7 @@ class AssignResourcesToInventoryView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_404_NOT_FOUND)
         except InventoryResourceBusinessRuleError as e:
             return Response({'error': str(e)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
-        except Exception as e:
+        except Exception:
             return Response(
                 {'error': f'Erreur interne du serveur: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -217,9 +222,503 @@ class InventoryResourcesView(APIView):
             
         except InventoryResourceNotFoundError as e:
             return Response({'error': str(e)}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
+        except Exception:
             return Response(
                 {'error': f'Erreur interne du serveur: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+
+class SessionAssignmentsView(APIView):
+    """
+    Récupère toutes les affectations d'une session (équipe) avec leurs jobs associés
+    
+    GET /api/inventory/session/<int:session_id>/assignments/
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, session_id):
+        """
+        Récupère toutes les affectations d'une session avec leurs jobs
+        
+        Args:
+            request: Requête HTTP
+            session_id: ID de la session (équipe)
+            
+        Returns:
+            Response: Liste des affectations avec leurs jobs
+        """
+        try:
+            # Appeler le service
+            service = AssignmentService()
+            assignments = service.get_assignments_by_session(session_id)
+            
+            # Si aucune affectation trouvée, retourner une liste vide
+            if not assignments:
+                return success_response(
+                    data={
+                        'session_id': session_id,
+                        'session_username': None,
+                        'jobs': [],
+                        'total_jobs': 0
+                    },
+                    message="Aucune affectation trouvée pour cette session"
+                )
+            
+            # Récupérer les informations de la session depuis la première affectation
+            session = assignments[0].session if assignments else None
+            session_username = session.username if session else None
+            
+            # Extraire les jobs uniques des assignments (utiliser les références)
+            jobs_dict = {}
+            for assignment in assignments:
+                if assignment.job and assignment.job.reference not in jobs_dict:
+                    jobs_dict[assignment.job.reference] = assignment.job
+            
+            # Sérialiser les jobs uniquement (sans les assignments)
+            jobs_list = list(jobs_dict.values())
+            jobs_data = JobBasicSerializer(jobs_list, many=True).data
+            
+            # Préparer la réponse avec uniquement les références des jobs
+            response_data = {
+                'session_id': session_id,
+                'session_username': session_username,
+                'jobs': jobs_data,
+                'total_jobs': len(jobs_list)
+            }
+            
+            return success_response(
+                data=response_data,
+                message="Affectations récupérées avec succès"
+            )
+            
+        except AssignmentValidationError as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            
+        except Exception:
+            return error_response(
+                message="Une erreur inattendue s'est produite",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class AssignJobsToBothCountingsView(APIView):
+    """
+    Affecte des jobs aux comptages 1 et 2 avec des sessions spécifiques.
+    Crée des assignments avec statut PRET pour les deux comptages.
+    
+    POST /api/inventory/assign-jobs-both-countings/
+    
+    Body:
+    {
+        "job_ids": [1, 2, 3],
+        "session_id_1": 5,  // Session pour le comptage 1 (optionnel)
+        "session_id_2": 6   // Session pour le comptage 2 (optionnel)
+    }
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        """
+        Affecte des jobs aux comptages 1 et 2 avec des sessions spécifiques.
+        Crée des assignments avec statut PRET.
+        
+        Args:
+            request: Requête HTTP contenant job_ids, session_id_1, session_id_2
+            
+        Returns:
+            Response: Résultat de l'affectation
+        """
+        try:
+            from ..models import Job, Counting, Assigment
+            from apps.users.models import UserApp
+            from django.db import transaction
+            
+            # Validation des données
+            job_ids = request.data.get('job_ids', [])
+            session_id_1 = request.data.get('session_id_1')
+            session_id_2 = request.data.get('session_id_2')
+            
+            if not job_ids:
+                return error_response(
+                    message="La liste des IDs des jobs est obligatoire",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            if not isinstance(job_ids, list):
+                return error_response(
+                    message="job_ids doit être une liste",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Vérifier que les sessions existent si fournies
+            session_1 = None
+            session_2 = None
+            
+            if session_id_1:
+                try:
+                    session_1 = UserApp.objects.get(id=session_id_1, type='Mobile', is_active=True)
+                except UserApp.DoesNotExist:
+                    return error_response(
+                        message=f"Session avec l'ID {session_id_1} non trouvée (type Mobile)",
+                        status_code=status.HTTP_404_NOT_FOUND
+                    )
+            
+            if session_id_2:
+                try:
+                    session_2 = UserApp.objects.get(id=session_id_2, type='Mobile', is_active=True)
+                except UserApp.DoesNotExist:
+                    return error_response(
+                        message=f"Session avec l'ID {session_id_2} non trouvée (type Mobile)",
+                        status_code=status.HTTP_404_NOT_FOUND
+                    )
+            
+            # Récupérer les jobs
+            jobs = Job.objects.filter(id__in=job_ids)
+            if jobs.count() != len(job_ids):
+                found_ids = set(jobs.values_list('id', flat=True))
+                missing_ids = set(job_ids) - found_ids
+                return error_response(
+                    message=f"Jobs non trouvés: {missing_ids}",
+                    status_code=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Vérifier que tous les jobs appartiennent au même inventaire
+            inventory_ids = set(job.inventory_id for job in jobs)
+            if len(inventory_ids) != 1:
+                return error_response(
+                    message="Tous les jobs doivent appartenir au même inventaire",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            
+            inventory_id = list(inventory_ids)[0]
+            
+            # Récupérer les comptages 1 et 2
+            counting_1 = Counting.objects.filter(inventory_id=inventory_id, order=1).first()
+            counting_2 = Counting.objects.filter(inventory_id=inventory_id, order=2).first()
+            
+            if not counting_1:
+                return error_response(
+                    message=f"Comptage d'ordre 1 non trouvé pour l'inventaire {inventory_id}",
+                    status_code=status.HTTP_404_NOT_FOUND
+                )
+            
+            if not counting_2:
+                return error_response(
+                    message=f"Comptage d'ordre 2 non trouvé pour l'inventaire {inventory_id}",
+                    status_code=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Créer les assignments avec statut PRET
+            assignments_created_1 = []
+            assignments_created_2 = []
+            assignments_updated_1 = []
+            assignments_updated_2 = []
+            current_time = timezone.now()
+            
+            with transaction.atomic():
+                for job in jobs:
+                    # Assignment pour le comptage 1
+                    if session_id_1:
+                        assignment_1, created_1 = Assigment.objects.get_or_create(
+                            job=job,
+                            counting=counting_1,
+                            defaults={
+                                'reference': Assigment().generate_reference(Assigment.REFERENCE_PREFIX),
+                                'session': session_1,
+                                'status': 'PRET',
+                                'pret_date': current_time,
+                                'affecte_date': current_time,
+                                'date_start': current_time
+                            }
+                        )
+                        
+                        if not created_1:
+                            # Mettre à jour l'assignment existant
+                            assignment_1.session = session_1
+                            assignment_1.status = 'PRET'
+                            assignment_1.pret_date = current_time
+                            assignment_1.affecte_date = current_time
+                            assignment_1.date_start = current_time
+                            assignment_1.save()
+                            assignments_updated_1.append(assignment_1.id)
+                        else:
+                            assignments_created_1.append(assignment_1.id)
+                    
+                    # Assignment pour le comptage 2
+                    if session_id_2:
+                        assignment_2, created_2 = Assigment.objects.get_or_create(
+                            job=job,
+                            counting=counting_2,
+                            defaults={
+                                'reference': Assigment().generate_reference(Assigment.REFERENCE_PREFIX),
+                                'session': session_2,
+                                'status': 'PRET',
+                                'pret_date': current_time,
+                                'affecte_date': current_time,
+                                'date_start': current_time
+                            }
+                        )
+                        
+                        if not created_2:
+                            # Mettre à jour l'assignment existant
+                            assignment_2.session = session_2
+                            assignment_2.status = 'PRET'
+                            assignment_2.pret_date = current_time
+                            assignment_2.affecte_date = current_time
+                            assignment_2.date_start = current_time
+                            assignment_2.save()
+                            assignments_updated_2.append(assignment_2.id)
+                        else:
+                            assignments_created_2.append(assignment_2.id)
+            
+            # Préparer la réponse
+            response_data = {
+                'assignments_created_counting_1': len(assignments_created_1),
+                'assignments_updated_counting_1': len(assignments_updated_1),
+                'assignments_created_counting_2': len(assignments_created_2),
+                'assignments_updated_counting_2': len(assignments_updated_2),
+                'total_jobs': len(jobs),
+                'inventory_id': inventory_id,
+                'counting_1_order': 1,
+                'counting_2_order': 2,
+                'session_1_id': session_id_1,
+                'session_2_id': session_id_2,
+                'timestamp': current_time
+            }
+            
+            return success_response(
+                data=response_data,
+                message=f"Affectation réussie : {len(assignments_created_1) + len(assignments_created_2)} assignments créés, "
+                       f"{len(assignments_updated_1) + len(assignments_updated_2)} assignments mis à jour",
+                status_code=status.HTTP_201_CREATED
+            )
+            
+        except Exception as e:
+            return error_response(
+                message=f"Une erreur inattendue s'est produite: {str(e)}",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class AutoAssignJobsFromInventoryLocationJobView(APIView):
+    """
+    Affectation automatique des jobs à partir de la table InventoryLocationJob
+    
+    POST /api/inventory/{inventory_id}/auto-assign-jobs-from-location-jobs/
+    
+    Cette API :
+    1. Récupère tous les InventoryLocationJob pour l'inventaire donné
+    2. Extrait les équipes uniques de session_1 et session_2
+    3. Vérifie que les équipes existent dans UserApp (type='Mobile')
+    4. Vérifie que les équipes ne sont pas déjà affectées à un inventaire GENERAL en cours
+    5. Applique l'affectation automatique avec transaction atomique (tout ou rien)
+    6. Trouve les Jobs correspondants par référence
+    7. Crée les assignments pour les comptages 1 et 2 avec le statut AFFECTE
+    8. Met à jour le statut des jobs à AFFECTE
+    
+    Logique "tout ou rien" : Si une seule équipe échoue la validation, toute l'opération est annulée
+    
+    Comportement :
+    - Les assignments sont créés avec le statut AFFECTE
+    - Les jobs sont mis à jour au statut AFFECTE (sauf s'ils sont déjà à un statut avancé)
+    - Si un assignment est ENTAME, il est mis en TRANSFERT lors de la réaffectation
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from ..services.auto_assignment_service import AutoAssignmentService
+        self.service = AutoAssignmentService()
+    
+    def post(self, request, inventory_id):
+        """
+        Endpoint pour effectuer l'affectation automatique des jobs
+        
+        Args:
+            request: Requête HTTP
+            inventory_id: ID de l'inventaire
+            
+        Returns:
+            Response: Réponse HTTP avec les résultats de l'affectation
+        """
+        try:
+            # Appel du service pour effectuer l'affectation
+            result = self.service.auto_assign_jobs_from_location_jobs(inventory_id)
+            
+            # Gestion de la réponse selon le succès ou l'échec
+            if result['success']:
+                return success_response(
+                    # data=result['data'],
+                    message=result['message'],
+                    status_code=status.HTTP_201_CREATED
+                )
+            else:
+                # Déterminer le code d'erreur selon le type d'erreur
+                status_code = status.HTTP_400_BAD_REQUEST
+                
+                # Si l'inventaire n'existe pas ou aucun location job trouvé
+                if result.get('errors'):
+                    first_error = result['errors'][0]
+                    if 'non trouvé' in first_error and 'Inventaire' in first_error:
+                        status_code = status.HTTP_404_NOT_FOUND
+                    elif 'Aucun InventoryLocationJob trouvé' in first_error:
+                        status_code = status.HTTP_404_NOT_FOUND
+                
+                return error_response(
+                    message=result['message'],
+                    errors=result.get('errors', []),
+                    status_code=status_code
+                )
+                
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(
+                f"Erreur inattendue dans AutoAssignJobsFromInventoryLocationJobView : {str(e)}", 
+                exc_info=True
+            )
+            return error_response(
+                message=f"Une erreur inattendue s'est produite: {str(e)}",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class AssignmentReopenView(APIView):
+    """
+    Remet un assignment du statut TERMINE au statut ENTAME.
+
+    POST /api/inventory/assignments/<int:assignment_id>/reopen/
+
+    Comportement :
+    - Vérifie que l'assignment existe
+    - Vérifie que son statut actuel est TERMINE
+    - Met à jour le statut à ENTAME et renseigne la date entame_date
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, assignment_id: int):
+        """
+        Remet un assignment terminé en statut ENTAME.
+
+        Args:
+            request: Requête HTTP
+            assignment_id: ID de l'assignment à mettre à jour
+
+        Returns:
+            Response: Détails de l'assignment mis à jour
+        """
+        service = AssignmentService()
+
+        try:
+            result = service.reopen_assignment_from_termine_to_entame(assignment_id)
+
+            return success_response(
+                data=result,
+                message="Assignment remis au statut 'ENTAME' avec succès",
+                status_code=status.HTTP_200_OK,
+            )
+
+        except AssignmentNotFoundError as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+
+        except AssignmentBusinessRuleError as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        except Exception:
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la remise de l'assignment à ENTAME",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class AssignmentReopenWithLocationsView(APIView):
+    """
+    Remet un assignment du statut TERMINE au statut ENTAME et les emplacements
+    spécifiés du statut TERMINE au statut EN ATTENTE.
+
+    POST /api/inventory/assignments/<int:assignment_id>/reopen-with-locations/
+
+    Body:
+    {
+        "emplacement_ids": [1, 2, 3]   // ou "location_ids": [1, 2, 3]
+    }
+
+    Comportement :
+    - Vérifie que l'assignment existe et est au statut TERMINE
+    - Remet l'assignment à ENTAME
+    - Remet les JobDetails des emplacements spécifiés (même job, même comptage) à EN ATTENTE
+    - Si le job était TERMINE, le remet à ENTAME
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, assignment_id: int):
+        """
+        Remet un assignment terminé en ENTAME et les emplacements spécifiés en EN ATTENTE.
+
+        Args:
+            request: Requête HTTP contenant emplacement_ids ou location_ids
+            assignment_id: ID de l'assignment à modifier
+
+        Returns:
+            Response: Détails des mises à jour effectuées
+        """
+        service = AssignmentService()
+
+        try:
+            serializer = AssignmentReopenWithLocationsSerializer(data=request.data)
+            if not serializer.is_valid():
+                return validation_error_response(
+                    serializer.errors,
+                    message="Erreur de validation des données",
+                )
+
+            location_ids = serializer.validated_data['location_ids']
+            result = service.reopen_assignment_with_locations(
+                assignment_id=assignment_id,
+                location_ids=location_ids,
+            )
+
+            return success_response(
+                data=result,
+                message=(
+                    f"Assignment remis au statut 'ENTAME' et "
+                    f"{result['emplacements_updated_count']} emplacement(s) remis en 'EN ATTENTE'."
+                ),
+                status_code=status.HTTP_200_OK,
+            )
+
+        except AssignmentNotFoundError as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+
+        except AssignmentBusinessRuleError as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        except AssignmentValidationError as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        except Exception:
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la réouverture de l'assignment avec emplacements",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )

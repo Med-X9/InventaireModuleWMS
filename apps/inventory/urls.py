@@ -3,22 +3,60 @@ from django.urls import path
 from .views.inventory_views import (
     InventoryListView,
     InventoryCreateView,
+    InventoryDuplicateView,
     InventoryDetailView,
     InventoryDetailByReferenceView,
     InventoryUpdateView,
     InventoryDeleteView,
     InventoryLaunchView,
     InventoryCancelView,
+    InventoryCompleteView,
+    InventoryCloseView,
     InventoryTeamView,
     InventoryWarehouseStatsView,
+    InventoryResultByWarehouseView,
+    InventoryResultExportExcelView,
     InventoryImportView,
     StockImportView,
+    InventoryOrderingTestView,
+    InventoryBasicInfoView,
+    InventoryAccountView,
+    InventoryWarehousesDetailView,
+    InventoryCountingsView,
+    InventoryTeamDetailView,
+    InventoryResourcesDetailView,
 )
-from apps.inventory.views import InventoryWarehousesView
+from .views.monitoring_views import (
+    ZoneMonitoringByInventoryAndWarehouseView,
+    GlobalMonitoringByInventoryAndWarehouseView,
+)
+from apps.inventory.views import InventoryWarehousesView, AccountWarehousesView
+from .views.setting_views import SettingLaunchView, SettingCancelLaunchView, SettingCloseView
 
-from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView, JobBatchAssignmentView, JobTransferView
-from .views.assignment_views import AssignJobsToCountingView, AssignResourcesToInventoryView, InventoryResourcesView
+
+from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobAutoValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobSetReadyView, JobAutoSetReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView, JobReassignmentView, JobTransferView, JobTransferAllView, JobManualEntryView, JobCancelView, JobProgressByCountingView, InventoryProgressByCountingView, JobsWithAssignmentsByWarehouseAndCountingView, JobDetailsByJobAndCountingView
+from .views.inventory_location_job_import_views import InventoryLocationJobImportView, InventoryLocationJobImportSyncView, InventoryLocationJobImportStatusView
+from .views.job_discrepancy_views import JobDiscrepancyView
+from .views.job_unresolved_discrepancy_views import (
+    JobsWithUnresolvedDiscrepanciesByCountingView,
+)
+from .views.ecart_comptage_views import EcartComptageUpdateFinalResultView, EcartComptageResolveView, EcartComptageBulkResolveView
+from .views.assignment_views import (
+    AssignJobsToCountingView,
+    AssignResourcesToInventoryView,
+    InventoryResourcesView,
+    SessionAssignmentsView,
+    AssignJobsToBothCountingsView,
+    AutoAssignJobsFromInventoryLocationJobView,
+    AssignmentReopenView,
+    AssignmentReopenWithLocationsView,
+)
 from .views.resource_assignment_views import AssignResourcesToJobsView, JobResourcesView, RemoveResourcesFromJobView
+from .views.counting_tracking_views import InventoryCountingTrackingView, JobDetailTrackingView
+from .views.counting_views import CountingLaunchView
+from .views.pdf_views import InventoryJobsPdfView, JobAssignmentPdfView
+from .views.excel_export_views import ConsolidatedArticleExcelExportView
+from .views.job_export_view import JobExportView
 
 urlpatterns = [
     # ========================================
@@ -27,7 +65,9 @@ urlpatterns = [
     
     # Gestion des inventaires
     path('inventory/', InventoryListView.as_view(), name='inventory-list'),
+    path('inventory/test-ordering/', InventoryOrderingTestView.as_view(), name='inventory-test-ordering'),
     path('inventory/create/', InventoryCreateView.as_view(), name='inventory-create'),
+    path('inventory/<int:pk>/duplicate/', InventoryDuplicateView.as_view(), name='inventory-duplicate'),
     path('inventory/import/', InventoryImportView.as_view(), name='inventory-import'),
     path('inventory/<int:pk>/edit/', InventoryDetailView.as_view(), name='inventory-edit'),
     path('inventory/by-reference/<str:reference>/', InventoryDetailByReferenceView.as_view(), name='inventory-by-reference'),
@@ -35,12 +75,38 @@ urlpatterns = [
     path('inventory/<int:pk>/delete/', InventoryDeleteView.as_view(), name='inventory-delete'),
     path('inventory/<int:pk>/launch/', InventoryLaunchView.as_view(), name='inventory-launch'),
     path('inventory/<int:pk>/cancel/', InventoryCancelView.as_view(), name='inventory-cancel'),
+    path('inventory/<int:pk>/complete/', InventoryCompleteView.as_view(), name='inventory-complete'),
+    path('inventory/<int:pk>/close/', InventoryCloseView.as_view(), name='inventory-close'),
     path('inventory/<int:pk>/detail/', InventoryTeamView.as_view(), name='inventory-detail'),
+    
+    # Endpoints séparés pour les détails d'inventaire
+    path('inventory/<int:pk>/basic/', InventoryBasicInfoView.as_view(), name='inventory-basic'),
+    path('inventory/<int:pk>/account/', InventoryAccountView.as_view(), name='inventory-account'),
+    path('inventory/<int:pk>/warehouses/', InventoryWarehousesDetailView.as_view(), name='inventory-warehouses-list'),
+    path('inventory/<int:pk>/countings/', InventoryCountingsView.as_view(), name='inventory-countings'),
+    path('inventory/<int:pk>/team/', InventoryTeamDetailView.as_view(), name='inventory-team-detail'),
+    path('inventory/<int:pk>/resources/', InventoryResourcesDetailView.as_view(), name='inventory-resources-detail'),
     
     # Statistiques et données des inventaires
     path('inventory/<int:inventory_id>/warehouse-stats/', InventoryWarehouseStatsView.as_view(), name='inventory-warehouse-stats'),
-    path('inventory/<int:inventory_id>/stocks/import/', StockImportView.as_view(), name='stock-import'),
+    path('inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/results/', InventoryResultByWarehouseView.as_view(), name='inventory-warehouse-results'),
+    path('inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/results/export/', InventoryResultExportExcelView.as_view(), name='inventory-warehouse-results-export'),
+    path('inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/monitoring/', ZoneMonitoringByInventoryAndWarehouseView.as_view(), name='inventory-warehouse-monitoring'),
+    path('inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/global-monitoring/', GlobalMonitoringByInventoryAndWarehouseView.as_view(), name='inventory-warehouse-global-monitoring'),
+    path('inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/stocks/import/', StockImportView.as_view(), name='stock-import'),
+    path('inventory/<int:inventory_id>/location-jobs/import/', InventoryLocationJobImportView.as_view(), name='inventory-location-job-import'),
+    path('inventory/<int:inventory_id>/location-jobs/import-async/', InventoryLocationJobImportSyncView.as_view(), name='inventory-location-job-import-sync'),
+    path('inventory/location-jobs/import/<int:inventaire_id>/status/', InventoryLocationJobImportStatusView.as_view(), name='inventory-location-job-import-status'),
     path('inventory/planning/<int:inventory_id>/warehouses/', InventoryWarehousesView.as_view(), name='inventory-warehouses'),
+    path('inventory/account/<int:account_id>/warehouses/', AccountWarehousesView.as_view(), name='account-warehouses'),
+    
+    # ========================================
+    # URLs POUR LE LANCEMENT DE WAREHOUSE (SETTING)
+    # ========================================
+    
+    path('inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/launch/', SettingLaunchView.as_view(), name='setting-launch'),
+    path('inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/cancel-launch/', SettingCancelLaunchView.as_view(), name='setting-cancel-launch'),
+    path('inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/close/', SettingCloseView.as_view(), name='setting-close'),
     
     # ========================================
     # URLs POUR LES JOBS
@@ -55,7 +121,11 @@ urlpatterns = [
     path('jobs/validate/', JobValidateView.as_view(), name='jobs-validate'),
     path('jobs/delete/', JobDeleteView.as_view(), name='job-delete'),
     path('jobs/ready/', JobReadyView.as_view(), name='jobs-ready'),
+    path('inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/validate-all/', JobAutoValidateView.as_view(), name='jobs-validate-all'),
+    path('inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/set-ready/', JobAutoSetReadyView.as_view(), name='jobs-auto-set-ready'),
+    path('jobs/cancel/', JobCancelView.as_view(), name='jobs-cancel'),
     path('jobs/reset-assignments/', JobResetAssignmentsView.as_view(), name='job-reset-assignments'),
+    path('jobs/launch-counting/', CountingLaunchView.as_view(), name='job-launch-counting'),
     
     # Gestion des emplacements des jobs
     path('jobs/<int:job_id>/remove-emplacements/', JobRemoveEmplacementsView.as_view(), name='job-remove-emplacements'),
@@ -65,17 +135,71 @@ urlpatterns = [
     path('jobs/list/', JobListWithLocationsView.as_view(), name='jobs-list-with-locations'),
     path('jobs/valid/warehouse/<int:warehouse_id>/inventory/<int:inventory_id>/', JobFullDetailListView.as_view(), name='valid-jobs-by-warehouse-inventory'),
     path('jobs/pending/', JobPendingListView.as_view(), name='jobs-pending'),
+    path('warehouse/<int:warehouse_id>/counting/<int:counting_order>/jobs/', JobsWithAssignmentsByWarehouseAndCountingView.as_view(), name='jobs-with-assignments-by-warehouse-counting'),
+    path('jobs/<int:job_id>/counting/<int:counting_order>/details/', JobDetailsByJobAndCountingView.as_view(), name='job-details-by-job-and-counting'),
+    # Récupération des jobs avec écarts entre 1er et 2ème comptage (suivi agrégé)
+    path(
+        'inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/discrepancies/',
+        JobDiscrepancyView.as_view(),
+        name='job-discrepancies',
+    ),
+    # Récupération des jobs avec écarts de comptage non résolus, groupés par comptage
+    path(
+        'inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/discrepancies-by-counting/',
+        JobsWithUnresolvedDiscrepanciesByCountingView.as_view(),
+        name='jobs-discrepancies-by-counting',
+    ),
+    # Export des jobs prêts
+    path('inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/export/', JobExportView.as_view(), name='job-export'),
     
     # ========================================
     # URLs POUR L'AFFECTATION DES JOBS
     # ========================================
     
     path('inventory/<int:inventory_id>/assign-jobs/', AssignJobsToCountingView.as_view(), name='assign-jobs-to-counting'),
-    path('inventory/assign-jobs-manual/', JobBatchAssignmentView.as_view(), name='assign-jobs-manual'),
+    path('inventory/<int:inventory_id>/auto-assign-jobs-from-location-jobs/', AutoAssignJobsFromInventoryLocationJobView.as_view(), name='auto-assign-jobs-from-location-jobs'),
+    path('inventory/session/<int:session_id>/assignments/', SessionAssignmentsView.as_view(), name='session-assignments'),
+    path('inventory/assign-jobs-both-countings/', AssignJobsToBothCountingsView.as_view(), name='assign-jobs-both-countings'),
+    # URL pour remettre un assignment en statut ENTAME
+    path('inventory/assignments/<int:assignment_id>/reopen/', AssignmentReopenView.as_view(), name='assignment-reopen'),
+    # URL pour remettre un assignment en ENTAME et des emplacements en EN ATTENTE
+    path('inventory/assignments/<int:assignment_id>/reopen-with-locations/', AssignmentReopenWithLocationsView.as_view(), name='assignment-reopen-with-locations'),
+    path('inventory/assign-jobs-manual/', JobReassignmentView.as_view(), name='assign-jobs-manual'),
     # URL pour transférer les jobs par comptage
     path('jobs/transfer/', JobTransferView.as_view(), name='job-transfer'),
+    # URL pour transférer tous les jobs d'un inventaire et entrepôt spécifiques
+    path('inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/transfer-all/', JobTransferAllView.as_view(), name='job-transfer-all'),
+    # URL pour mettre les jobs en saisie manuelle
+    path('jobs/manual-entry/', JobManualEntryView.as_view(), name='job-manual-entry'),
     
-
+    # URLs pour l'avancement des emplacements par job et par counting
+    path('jobs/<int:job_id>/progress-by-counting/', JobProgressByCountingView.as_view(), name='job-progress-by-counting'),
+    path('inventory/<int:inventory_id>/progress-by-counting/', InventoryProgressByCountingView.as_view(), name='inventory-progress-by-counting'),
+    
+    # ========================================
+    # URL POUR LE SUIVI DES COMPTAGES
+    # ========================================
+    
+    # API pour le suivi d'un inventaire regroupé par comptages avec jobs et emplacements
+    path('inventory/<int:inventory_id>/counting-tracking/', InventoryCountingTrackingView.as_view(), name='inventory-counting-tracking'),
+    # API DataTable pour récupérer les JobDetail avec Assignment (filtres: warehouse_id, inventory_id, counting_order)
+    path('job-details/tracking/', JobDetailTrackingView.as_view(), name='job-detail-tracking'),
+    
+    # ========================================
+    # URL POUR LA GENERATION DE PDF
+    # ========================================
+    
+    # API pour generer le PDF des jobs d'inventaire (tous les comptages)
+    path('inventory/<int:inventory_id>/jobs/pdf/', InventoryJobsPdfView.as_view(), name='inventory-jobs-pdf'),
+    # API pour generer le PDF d'un job/assignment/equipe specifique
+    path('jobs/<int:job_id>/assignments/<int:assignment_id>/pdf/', JobAssignmentPdfView.as_view(), name='job-assignment-pdf'),
+    
+    # ========================================
+    # URL POUR L'EXPORT EXCEL CONSOLIDE
+    # ========================================
+    
+    # API pour exporter un fichier Excel consolidé par article
+    path('inventory/<int:inventory_id>/articles-consolides/export/', ConsolidatedArticleExcelExportView.as_view(), name='inventory-articles-consolides-export'),
     
     # ========================================
     # URLs POUR L'AFFECTATION DES RESSOURCES AUX JOBS
@@ -92,8 +216,26 @@ urlpatterns = [
     path('inventory/<int:inventory_id>/assign-resources-inventory/', AssignResourcesToInventoryView.as_view(), name='assign-resources-to-inventory'),
     path('inventory/<int:inventory_id>/resources/', InventoryResourcesView.as_view(), name='get-inventory-resources'),
     
+    # ========================================
+    # URLs POUR LES ECARTS DE COMPTAGE
+    # ========================================
 
-    # Nouvelle URL pour les jobs validés d'un entrepôt et d'un inventaire spécifique
-    
-    # URL pour lister les jobs en attente
+    # API pour modifier le résultat final d'un EcartComptage (nécessite au moins 2 séquences)
+    path(
+        'ecarts-comptage/<int:ecart_id>/final-result/',
+        EcartComptageUpdateFinalResultView.as_view(),
+        name='ecart-comptage-update-final-result',
+    ),
+    # API pour marquer un EcartComptage comme résolu (nécessite au moins 2 séquences et un résultat final)
+    path(
+        'ecarts-comptage/<int:ecart_id>/resolve/',
+        EcartComptageResolveView.as_view(),
+        name='ecart-comptage-resolve',
+    ),
+    # API pour marquer comme résolus les EcartComptage d'un inventaire qui ont un final_result
+    path(
+        'ecarts-comptage/bulk-resolve/<int:inventory_id>/',
+        EcartComptageBulkResolveView.as_view(),
+        name='ecart-comptage-bulk-resolve',
+    ),
 ]

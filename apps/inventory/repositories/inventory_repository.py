@@ -1,8 +1,8 @@
-from django.db.models import Q
-from ..models import Inventory, Setting, Counting
+from django.db.models import Q, Prefetch
+from ..models import Inventory, Setting, Counting, Assigment, Job
 from apps.inventory.exceptions.inventory_exceptions import InventoryNotFoundError
 from ..interfaces.inventory_interface import IInventoryRepository
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from django.utils import timezone
 from django.db import transaction
 
@@ -441,4 +441,89 @@ class InventoryRepository(IInventoryRepository):
         """
         return Inventory.objects.filter(
             is_deleted=False
-        ).order_by('-created_at')[:limit] 
+        ).order_by('-created_at')[:limit]
+
+    def get_with_counting_tracking_data(self, inventory_id: int, counting_order: int, assigment_id: Optional[int] = None) -> Any:
+        """
+        Récupère un inventaire avec toutes les données nécessaires pour le suivi de comptage.
+        Précharge les relations : countings, jobs (filtrés par assignment), jobdetails, locations, zones, sous-zones.
+        
+        Args:
+            inventory_id: ID de l'inventaire à récupérer
+            counting_order: Ordre du comptage à filtrer (requis). Ne retourne que le comptage avec cet ordre.
+            assigment_id: ID de l'assignment à filtrer (optionnel). Si fourni, ne retourne que les jobs de cet assignment.
+            
+        Returns:
+            Inventory: Inventaire avec toutes les relations préchargées
+            
+        Raises:
+            InventoryNotFoundError: Si l'inventaire n'existe pas ou est supprimé
+        """
+        try:
+            # Récupérer le counting avec l'ordre spécifié pour cet inventaire
+            try:
+                counting = Counting.objects.get(inventory_id=inventory_id, order=counting_order)
+            except Counting.DoesNotExist:
+                # Si le counting n'existe pas, retourner l'inventaire avec un queryset vide pour les jobs
+                counting = None
+            
+            # Récupérer les IDs des jobs qui ont un assignment pour ce counting
+            if counting:
+                assignment_filter = Assigment.objects.filter(
+                    counting=counting,
+                    job__inventory_id=inventory_id
+                )
+                
+                # Si assigment_id est fourni, filtrer par cet assignment
+                if assigment_id is not None:
+                    assignment_filter = assignment_filter.filter(id=assigment_id)
+                
+                job_ids_with_assignment = assignment_filter.values_list('job_id', flat=True).distinct()
+            else:
+                job_ids_with_assignment = []
+            
+            # Construire le Prefetch pour les comptages avec filtre par ordre
+            # Précharger l'inventaire pour éviter les requêtes N+1 dans le serializer
+            counting_prefetch = Prefetch(
+                'countings',
+                queryset=Counting.objects.filter(order=counting_order).select_related('inventory').order_by('order')
+            )
+            
+            # Construire le Prefetch pour les jobs filtrés par assignment
+            if counting and job_ids_with_assignment:
+                # Construire le filtre pour les assignments dans le Prefetch
+                assignment_filter = Assigment.objects.filter(counting=counting)
+                if assigment_id is not None:
+                    assignment_filter = assignment_filter.filter(id=assigment_id)
+                
+                job_prefetch = Prefetch(
+                    'job_set',
+                    queryset=Job.objects.filter(
+                        id__in=job_ids_with_assignment
+                    ).prefetch_related(
+                        'warehouse',
+                        'jobdetail_set__location__sous_zone__zone',
+                        'jobdetail_set__location__sous_zone',
+                        Prefetch(
+                            'assigment_set',
+                            queryset=assignment_filter.select_related(
+                                'counting', 'session', 'personne', 'personne_two'
+                            )
+                        )
+                    )
+                )
+            else:
+                # Si aucun assignment, retourner un queryset vide
+                job_prefetch = Prefetch(
+                    'job_set',
+                    queryset=Job.objects.none()
+                )
+            
+            return Inventory.objects.filter(
+                is_deleted=False
+            ).prefetch_related(
+                counting_prefetch,
+                job_prefetch
+            ).get(id=inventory_id)
+        except Inventory.DoesNotExist:
+            raise InventoryNotFoundError(f"L'inventaire avec l'ID {inventory_id} n'existe pas.") 

@@ -1,0 +1,23 @@
+[Unit]
+Description=gunicorn daemon
+Requires=gunicorn.socket
+After=network.target
+
+[Service]
+Type=notify
+User=www-data
+Group=www-data
+WorkingDirectory=/home/ubuntu/IMS/backend
+Environment="PATH=/home/ubuntu/IMS/backend/venv/bin"
+ExecStart=/home/ubuntu/IMS/backend/venv/bin/gunicorn \
+          --access-logfile - \
+          --workers 3 \
+          --threads 2 \
+          --timeout 600 \
+          --bind unix:/run/gunicorn.sock \
+          project.wsgi:application
+Restart=on-failure
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

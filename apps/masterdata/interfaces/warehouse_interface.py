@@ -11,5 +11,9 @@ class IWarehouseRepository(ABC):
         pass
 
     @abstractmethod
+    def get_by_name(self, warehouse_name: str) -> Any:
+        pass
+
+    @abstractmethod
     def get_all(self) -> List[Any]:
         pass 

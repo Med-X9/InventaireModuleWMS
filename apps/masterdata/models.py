@@ -114,7 +114,7 @@ class Warehouse(CodeGeneratorMixin, TimeStampedModel):
         ('SHIPPING', _('Expédition')),
         ('TRANSIT', _('Transit')),
     )
-    
+     
     reference = models.CharField(_('Code de l\'entrepôt'), max_length=20, unique=True)
     warehouse_name = models.CharField(_('Nom de l\'entrepôt'), max_length=100)
     warehouse_type = models.CharField(_('Type d\'entrepôt'), choices=Warehouse_CHOICES)
@@ -233,12 +233,12 @@ class Location(CodeGeneratorMixin, TimeStampedModel):
     CODE_PREFIX = 'LOC'
     
     reference = models.CharField(_('Code de l\'emplacement'), unique=True, max_length=20)
-    location_reference = models.CharField(_('Référence de l\'emplacement'), unique=True, max_length=30)
+    location_reference = models.CharField(_('Référence de l\'emplacement'), max_length=30)
     sous_zone = models.ForeignKey(SousZone, on_delete=models.CASCADE, verbose_name=_('Sous-zone'))
     location_type = models.ForeignKey(LocationType, on_delete=models.CASCADE, verbose_name=_('Type d\'emplacement'))
     capacity = models.IntegerField(_('Capacité'), null=True, blank=True, validators=[MinValueValidator(0)])
     is_active = models.BooleanField(_('Actif'), default=True)
-    description = models.TextField(_('Description'), max_length=100, null=True, blank=True)
+    description = models.TextField(_('Description'), max_length=255, null=True, blank=True)
     regroupement = models.ForeignKey('RegroupementEmplacement', on_delete=models.SET_NULL, null=True, blank=True, related_name='locations')
     history = HistoricalRecords()
     
@@ -247,7 +247,7 @@ class Location(CodeGeneratorMixin, TimeStampedModel):
         verbose_name_plural = _('Emplacements')
     
     def __str__(self):
-        return self.location_reference
+        return self.reference
 
 class Product(CodeGeneratorMixin, TimeStampedModel):
     """
@@ -262,12 +262,12 @@ class Product(CodeGeneratorMixin, TimeStampedModel):
     )
     
     reference = models.CharField(_('Référence'), unique=True, max_length=20)
-    Internal_Product_Code = models.CharField(_('Code produit'), max_length=20,unique=True)
-    Short_Description = models.CharField(_('Désignation'), max_length=100)
-    Barcode = models.CharField(_('Code-barres'), unique=True, max_length=30, null=True, blank=True)
+    Internal_Product_Code = models.CharField(_('Code produit'), max_length=100)
+    Short_Description = models.CharField(_('Désignation'), max_length=1000,null=True, blank=True)
+    Barcode = models.CharField(_('Code-barres'), max_length=100,null=True, blank=True)
     Product_Group = models.CharField(_('Groupe de produit'), max_length=10,null=True, blank=True)
     Stock_Unit = models.CharField(_('Unité de stock'), max_length=30)
-    Product_Status = models.CharField(_('Statut'), choices=STATUS_CHOICES)  
+    Product_Status = models.CharField(_('Statut'), choices=STATUS_CHOICES,default='ACTIVE')  
     Product_Family = models.ForeignKey(Family, on_delete=models.CASCADE, verbose_name=_('Famille de produit'))
     Is_Variant = models.BooleanField(_('variante'),default=False)
     n_lot=models.BooleanField(_('N° lot'),default=False)
@@ -282,7 +282,82 @@ class Product(CodeGeneratorMixin, TimeStampedModel):
         verbose_name_plural = _('Produits')
     
     def __str__(self):
-        return self.Short_Description
+        return self.Internal_Product_Code
+
+class NSerie(CodeGeneratorMixin, TimeStampedModel):
+    """
+    Modèle pour les numéros de série des produits
+    """
+    CODE_PREFIX = 'NS'
+    
+    STATUS_CHOICES = (
+        ('ACTIVE', _('Actif')),
+        ('INACTIVE', _('Inactif')),
+        ('USED', _('Utilisé')),
+        ('EXPIRED', _('Expiré')),
+        ('BLOCKED', _('Bloqué')),
+    )
+    
+    reference = models.CharField(_('Référence'), unique=True, max_length=20)
+    n_serie = models.CharField(_('Numéro de série'), max_length=100, unique=True)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, verbose_name=_('Produit'), related_name='numeros_serie')
+    status = models.CharField(_('Statut'), choices=STATUS_CHOICES, default='ACTIVE')
+    description = models.TextField(_('Description'), blank=True, null=True)
+    date_fabrication = models.DateField(_('Date de fabrication'), null=True, blank=True)
+    date_expiration = models.DateField(_('Date d\'expiration'), null=True, blank=True)
+    warranty_end_date = models.DateField(_('Date de fin de garantie'), null=True, blank=True)
+    
+    history = HistoricalRecords()
+    
+    class Meta:
+        verbose_name = _('Numéro de série')
+        verbose_name_plural = _('Numéros de série')
+        unique_together = ['n_serie', 'product']
+        indexes = [
+            models.Index(fields=['n_serie']),
+            models.Index(fields=['product', 'status']),
+        ]
+    
+    def __str__(self):
+        return f"{self.n_serie} - {self.product.Short_Description}"
+    
+    def clean(self):
+        """
+        Validation personnalisée
+        """
+        from django.core.exceptions import ValidationError
+        
+        # Vérifier que le produit a l'option n_serie activée
+        if self.product and not self.product.n_serie:
+            raise ValidationError(_('Ce produit ne supporte pas les numéros de série'))
+        
+        # Vérifier que le numéro de série est unique pour ce produit
+        if NSerie.objects.filter(n_serie=self.n_serie, product=self.product).exclude(id=self.id).exists():
+            raise ValidationError(_('Ce numéro de série existe déjà pour ce produit'))
+    
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+    
+    @property
+    def is_expired(self):
+        """
+        Vérifie si le numéro de série est expiré
+        """
+        if self.date_expiration:
+            from django.utils import timezone
+            return timezone.now().date() > self.date_expiration
+        return False
+    
+    @property
+    def is_warranty_valid(self):
+        """
+        Vérifie si la garantie est encore valide
+        """
+        if self.warranty_end_date:
+            from django.utils import timezone
+            return timezone.now().date() <= self.warranty_end_date
+        return False
 
 class UnitOfMeasure(CodeGeneratorMixin, TimeStampedModel):
     """
@@ -315,6 +390,7 @@ class Stock(TimeStampedModel):
     quantity_in_receiving = models.IntegerField(validators=[MinValueValidator(0)], blank=True, null=True)
     unit_of_measure = models.ForeignKey(UnitOfMeasure, on_delete=models.CASCADE)
     inventory = models.ForeignKey('inventory.Inventory', on_delete=models.CASCADE)
+    warehouse = models.ForeignKey('Warehouse', on_delete=models.CASCADE)
     history = HistoricalRecords()
 
     def save(self, *args, **kwargs):
@@ -362,9 +438,174 @@ class Procedure(CodeGeneratorMixin, TimeStampedModel):
     """
 
 class RegroupementEmplacement(models.Model):
-    account = models.OneToOneField('Account', on_delete=models.CASCADE, related_name='regroupement_emplacement')
+    account = models.ForeignKey('Account', on_delete=models.CASCADE, related_name='regroupement_emplacement')
+    warehouse = models.ForeignKey('Warehouse', on_delete=models.CASCADE, related_name='regroupement_emplacement')
     nom = models.CharField(max_length=255)
 
     def __str__(self):
         return self.nom
 
+
+class ImportTask(TimeStampedModel):
+    """Suivi des imports en cours - Mode 'tout ou rien' uniquement"""
+    STATUS_CHOICES = (
+        ('PENDING', 'En attente'),
+        ('VALIDATING', 'Validation en cours'),
+        ('PROCESSING', 'Import en cours'),
+        ('COMPLETED', 'Terminé avec succès'),
+        ('CANCELLED', 'Annulé (erreurs détectées)'),
+        ('FAILED', 'Échoué'),
+    )
+    
+    user = models.ForeignKey('users.UserApp', on_delete=models.CASCADE)
+    inventory = models.ForeignKey('inventory.Inventory', on_delete=models.CASCADE, null=True, blank=True, related_name='import_tasks', verbose_name='Inventaire')
+    file_path = models.CharField(max_length=500)
+    file_name = models.CharField(max_length=255)
+    total_rows = models.IntegerField(default=0)
+    validated_rows = models.IntegerField(default=0)
+    processed_rows = models.IntegerField(default=0)
+    imported_count = models.IntegerField(default=0)
+    updated_count = models.IntegerField(default=0)
+    error_count = models.IntegerField(default=0)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    error_message = models.TextField(blank=True, null=True)
+    errors_file_path = models.CharField(max_length=500, blank=True, null=True)
+    
+    class Meta:
+        verbose_name = 'Tâche d\'import'
+        verbose_name_plural = 'Tâches d\'import'
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"Import {self.file_name} - {self.status}"
+    
+    def get_chunks_progress(self):
+        """
+        Récupère la progression des chunks depuis errors_file_path (stocké en JSON).
+        Retourne une liste vide si aucun chunk n'est suivi.
+        """
+        import json
+        import os
+        
+        if not self.errors_file_path or not os.path.exists(self.errors_file_path):
+            return []
+        
+        try:
+            with open(self.errors_file_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return []
+    
+    def set_chunks_progress(self, chunks_data):
+        """
+        Sauvegarde la progression des chunks dans errors_file_path (stocké en JSON).
+        Utilise errors_file_path pour stocker le chemin vers le fichier JSON des chunks.
+        """
+        import json
+        import tempfile
+        import os
+        
+        # Créer un fichier temporaire pour stocker les chunks
+        if not self.errors_file_path:
+            # Créer un nouveau fichier temporaire
+            temp_file = tempfile.NamedTemporaryFile(
+                mode='w',
+                delete=False,
+                suffix='_chunks.json',
+                prefix=f'import_task_{self.id}_'
+            )
+            self.errors_file_path = temp_file.name
+            temp_file.close()
+        
+        # Écrire les données dans le fichier
+        try:
+            with open(self.errors_file_path, 'w', encoding='utf-8') as f:
+                json.dump(chunks_data, f, indent=2, ensure_ascii=False)
+            self.save(update_fields=['errors_file_path'])
+        except IOError as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Erreur lors de l'écriture du fichier de chunks: {str(e)}")
+    
+    def update_chunk_progress(self, chunk_number, **kwargs):
+        """
+        Met à jour la progression d'un chunk spécifique.
+        
+        Args:
+            chunk_number: Numéro du chunk à mettre à jour
+            **kwargs: Champs à mettre à jour (status, processed_rows, imported_count, etc.)
+        """
+        chunks = self.get_chunks_progress()
+        
+        # Trouver le chunk à mettre à jour
+        for chunk in chunks:
+            if chunk.get('chunk_number') == chunk_number:
+                chunk.update(kwargs)
+                self.set_chunks_progress(chunks)
+                return
+        
+        # Si le chunk n'existe pas, le créer
+        chunks.append({
+            'chunk_number': chunk_number,
+            **kwargs
+        })
+        self.set_chunks_progress(chunks)
+
+
+class ImportError(TimeStampedModel):
+    """Détail des erreurs d'import ligne par ligne"""
+    import_task = models.ForeignKey(
+        ImportTask, 
+        on_delete=models.CASCADE, 
+        related_name='errors'
+    )
+    row_number = models.IntegerField(verbose_name="Numéro de ligne")
+    error_type = models.CharField(max_length=100, verbose_name="Type d'erreur")
+    error_message = models.TextField(verbose_name="Message d'erreur")
+    field_name = models.CharField(max_length=100, blank=True, null=True, verbose_name="Champ concerné")
+    field_value = models.TextField(blank=True, null=True, verbose_name="Valeur du champ")
+    row_data = models.JSONField(default=dict, verbose_name="Données de la ligne")
+    
+    class Meta:
+        verbose_name = 'Erreur d\'import'
+        verbose_name_plural = 'Erreurs d\'import'
+        ordering = ['row_number']
+        indexes = [
+            models.Index(fields=['import_task', 'row_number']),
+        ]
+    
+    def __str__(self):
+        return f"Ligne {self.row_number}: {self.error_message}"
+
+
+class InventoryLocationJob(TimeStampedModel):
+    """
+    Modèle pour lier un inventaire, un emplacement, un job et des sessions
+    """
+    inventaire = models.ForeignKey(
+        'inventory.Inventory',
+        on_delete=models.CASCADE,
+        verbose_name=_('Inventaire'),
+        related_name='location_jobs'
+    )
+    emplacement = models.ForeignKey(
+        Location,
+        on_delete=models.CASCADE,
+        verbose_name=_('Emplacement'),
+        related_name='inventory_jobs'
+    )
+    job = models.CharField(_('Job'), max_length=255, blank=True, null=True)
+    session_1 = models.CharField(_('Session 1'), max_length=255, blank=True, null=True)
+    session_2 = models.CharField(_('Session 2'), max_length=255, blank=True, null=True)
+    history = HistoricalRecords()
+    
+    class Meta:
+        verbose_name = _('Job d\'inventaire par emplacement')
+        verbose_name_plural = _('Jobs d\'inventaire par emplacement')
+        indexes = [
+            models.Index(fields=['inventaire', 'emplacement']),
+            models.Index(fields=['job']),
+        ]
+    
+    def __str__(self):
+        return f"{self.inventaire} - {self.emplacement} - {self.job}"

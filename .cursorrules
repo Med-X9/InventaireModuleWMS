@@ -1,0 +1,144 @@
+version: 1
+
+# -----------------------------------------------------
+# 🎯 Objectif global
+# -----------------------------------------------------
+description: >
+  Règles pour maintenir une architecture propre Django REST Framework 
+  avec les patterns Interface / Repository / Service / Serializer / View.
+  L’objectif est d’assurer un code clair, testable et conforme aux bonnes pratiques.
+
+# -----------------------------------------------------
+# ⚙️ Directives générales
+# -----------------------------------------------------
+general:
+  - always use PEP8 style conventions.
+  - comment key logic blocks with clear and concise explanations.
+  - avoid unnecessary abstraction or over-engineering.
+  - write Python code compatible with Django 4.x and DRF 3.x+.
+  - use dependency injection when possible (especially in services).
+  - prefer clear naming: repositories handle data access, services handle business logic.
+  - never mix business logic in views or serializers.
+
+# -----------------------------------------------------
+# 🧱 Structure logique recommandée
+# -----------------------------------------------------
+project_structure:
+  - apps/<inventory>/models/
+  - apps/<inventory>/repositories/
+  - apps/<inventory>/services/
+  - apps/<inventory>/serializers/
+  - apps/<inventory>/views/
+  - apps/<inventory>/urls.py
+  - tests/<inventory>/
+  - apps/<masterdata>/models/
+  - apps/<masterdata>/repositories/
+  - apps/<masterdata>/services/
+  - apps/<masterdata>/serializers/
+  - apps/<masterdata>/views/
+  - apps/<masterdata>/urls.py
+  - tests/<masterdata>/
+  - apps/<mobile>/models/
+  - apps/<mobile>/repositories/
+  - apps/<mobile>/services/
+  - apps/<mobile>/serializers/
+  - apps/<mobile>/views/
+  - apps/<mobile>/urls.py
+  - tests/<mobile>/
+  - apps/<users>/models/
+  - apps/<users>/repositories/
+  - apps/<users>/services/
+  - apps/<users>/serializers/
+  - apps/<users>/views/
+  - apps/<users>/urls.py
+  - tests/<users>/
+
+# -----------------------------------------------------
+# 🧩 Règles par type de fichier
+# -----------------------------------------------------
+rules:
+
+  - pattern: "*/repositories/*.py"
+    instructions:
+      - repositories should contain only ORM access or data fetching logic.
+      - no business rules or validation here.
+      - always create methods like `get_by_id`, `create`, `update`, `delete`, etc.
+      - prefer returning QuerySets or model instances.
+
+  - pattern: "*/services/*.py"
+    instructions:
+      - services must contain all business logic.
+      - handle exceptions and domain validations here.
+      - services can use multiple repositories.
+      - return domain objects (not Response or Serializer).
+
+  - pattern: "*/serializers/*.py"
+    instructions:
+      - serializers must handle input validation and output formatting only.
+      - never include database queries or service logic.
+      - use `ModelSerializer` whenever possible.
+
+  - pattern: "*/views/*.py"
+    instructions:
+      - use DRF `ViewSet` or `APIView` classes.
+      - call services, not repositories directly.
+      - handle HTTP request/response logic only.
+      - never include raw ORM queries.
+      - always use serializers for input/output.
+
+  - pattern: "*/tests/*.py"
+    instructions:
+      - separate unit tests for repositories, services, and views.
+      - mock repositories when testing services.
+      - use DRF APIClient for view tests.
+
+# -----------------------------------------------------
+# 🧠 Commentaires automatiques
+# -----------------------------------------------------
+auto_comments:
+  - if code contains business logic in a view:
+      comment: "❌ Move business logic to a Service layer."
+  - if serializer contains ORM query:
+      comment: "⚠️ Serializer should not access the database directly."
+  - if repository contains validation logic:
+      comment: "⚠️ Validation must be in the Service, not Repository."
+  - if variable names are unclear:
+      comment: "💡 Use explicit variable names (e.g. client_repo, ticket_service)."
+
+# -----------------------------------------------------
+# ✨ Style et cohérence
+# -----------------------------------------------------
+style:
+  - use snake_case for functions and variables.
+  - use PascalCase for classes.
+  - always type hint functions and methods.
+  - use docstrings for public methods.
+  - avoid wildcard imports.
+  - keep functions under ~30 lines if possible.
+
+# -----------------------------------------------------
+# 🧩 Bonus : Gestion des exceptions et logs
+# -----------------------------------------------------
+error_handling:
+  - prefer raising domain-specific exceptions from services.
+  - catch exceptions in views and return proper DRF responses.
+  - log errors at the service level using Python's logging module.
+
+# -----------------------------------------------------
+# 🔐 Sécurité
+# -----------------------------------------------------
+security:
+  - never log sensitive data (passwords, tokens, etc.).
+  - always validate user permissions in views or DRF permissions classes.
+  - serializers should not expose hidden fields like passwords or tokens.
+
+# -----------------------------------------------------
+# 📘 Documentation
+# -----------------------------------------------------
+documentation:
+  - for each service method, include a docstring explaining:
+      - what the method does
+      - expected inputs/outputs
+      - possible exceptions
+  - for repositories, document expected query behaviors.
+

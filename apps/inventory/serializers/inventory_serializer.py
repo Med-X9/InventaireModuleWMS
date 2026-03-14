@@ -89,23 +89,55 @@ class InventoryCreateSerializer(serializers.Serializer):
         
         return data
 
+
+class InventoryDuplicateSerializer(serializers.Serializer):
+    """
+    Serializer pour la duplication d'un inventaire.
+    """
+    label = serializers.CharField()
+    date = serializers.DateField()
+    inventory_type = serializers.ChoiceField(
+        choices=[('TOURNANT', 'TOURNANT'), ('GENERAL', 'GENERAL')],
+        default='GENERAL'
+    )
+    account_id = serializers.IntegerField()
+    warehouse = serializers.ListField(
+        child=serializers.DictField(),
+        allow_empty=False
+    )
+
+    def validate_warehouse(self, warehouses):
+        """
+        Valide la liste des entrepôts fournie.
+        """
+        if not warehouses:
+            raise serializers.ValidationError("Au moins un entrepôt est obligatoire")
+
+        for index, warehouse_info in enumerate(warehouses, start=1):
+            if not isinstance(warehouse_info, dict):
+                raise serializers.ValidationError(f"L'entrepôt {index} doit être un objet avec un identifiant")
+            if not warehouse_info.get('id'):
+                raise serializers.ValidationError(f"L'entrepôt {index} doit avoir un identifiant 'id'")
+
+        return warehouses
+
 class InventoryGetByIdSerializer(serializers.ModelSerializer):
     """Serializer pour récupérer un inventaire par son ID avec le format spécifique."""
-    account_id = serializers.SerializerMethodField()
-    warehouse_ids = serializers.SerializerMethodField()
+    account_reference = serializers.SerializerMethodField()
+    warehouse_references = serializers.SerializerMethodField()
     comptages = serializers.SerializerMethodField()
 
     class Meta:
         model = Inventory
-        fields = ['label', 'date', 'account_id', 'warehouse_ids', 'comptages']
+        fields = ['reference', 'label', 'date', 'account_reference', 'warehouse_references', 'comptages']
 
-    def get_account_id(self, obj):
+    def get_account_reference(self, obj):
         setting = Setting.objects.filter(inventory=obj).first()
-        return setting.account.id if setting else None
+        return setting.account.reference if setting and hasattr(setting.account, 'reference') else None
 
-    def get_warehouse_ids(self, obj):
+    def get_warehouse_references(self, obj):
         settings = Setting.objects.filter(inventory=obj)
-        return [setting.warehouse.id for setting in settings]
+        return [setting.warehouse.reference for setting in settings if hasattr(setting.warehouse, 'reference')]
 
     def get_comptages(self, obj):
         countings = Counting.objects.filter(inventory=obj).order_by('order')
@@ -117,24 +149,27 @@ class PdaTeamSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Assigment
-        fields = ['id', 'reference', 'user']
+        fields = ['reference', 'user']
 
 class InventoryDetailSerializer(serializers.ModelSerializer):
     """
     Sérialiseur pour les détails d'un inventaire.
     """
     account_name = serializers.SerializerMethodField()
+    account_reference = serializers.SerializerMethodField()
     warehouse_name = serializers.SerializerMethodField()
+    warehouse_references = serializers.SerializerMethodField()
     comptages = serializers.SerializerMethodField()
     equipe = serializers.SerializerMethodField()
 
     class Meta:
         model = Inventory
         fields = [
-            'id', 'reference', 'label', 'date', 'status', 'inventory_type',
+            'id','reference', 'label', 'date', 'status', 'inventory_type',
             'en_preparation_status_date',
             'en_realisation_status_date', 'termine_status_date',
-            'cloture_status_date', 'account_name', 'warehouse_name' ,'created_at',
+            'cloture_status_date', 'account_name', 'account_reference', 
+            'warehouse_name', 'warehouse_references', 'created_at',
             'comptages', 'equipe'
         ]
 
@@ -142,9 +177,17 @@ class InventoryDetailSerializer(serializers.ModelSerializer):
         setting = Setting.objects.filter(inventory=obj).first()
         return setting.account.account_name if setting else None
 
+    def get_account_reference(self, obj):
+        setting = Setting.objects.filter(inventory=obj).first()
+        return setting.account.reference if setting and hasattr(setting.account, 'reference') else None
+
     def get_warehouse_name(self, obj):
         settings = Setting.objects.filter(inventory=obj)
         return [setting.warehouse.warehouse_name for setting in settings]
+
+    def get_warehouse_references(self, obj):
+        settings = Setting.objects.filter(inventory=obj)
+        return [setting.warehouse.reference for setting in settings if hasattr(setting.warehouse, 'reference')]
 
     def get_comptages(self, obj):
         countings = Counting.objects.filter(inventory=obj).order_by('order')
@@ -156,26 +199,37 @@ class InventoryDetailSerializer(serializers.ModelSerializer):
 
 class InventorySerializer(serializers.ModelSerializer):
     account_name = serializers.SerializerMethodField()
+    account_reference = serializers.SerializerMethodField()
     warehouse_name = serializers.SerializerMethodField()
+    warehouse_references = serializers.SerializerMethodField()
     comptages = serializers.SerializerMethodField()
     equipe = serializers.SerializerMethodField()
 
     class Meta:
         model = Inventory
         fields = [
-            'id', 'label', 'date', 'status', 'inventory_type',
+            'reference', 'label', 'date', 'status', 'inventory_type',
             'en_preparation_status_date', 'en_realisation_status_date',
             'termine_status_date', 'cloture_status_date',
-            'account_name', 'warehouse_name', 'comptages', 'equipe'
+            'account_name', 'account_reference', 'warehouse_name', 
+            'warehouse_references', 'comptages', 'equipe'
         ]
 
     def get_account_name(self, obj):
         setting = Setting.objects.filter(inventory=obj).first()
         return setting.account.account_name if setting else None
 
+    def get_account_reference(self, obj):
+        setting = Setting.objects.filter(inventory=obj).first()
+        return setting.account.reference if setting and hasattr(setting.account, 'reference') else None
+
     def get_warehouse_name(self, obj):
         settings = Setting.objects.filter(inventory=obj)
         return [setting.warehouse.warehouse_name for setting in settings]
+
+    def get_warehouse_references(self, obj):
+        settings = Setting.objects.filter(inventory=obj)
+        return [setting.warehouse.reference for setting in settings if hasattr(setting.warehouse, 'reference')]
 
     def get_comptages(self, obj):
         countings = Counting.objects.filter(inventory=obj).order_by('order')
@@ -191,18 +245,17 @@ class InventoryTeamSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Assigment
-        fields = ['id', 'reference', 'user']
+        fields = ['reference', 'user']
 
 class InventoryWarehouseStatsSerializer(serializers.Serializer):
     """Serializer pour les statistiques des warehouses d'un inventaire"""
-    warehouse_id = serializers.IntegerField()
     warehouse_reference = serializers.CharField()
     warehouse_name = serializers.CharField()
     jobs_count = serializers.IntegerField()
     teams_count = serializers.IntegerField()
     
     class Meta:
-        fields = ['warehouse_id', 'warehouse_reference', 'warehouse_name', 'jobs_count', 'teams_count'] 
+        fields = ['warehouse_reference', 'warehouse_name', 'jobs_count', 'teams_count'] 
 
 class InventoryUpdateSerializer(serializers.Serializer):
     """Serializer pour la mise à jour d'inventaire."""
@@ -291,6 +344,7 @@ class InventoryUpdateSerializer(serializers.Serializer):
 
 class InventoryDetailModeFieldsSerializer(serializers.ModelSerializer):
     account_name = serializers.SerializerMethodField()
+    account_reference = serializers.SerializerMethodField()
     magasins = serializers.SerializerMethodField()
     comptages = serializers.SerializerMethodField()
     equipe = serializers.SerializerMethodField()
@@ -299,22 +353,28 @@ class InventoryDetailModeFieldsSerializer(serializers.ModelSerializer):
     class Meta:
         model = Inventory
         fields = [
-            'id', 'reference', 'label', 'date', 'status', 'inventory_type',
+            'reference', 'label', 'date', 'status', 'inventory_type',
             'en_preparation_status_date',
             'en_realisation_status_date', 'termine_status_date',
-            'cloture_status_date', 'account_name', 'magasins',
+            'cloture_status_date', 'account_name', 'account_reference', 'magasins',
             'comptages', 'equipe', 'ressources'
         ]
     
     def get_account_name(self, obj):
         setting = Setting.objects.filter(inventory=obj).first()
         return setting.account.account_name if setting else None
+
+    def get_account_reference(self, obj):
+        setting = Setting.objects.filter(inventory=obj).first()
+        return setting.account.reference if setting and hasattr(setting.account, 'reference') else None
     
     def get_magasins(self, obj):
         settings = Setting.objects.filter(inventory=obj).select_related('warehouse')
         magasins = []
         for setting in settings:
             magasins.append({
+                'id': setting.warehouse.id,
+                'reference': setting.warehouse.reference or '',
                 'nom': setting.warehouse.warehouse_name,
                 'date': setting.created_at.date() if setting.created_at else None
             })
@@ -325,15 +385,58 @@ class InventoryDetailModeFieldsSerializer(serializers.ModelSerializer):
         return CountingModeFieldsSerializer(countings, many=True).data
     
     def get_equipe(self, obj):
-        pdas = Assigment.objects.filter(job__inventory=obj)
-        return PdaTeamSerializer(pdas, many=True).data
+        """
+        Récupère l'équipe de l'inventaire groupée par session avec le nombre de comptages.
+        Pour chaque session unique, on compte le nombre d'assignments (comptages) affectés.
+        """
+        from collections import defaultdict
+        
+        # Récupérer tous les assignments de l'inventaire avec leurs sessions
+        assignments = Assigment.objects.filter(
+            job__inventory=obj,
+            session__isnull=False
+        ).select_related('session').prefetch_related('counting')
+        
+        # Grouper par session et compter les assignments
+        session_data = defaultdict(lambda: {
+            'reference': None,
+            'user': None,
+            'nombre_comptage': 0
+        })
+        
+        for assignment in assignments:
+            session = assignment.session
+            if session:
+                session_id = session.id
+                if session_data[session_id]['reference'] is None:
+                    # Première fois qu'on rencontre cette session, initialiser les données
+                    session_data[session_id]['reference'] = assignment.reference
+                    session_data[session_id]['user'] = UserAppSerializer(session).data
+                
+                # Compter les assignments pour cette session
+                session_data[session_id]['nombre_comptage'] += 1
+        
+        # Convertir en liste et trier par référence
+        result = [
+            {
+                'reference': data['reference'],
+                'user': data['user'],
+                'nombre_comptage': data['nombre_comptage']
+            }
+            for data in session_data.values()
+        ]
+        
+        # Trier par référence pour avoir un ordre cohérent
+        result.sort(key=lambda x: x['reference'] or '')
+        
+        return result
     
     def get_ressources(self, obj):
         from ..models import InventoryDetailRessource
         ressources = InventoryDetailRessource.objects.filter(inventory=obj).select_related('ressource')
         return [{
-            'id': ressource.id,
             'reference': ressource.reference,
+            'ressource_reference': ressource.ressource.reference if ressource.ressource and hasattr(ressource.ressource, 'reference') else None,
             'ressource_nom': ressource.ressource.libelle if ressource.ressource else None,
             'quantity': ressource.quantity
         } for ressource in ressources] 
@@ -343,6 +446,7 @@ class InventoryDetailWithWarehouseSerializer(serializers.ModelSerializer):
     Sérialiseur pour les détails d'un inventaire avec informations complètes des warehouses
     """
     account_id = serializers.SerializerMethodField()
+    account_reference = serializers.SerializerMethodField()
     warehouses = serializers.SerializerMethodField()
     comptages = serializers.SerializerMethodField()
     equipe = serializers.SerializerMethodField()
@@ -350,17 +454,21 @@ class InventoryDetailWithWarehouseSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Inventory
-        fields = [
-            'id', 'reference', 'label', 'date', 'status', 'inventory_type',
+        fields = ['id',
+            'reference', 'label', 'date', 'status', 'inventory_type',
             'en_preparation_status_date', 'en_realisation_status_date', 
             'termine_status_date', 'cloture_status_date', 'created_at', 'updated_at',
-            'account_id', 'warehouses', 'comptages', 'equipe', 'inventory_duration'
+            'account_id', 'account_reference', 'warehouses', 'comptages', 'equipe', 'inventory_duration'
         ]
         read_only_fields = ['created_at', 'updated_at']
 
     def get_account_id(self, obj):
         setting = Setting.objects.filter(inventory=obj).first()
-        return setting.account.id if setting else None
+        return setting.account.id if setting and setting.account else None
+
+    def get_account_reference(self, obj):
+        setting = Setting.objects.filter(inventory=obj).first()
+        return setting.account.reference if setting and hasattr(setting.account, 'reference') else None
 
     def get_warehouses(self, obj):
         """Récupère les informations détaillées des warehouses avec dates d'inventaire"""
@@ -372,7 +480,6 @@ class InventoryDetailWithWarehouseSerializer(serializers.ModelSerializer):
             
             # Ajouter les informations spécifiques à l'inventaire pour ce warehouse
             warehouse_data.update({
-                'setting_id': setting.id,
                 'setting_reference': setting.reference,
                 'setting_created_at': setting.created_at,
                 'setting_updated_at': setting.updated_at,
@@ -402,4 +509,75 @@ class InventoryDetailWithWarehouseSerializer(serializers.ModelSerializer):
                 'start_date': obj.en_preparation_status_date,
                 'end_date': obj.cloture_status_date
             }
-        return None 
+        return None
+
+
+# ========================================
+# Serializers séparés pour les endpoints décomposés
+# Ces serializers ne font que du formatage, la logique métier est dans le service
+# ========================================
+
+class InventoryBasicInfoSerializer(serializers.Serializer):
+    """
+    Serializer pour les informations de base d'un inventaire.
+    Ne fait que du formatage, les données viennent du service.
+    """
+    reference = serializers.CharField()
+    label = serializers.CharField()
+    date = serializers.DateField()
+    status = serializers.CharField()
+    inventory_type = serializers.CharField()
+    en_preparation_status_date = serializers.DateTimeField(allow_null=True)
+    en_realisation_status_date = serializers.DateTimeField(allow_null=True)
+    termine_status_date = serializers.DateTimeField(allow_null=True)
+    cloture_status_date = serializers.DateTimeField(allow_null=True)
+
+
+class InventoryAccountSerializer(serializers.Serializer):
+    """
+    Serializer pour les informations du compte d'un inventaire.
+    Ne fait que du formatage, les données viennent du service.
+    """
+    account_name = serializers.CharField(allow_null=True)
+    account_reference = serializers.CharField(allow_null=True)
+
+
+class InventoryWarehousesSerializer(serializers.Serializer):
+    """
+    Serializer pour la liste des magasins d'un inventaire.
+    Ne fait que du formatage, les données viennent du service.
+    Chaque magasin contient : id, reference, nom, date.
+    """
+    magasins = serializers.ListField(
+        child=serializers.DictField()
+    )
+
+
+class InventoryCountingsSerializer(serializers.Serializer):
+    """
+    Serializer pour la liste des comptages d'un inventaire.
+    Ne fait que du formatage, les données viennent du service.
+    """
+    comptages = serializers.ListField(
+        child=serializers.DictField()
+    )
+
+
+class InventoryTeamDetailSerializer(serializers.Serializer):
+    """
+    Serializer pour l'équipe d'un inventaire.
+    Ne fait que du formatage, les données viennent du service.
+    """
+    equipe = serializers.ListField(
+        child=serializers.DictField()
+    )
+
+
+class InventoryResourcesDetailSerializer(serializers.Serializer):
+    """
+    Serializer pour les ressources d'un inventaire.
+    Ne fait que du formatage, les données viennent du service.
+    """
+    ressources = serializers.ListField(
+        child=serializers.DictField()
+    )

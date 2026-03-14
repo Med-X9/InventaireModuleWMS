@@ -1,0 +1,17 @@
+# Fichiers de configuration
+include README_PYPI.md
+include pyproject.toml
+include setup.py
+
+# Documentation essentielle
+include INSTALLATION.md
+include PUBLISH_PYPI.md
+include REFACTORING_GUIDE.md
+include SUMMARY_REFACTORING.md
+
+# Exclure les fichiers temporaires et cache
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
+recursive-exclude * .DS_Store
+recursive-exclude * *.pyc
+

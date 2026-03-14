@@ -21,3 +21,8 @@ class IWarehouseRepository(ABC):
     def get_by_inventory_id(self, inventory_id: int) -> List[Any]:
         """Récupère tous les entrepôts associés à un inventaire."""
         pass 
+
+    @abstractmethod
+    def get_by_account_id(self, account_id: int) -> List[Any]:
+        """Récupère tous les entrepôts associés à un compte."""
+        pass

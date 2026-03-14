@@ -8,6 +8,8 @@ import random
 import string
 import uuid
 from django.utils.translation import gettext_lazy as _
+from django.core.exceptions import ValidationError
+from django.core.exceptions import ValidationError
 
 # Create your models here.
 
@@ -85,11 +87,19 @@ class Inventory(TimeStampedModel, ReferenceMixin):
 
 
 class Setting(TimeStampedModel, ReferenceMixin):
+    STATUS_CHOICES = (
+        ('EN ATTENTE', 'EN ATTENTE'),
+        ('LANCEE', 'LANCEE'),  
+        ('CLOTURE', 'CLOTURE'),
+    )   
     REFERENCE_PREFIX = 'SET'
     reference = models.CharField(unique=True, max_length=20, null=False)
     account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name='awi_links')
     warehouse = models.ForeignKey('masterdata.Warehouse', on_delete=models.CASCADE, related_name='awi_links')
     inventory = models.ForeignKey(Inventory, on_delete=models.CASCADE, related_name='awi_links')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='EN ATTENTE')
+    status_date_lancement = models.DateTimeField(null=True, blank=True)
+    status_date_cloture = models.DateTimeField(null=True, blank=True)
     history = HistoricalRecords()    
 
     def __str__(self):
@@ -140,7 +150,7 @@ class Counting(TimeStampedModel, ReferenceMixin):
         return self.reference
 
 
-class Job(TimeStampedModel, ReferenceMixin):
+class Job(TimeStampedModel):
     REFERENCE_PREFIX = 'JOB'
     
     STATUS_CHOICES = (
@@ -151,11 +161,19 @@ class Job(TimeStampedModel, ReferenceMixin):
         ('ENTAME', 'ENTAME'),
         ('VALIDE', 'VALIDE'),
         ('TERMINE', 'TERMINE'),
+        ('SAISIE MANUELLE', 'SAISIE MANUELLE'),
+        ('ANNULE', 'ANNULE'),
     )
-   
-    
-    reference = models.CharField(max_length=20, unique=True, null=False)
-    status = models.CharField(max_length=10, choices=STATUS_CHOICES)
+
+    TERMINE_ETAT_CHOICES = (
+        ('automatique', 'AUTOMATIQUE'),
+        ('manuelle', 'MANUELLE'),
+        ('mixte', 'MIXE'),
+    )
+    reference = models.CharField(max_length=20,null=False)
+    status = models.CharField(max_length=30, choices=STATUS_CHOICES)
+    termine_etat = models.CharField(max_length=50, choices=TERMINE_ETAT_CHOICES, default='automatique')
+    termine_etat_date = models.DateTimeField(null=True, blank=True)
     en_attente_date = models.DateTimeField(null=True, blank=True)
     affecte_date = models.DateTimeField(null=True, blank=True)
     pret_date = models.DateTimeField(null=True, blank=True)
@@ -163,9 +181,55 @@ class Job(TimeStampedModel, ReferenceMixin):
     entame_date = models.DateTimeField(null=True, blank=True)
     valide_date = models.DateTimeField(null=True, blank=True)
     termine_date = models.DateTimeField(null=True, blank=True)
+    saisie_manuelle_date = models.DateTimeField(null=True, blank=True)
+    annule_date = models.DateTimeField(null=True, blank=True)
     warehouse = models.ForeignKey('masterdata.Warehouse', on_delete=models.CASCADE)
     inventory = models.ForeignKey(Inventory, on_delete=models.CASCADE)
     history = HistoricalRecords()
+
+    def generate_sequential_reference(self):
+        """
+        Génère une référence séquentielle au format JOB-0001, JOB-0002, etc.
+        La séquence est basée sur l'inventaire : chaque inventaire redémarre à JOB-0001.
+        """
+        if not self.inventory_id:
+            raise ValueError("L'inventaire doit être défini avant de générer la référence")
+        
+        # Compter le nombre de Job existants pour cet inventaire
+        count = Job.objects.filter(inventory=self.inventory).count()
+        # Le prochain numéro sera count + 1, formaté avec 4 chiffres (0001, 0002, etc.)
+        next_number = count + 1
+        return f"JOB-{next_number:04d}"
+
+    def save(self, *args, **kwargs):
+        """
+        Surcharge de la méthode save pour générer une référence séquentielle
+        au format JOB-0001, JOB-0002, etc. par inventaire.
+        """
+        if not self.reference:
+            # Générer une référence séquentielle basée sur l'inventaire
+            self.reference = self.generate_sequential_reference()
+            # Vérifier l'unicité et ajuster si nécessaire
+            while Job.objects.filter(
+                reference=self.reference, 
+                inventory=self.inventory
+            ).exclude(pk=self.pk if self.pk else None).exists():
+                # Extraire le numéro actuel et l'incrémenter
+                try:
+                    # Supporte les formats JOB-0001 et job-1 (pour compatibilité)
+                    parts = self.reference.upper().split('-')
+                    if len(parts) == 2:
+                        current_num = int(parts[1])
+                        self.reference = f"JOB-{current_num + 1:04d}"
+                    else:
+                        # Si le parsing échoue, utiliser le count
+                        count = Job.objects.filter(inventory=self.inventory).count()
+                        self.reference = f"JOB-{count + 1:04d}"
+                except (IndexError, ValueError):
+                    # En cas d'erreur, utiliser le compteur pour cet inventaire
+                    count = Job.objects.filter(inventory=self.inventory).count()
+                    self.reference = f"JOB-{count + 1:04d}"
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.reference
@@ -175,23 +239,74 @@ class Job(TimeStampedModel, ReferenceMixin):
 
 
     
+def validate_numero_format(value):
+    """
+    Valide le format du numéro avec le préfixe 'opr-' suivi de 4 chiffres.
+    Format attendu: opr-XXXX où XXXX est un nombre de 1 à 4 chiffres (avec zéros à gauche)
+    Exemples valides: opr-0001, opr-0010, opr-0100, opr-1000
+    """
+    if value is None or value == '':
+        return
+
+    # Convertir en string si ce n'est pas déjà le cas
+    numero_str = str(value).strip()
+
+    # Vérifier que le format commence par 'opr-'
+    if not numero_str.startswith('opr-'):
+        raise ValidationError(
+            _('Le numéro doit commencer par "opr-" (ex: opr-0001, opr-0010, opr-0100)')
+        )
+
+    # Extraire la partie après 'opr-'
+    suffix = numero_str[4:]  # Enlever 'opr-'
+
+    # Vérifier que la partie après 'opr-' est composée uniquement de chiffres
+    if not suffix.isdigit():
+        raise ValidationError(
+            _('Le numéro doit avoir le format "opr-XXXX" où XXXX est un nombre (ex: opr-0001, opr-0010, opr-0100)')
+        )
+
+    # Vérifier que le numéro est entre 1 et 9999 (4 chiffres max)
+    try:
+        num_value = int(suffix)
+        if num_value < 1 or num_value > 9999:
+            raise ValidationError(
+                _('Le numéro doit être entre 1 et 9999 (ex: opr-0001 à opr-9999)')
+            )
+    except ValueError:
+        raise ValidationError(
+            _('Le numéro doit avoir le format "opr-XXXX" où XXXX est un nombre valide (ex: opr-0001, opr-0010, opr-0100)')
+        )
+
+
 class Personne(TimeStampedModel, ReferenceMixin):
     REFERENCE_PREFIX = 'PER'
     reference = models.CharField(unique=True, max_length=20, null=False)
-    nom = models.CharField(max_length=200)
-    prenom = models.CharField(max_length=200)
+    full_name = models.CharField(max_length=200,null=True,blank=True)
+    numero = models.CharField(max_length=20, validators=[validate_numero_format])
     history = HistoricalRecords()    
     def __str__(self):
-        return f"{self.nom} - {self.prenom}"
+        return self.numero
     
     
 
 class JobDetail(TimeStampedModel, ReferenceMixin):
+    STATUS_CHOICES = (
+        ('EN ATTENTE', 'EN ATTENTE'),
+        ('TERMINE', 'TERMINE'),
+        ('ANNULE', 'ANNULE'),
+    )
     REFERENCE_PREFIX = 'JBD' 
     reference = models.CharField(unique=True, max_length=20, null=False)
     location = models.ForeignKey('masterdata.Location', on_delete=models.CASCADE)
-    job = models.ForeignKey('Job', on_delete=models.CASCADE)   
-    status = models.CharField(max_length=50)  
+    job = models.ForeignKey('Job', on_delete=models.CASCADE)  
+    counting = models.ForeignKey('Counting', on_delete=models.CASCADE, null=True, blank=True)
+    status = models.CharField(max_length=50, choices=STATUS_CHOICES, default='EN ATTENTE')
+    termine_manuelle = models.BooleanField(default=False)
+    termine_manuelle_date = models.DateTimeField(null=True, blank=True)
+    en_attente_date = models.DateTimeField(null=True, blank=True)
+    termine_date = models.DateTimeField(null=True, blank=True)
+    annule_date = models.DateTimeField(null=True, blank=True)
     history = HistoricalRecords()
 
     def __str__(self):
@@ -208,16 +323,23 @@ class Assigment(TimeStampedModel, ReferenceMixin):
         ('TRANSFERT', 'TRANSFERT'), 
         ('ENTAME', 'ENTAME'),
         ('TERMINE', 'TERMINE'),
+        ('BLOQUE', 'BLOQUE'),
+        ('DEBLOQUE', 'DEBLOQUE'),
     )
     REFERENCE_PREFIX = 'ASS'
     reference = models.CharField(unique=True, max_length=20, null=False)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES)
+    termine_manuelle = models.BooleanField(default=False)
+    termine_manuelle_date = models.DateTimeField(null=True, blank=True)
     transfert_date = models.DateTimeField(null=True, blank=True)
     entame_date = models.DateTimeField(null=True, blank=True)
     affecte_date = models.DateTimeField(null=True, blank=True)
     pret_date = models.DateTimeField(null=True, blank=True)
+    bloqued_date = models.DateTimeField(null=True, blank=True)
+    debloqued_date = models.DateTimeField(null=True, blank=True)
     job = models.ForeignKey('Job', on_delete=models.CASCADE)
     date_start = models.DateTimeField(null=True, blank=True)
+    termine_date = models.DateTimeField(null=True, blank=True)
     session = models.ForeignKey('users.UserApp', on_delete=models.CASCADE, null=True, blank=True, limit_choices_to={'type': 'Mobile'})
     personne = models.ForeignKey('Personne', on_delete=models.CASCADE, related_name='primary_job_details',null=True,blank=True)
     personne_two = models.ForeignKey('Personne', on_delete=models.CASCADE, related_name='secondary_job_details',null=True,blank=True)   
@@ -265,16 +387,38 @@ class CountingDetail(TimeStampedModel, ReferenceMixin):
     n_lot = models.CharField(max_length=100,null=True,blank=True)
     location = models.ForeignKey('masterdata.Location',on_delete=models.CASCADE)
     counting = models.ForeignKey(Counting,on_delete=models.CASCADE)
+    job = models.ForeignKey(Job,on_delete=models.CASCADE)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     history = HistoricalRecords()
     
+    class Meta:
+        indexes = [
+            # Index composé pour la recherche de détails existants (pattern le plus fréquent)
+            models.Index(fields=['counting', 'location', 'product', 'job'], name='counting_detail_lookup_idx'),
+            # Index individuels pour les recherches par champ unique
+            models.Index(fields=['job'], name='counting_detail_job_idx'),
+            models.Index(fields=['counting'], name='counting_detail_counting_idx'),
+            models.Index(fields=['location'], name='counting_detail_location_idx'),
+            models.Index(fields=['product'], name='counting_detail_product_idx'),
+            # Index pour les recherches par date de synchronisation
+            models.Index(fields=['last_synced_at'], name='counting_detail_synced_idx'),
+        ]
+    
 
-class NSerie(TimeStampedModel, ReferenceMixin):
+class NSerieInventory(TimeStampedModel, ReferenceMixin):
     REFERENCE_PREFIX = 'NS'
     reference = models.CharField(unique=True, max_length=20, null=False)
     n_serie = models.CharField(max_length=100,null=True,blank=True)
     counting_detail = models.ForeignKey(CountingDetail,on_delete=models.CASCADE)
     history = HistoricalRecords()
+    
+    class Meta:
+        indexes = [
+            # Index pour recherche par counting_detail
+            models.Index(fields=['counting_detail'], name='nserie_counting_detail_idx'),
+            # Index composé pour éviter doublons et recherches rapides
+            models.Index(fields=['counting_detail', 'n_serie'], name='nserie_detail_serie_idx'),
+        ]
     
     def __str__(self):
         return f"{self.counting_detail.product.Short_Description} - {self.n_serie}"
@@ -284,36 +428,89 @@ class NSerie(TimeStampedModel, ReferenceMixin):
     
 class EcartComptage(TimeStampedModel, ReferenceMixin): 
     REFERENCE_PREFIX = 'ECT'
-    inventory = models.ForeignKey(Inventory, on_delete=models.CASCADE)
     reference = models.CharField(unique=True, max_length=20, null=False)
-    ligne_comptage_1 = models.ForeignKey(CountingDetail, on_delete=models.CASCADE, related_name='ecart_ligne_1',null=True,blank=True)
-    ligne_comptage_2 = models.ForeignKey(CountingDetail, on_delete=models.CASCADE, related_name='ecart_ligne_2',null=True,blank=True)
-    ligne_comptage_3 = models.ForeignKey(CountingDetail, on_delete=models.CASCADE, related_name='ecart_ligne_3',null=True,blank=True)
-    ecart = models.IntegerField(null=True, blank=True)
-    result = models.IntegerField(null=True, blank=True)
-    justification = models.TextField(blank=True, null=True)  # Peut être vide au début
-    resolved = models.BooleanField(default=False)
-    history = HistoricalRecords()
-
-    class Meta:
-        constraints = [
-            models.CheckConstraint(
-                check=(
-                    models.Q(ecart__isnull=True) | models.Q(ecart__gte=0)
-                ),
-                name='ecart_positive_or_null'
-            ),
-            models.CheckConstraint(
-                check=(
-                    models.Q(result__isnull=True) | models.Q(result__gte=0)
-                ),
-                name='result_positive_or_null'
-            )
-        ]
-    def __str__(self):
-        return f"Ecart entre {self.ligne_comptage_1} et {self.ligne_comptage_2} (Résolu: {self.resolved})"
- 
-
+    inventory = models.ForeignKey(Inventory, on_delete=models.CASCADE, related_name='ecart_comptages')
     
+    # Métadonnées du processus
+    total_sequences = models.IntegerField(default=0, verbose_name="Nombre total de séquences")
+    stopped_sequence = models.IntegerField(null=True, blank=True, verbose_name="Dernière séquence")
+    
+    # Résultat final
+    final_result = models.IntegerField(null=True, blank=True, verbose_name="Résultat final")
+    manual_result = models.BooleanField(default=False, verbose_name="Résultat manuel")
+    justification = models.TextField(blank=True, null=True, verbose_name="Justification")
+    resolved = models.BooleanField(default=False, verbose_name="Résolu")
+    stopped_reason = models.CharField(
+        max_length=100, 
+        null=True, 
+        blank=True,
+        verbose_name="Raison d'arrêt",
+        help_text="ECART_ZERO, RESOLU_MANUEL, etc."
+    )
+    
+    history = HistoricalRecords()
+    
+    class Meta:
+        verbose_name = "Écart de comptage"
+        verbose_name_plural = "Écarts de comptage"
+        ordering = ['-created_at']
+        indexes = [
+            # Index pour recherche par inventory
+            models.Index(fields=['inventory'], name='ecart_inventory_idx'),
+            # Index pour filtrage par statut résolu (requête fréquente)
+            models.Index(fields=['resolved'], name='ecart_resolved_idx'),
+            # Index composé pour recherches combinées
+            models.Index(fields=['inventory', 'resolved'], name='ecart_inventory_resolved_idx'),
+        ]
+    
+    def _str_(self):
+        status = "Résolu" if self.resolved else "En cours"
+        return f"{self.reference} - {self.inventory} ({status})"
 
 
+class ComptageSequence(TimeStampedModel, ReferenceMixin):
+    REFERENCE_PREFIX = 'CS'
+    reference = models.CharField(unique=True, max_length=20, null=False)
+    
+    ecart_comptage = models.ForeignKey(
+        EcartComptage, 
+        on_delete=models.CASCADE, 
+        related_name='counting_sequences', 
+        verbose_name="Écart de comptage"
+    )
+    sequence_number = models.IntegerField(verbose_name="Numéro de séquence")
+    counting_detail = models.ForeignKey(
+        CountingDetail, 
+        on_delete=models.CASCADE,
+        verbose_name="Détail de comptage",
+        related_name='counting_sequences'
+    )
+    
+    # Données du comptage
+    quantity = models.IntegerField(verbose_name="Quantité comptée")
+    ecart_with_previous = models.IntegerField(
+        null=True, 
+        blank=True,
+        verbose_name="Écart avec le précédent",
+        help_text="Différence avec la séquence précédente (N - N-1)"
+    )
+    
+    history = HistoricalRecords()
+    
+    class Meta:
+        verbose_name = "Séquence de comptage"
+        verbose_name_plural = "Séquences de comptage"
+        ordering = ['ecart_comptage', 'sequence_number']
+        unique_together = ['ecart_comptage', 'sequence_number']
+        indexes = [
+            # Index existant pour tri par écart et séquence
+            models.Index(fields=['ecart_comptage', 'sequence_number'], name='comptage_seq_ecart_seq_idx'),
+            # Index pour recherche par counting_detail (requête fréquente)
+            models.Index(fields=['counting_detail'], name='comptage_seq_detail_idx'),
+            # Index composé pour recherches combinées via counting_detail
+            models.Index(fields=['counting_detail', 'ecart_comptage'], name='comptage_seq_detail_ecart_idx'),
+        ]
+    
+    def _str_(self):
+        ecart_value = f" (écart: {self.ecart_with_previous})" if self.ecart_with_previous is not None else ""
+        return f"Séquence {self.sequence_number} - {self.ecart_comptage.reference}{ecart_value}"

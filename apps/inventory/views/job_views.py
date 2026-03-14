@@ -1,15 +1,22 @@
+import logging
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.exceptions import NotFound, ValidationError as DRFValidationError
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError, DatabaseError, transaction
+from django.http import Http404
+
+logger = logging.getLogger(__name__)
 from ..serializers import (
     InventoryJobCreateSerializer,
     JobSerializer
 )
+from ..utils.response_utils import success_response, error_response, validation_error_response
+
+from ..repositories.job_repository import JobRepository
 from ..services.job_service import JobService
 from ..serializers.job_serializer import (
-    InventoryJobRetrieveSerializer, 
-    InventoryJobUpdateSerializer,
-    JobAssignmentRequestSerializer,
     JobCreateRequestSerializer,
     JobRemoveEmplacementsSerializer,
     JobAddEmplacementsSerializer,
@@ -21,26 +28,32 @@ from ..serializers.job_serializer import (
     JobPendingSerializer,
     JobResetAssignmentsRequestSerializer,
     PendingJobReferenceSerializer,
-    JobTransferRequestSerializer
+    JobTransferRequestSerializer,
+    JobTransferAllRequestSerializer,
+    JobManualEntryRequestSerializer,
+    JobProgressByCountingSerializer,
+    JobWithAssignmentsSerializer,
+    AssignmentFlatSerializer,
+    JobDetailSimpleSerializer,
+    JobCancelRequestSerializer
 )
-from ..serializers.job_assignment_batch_serializer import JobBatchAssignmentRequestSerializer
+from ..serializers.job_assignment_batch_serializer import JobBatchAssignmentRequestSerializer, JobReassignmentRequestSerializer
 from ..usecases.job_batch_assignment import JobBatchAssignmentUseCase
+from ..services.job_reassignment_service import JobReassignmentService
 from ..exceptions import JobCreationError
 import logging
 from datetime import datetime
-from ..models import Job, Warehouse
+from django.utils import timezone
+from ..models import Job, Warehouse, Assigment, JobDetail
 from rest_framework.generics import ListAPIView
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
 from rest_framework.pagination import PageNumberPagination
 from ..filters.job_filters import JobFilter, JobFullDetailFilter, PendingJobFilter
+from apps.core.datatables.mixins import ServerSideDataTableView
 
 logger = logging.getLogger(__name__)
 
-class StandardResultsSetPagination(PageNumberPagination):
-    page_size = 10
-    page_size_query_param = 'page_size'
-    max_page_size = 100
 
 class JobCreateAPIView(APIView):
     def post(self, request, inventory_id, warehouse_id):
@@ -59,13 +72,19 @@ class JobCreateAPIView(APIView):
                 'message': 'Erreur de validation',
                 'errors': ' | '.join(error_messages)
             }, status=status.HTTP_400_BAD_REQUEST)
+        
         emplacements = serializer.validated_data['emplacements']
+        
         try:
-            job_service = JobService()
-            jobs = job_service.create_jobs_for_inventory_warehouse(inventory_id, warehouse_id, emplacements)
+            # Utiliser le use case pour la logique métier
+            from ..usecases.job_creation import JobCreationUseCase
+            use_case = JobCreationUseCase()
+            result = use_case.execute(inventory_id, warehouse_id, emplacements)
+            
             return Response({
                 'success': True,
-                'message': 'Jobs créés avec succès',
+                'message': result['message'],
+                'data': result
             }, status=status.HTTP_201_CREATED)
         except JobCreationError as e:
             return Response({
@@ -114,9 +133,279 @@ class JobValidateView(APIView):
                 'message': f'Erreur interne : {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+
+class JobAutoValidateView(APIView):
+    """
+    Vue pour valider automatiquement tous les jobs en attente d'un warehouse pour un inventaire donné
+    """
+
+    def post(self, request, inventory_id, warehouse_id):
+        """
+        Valide automatiquement tous les jobs en attente
+
+        POST /api/inventory/{inventory_id}/warehouse/{warehouse_id}/jobs/validate-all/
+
+        Args:
+            inventory_id (int): ID de l'inventaire
+            warehouse_id (int): ID du warehouse
+
+        Returns:
+            Response avec le résultat de la validation
+        """
+        logger.info(f"Début de la validation automatique - inventory_id: {inventory_id}, warehouse_id: {warehouse_id}")
+
+        try:
+            # Validation des paramètres d'URL avec gestion d'erreurs détaillée
+            try:
+                inventory_id = int(inventory_id)
+                if inventory_id <= 0:
+                    return error_response(
+                        message="ID d'inventaire invalide",
+                        errors=["L'ID de l'inventaire doit être un nombre positif"],
+                        status_code=status.HTTP_400_BAD_REQUEST
+                    )
+            except (ValueError, TypeError) as e:
+                logger.warning(f"ID d'inventaire invalide: {inventory_id} - {str(e)}")
+                return error_response(
+                    message="ID d'inventaire invalide",
+                    errors=["L'ID de l'inventaire doit être un nombre entier"],
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+
+            try:
+                warehouse_id = int(warehouse_id)
+                if warehouse_id <= 0:
+                    return error_response(
+                        message="ID de warehouse invalide",
+                        errors=["L'ID du warehouse doit être un nombre positif"],
+                        status_code=status.HTTP_400_BAD_REQUEST
+                    )
+            except (ValueError, TypeError) as e:
+                logger.warning(f"ID de warehouse invalide: {warehouse_id} - {str(e)}")
+                return error_response(
+                    message="ID de warehouse invalide",
+                    errors=["L'ID du warehouse doit être un nombre entier"],
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Utiliser le service pour valider automatiquement
+            logger.info(f"Appel du service de validation automatique pour inventory {inventory_id}, warehouse {warehouse_id}")
+            job_service = JobService()
+            result = job_service.auto_validate_jobs(inventory_id, warehouse_id)
+
+            logger.info(f"Validation automatique terminée avec succès: {result.get('validated_jobs_count', 0)} jobs validés")
+            return success_response(
+                data=result,
+                message=result['message']
+            )
+
+        except JobCreationError as e:
+            logger.error(f"Erreur métier dans JobAutoValidateView: {str(e)}")
+            logger.error(f"Paramètres - inventory_id: {inventory_id}, warehouse_id: {warehouse_id}")
+            return error_response(
+                message="Erreur de validation des jobs",
+                errors=[str(e)],
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        except NotFound as e:
+            logger.error(f"Ressource non trouvée: {str(e)}")
+            return error_response(
+                message="Ressource non trouvée",
+                errors=[str(e)],
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+
+        except (DjangoValidationError, DRFValidationError) as e:
+            logger.error(f"Erreur de validation: {str(e)}")
+            errors = []
+            if hasattr(e, 'messages'):
+                errors = e.messages
+            elif hasattr(e, 'detail'):
+                if isinstance(e.detail, dict):
+                    for field, field_errors in e.detail.items():
+                        if isinstance(field_errors, list):
+                            errors.extend([f"{field}: {err}" for err in field_errors])
+                        else:
+                            errors.append(f"{field}: {field_errors}")
+                else:
+                    errors = [str(e.detail)]
+            else:
+                errors = [str(e)]
+
+            return error_response(
+                message="Erreur de validation des données",
+                errors=errors,
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        except IntegrityError as e:
+            logger.error(f"Erreur d'intégrité de base de données: {str(e)}")
+            return error_response(
+                message="Erreur d'intégrité des données",
+                errors=[
+                    "Une contrainte d'intégrité a été violée",
+                    "Vérifiez que les données sont cohérentes"
+                ],
+                status_code=status.HTTP_409_CONFLICT
+            )
+
+        except DatabaseError as e:
+            logger.error(f"Erreur de base de données: {str(e)}", exc_info=True)
+            return error_response(
+                message="Erreur de base de données",
+                errors=[
+                    "Une erreur technique s'est produite lors de l'accès à la base de données",
+                    "Veuillez réessayer plus tard"
+                ],
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        except Http404 as e:
+            logger.error(f"Ressource non trouvée (Http404): {str(e)}")
+            return error_response(
+                message="Ressource non trouvée",
+                errors=["L'inventaire ou le warehouse demandé n'existe pas"],
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+
+        except PermissionError as e:
+            logger.error(f"Erreur de permissions: {str(e)}")
+            return error_response(
+                message="Permissions insuffisantes",
+                errors=["Vous n'avez pas les droits nécessaires pour effectuer cette opération"],
+                status_code=status.HTTP_403_FORBIDDEN
+            )
+
+        except ValueError as e:
+            logger.error(f"Erreur de valeur: {str(e)}")
+            return error_response(
+                message="Erreur de valeur",
+                errors=[str(e)],
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        except TypeError as e:
+            logger.error(f"Erreur de type: {str(e)}")
+            return error_response(
+                message="Erreur de type de données",
+                errors=[str(e)],
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        except Exception as e:
+            # Erreur inattendue - logging détaillé
+            import traceback
+            logger.error(f"Erreur inattendue dans JobAutoValidateView: {str(e)}", exc_info=True)
+            logger.error(f"Type d'erreur: {type(e).__name__}")
+            logger.error(f"Paramètres - inventory_id: {inventory_id}, warehouse_id: {warehouse_id}")
+            logger.error(f"Traceback complet: {traceback.format_exc()}")
+
+            # Erreur inattendue - logging détaillé
+            import traceback
+            logger.error(f"Erreur inattendue dans JobAutoValidateView: {str(e)}", exc_info=True)
+            logger.error(f"Type d'erreur: {type(e).__name__}")
+            logger.error(f"Paramètres - inventory_id: {inventory_id}, warehouse_id: {warehouse_id}")
+            logger.error(f"Traceback complet: {traceback.format_exc()}")
+
+            # En mode DEBUG, afficher plus de détails
+            from django.conf import settings
+            if settings.DEBUG:
+                error_details = [
+                    f"Type d'erreur: {type(e).__name__}",
+                    f"Détails: {str(e)}",
+                    f"Inventory ID: {inventory_id}",
+                    f"Warehouse ID: {warehouse_id}",
+                    f"Traceback: {traceback.format_exc()}"
+                ]
+            else:
+                error_details = [
+                    "Une erreur inattendue s'est produite",
+                    "Veuillez contacter l'administrateur système"
+                ]
+
+            return error_response(
+                message="Erreur technique inattendue",
+                errors=error_details,
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class JobAutoSetReadyView(APIView):
+    """
+    Vue pour mettre automatiquement en statut PRET tous les assignments des jobs éligibles
+    d'un warehouse pour un inventaire donné
+    """
+
+    def post(self, request, inventory_id, warehouse_id):
+        """
+        Met automatiquement en PRET tous les assignments des jobs éligibles
+
+        POST /api/inventory/{inventory_id}/warehouse/{warehouse_id}/jobs/set-ready/
+
+        Args:
+            inventory_id (int): ID de l'inventaire
+            warehouse_id (int): ID du warehouse
+
+        Returns:
+            Response avec le résultat de l'opération
+        """
+        try:
+            # Validation des paramètres d'URL
+            if not inventory_id or inventory_id <= 0:
+                return Response({
+                    'success': False,
+                    'message': 'ID d\'inventaire invalide'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            if not warehouse_id or warehouse_id <= 0:
+                return Response({
+                    'success': False,
+                    'message': 'ID de warehouse invalide'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # TRANSACTION ATOMIQUE : Logique "tout ou rien"
+            # Toutes les validations et mises à jour dans une seule transaction
+            with transaction.atomic():
+                # Utiliser le service pour mettre automatiquement en PRET
+                job_service = JobService()
+                result = job_service.auto_set_ready_jobs(inventory_id, warehouse_id)
+
+                return success_response(
+                    data=result,
+                    message=result['message']
+                )
+
+        except JobCreationError as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Erreur dans JobAutoSetReadyView: {str(e)}", exc_info=True)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la mise en PRET automatique",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 class JobReadyView(APIView):
+    """
+    Vue pour marquer tous les assignments d'un job comme PRET
+    
+    Permet de mettre en statut PRET tous les assignments avec statut AFFECTE des jobs spécifiés.
+    Le paramètre counting_order est ignoré (conservé pour rétrocompatibilité).
+    """
+    
     def post(self, request):
-        print(request.data)
+        """
+        Marque tous les assignments avec statut AFFECTE des jobs spécifiés comme PRET
+        
+        Body attendu:
+        {
+            "job_ids": [1, 2, 3],
+            "counting_order": 2  # optionnel, ignoré (conservé pour rétrocompatibilité)
+        }
+        """
         serializer = JobReadyRequestSerializer(data=request.data)
         if not serializer.is_valid():
             # Formater les erreurs de manière sécurisée
@@ -134,16 +423,24 @@ class JobReadyView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
         
         job_ids = serializer.validated_data['job_ids']
+        counting_order = serializer.validated_data.get('counting_order')
+        
         try:
             # Utiliser le use case pour la logique métier
             from ..usecases.job_ready import JobReadyUseCase
             use_case = JobReadyUseCase()
-            result = use_case.execute(job_ids)
+            result = use_case.execute(job_ids, counting_order)
             
-            return Response({
-                'success': True,
-                'message': result['message'],
-            }, status=status.HTTP_200_OK)
+            # Construire la réponse sans counting_order
+            response_data = {
+                'jobs_processed': result['jobs_processed'],
+                'jobs': result['jobs']
+            }
+            
+            return success_response(
+                data=response_data,
+                message=result['message']
+            )
         except JobCreationError as e:
             return Response({
                 'success': False,
@@ -154,6 +451,74 @@ class JobReadyView(APIView):
                 'success': False,
                 'message': f'Erreur interne : {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class JobSetReadyView(APIView):
+    """
+    Vue pour mettre les jobs et leurs assignments en statut PRET
+
+    Optimisée pour les performances avec des opérations bulk.
+    Permet de traiter soit tous les jobs éligibles, soit une liste spécifique.
+    """
+
+    def post(self, request):
+        """
+        Met les jobs et leurs assignments en statut PRET
+
+        Body attendu:
+        {
+            "job_ids": [1, 2, 3]  // obligatoire - liste des jobs à traiter
+        }
+        """
+        from ..serializers.job_serializer import JobSetReadyRequestSerializer
+
+        serializer = JobSetReadyRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            # Formater les erreurs de manière sécurisée
+            error_messages = []
+            for field, errors in serializer.errors.items():
+                if isinstance(errors, list):
+                    error_messages.append(f"{field}: {', '.join(str(e) for e in errors)}")
+                else:
+                    error_messages.append(f"{field}: {str(errors)}")
+
+            return Response({
+                'success': False,
+                'message': 'Erreur de validation',
+                'errors': ' | '.join(error_messages)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        job_ids = serializer.validated_data['job_ids']
+
+        try:
+            # Utiliser le use case optimisé
+            from ..usecases.job_set_ready import JobSetReadyUseCase
+            use_case = JobSetReadyUseCase()
+            result = use_case.execute(job_ids=job_ids)
+
+            # Construire la réponse
+            response_data = {
+                'jobs_processed': result['jobs_processed'],
+                'assignments_processed': result['assignments_processed'],
+                'jobs': result['jobs']
+            }
+
+            return success_response(
+                data=response_data,
+                message=result['message']
+            )
+
+        except JobCreationError as e:
+            return Response({
+                'success': False,
+                'message': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': f'Erreur interne : {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 class JobDeleteView(APIView):
     def delete(self, request):
@@ -205,31 +570,84 @@ class JobDeleteView(APIView):
 
 class JobRemoveEmplacementsView(APIView):
     def delete(self, request, job_id):
+        """
+        Supprime des emplacements d'un job avec gestion des comptages multiples
+        """
+        # Validation du job_id
+        if not job_id or job_id <= 0:
+            return Response({
+                'success': False,
+                'message': 'ID de job invalide',
+                'error_type': 'validation_error'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validation des données de la requête
         serializer = JobRemoveEmplacementsSerializer(data=request.data)
         if not serializer.is_valid():
             return Response({
                 'success': False,
-                'message': 'Erreur de validation', 
-                'errors': serializer.errors
+                'message': 'Erreur de validation des données', 
+                'errors': serializer.errors,
+                'error_type': 'validation_error'
             }, status=status.HTTP_400_BAD_REQUEST)
-        emplacement_id = serializer.validated_data['emplacement_id']
+        
+        emplacement_ids = serializer.validated_data['emplacement_ids']
+        
+        # Validation supplémentaire des emplacement_ids
+        if not emplacement_ids or len(emplacement_ids) == 0:
+            return Response({
+                'success': False,
+                'message': 'Liste d\'emplacements vide',
+                'error_type': 'validation_error'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validation des types d'IDs
+        invalid_ids = [id for id in emplacement_ids if not isinstance(id, int) or id <= 0]
+        if invalid_ids:
+            return Response({
+                'success': False,
+                'message': f'IDs d\'emplacements invalides: {invalid_ids}',
+                'error_type': 'validation_error'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
         try:
-            job_service = JobService()
-            result = job_service.remove_job_emplacements(job_id, emplacement_id)
+            # Utiliser le use case pour la logique métier
+            from ..usecases.job_remove_emplacements import JobRemoveEmplacementsUseCase
+            use_case = JobRemoveEmplacementsUseCase()
+            result = use_case.execute(job_id, emplacement_ids)
+            
             return Response({
                 'success': True,
-                'message': 'Emplacement supprimé avec succès',
+                'message': result['message'],
                 'data': result
             }, status=status.HTTP_200_OK)
+            
         except JobCreationError as e:
+            # Erreurs métier - retourner 400 Bad Request
             return Response({
                 'success': False,
-                'message': str(e)
+                'message': str(e),
+                'error_type': 'business_error'
             }, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
+            
+        except ValidationError as e:
+            # Erreurs de validation Django
             return Response({
                 'success': False,
-                'message': f'Erreur interne : {str(e)}'
+                'message': f'Erreur de validation: {str(e)}',
+                'error_type': 'validation_error'
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Exception as e:
+            # Erreurs inattendues - logger et retourner 500
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Erreur inattendue dans JobRemoveEmplacementsView: {str(e)}")
+            
+            return Response({
+                'success': False,
+                'message': 'Erreur interne du serveur',
+                'error_type': 'internal_error'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class JobAddEmplacementsView(APIView):
@@ -241,13 +659,18 @@ class JobAddEmplacementsView(APIView):
                 'message': 'Erreur de validation',
                 'errors': serializer.errors
             }, status=status.HTTP_400_BAD_REQUEST)
+        
         emplacement_ids = serializer.validated_data['emplacement_ids']
+        
         try:
-            job_service = JobService()
-            result = job_service.add_job_emplacements(job_id, emplacement_ids)
+            # Utiliser le use case pour la logique métier
+            from ..usecases.job_add_emplacements import JobAddEmplacementsUseCase
+            use_case = JobAddEmplacementsUseCase()
+            result = use_case.execute(job_id, emplacement_ids)
+            
             return Response({
                 'success': True,
-                'message': 'Emplacements ajoutés avec succès',
+                'message': result['message'],
                 'data': result
             }, status=status.HTTP_200_OK)
         except JobCreationError as e:
@@ -261,121 +684,419 @@ class JobAddEmplacementsView(APIView):
                 'message': f'Erreur interne : {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-class PendingJobsReferencesView(ListAPIView):
+class PendingJobsReferencesView(ServerSideDataTableView):
     """
-    Vue pour lister les jobs en attente avec pagination et filtres.
+    Vue pour lister les jobs en attente avec pagination et filtres DataTable.
+    Supporte les paramètres DataTable (start, length, order, search, etc.)
     """
+    model = Job
     serializer_class = PendingJobReferenceSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = PendingJobFilter
-    search_fields = ['reference', 'inventory__reference', 'inventory__label', 'warehouse__reference', 'warehouse__warehouse_name']
-    ordering_fields = ['created_at', 'reference', 'inventory__reference', 'warehouse__warehouse_name']
-    ordering = '-created_at'  # Tri par défaut par date de création (plus récent en premier)
-    pagination_class = StandardResultsSetPagination
+    
+    # Champs de recherche - tous les champs disponibles
+    search_fields = [
+        'reference', 'status',
+        'inventory__reference', 'inventory__label',
+        'warehouse__reference', 'warehouse__warehouse_name'
+    ]
+    
+    # Champs de tri - tous les champs disponibles
+    order_fields = [
+        'id', 'reference', 'status', 'created_at',
+        'inventory__reference', 'inventory__label',
+        'warehouse__reference', 'warehouse__warehouse_name'
+    ]
+    default_order = '-created_at'
+    page_size = 20
+    min_page_size = 1
+    max_page_size = 1000
+    export_filename = 'jobs_en_attente'
 
-    def get_queryset(self):
+    # Mapping frontend -> backend pour le DataTable « Jobs en attente »
+    column_field_mapping = {
+        'id': 'id',
+        'reference': 'reference',
+        'status': 'status',
+        'created_at': 'created_at',
+        'inventory_reference': 'inventory__reference',
+        'inventory_label': 'inventory__label',
+        'warehouse_reference': 'warehouse__reference',
+        'warehouse_name': 'warehouse__warehouse_name',
+    }
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from ..repositories.job_repository import JobRepository
+        self.repository = JobRepository()
+
+    def get_datatable_queryset(self):
         """
-        Récupère les jobs en attente pour le warehouse spécifié avec relations préchargées.
+        Récupère les jobs en attente via le repository avec relations préchargées.
+        ⚠️ Règle: La vue ne doit PAS utiliser Job.objects directement.
         """
         warehouse_id = self.kwargs.get('warehouse_id')
-        return Job.objects.filter(
-            warehouse_id=warehouse_id,
-            status='EN ATTENTE'
-        ).select_related(
-            'inventory',
-            'warehouse'
-        ).prefetch_related(
-            'jobdetail_set',
-            'assigment_set'
-        ).order_by('-created_at')
-
-    def get(self, request, *args, **kwargs):
-        """
-        Récupère les jobs en attente avec filtres et pagination.
-        """
-        try:
-            # Utiliser la méthode parent pour le filtrage et la pagination
-            response = super().get(request, *args, **kwargs)
-            
-            # Ajouter un message de succès
-            response.data['message'] = "Liste des jobs en attente récupérée avec succès"
-            return response
-
-        except Exception as e:
-            logger.error(f"Erreur lors de la récupération de la liste des jobs en attente: {str(e)}", exc_info=True)
-            return Response({
-                'success': False,
-                'message': f'Erreur interne : {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return self.repository.get_pending_jobs_for_warehouse_datatable(warehouse_id)
 
 class JobListPagination(PageNumberPagination):
     page_size = 10
     page_size_query_param = 'page_size'
-    max_page_size = 100
+    max_page_size = 1000
 
-class JobListWithLocationsView(ListAPIView):
-    queryset = Job.objects.all().order_by('-created_at')
+class JobListWithLocationsView(ServerSideDataTableView):
+    """
+    Vue pour lister les jobs avec leurs emplacements - Support DataTable.
+    
+    FONCTIONNALITÉS AUTOMATIQUES:
+    - Tri sur tous les champs configurés
+    - Recherche sur champs multiples
+    - Filtrage avancé par emplacements, statut, dates
+    - Pagination optimisée
+    - Relations préchargées pour performance
+    
+    PARAMÈTRES:
+    - Tri: ordering=reference, ordering=-created_at, ordering=status
+    - Recherche: search=terme
+    - Pagination: page=1&page_size=20
+    - Filtres: status=valide, location_reference=LOC-xxx, created_at_gte=2024-01-01
+    """
+    
+    model = Job
     serializer_class = JobListWithLocationsSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = JobFilter
-    search_fields = ['reference']
-    ordering_fields = ['created_at', 'status', 'reference']
-    pagination_class = JobListPagination
+    
+    # Champs de recherche et tri
+    search_fields = [
+        'reference', 'status', 'warehouse__warehouse_name',
+        'inventory__reference', 'jobdetail__location__location_reference',
+        'jobdetail__location__sous_zone__sous_zone_name',
+        'jobdetail__location__sous_zone__zone__zone_name'
+    ]
+    
+    order_fields = [
+        'id', 'reference', 'status', 'created_at', 'warehouse__warehouse_name'
+    ]
+    default_order = '-created_at'
+    
+    # Configuration de pagination
+    page_size = 20
+    min_page_size = 1
+    max_page_size = 1000
+    export_filename = 'jobs_avec_emplacements'
+    
+    # Mapping frontend -> backend pour les filtres (vue générique Jobs / JobManagement)
+    filter_aliases = {
+        # champs simples
+        'id': 'id',
+        'reference': 'reference',
+        'status': 'status',
+        'warehouse_name': 'warehouse__warehouse_name',
+        'inventory_reference': 'inventory__reference',
 
-class WarehouseJobsView(ListAPIView):
+        # filtres sur les emplacements liés
+        'location_reference': 'jobdetail__location__location_reference',
+        'sous_zone_name': 'jobdetail__location__sous_zone__sous_zone_name',
+        'zone_name': 'jobdetail__location__sous_zone__zone__zone_name',
+    }
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from ..repositories.job_repository import JobRepository
+        self.repository = JobRepository()
+    
+    def get_datatable_queryset(self):
+        """
+        Récupère les jobs via le repository avec relations préchargées.
+        ⚠️ Règle: La vue ne doit PAS utiliser Job.objects directement.
+        """
+        return self.repository.get_jobs_for_datatable()
+
+class WarehouseJobsView(ServerSideDataTableView):
     """
-    Récupère tous les jobs d'un warehouse spécifique pour un inventaire donné
+    Récupère tous les jobs d'un warehouse spécifique pour un inventaire donné - Support DataTable.
     """
+    model = Job
     serializer_class = JobListWithLocationsSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_class = JobFilter
-    search_fields = ['reference']
-    ordering_fields = ['created_at', 'status', 'reference']
-    pagination_class = JobListPagination
+    
+    # Champs de recherche - tous les champs disponibles
+    search_fields = [
+        'reference', 'status',
+        'warehouse__warehouse_name', 'warehouse__reference',
+        'inventory__reference', 'inventory__label',
+        'jobdetail__location__location_reference',
+        'jobdetail__location__sous_zone__sous_zone_name',
+        'jobdetail__location__sous_zone__zone__zone_name'
+    ]
+    
+    # Champs de tri - tous les champs disponibles
+    order_fields = [
+        'id', 'reference', 'status', 'created_at',
+        'warehouse__warehouse_name', 'inventory__reference'
+    ]
+    
+    default_order = '-created_at'
+    page_size = 20
+    min_page_size = 1
+    max_page_size = 1000
+    export_filename = 'jobs_par_warehouse'
+
+    # Mapping frontend -> backend pour le DataTable « Jobs créés »
+    column_field_mapping = {
+        'id': 'id',
+        'reference': 'reference',
+        'status': 'status',
+        'created_at': 'created_at',
+        'warehouse_name': 'warehouse__warehouse_name',
+        'warehouse_reference': 'warehouse__reference',
+        'inventory_reference': 'inventory__reference',
+        'inventory_label': 'inventory__label',
+        'location_reference': 'jobdetail__location__location_reference',
+        'zone_name': 'jobdetail__location__sous_zone__zone__zone_name',
+        'sous_zone_name': 'jobdetail__location__sous_zone__sous_zone_name',
+    }
+
+    # Alias pour compatibilité avec l'ancien système
+    filter_aliases = column_field_mapping
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from ..repositories.job_repository import JobRepository
+        self.repository = JobRepository()
 
     def get_queryset(self):
+        """
+        Récupère les jobs via le repository avec relations préchargées.
+        Valide que l'inventaire et l'entrepôt existent avant de retourner les jobs.
+        Garantit que seuls les jobs d'inventaire pour l'entrepôt spécifié sont retournés.
+        ⚠️ Règle: La vue ne doit PAS utiliser Job.objects directement.
+        """
         inventory_id = self.kwargs.get('inventory_id')
         warehouse_id = self.kwargs.get('warehouse_id')
-        return Job.objects.filter(
-            inventory_id=inventory_id,
-            warehouse_id=warehouse_id
-        ).prefetch_related(
-            'jobdetail_set__location__sous_zone__zone'
-        ).order_by('-created_at')
+        
+        # Validation explicite : s'assurer que l'inventaire existe
+        inventory = self.repository.get_inventory_by_id(inventory_id)
+        if not inventory:
+            raise NotFound(f"Inventaire avec l'ID {inventory_id} non trouvé")
+        
+        # Validation explicite : s'assurer que l'entrepôt existe
+        warehouse = self.repository.get_warehouse_by_id(warehouse_id)
+        if not warehouse:
+            raise NotFound(f"Entrepôt avec l'ID {warehouse_id} non trouvé")
+        
+        # Retourner uniquement les jobs d'inventaire pour l'entrepôt spécifié
+        return self.repository.get_jobs_for_inventory_warehouse_datatable(inventory_id, warehouse_id)
+    
+    def get_datatable_queryset(self):
+        """
+        Alias pour compatibilité avec l'ancien code.
+        Délègue à get_queryset().
+        """
+        return self.get_queryset()
 
-class JobFullDetailPagination(PageNumberPagination):
-    page_size = 10
-    page_size_query_param = 'page_size'
-    max_page_size = 100
 
-class JobFullDetailListView(ListAPIView):
+class JobFullDetailListView(ServerSideDataTableView):
+    """
+    Vue pour lister les jobs valides et entamés avec détails complets - Support DataTable.
+    
+    FONCTIONNALITÉS AUTOMATIQUES:
+    - Tri sur tous les champs configurés
+    - Tri DataTable (order[0][column]=index&order[0][dir]=asc/desc)
+    - Recherche sur champs multiples
+    - Filtrage avancé avec django-filter
+    - Pagination optimisée
+    - Sérialisation flexible avec relations préchargées
+    
+    PARAMÈTRES DE REQUÊTE SUPPORTÉS:
+    - Tri: ordering=reference, ordering=-created_at, ordering=status
+    - Tri DataTable: order[0][column]=2&order[0][dir]=asc
+    - Recherche: search=terme
+    - Pagination: page=1&page_size=25
+    - Filtres: status=valide, reference=JOB-xxx, emplacement_reference=LOC-xxx
+    
+    STATUTS INCLUS: VALIDE, AFFECTE, TRANSFERT, PRET, ENTAME
+    """
+    
+    # Configuration de base
+    model = Job
     serializer_class = JobFullDetailSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_class = JobFullDetailFilter
-    search_fields = ['reference']
-    ordering_fields = ['created_at', 'status', 'reference']
-    pagination_class = JobFullDetailPagination
+    
+    # Mapping colonnes frontend -> champs Django pour le tri QueryModel
+    # ⚠️ Important : sans ce mapping, colId="job" ne peut pas être traduit en champ ORM
+    column_field_mapping = {
+        # Identifiants / références de job
+        'id': 'id',
+        'job': 'reference',          # colId=job -> tri sur Job.reference
+        'reference': 'reference',
+        
+        # Statut du job
+        'status': 'status',
+        
+        # Informations entrepôt / inventaire
+        'warehouse_name': 'warehouse__warehouse_name',
+        'warehouse_reference': 'warehouse__reference',
+        'inventory_reference': 'inventory__reference',
+        'inventory_label': 'inventory__label',
+        
+        # Affectations / comptages
+        'counting_order': 'assigment__counting__order',
+        'assignment_status': 'assigment__status',
+        
+        # Dates
+        'created_at': 'created_at',
+    }
+    
+    # Champs de recherche et tri - tous les champs disponibles
+    search_fields = [
+        'reference', 'status',
+        'warehouse__warehouse_name', 'warehouse__reference',
+        'inventory__reference', 'inventory__label',
+        'jobdetail__location__location_reference',
+        'jobdetail__location__sous_zone__sous_zone_name',
+        'jobdetail__location__sous_zone__zone__zone_name',
+        'assigment__counting__reference',
+        'assigment__session__username',
+        'jobdetailressource__ressource__reference',
+        'jobdetailressource__ressource__libelle'
+    ]
+    
+    order_fields = [
+        'id', 'reference', 'status', 'created_at',
+        'warehouse__warehouse_name', 'warehouse__reference',
+        'inventory__reference', 'inventory__label',
+        'assigment__counting__order', 'assigment__status'
+    ]
+    default_order = '-created_at'
+    
+    # Configuration de pagination
+    page_size = 20
+    min_page_size = 1
+    max_page_size = 1000
+    export_filename = 'jobs_details_complets'
+    
+    # Champs de filtrage automatique
+    filter_fields = [
+        'status', 'reference', 'id',
+        'emplacement_reference', 'sous_zone', 'zone',
+        'session_username', 'ressource_reference', 'assignment_status',
+        'counting_order'
+    ]
+    
+    # Mapping frontend -> backend pour les filtres (JobTracking / Affecter)
+    filter_aliases = {
+        # identifiant / référence de job
+        'id': 'id',
+        'job': 'reference',
+        'reference': 'reference',
 
+        # statut du job
+        'status': 'status',
+        'statut': 'status',
+
+        # emplacement et zones
+        'emplacement': 'jobdetail__location__location_reference',
+        'location_reference': 'jobdetail__location__location_reference',
+        'zone_name': 'jobdetail__location__sous_zone__zone__zone_name',
+        'sous_zone_name': 'jobdetail__location__sous_zone__sous_zone_name',
+
+        # affectations / équipes / ressources
+        'session': 'assigment__session__username',
+        'team1': 'assigment__session__username',
+        'team2': 'assigment__session__username',
+        'ressource': 'jobdetailressource__ressource__reference',
+        'resources': 'jobdetailressource__ressource__reference',
+        'assignment_status': 'assigment__status',
+        'counting_order': 'assigment__counting__order',
+    }
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.repository = JobRepository()
+    
     def get_queryset(self):
-        queryset = Job.objects.filter(status__in=['VALIDE', 'AFFECTE']).order_by('-created_at')
+        """
+        Récupère les jobs validés et entamés via le repository avec relations préchargées.
+        ⚠️ Règle: La vue ne doit PAS utiliser Job.objects directement.
+        """
         warehouse_id = self.kwargs.get('warehouse_id')
         inventory_id = self.kwargs.get('inventory_id')
-        if warehouse_id is not None:
-            queryset = queryset.filter(warehouse_id=warehouse_id)
-        if inventory_id is not None:
-            queryset = queryset.filter(inventory_id=inventory_id)
-        return queryset
-class JobPendingListView(ListAPIView):
+        return self.repository.get_validated_jobs_datatable(warehouse_id, inventory_id)
+    
+    def get_datatable_queryset(self):
+        """
+        Alias pour compatibilité avec l'ancien code.
+        Délègue à get_queryset().
+        """
+        return self.get_queryset()
+
+
+
+class JobPendingListView(ServerSideDataTableView):
     """
-    Liste tous les jobs en attente avec leurs détails
+    Liste tous les jobs en attente avec leurs détails - Support DataTable.
+    
+    FONCTIONNALITÉS AUTOMATIQUES:
+    - Tri sur tous les champs configurés
+    - Recherche sur champs multiples
+    - Filtrage avancé avec django-filter
+    - Pagination optimisée
+    - Relations préchargées pour performance
+    
+    PARAMÈTRES:
+    - Tri: ordering=reference, ordering=-created_at
+    - Recherche: search=terme
+    - Pagination: page=1&page_size=20
+    - Filtres: reference=JOB-xxx, emplacement_reference=LOC-xxx
     """
-    queryset = Job.objects.filter(status='EN ATTENTE').order_by('-created_at')
+    
+    model = Job
     serializer_class = JobPendingSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = JobFullDetailFilter
-    search_fields = ['reference']
-    ordering_fields = ['created_at', 'reference']
-    pagination_class = JobFullDetailPagination
+    
+    # Champs de recherche et tri - tous les champs disponibles
+    search_fields = [
+        'reference', 'status',
+        'warehouse__warehouse_name', 'warehouse__reference',
+        'inventory__reference', 'inventory__label',
+        'jobdetail__location__location_reference',
+        'jobdetail__location__sous_zone__sous_zone_name',
+        'jobdetail__location__sous_zone__zone__zone_name',
+        'assigment__counting__reference',
+        'assigment__session__username',
+        'jobdetailressource__ressource__reference',
+        'jobdetailressource__ressource__libelle'
+    ]
+    
+    order_fields = [
+        'id', 'reference', 'status', 'created_at',
+        'warehouse__warehouse_name', 'inventory__reference'
+    ]
+    default_order = '-created_at'
+    
+    # Configuration de pagination
+    page_size = 20
+    min_page_size = 1
+    max_page_size = 1000
+    export_filename = 'jobs_en_attente_liste'
+    
+    # Mapping pour les filtres
+    filter_aliases = {
+        'reference': 'reference',
+        'status': 'status',
+        'emplacement': 'jobdetail__location__location_reference',
+        'session': 'assigment__session__username',
+        'ressource': 'jobdetailressource__ressource__reference',
+    }
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        self.repository = JobRepository()
+    
+    def get_datatable_queryset(self):
+        """
+        Récupère les jobs en attente via le repository avec relations préchargées.
+        ⚠️ Règle: La vue ne doit PAS utiliser Job.objects directement.
+        """
+        return self.repository.get_pending_jobs_datatable()
 
 class JobResetAssignmentsView(APIView):
     """
@@ -402,25 +1123,30 @@ class JobResetAssignmentsView(APIView):
         try:
             job_service = JobService()
             result = job_service.reset_jobs_assignments(job_ids)
-            return Response({
-                'success': True,
-                'message': f'{result["jobs_reset"]} jobs remis en attente avec succès',
-                'data': result
-            }, status=status.HTTP_200_OK)
+            return success_response(
+                data=result,
+                message=f'{result["jobs_reset"]} jobs remis en attente avec succès'
+            )
         except JobCreationError as e:
-            return Response({
-                'success': False,
-                'message': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
         except Exception as e:
-            return Response({
-                'success': False,
-                'message': f'Erreur interne : {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_response(
+                message="Une erreur inattendue s'est produite",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class JobTransferView(APIView):
     """
-    Vue pour transférer les jobs par comptage qui sont au statut PRET
+    Vue pour transférer les assignments par comptage qui sont au statut PRET.
+    
+    Règles métier :
+    - Seuls les assignments au statut PRET peuvent être transférés
+    - L'assignment doit correspondre au counting_order spécifié
+    - Si l'assignment n'est pas PRET ou ne correspond pas au counting_order, 
+      retourne un message d'erreur avec la référence du job et la raison
     """
     def post(self, request):
         serializer = JobTransferRequestSerializer(data=request.data)
@@ -432,35 +1158,206 @@ class JobTransferView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
         
         job_ids = serializer.validated_data['job_ids']
-        counting_order = serializer.validated_data['counting_order']
+        counting_orders = serializer.validated_data['counting_order']
         
         try:
             job_service = JobService()
-            result = job_service.transfer_jobs_by_counting_order(job_ids, counting_order)
-            return Response({
-                'success': True,
-                'message': f'{result["total_transferred"]} jobs transférés avec succès pour le comptage d\'ordre {counting_order}',
-                'data': result
-            }, status=status.HTTP_200_OK)
+            result = job_service.transfer_assignments_by_jobs_and_counting_orders(job_ids, counting_orders)
+            return success_response(
+                data=result,
+                message=f'{result["total_transferred"]} assignment(s) transféré(s) avec succès'
+            )
         except JobCreationError as e:
-            return Response({
-                'success': False,
-                'message': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
         except Exception as e:
+            logger.error(f"Erreur inattendue lors du transfert : {str(e)}", exc_info=True)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors du transfert",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class JobTransferAllView(APIView):
+    """
+    Vue pour transférer automatiquement tous les jobs et leurs assignments PRET
+    liés à un inventaire et un entrepôt spécifiques.
+
+    Règles métier :
+    - Logique tout-ou-rien : vérifie d'abord que TOUS les jobs et assignments sont PRET
+    - Si une seule condition n'est pas remplie, bloque tout le transfert
+    - Utilise une transaction atomique pour garantir la cohérence
+    - Transfère automatiquement tous les jobs et assignments liés à l'inventory_id et warehouse_id
+    """
+    def post(self, request, inventory_id, warehouse_id):
+        try:
+            job_service = JobService()
+            result = job_service.transfer_all_jobs_and_assignments_by_inventory_warehouse(
+                inventory_id=inventory_id,
+                warehouse_id=warehouse_id
+            )
+            return success_response(
+                data=result,
+                message=f'{result["total_jobs_transferred"]} job(s) et {result["total_assignments_transferred"]} assignment(s) transféré(s) avec succès'
+            )
+        except JobCreationError as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Erreur inattendue lors du transfert : {str(e)}", exc_info=True)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors du transfert",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class JobManualEntryView(APIView):
+    """
+    Vue pour mettre les jobs et leurs assignments en statut SAISIE MANUELLE.
+    
+    Règles métier :
+    - Seuls les jobs au statut PRET, TRANSFERT ou ENTAME peuvent être mis en saisie manuelle
+    - Seuls les assignments au statut PRET, TRANSFERT ou ENTAME peuvent être mis en saisie manuelle
+    - L'assignment doit correspondre au counting_order spécifié
+    - Si le job ou l'assignment n'est pas dans un statut valide ou ne correspond pas au counting_order, 
+      retourne un message d'erreur avec la référence du job et la raison
+    """
+    def post(self, request):
+        serializer = JobManualEntryRequestSerializer(data=request.data)
+        if not serializer.is_valid():
             return Response({
                 'success': False,
-                'message': f'Erreur interne : {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
+                'message': 'Erreur de validation',
+                'errors': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        job_ids = serializer.validated_data['job_ids']
+        counting_orders = serializer.validated_data['counting_order']
+        
+        try:
+            job_service = JobService()
+            result = job_service.set_manual_entry_status_by_jobs_and_counting_orders(job_ids, counting_orders)
+            return success_response(
+                data=result,
+                message=f'{result["total_jobs"]} job(s) et {result["total_assignments"]} assignment(s) mis en saisie manuelle avec succès'
+            )
+        except JobCreationError as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Erreur inattendue lors de la mise en saisie manuelle : {str(e)}", exc_info=True)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la mise en saisie manuelle",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
-class JobBatchAssignmentView(APIView):
+
+class JobCancelView(APIView):
     """
-    API pour affecter des sessions et ressources à plusieurs jobs en lot
+    Vue pour annuler des jobs avec leurs jobdetails et assignments.
+    
+    Règles métier :
+    - Seuls les jobs avec les statuts suivants peuvent être annulés : EN ATTENTE, VALIDE, AFFECTE, PRET
+    - Si un job n'est pas dans un de ces statuts, il sera exclu avec un message d'erreur
+    - Met le job au statut ANNULE avec annule_date
+    - Met tous les JobDetails associés au statut ANNULE avec annule_date
+    - Met tous les Assigments associés au statut ANNULE
+    """
+    
+    def post(self, request):
+        """
+        Annule des jobs avec leurs jobdetails et assignments.
+        
+        Body attendu:
+        {
+            "job_ids": [1, 2, 3]
+        }
+        """
+        serializer = JobCancelRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            error_messages = []
+            for field, errors in serializer.errors.items():
+                if isinstance(errors, list):
+                    error_messages.append(f"{field}: {', '.join(str(e) for e in errors)}")
+                else:
+                    error_messages.append(f"{field}: {str(errors)}")
+            
+            return Response({
+                'success': False,
+                'message': 'Erreur de validation',
+                'errors': ' | '.join(error_messages)
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        job_ids = serializer.validated_data['job_ids']
+        
+        try:
+            # Utiliser le use case pour la logique métier
+            from ..usecases.job_cancel import JobCancelUseCase
+            use_case = JobCancelUseCase()
+            result = use_case.execute(job_ids)
+            
+            # Construire le message de retour
+            message = (
+                f"{result['total_jobs_cancelled']} job(s), "
+                f"{result['jobdetails_cancelled']} jobdetail(s) et "
+                f"{result['assignments_cancelled']} assignment(s) annulé(s) avec succès"
+            )
+            
+            # Si des warnings existent, modifier le message
+            if 'validation_warnings' in result:
+                message = (
+                    f"{result['total_jobs_cancelled']} job(s) annulé(s) avec succès. "
+                    f"Certains jobs n'ont pas pu être annulés."
+                )
+            
+            return success_response(
+                data=result,
+                message=message
+            )
+                
+        except JobCreationError as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Erreur inattendue lors de l'annulation des jobs : {str(e)}", exc_info=True)
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de l'annulation des jobs",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class JobReassignmentView(APIView):
+    """
+    API pour réaffecter une équipe à un job pour un comptage spécifique
+
+    Nouveau format simplifié :
+    {
+        "job_id": 1,
+        "team": 5,
+        "counting_order": 1,
+        "complete": true/false
+    }
+
+    Règles métier :
+    - Réaffecte l'équipe (team) au comptage spécifié du job
+    - Si complete=true : supprime uniquement les données du comptage spécifié 
+      (CountingDetail, NSerieInventory, EcartComptage, ComptageSequence du comptage concerné)
+      Les données des autres comptages (ex: comptage 2 si on réaffecte comptage 1) sont préservées
+    - Met à jour les statuts appropriés selon les règles définies
+    - Validation : empêche la réaffectation si l'assignement est déjà TERMINE
     """
     def post(self, request):
         try:
             print(request.data)
-            serializer = JobBatchAssignmentRequestSerializer(data=request.data)
+            serializer = JobReassignmentRequestSerializer(data=request.data)
             if not serializer.is_valid():
                 # Formater les erreurs de manière sécurisée
                 error_messages = []
@@ -474,35 +1371,305 @@ class JobBatchAssignmentView(APIView):
                                 error_messages.append(f"{field}: {str(error)}")
                     else:
                         error_messages.append(f"{field}: {str(errors)}")
-                
+
                 return Response({
                     'success': False,
                     'message': 'Erreur de validation des données',
                     'errors': ' | '.join(error_messages)
                 }, status=status.HTTP_400_BAD_REQUEST)
-            
-            assignments_data = serializer.validated_data['assignments']
-            
-            # Utiliser le use case pour la logique métier
-            use_case = JobBatchAssignmentUseCase()
-            result = use_case.execute(assignments_data)
-            
-            return Response({
-                'success': True,
-                'message': result['message'],
-                'data': result
-            }, status=status.HTTP_200_OK)
-            
-        except JobCreationError as e:
+
+            # Extraire les données validées
+            validated_data = serializer.validated_data
+            job_id = validated_data['job_id']
+            team_id = validated_data['team']
+            counting_order = validated_data['counting_order']
+            complete = validated_data.get('complete', False)
+
+            # Utiliser le service de réaffectation
+            reassignment_service = JobReassignmentService()
+            result = reassignment_service.reassign_team_to_job_counting(
+                job_id=job_id,
+                team_id=team_id,
+                counting_order=counting_order,
+                complete=complete
+            )
+
+            return Response(result, status=status.HTTP_200_OK)
+
+        except (DRFValidationError, DjangoValidationError) as e:
             return Response({
                 'success': False,
-                'message': 'Erreur lors du traitement',
+                'message': 'Erreur de validation',
                 'error': str(e)
             }, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            logger.error(f"Erreur dans JobBatchAssignmentView: {str(e)}", exc_info=True)
+            logger.error(f"Erreur dans JobReassignmentView: {str(e)}", exc_info=True)
             return Response({
                 'success': False,
                 'message': 'Erreur interne du serveur',
-                'error': f'Erreur interne : {str(e)}'
+                'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
+
+
+class JobProgressByCountingView(APIView):
+    """
+    Vue pour afficher l'avancement des emplacements par job et par counting
+    """
+    def get(self, request, job_id):
+        try:
+            job_service = JobService()
+            progress_data = job_service.get_job_progress_by_counting(job_id)
+            
+            if progress_data['success']:
+                return Response({
+                    'success': True,
+                    'data': progress_data
+                }, status=status.HTTP_200_OK)
+            else:
+                return Response({
+                    'success': False,
+                    'message': progress_data['error']
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': f'Erreur interne : {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class InventoryProgressByCountingView(APIView):
+    """
+    Vue pour afficher l'avancement global d'un inventaire par counting
+    """
+    def get(self, request, inventory_id):
+        try:
+            job_service = JobService()
+            progress_data = job_service.get_inventory_progress_by_counting(inventory_id)
+            
+            if progress_data['success']:
+                return Response({
+                    'success': True,
+                    'data': progress_data
+                }, status=status.HTTP_200_OK)
+            else:
+                return Response({
+                    'success': False,
+                    'message': progress_data['error']
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': f'Erreur interne : {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class JobsWithAssignmentsByWarehouseAndCountingView(ServerSideDataTableView):
+    """
+    API pour récupérer les jobs avec leurs assignments filtrés par warehouse et ordre de comptage.
+    Support DataTable avec pagination, tri, recherche et filtrage.
+    
+    GET /api/inventory/warehouse/<int:warehouse_id>/counting/<int:counting_order>/jobs/
+    
+    FONCTIONNALITÉS AUTOMATIQUES:
+    - Tri sur tous les champs configurés
+    - Recherche sur champs multiples
+    - Filtrage avancé
+    - Pagination optimisée
+    - Relations préchargées pour performance
+    
+    PARAMÈTRES:
+    - Tri: ordering=reference, ordering=-created_at, ordering=status
+    - Recherche: search=terme
+    - Pagination: page=1&page_size=20
+    - Filtres: status=TERMINE, job_id=88, personne_1=BOUFENZI
+    """
+    
+    # Configuration de base
+    model = Assigment
+    serializer_class = AssignmentFlatSerializer
+    
+    # Champs de recherche - tous les champs disponibles
+    search_fields = [
+        'job__reference',
+        'job__status',
+        'reference',
+        'status',
+        'counting__reference',
+        'counting__order',
+        'session__username',
+        'personne__nom',
+        'personne__prenom',
+        'personne_two__nom',
+        'personne_two__prenom',
+        'job__warehouse__warehouse_name',
+        'job__warehouse__reference',
+        'job__inventory__reference',
+        'job__inventory__label'
+    ]
+    
+    # Champs de tri - tous les champs disponibles
+    order_fields = [
+        'id',
+        'job_id',
+        'job__reference',
+        'job__status',
+        'reference',
+        'status',
+        'counting__order',
+        'counting__reference',
+        'transfert_date',
+        'entame_date',
+        'affecte_date',
+        'pret_date',
+        'date_start',
+        'created_at',
+        'updated_at',
+        'session__username',
+        'personne__nom',
+        'personne_two__nom'
+    ]
+    default_order = '-created_at'
+    
+    # Configuration de pagination
+    page_size = 20
+    min_page_size = 1
+    max_page_size = 1000
+    export_filename = 'jobs_avec_assignments'
+    
+    # Mapping frontend -> backend pour le filtrage par colonnes
+    filter_aliases = {
+        'job_id': 'job__id',
+        'job_reference': 'job__reference',
+        'job_status': 'job__status',
+        'reference': 'reference',
+        'status': 'status',
+        'counting_order': 'counting__order',
+        'counting_reference': 'counting__reference',
+        'session_info': 'session__username',
+        'personne_1': 'personne__nom',
+        'personne_2': 'personne_two__nom',
+        'warehouse_name': 'job__warehouse__warehouse_name',
+        'inventory_reference': 'job__inventory__reference'
+    }
+    
+    # Champs de date pour filtrage automatique
+    date_fields = [
+        'transfert_date',
+        'entame_date',
+        'affecte_date',
+        'pret_date',
+        'date_start',
+        'created_at',
+        'updated_at'
+    ]
+    
+    # Champs de statut pour filtrage automatique
+    status_fields = ['status', 'job__status']
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from ..repositories.job_repository import JobRepository
+        self.repository = JobRepository()
+    
+    def get_datatable_queryset(self):
+        """
+        Récupère le queryset d'assignments filtrés par warehouse et counting_order.
+        ⚠️ Règle: La vue ne doit PAS utiliser Assigment.objects directement.
+        """
+        warehouse_id = self.kwargs.get('warehouse_id')
+        counting_order = self.kwargs.get('counting_order')
+        
+        # Valider les paramètres
+        if not warehouse_id or warehouse_id <= 0:
+            raise ValueError("L'ID de l'entrepôt doit être un entier positif")
+        
+        if not counting_order or counting_order <= 0:
+            raise ValueError("L'ordre du comptage doit être un entier positif")
+        
+        return self.repository.get_assignments_by_warehouse_and_counting_queryset(
+            warehouse_id=warehouse_id,
+            counting_order=counting_order
+        )
+
+
+class JobDetailsByJobAndCountingView(ServerSideDataTableView):
+    """
+    Vue DataTable pour récupérer les JobDetail d'un job filtrés par ordre de comptage.
+    Supporte automatiquement : tri, recherche, filtrage, pagination.
+    Retourne uniquement location, status et les dates.
+    """
+    
+    # Configuration minimale
+    model = JobDetail
+    serializer_class = JobDetailSimpleSerializer
+    
+    # Champs de recherche
+    search_fields = [
+        'location__location_reference',
+        'location__sous_zone__sous_zone_name',
+        'location__sous_zone__zone__zone_name',
+        'status'
+    ]
+    
+    # Champs de tri
+    order_fields = [
+        'id',
+        'location__location_reference',
+        'location__sous_zone__sous_zone_name',
+        'status',
+        'en_attente_date',
+        'termine_date',
+        'location__created_at',
+        'location__updated_at'
+    ]
+    
+    # Mapping frontend -> backend pour le filtrage par colonnes
+    filter_aliases = {
+        'id': 'location__id',
+        'location_reference': 'location__location_reference',
+        'sous_zone_name': 'location__sous_zone__sous_zone_name',
+        'zone_name': 'location__sous_zone__zone__zone_name',
+        'is_active': 'location__is_active',
+        'status': 'status',
+        'en_attente_date': 'en_attente_date',
+        'termine_date': 'termine_date',
+        'created_at': 'location__created_at',
+        'updated_at': 'location__updated_at'
+    }
+    
+    # Configuration par défaut
+    default_order = 'location__location_reference'
+    page_size = 20
+    export_filename = 'job_details_par_comptage'
+    
+    # Champs de date pour filtrage automatique
+    date_fields = ['en_attente_date', 'termine_date', 'location__created_at', 'location__updated_at']
+    
+    # Champs de statut pour filtrage automatique
+    status_fields = ['status', 'location__is_active']
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.repository = JobRepository()
+    
+    def get_datatable_queryset(self):
+        """
+        Récupère le queryset de JobDetail filtrés par job_id et counting_order.
+        ⚠️ Règle: La vue ne doit PAS utiliser JobDetail.objects directement.
+        """
+        job_id = self.kwargs.get('job_id')
+        counting_order = self.kwargs.get('counting_order')
+        
+        # Valider les paramètres
+        if not job_id or job_id <= 0:
+            return JobDetail.objects.none()
+        
+        if not counting_order or counting_order <= 0:
+            return JobDetail.objects.none()
+        
+        # Récupérer le queryset via le repository
+        return self.repository.get_job_details_by_job_and_counting_order_queryset(
+            job_id=job_id,
+            counting_order=counting_order
+        ) 

@@ -62,17 +62,31 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'django.middleware.locale.LocaleMiddleware', 
+    'django.middleware.locale.LocaleMiddleware',
+    'project.middleware.security_headers.SecurityHeadersMiddleware',  # Headers de sécurité
     'project.middleware.ActionLoggingMiddleware',
+    'apps.masterdata.middleware.CreateTeamsButtonMiddleware',  # Middleware pour le bouton "Créer des équipes"
+    # 'apps.inventory.middleware.CreatePersonnesButtonMiddleware',  # Désactivé - utiliser l'action admin à la place
 ]
 
 
+# CORS Configuration
 CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=False, cast=bool)
-
 CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='', cast=Csv())
-CORS_ALLOW_HEADERS = list(default_headers) + [
-    'authorization',
-]
+CORS_ALLOW_CREDENTIALS = config('CORS_ALLOW_CREDENTIALS', default=True, cast=bool)
+
+# CORS Methods - lire depuis .env ou utiliser les valeurs par défaut
+CORS_ALLOW_METHODS_STR = config('CORS_ALLOW_METHODS', default='GET,POST,PUT,PATCH,DELETE,OPTIONS')
+CORS_ALLOW_METHODS = [method.strip() for method in CORS_ALLOW_METHODS_STR.split(',') if method.strip()]
+
+# CORS Headers - lire depuis .env ou utiliser les valeurs par défaut
+CORS_ALLOW_HEADERS_STR = config('CORS_ALLOW_HEADERS', default='')
+if CORS_ALLOW_HEADERS_STR:
+    # Si défini dans .env, utiliser la liste fournie
+    CORS_ALLOW_HEADERS = [header.strip() for header in CORS_ALLOW_HEADERS_STR.split(',') if header.strip()]
+else:
+    # Sinon, utiliser les headers par défaut + authorization
+    CORS_ALLOW_HEADERS = list(default_headers) + ['authorization']
 
 
 
@@ -81,7 +95,7 @@ ROOT_URLCONF = 'project.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [str(BASE_DIR / 'templates')],  # Ajouter le dossier templates à la racine
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -108,6 +122,12 @@ DATABASES = {
         'PASSWORD': config('POSTGRES_PASSWORD', default='root'),
         'HOST': config('POSTGRES_HOST', default='127.0.0.1'),
         'PORT': config('POSTGRES_PORT', default='5432'),
+        # Réutilisation des connexions pour améliorer les performances
+        # CONN_MAX_AGE: durée en secondes pendant laquelle une connexion peut être réutilisée
+        # 600 = 10 minutes (recommandé pour production)
+        'CONN_MAX_AGE': 600,
+        # Vérification de santé des connexions (recommandé avec CONN_MAX_AGE)
+        'CONN_HEALTH_CHECKS': True,
     }
 }
 DEFAULT_CHARSET = 'utf-8'
@@ -156,20 +176,30 @@ LANGUAGE_CODE = 'en'
 
 
 # Static files (CSS, JavaScript, Images)
-STATIC_URL = '/static/'
+STATIC_URL = config('DJANGO_STATIC_URL', default='/static/')
 
 # Répertoire où Django collecte les fichiers statiques
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATIC_ROOT = config('DJANGO_STATIC_ROOT', default=os.path.join(BASE_DIR, 'staticfiles'))
 
 # Si vous avez des fichiers statiques personnalisés dans votre projet (ex : CSS ou JS spécifiques)
-STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, 'static'),  # Répertoire contenant tes fichiers statiques personnalisés
-]
+# Ne pas inclure STATIC_ROOT dans STATICFILES_DIRS
+staticfiles_dirs_default = os.path.join(BASE_DIR, 'static')
+staticfiles_dirs_from_env = config('DJANGO_STATICFILES_DIRS', default=staticfiles_dirs_default)
+
+# Convertir en Path pour normaliser les chemins et comparer
+STATIC_ROOT_PATH = Path(STATIC_ROOT).resolve()
+STATICFILES_DIRS_PATH = Path(staticfiles_dirs_from_env).resolve()
+
+# Vérifier que STATICFILES_DIRS ne contient pas STATIC_ROOT
+# et que le répertoire existe
+STATICFILES_DIRS = []
+if STATICFILES_DIRS_PATH != STATIC_ROOT_PATH and STATICFILES_DIRS_PATH.exists():
+    STATICFILES_DIRS = [str(STATICFILES_DIRS_PATH)]
 
 
 # Media files
-MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+MEDIA_URL = config('DJANGO_MEDIA_URL', default='/media/')
+MEDIA_ROOT = config('DJANGO_MEDIA_ROOT', default=os.path.join(BASE_DIR, 'media'))
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -277,6 +307,7 @@ JAZZMIN_SETTINGS = {
         "masterdata.Location",
         "masterdata.Product",
         "masterdata.UnitOfMeasure",
+        "inventory.Personne",
         "auth", 
         
     ],
@@ -286,8 +317,8 @@ JAZZMIN_SETTINGS = {
     # Custom links to append to app groups, keyed on app name
     "custom_links": {
         "books": [{
-            "name": "Make Messages", 
-            "url": "make_messages", 
+            "name": "Make Messages",
+            "url": "make_messages",
             "icon": "fas fa-comments",
             "permissions": ["books.view_book"]
         }]
@@ -329,7 +360,7 @@ JAZZMIN_SETTINGS = {
     #############
     # Relative paths to custom CSS/JS scripts (must be present in static files)
     "custom_css": None,
-    "custom_js": None,
+    "custom_js": None,  # Désactivé pour l'instant
     # Whether to link font from fonts.googleapis.com (use custom_css to supply font otherwise)
     "use_google_fonts_cdn": True,
     # Whether to show the UI customizer on the sidebar
@@ -385,57 +416,88 @@ JAZZMIN_UI_TWEAKS = {
 }
 
 # Security settings
-SECURE_SSL_REDIRECT = False
-SESSION_COOKIE_SECURE = False
-CSRF_COOKIE_SECURE = False
-# SECURE_HSTS_SECONDS = 0
-# SECURE_HSTS_INCLUDE_SUBDOMAINS = False
-# SECURE_HSTS_PRELOAD = False
-# CSRF_TRUSTED_ORIGINS = []
+# Configuration basée sur l'environnement (production vs développement)
+IS_PRODUCTION = config('IS_PRODUCTION', default=False, cast=bool)
+
+# SSL/TLS Security
+SECURE_SSL_REDIRECT = config('SECURE_SSL_REDIRECT', default=IS_PRODUCTION, cast=bool)
+SESSION_COOKIE_SECURE = config('SESSION_COOKIE_SECURE', default=IS_PRODUCTION, cast=bool)
+CSRF_COOKIE_SECURE = config('CSRF_COOKIE_SECURE', default=IS_PRODUCTION, cast=bool)
+
+# HSTS (HTTP Strict Transport Security)
+SECURE_HSTS_SECONDS = config('SECURE_HSTS_SECONDS', default=31536000 if IS_PRODUCTION else 0, cast=int)  # 1 an en production
+SECURE_HSTS_INCLUDE_SUBDOMAINS = config('SECURE_HSTS_INCLUDE_SUBDOMAINS', default=IS_PRODUCTION, cast=bool)
+SECURE_HSTS_PRELOAD = config('SECURE_HSTS_PRELOAD', default=IS_PRODUCTION, cast=bool)
+
+# CSRF Protection
+CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', default='', cast=Csv())
+
+# Additional Security Headers
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_BROWSER_XSS_FILTER = True
+X_FRAME_OPTIONS = 'DENY'  # Protection contre clickjacking
+
+# Configuration du proxy SSL (pour Nginx reverse proxy)
+# Si SECURE_PROXY_SSL_HEADER est défini dans .env, l'utiliser
+# Format attendu dans .env: SECURE_PROXY_SSL_HEADER=('HTTP_X_FORWARDED_PROTO', 'https')
+SECURE_PROXY_SSL_HEADER_STR = config('SECURE_PROXY_SSL_HEADER', default=None)
+if SECURE_PROXY_SSL_HEADER_STR:
+    try:
+        # Évaluer la chaîne comme un tuple Python
+        SECURE_PROXY_SSL_HEADER = eval(SECURE_PROXY_SSL_HEADER_STR)
+    except (SyntaxError, ValueError):
+        # Si l'évaluation échoue, utiliser la valeur par défaut
+        SECURE_PROXY_SSL_HEADER = None
+else:
+    SECURE_PROXY_SSL_HEADER = None
 
 # Email configuration
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = config('EMAIL_HOST')
-EMAIL_PORT = config('EMAIL_PORT', cast=int)
-EMAIL_HOST_USER = config('EMAIL_HOST_USER')
-EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD')
-EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
 
 # Logging configuration
-LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'formatters': {
-        'verbose': {
-            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
-            'style': '{',
-        },
-        'simple': {
-            'format': '{levelname} {asctime} {message}',
-            'style': '{',
-        },
-    },
-    'handlers': {
-        'console': {
-            'class': 'logging.StreamHandler',
-            'formatter': 'simple',
-        },
-        'file': {
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': 'logs/django.log',
-            'maxBytes': 1024 * 1024 * 5,  # 5 MB
-            'backupCount': 5,
-            'formatter': 'verbose',
-        },
-    },
-    'loggers': {
-        'django': {
-            'handlers': ['console', 'file'],
-            'level': 'INFO',
-            'propagate': True,
-        },
-    },
-}
+# LOGGING = {
+#     'version': 1,
+#     'disable_existing_loggers': False,
+#     'formatters': {
+#         'verbose': {
+#             'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+#             'style': '{',
+#         },
+#         'simple': {
+#             'format': '{levelname} {asctime} {message}',
+#             'style': '{',
+#         },
+#         'django.server': {
+#             'format': '[{server_time}] {message}',
+#             'style': '{',
+#         },
+#     },
+#     'handlers': {
+#         'console': {
+#             'class': 'logging.StreamHandler',
+#             'formatter': 'simple',
+#         },
+#         'file': {
+#             'class': 'logging.handlers.RotatingFileHandler',
+#             'filename': 'logs/django.log',
+#             'maxBytes': 1024 * 1024 * 5,  # 5 MB
+#             'backupCount': 5,
+#             'formatter': 'verbose',
+#         },
+#     },
+#     'loggers': {
+#         'django': {
+#             'handlers': ['console', 'file'],
+#             'level': 'INFO',
+#             'propagate': True,
+#         },
+#         'django.server': {
+#             'handlers': ['console'],
+#             'level': 'INFO',
+#             'propagate': False,
+#             'formatter': 'django.server',
+#         },
+#     },
+# }
 
 # REST Framework settings
 REST_FRAMEWORK = {
@@ -445,14 +507,15 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
-}
+    'DEFAULT_EXCEPTION_HANDLER': 'project.utils.exception_handler.custom_exception_handler',
+}  
 
 # SimpleJWT settings
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
-    'ROTATE_REFRESH_TOKENS': False, # Désactivé pour permettre le refresh à chaque requête
-    'BLACKLIST_AFTER_ROTATION': False,
+    "ACCESS_TOKEN_LIFETIME": timedelta(days=7),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=365),
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
     'UPDATE_LAST_LOGIN': True,
 
     'ALGORITHM': 'HS256',

@@ -12,6 +12,10 @@ class InventoryFilter(filters.FilterSet):
     # Filtre personnalisé pour l'intervalle date/datetime
     date_interval = filters.CharFilter(method='filter_date_interval')
     label = filters.CharFilter(field_name='label', lookup_expr='icontains')
+    label_contains = filters.CharFilter(field_name='label', lookup_expr='icontains')
+    label_exact = filters.CharFilter(field_name='label', lookup_expr='exact')
+    label_startswith = filters.CharFilter(field_name='label', lookup_expr='istartswith')
+    label_endswith = filters.CharFilter(field_name='label', lookup_expr='iendswith')
     en_preparation_status_date_gte = filters.DateTimeFilter(field_name='en_preparation_status_date', lookup_expr='gte')
     en_preparation_status_date_lte = filters.DateTimeFilter(field_name='en_preparation_status_date', lookup_expr='lte')
     en_preparation_status_date_exact = filters.DateTimeFilter(field_name='en_preparation_status_date', lookup_expr='exact')
@@ -32,10 +36,18 @@ class InventoryFilter(filters.FilterSet):
     status_in = filters.MultipleChoiceFilter(field_name='status', choices=Inventory.STATUS_CHOICES)
     # Filtres pour account et warehouse
     account = filters.CharFilter(field_name='awi_links__account__account_name', lookup_expr='icontains')
+    account_contains = filters.CharFilter(field_name='awi_links__account__account_name', lookup_expr='icontains')
     warehouse = filters.CharFilter(field_name='awi_links__warehouse__warehouse_name', lookup_expr='icontains')
+    warehouse_contains = filters.CharFilter(field_name='awi_links__warehouse__warehouse_name', lookup_expr='icontains')
+    
+    # Filtres pour reference
+    reference = filters.CharFilter(field_name='reference', lookup_expr='icontains')
+    reference_contains = filters.CharFilter(field_name='reference', lookup_expr='icontains')
+    reference_exact = filters.CharFilter(field_name='reference', lookup_expr='exact')
     
     # Filtre pour le mode de comptage
     count_mode = filters.CharFilter(field_name='countings__count_mode', lookup_expr='icontains')
+    count_mode_contains = filters.CharFilter(field_name='countings__count_mode', lookup_expr='icontains')
 
     def filter_date_interval(self, queryset, name, value):
         return self._filter_interval(queryset, 'date', value)

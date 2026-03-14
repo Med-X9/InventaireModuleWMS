@@ -1,10 +1,27 @@
 from typing import List, Dict, Any, Optional
+from collections import defaultdict
 from django.db import transaction
 from django.db.models import Q
 from ..interfaces.job_interface import JobRepositoryInterface
-from ..models import Job, Assigment, Counting, Inventory, JobDetail
+from ..models import Job, Assigment, Counting, Inventory, JobDetail, CountingDetail
 from apps.masterdata.models import Warehouse, Location
 from django.utils import timezone
+
+
+class CountingDetailAggregated:
+    """
+    Classe simple pour représenter un CountingDetail agrégé par emplacement.
+    Utilisé pour calculer les écarts par emplacement (somme des quantités de tous les produits).
+    """
+    def __init__(self, location_id: int, job_id: int, total_quantity: int, 
+                 location, counting, job):
+        self.location_id = location_id
+        self.job_id = job_id
+        self.quantity_inventoried = total_quantity
+        self.location = location
+        self.product = None  # Pas de produit spécifique car agrégé
+        self.counting = counting
+        self.job = job
 
 class JobRepository(JobRepositoryInterface):
     """
@@ -70,6 +87,21 @@ class JobRepository(JobRepositoryInterface):
             warehouse_id=warehouse_id,
             status='EN ATTENTE'
         ).values('id', 'reference').order_by('created_at'))
+
+    def get_pending_jobs_by_inventory_and_warehouse(self, inventory_id: int, warehouse_id: int) -> List[Job]:
+        """Récupère les jobs en attente d'un inventaire et warehouse spécifiques"""
+        return list(Job.objects.filter(
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id,
+            status='EN ATTENTE'
+        ).order_by('created_at'))
+
+    def get_jobs_by_inventory_and_warehouse(self, inventory_id: int, warehouse_id: int) -> List[Job]:
+        """Récupère tous les jobs d'un inventaire et warehouse spécifiques"""
+        return list(Job.objects.filter(
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id
+        ).order_by('created_at'))
     
     def get_pending_jobs_by_warehouse_with_filters(self, warehouse_id: int, filters: Optional[Dict[str, Any]] = None) -> List[Job]:
         """Récupère les jobs en attente d'un warehouse avec filtres et relations préchargées"""
@@ -100,6 +132,14 @@ class JobRepository(JobRepositoryInterface):
         """Récupère les job details d'un job pour des emplacements spécifiques"""
         return list(JobDetail.objects.filter(job=job, location_id__in=location_ids))
     
+    def get_job_detail_by_job_and_location(self, job: Job, location: Location) -> Optional[JobDetail]:
+        """Récupère un job detail pour un job et un emplacement spécifiques"""
+        return JobDetail.objects.filter(job=job, location=location).first()
+    
+    def get_job_detail_by_job_location_and_counting(self, job: Job, location: Location, counting: Counting) -> Optional[JobDetail]:
+        """Récupère un job detail pour un job, un emplacement et un comptage spécifiques"""
+        return JobDetail.objects.filter(job=job, location=location, counting=counting).first()
+    
     def get_existing_job_detail_by_location_and_inventory(self, location: Location, inventory: Inventory) -> Optional[JobDetail]:
         """Récupère un job detail existant pour un emplacement et un inventaire"""
         return JobDetail.objects.filter(
@@ -118,9 +158,49 @@ class JobRepository(JobRepositoryInterface):
             job__inventory=inventory
         ).exclude(job=job).first()
     
-    def get_job_detail_by_job_and_location(self, job: Job, location: Location) -> Optional[JobDetail]:
-        """Récupère un job detail pour un job et un emplacement spécifiques"""
-        return JobDetail.objects.filter(job=job, location=location).first()
+    def get_job_details_with_assignments(
+        self,
+        inventory_id: Optional[int] = None,
+        warehouse_id: Optional[int] = None,
+        counting_order: Optional[int] = None
+    ) -> List[JobDetail]:
+        """
+        Récupère les JobDetail avec leurs Assignment correspondants selon job et counting.
+        
+        Args:
+            inventory_id: ID de l'inventaire (optionnel)
+            warehouse_id: ID de l'entrepôt (optionnel)
+            counting_order: Ordre du comptage (optionnel)
+            
+        Returns:
+            Liste de JobDetail avec leurs relations préchargées
+        """
+        queryset = JobDetail.objects.select_related(
+            'job',
+            'job__warehouse',
+            'job__inventory',
+            'location',
+            'counting'
+        ).prefetch_related(
+            'job__assigment_set__counting',
+            'job__assigment_set__personne',
+            'job__assigment_set__personne_two',
+            'job__assigment_set__session'
+        )
+        
+        # Filtres optionnels
+        if inventory_id:
+            queryset = queryset.filter(job__inventory_id=inventory_id)
+        
+        if warehouse_id:
+            queryset = queryset.filter(job__warehouse_id=warehouse_id)
+        
+        if counting_order:
+            queryset = queryset.filter(
+                job__assigment_set__counting__order=counting_order
+            ).distinct()
+        
+        return list(queryset.order_by('job__reference', 'location__location_reference'))
     
     def get_jobs_by_ids(self, job_ids: List[int]) -> List[Job]:
         """Récupère des jobs par leurs IDs"""
@@ -162,6 +242,42 @@ class JobRepository(JobRepositoryInterface):
             setattr(job, key, value)
         job.save()
     
+    def update_job_details_status(self, job: Job, status: str, date_field: str = None) -> int:
+        """
+        Met à jour le statut de tous les JobDetails d'un job (qui ne sont pas déjà au statut spécifié)
+        
+        Args:
+            job: Le job concerné
+            status: Le nouveau statut
+            date_field: Le champ de date à mettre à jour (optionnel)
+            
+        Returns:
+            int: Nombre de JobDetails mis à jour
+        """
+        queryset = JobDetail.objects.filter(job=job).exclude(status=status)
+        update_data = {'status': status}
+        if date_field:
+            update_data[date_field] = timezone.now()
+        return queryset.update(**update_data)
+    
+    def update_assignments_status(self, job: Job, status: str, date_field: str = None) -> int:
+        """
+        Met à jour le statut de tous les Assigments d'un job (qui ne sont pas déjà au statut spécifié)
+        
+        Args:
+            job: Le job concerné
+            status: Le nouveau statut
+            date_field: Le champ de date à mettre à jour (optionnel)
+            
+        Returns:
+            int: Nombre d'Assigments mis à jour
+        """
+        queryset = Assigment.objects.filter(job=job).exclude(status=status)
+        update_data = {'status': status}
+        if date_field:
+            update_data[date_field] = timezone.now()
+        return queryset.update(**update_data)
+    
     def get_jobs_with_filters(self, warehouse_id: int, filters: Optional[Dict[str, Any]] = None) -> List[Job]:
         """Récupère des jobs avec filtres"""
         queryset = Job.objects.filter(warehouse_id=warehouse_id)
@@ -178,4 +294,466 @@ class JobRepository(JobRepositoryInterface):
             if 'created_at_lte' in filters:
                 queryset = queryset.filter(created_at__lte=filters['created_at_lte'])
         
-        return list(queryset.order_by('-created_at')) 
+        return list(queryset.order_by('-created_at'))
+    
+    def get_jobs_for_datatable(self):
+        """
+        Récupère tous les jobs avec leurs relations préchargées pour optimiser les requêtes.
+        Utilisé par les vues DataTable.
+        """
+        return Job.objects.select_related(
+            'warehouse',
+            'inventory'
+        ).prefetch_related(
+            'jobdetail_set__location__sous_zone__zone',
+            'jobdetail_set__location__sous_zone',
+            'assigment_set__counting',
+            'assigment_set__session',
+            'jobdetailressource_set__ressource'
+        ).distinct()
+    
+    def get_jobs_for_inventory_warehouse_datatable(self, inventory_id: int, warehouse_id: int):
+        """
+        Récupère les jobs d'un inventaire et warehouse spécifiques avec relations préchargées.
+        Utilisé par les vues DataTable.
+
+        ⚠️ IMPORTANT: Utilise .distinct() pour éviter les duplications causées par les prefetch_related
+        complexes qui peuvent créer des chemins multiples vers le même job.
+        """
+        return Job.objects.filter(
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id
+        ).select_related(
+            'warehouse',
+            'inventory'
+        ).prefetch_related(
+            'jobdetail_set__location__sous_zone__zone',
+            'jobdetail_set__location__sous_zone',
+            'assigment_set__counting',
+            'assigment_set__session',
+            'jobdetailressource_set__ressource'
+        ).distinct().distinct()
+    
+    def get_pending_jobs_for_warehouse_datatable(self, warehouse_id: int):
+        """
+        Récupère les jobs en attente pour un warehouse avec relations préchargées.
+        Utilisé par les vues DataTable.
+        """
+        return Job.objects.filter(
+            warehouse_id=warehouse_id,
+            status='EN ATTENTE'
+        ).select_related(
+            'inventory',
+            'warehouse'
+        ).prefetch_related(
+            'jobdetail_set',
+            'assigment_set'
+        ).distinct()
+    
+    def get_validated_jobs_datatable(self, warehouse_id: Optional[int] = None, inventory_id: Optional[int] = None):
+        """
+        Récupère les jobs validés, affectés, transférés, prêts ou entamés avec relations préchargées.
+        Utilisé par les vues DataTable.
+        
+        Statuts inclus : VALIDE, AFFECTE, TRANSFERT, PRET, ENTAME
+        """
+        queryset = Job.objects.filter(status__in=['VALIDE', 'AFFECTE', 'TRANSFERT', 'PRET', 'ENTAME'])
+        
+        if warehouse_id is not None:
+            queryset = queryset.filter(warehouse_id=warehouse_id)
+        
+        if inventory_id is not None:
+            queryset = queryset.filter(inventory_id=inventory_id)
+        
+        return queryset.select_related(
+            'warehouse', 'inventory'
+        ).prefetch_related(
+            'jobdetail_set__location__sous_zone__zone',
+            'jobdetail_set__location__sous_zone',
+            'assigment_set__counting',
+            'assigment_set__session',
+            'jobdetailressource_set__ressource'
+        ).distinct()
+    
+    def get_pending_jobs_datatable(self):
+        """
+        Récupère tous les jobs en attente avec relations préchargées.
+        Utilisé par les vues DataTable.
+        """
+        return Job.objects.filter(status='EN ATTENTE').select_related(
+            'warehouse',
+            'inventory'
+        ).prefetch_related(
+            'jobdetail_set__location__sous_zone__zone',
+            'jobdetail_set__location__sous_zone',
+            'assigment_set__counting',
+            'assigment_set__session',
+            'jobdetailressource_set__ressource'
+        ).distinct()
+    
+    def get_jobs_with_assignments_by_warehouse_and_counting(
+        self,
+        warehouse_id: int,
+        counting_order: int
+    ) -> List[Job]:
+        """
+        Récupère les jobs avec leurs assignments filtrés par warehouse et ordre de comptage.
+        
+        Args:
+            warehouse_id: ID de l'entrepôt
+            counting_order: Ordre du comptage
+            
+        Returns:
+            Liste des jobs avec leurs assignments préchargés
+        """
+        # Récupérer les IDs des assignments qui correspondent au warehouse et counting_order
+        assignment_ids = Assigment.objects.filter(
+            job__warehouse_id=warehouse_id,
+            counting__order=counting_order
+        ).values_list('job_id', flat=True).distinct()
+        
+        if not assignment_ids:
+            return []
+        
+        # Récupérer les jobs avec toutes leurs relations préchargées
+        return list(
+            Job.objects.filter(
+                id__in=assignment_ids,
+                warehouse_id=warehouse_id
+            ).select_related(
+                'warehouse',
+                'inventory'
+            ).prefetch_related(
+                'assigment_set__counting',
+                'assigment_set__personne',
+                'assigment_set__personne_two',
+                'assigment_set__session'
+            ).order_by('reference')
+        )
+    
+    def get_assignments_by_warehouse_and_counting(
+        self,
+        warehouse_id: int,
+        counting_order: int
+    ) -> List[Assigment]:
+        """
+        Récupère les assignments filtrés par warehouse et ordre de comptage.
+        
+        Args:
+            warehouse_id: ID de l'entrepôt
+            counting_order: Ordre du comptage
+            
+        Returns:
+            Liste des assignments avec leurs relations préchargées
+        """
+        return list(
+            Assigment.objects.filter(
+                job__warehouse_id=warehouse_id,
+                counting__order=counting_order
+            ).select_related(
+                'job',
+                'counting',
+                'personne',
+                'personne_two',
+                'session'
+            ).order_by('job__reference', 'id')
+        )
+    
+    def get_assignments_by_warehouse_and_counting_queryset(
+        self,
+        warehouse_id: int,
+        counting_order: int
+    ):
+        """
+        Récupère un queryset d'assignments filtrés par warehouse et ordre de comptage.
+        Utilisé pour les vues DataTable.
+        
+        Args:
+            warehouse_id: ID de l'entrepôt
+            counting_order: Ordre du comptage
+            
+        Returns:
+            QuerySet des assignments avec leurs relations préchargées
+        """
+        return Assigment.objects.filter(
+            job__warehouse_id=warehouse_id,
+            counting__order=counting_order
+        ).select_related(
+            'job',
+            'job__warehouse',
+            'job__inventory',
+            'counting',
+            'personne',
+            'personne_two',
+            'session'
+        )
+    
+    def get_job_details_by_job_and_counting_order(
+        self,
+        job_id: int,
+        counting_order: int
+    ) -> List[JobDetail]:
+        """
+        Récupère les JobDetail d'un job filtrés par ordre de comptage.
+        
+        Args:
+            job_id: ID du job
+            counting_order: Ordre du comptage
+            
+        Returns:
+            Liste des JobDetail avec location, status et dates uniquement
+        """
+        # Récupérer le job pour obtenir l'inventaire
+        job = self.get_job_by_id(job_id)
+        if not job:
+            return []
+        
+        # Récupérer le counting par ordre et inventaire
+        try:
+            counting = Counting.objects.get(
+                inventory=job.inventory,
+                order=counting_order
+            )
+        except Counting.DoesNotExist:
+            return []
+        
+        # Récupérer les JobDetail filtrés par job et counting
+        return list(
+            JobDetail.objects.filter(
+                job_id=job_id,
+                counting=counting
+            ).select_related(
+                'location'
+            ).only(
+                'id',
+                'location',
+                'status',
+                'en_attente_date',
+                'termine_date'
+            ).order_by('location__location_reference')
+        )
+    
+    def get_job_details_by_job_and_counting_order_queryset(
+        self,
+        job_id: int,
+        counting_order: int
+    ):
+        """
+        Récupère un QuerySet de JobDetail d'un job filtrés par ordre de comptage.
+        Utilisé pour les vues DataTable.
+        
+        Args:
+            job_id: ID du job
+            counting_order: Ordre du comptage
+            
+        Returns:
+            QuerySet des JobDetail avec location, status et dates uniquement
+        """
+        # Récupérer le job pour obtenir l'inventaire
+        job = self.get_job_by_id(job_id)
+        if not job:
+            return JobDetail.objects.none()
+        
+        # Récupérer le counting par ordre et inventaire
+        try:
+            counting = Counting.objects.get(
+                inventory=job.inventory,
+                order=counting_order
+            )
+        except Counting.DoesNotExist:
+            return JobDetail.objects.none()
+        
+        # Récupérer les JobDetail filtrés par job et counting
+        return JobDetail.objects.filter(
+            job_id=job_id,
+            counting=counting
+        ).select_related(
+            'location',
+            'location__sous_zone',
+            'location__sous_zone__zone'
+        ).only(
+            'id',
+            'location',
+            'status',
+            'en_attente_date',
+            'termine_date'
+        )
+    
+    def get_jobs_with_assignments_and_counting_details(
+        self,
+        inventory_id: int,
+        warehouse_id: int
+    ) -> List[Job]:
+        """
+        Récupère les jobs avec leurs assignments et les CountingDetail de tous les comptages.
+        
+        Args:
+            inventory_id: ID de l'inventaire
+            warehouse_id: ID de l'entrepôt
+            
+        Returns:
+            Liste des jobs avec leurs assignments et counting details préchargés
+        """
+        # Récupérer les jobs filtrés par inventory et warehouse
+        jobs = list(
+            Job.objects.filter(
+                inventory_id=inventory_id,
+                warehouse_id=warehouse_id
+            ).select_related(
+                'warehouse',
+                'inventory'
+            ).prefetch_related(
+                'assigment_set__counting',
+                'assigment_set__personne',
+                'assigment_set__personne_two',
+                'assigment_set__session'
+            ).order_by('reference')
+        )
+        
+        # Récupérer tous les comptages pour cet inventaire (pas seulement 1 et 2)
+        countings = list(
+            Counting.objects.filter(
+                inventory_id=inventory_id
+        ).order_by('order')
+        )
+        
+        if not countings:
+            return jobs
+        
+        # Précharger les CountingDetail pour chaque job et chaque comptage
+        job_ids = [job.id for job in jobs]
+        counting_ids = [c.id for c in countings]
+        
+        # Récupérer tous les CountingDetail pour les jobs et tous les comptages
+        all_counting_details = CountingDetail.objects.filter(
+                job_id__in=job_ids,
+            counting_id__in=counting_ids
+            ).select_related('location', 'product', 'counting', 'job')
+        
+        # Organiser les counting details par job et par counting
+        # Clé unique d'une ligne : (location_id, job_id) - pour compter les écarts par emplacement
+        # Si un emplacement a plusieurs produits, on somme les quantités
+        counting_details_by_job_and_counting = defaultdict(lambda: defaultdict(dict))
+        
+        # D'abord, grouper par (job_id, counting.order, location_id) et sommer les quantités
+        location_quantities = defaultdict(int)  # (job_id, counting.order, location_id) -> total_quantity
+        location_objects = {}  # (job_id, counting.order, location_id) -> CountingDetail (pour garder les autres infos)
+        
+        for cd in all_counting_details:
+            key = (cd.job_id, cd.counting.order, cd.location_id)
+            location_quantities[key] += cd.quantity_inventoried
+            # Garder le premier CountingDetail comme référence pour les autres attributs
+            if key not in location_objects:
+                location_objects[key] = cd
+        
+        # Créer des objets CountingDetail agrégés (un par emplacement)
+        for (job_id, counting_order, location_id), total_quantity in location_quantities.items():
+            # Utiliser le CountingDetail de référence et mettre à jour la quantité
+            cd_ref = location_objects[(job_id, counting_order, location_id)]
+            # Créer un objet agrégé avec la quantité totale
+            cd_aggregated = CountingDetailAggregated(
+                location_id=location_id,
+                job_id=job_id,
+                total_quantity=total_quantity,
+                location=cd_ref.location,
+                counting=cd_ref.counting,
+                job=cd_ref.job
+            )
+            
+            key = (location_id, job_id)
+            counting_details_by_job_and_counting[job_id][counting_order][key] = cd_aggregated
+        
+        # Attacher les counting details aux jobs (via un attribut temporaire)
+        for job in jobs:
+            job._counting_details_by_order = dict(counting_details_by_job_and_counting.get(job.id, {}))
+        
+        return jobs
+    
+    def get_zone_stats_data(
+        self,
+        inventory_id: int,
+        warehouse_id: int
+    ) -> Dict[str, Any]:
+        """
+        Récupère les données nécessaires pour les statistiques par zone.
+        
+        Args:
+            inventory_id: ID de l'inventaire
+            warehouse_id: ID de l'entrepôt
+            
+        Returns:
+            Dictionnaire contenant les zones, jobs, assignments et comptages
+        """
+        from apps.masterdata.models import Zone
+        from django.db.models import Prefetch
+        
+        # Récupérer les zones de l'entrepôt
+        zones = Zone.objects.filter(
+            warehouse_id=warehouse_id
+        ).select_related('warehouse').prefetch_related(
+            'souszone_set__location_set'
+        )
+        
+        # Récupérer les jobs de l'inventaire et de l'entrepôt avec leurs relations
+        jobs = Job.objects.filter(
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id
+        ).select_related(
+            'warehouse',
+            'inventory'
+        ).prefetch_related(
+            'jobdetail_set__location__sous_zone__zone',
+            'assigment_set__counting',
+            'assigment_set__personne',
+            'assigment_set__personne_two',
+            'assigment_set__session'
+        )
+        
+        # Récupérer les comptages de l'inventaire
+        countings = Counting.objects.filter(
+            inventory_id=inventory_id
+        ).order_by('order')
+        
+        return {
+            'zones': list(zones),
+            'jobs': list(jobs),
+            'countings': list(countings)
+        }
+
+    def get_assigned_jobs_for_warehouse(self, inventory_id: int, warehouse_id: int) -> List[Job]:
+        """
+        Récupère tous les jobs pour un warehouse et un inventaire donnés
+        (la validation du statut se fait dans l'usecase)
+
+        Args:
+            inventory_id (int): ID de l'inventaire
+            warehouse_id (int): ID du warehouse
+
+        Returns:
+            List[Job]: Liste de tous les jobs
+        """
+        return list(Job.objects.filter(
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id
+        ).select_related('warehouse', 'inventory'))
+
+    def get_jobs_by_status_and_location(self, inventory_id: int, warehouse_id: int, status: str) -> List[Job]:
+        """
+        Récupère les jobs avec un statut spécifique pour un inventaire et entrepôt donnés.
+
+        Args:
+            inventory_id (int): ID de l'inventaire
+            warehouse_id (int): ID de l'entrepôt
+            status (str): Statut des jobs à récupérer (ex: 'ENTAME')
+
+        Returns:
+            List[Job]: Liste des jobs avec le statut spécifié
+        """
+        return list(Job.objects.filter(
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id,
+            status=status
+        ).select_related('warehouse', 'inventory').prefetch_related(
+            'assigment_set__counting',
+            'assigment_set__session'
+        ))

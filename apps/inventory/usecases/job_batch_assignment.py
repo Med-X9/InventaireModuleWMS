@@ -66,44 +66,56 @@ class JobBatchAssignmentUseCase:
         errors = []
         
         try:
+            # Vérifier que le job existe
             job = Job.objects.get(id=job_id)
             job_reference = job.reference
             
-            # Affecter le 1er comptage si fourni
-            team1 = job_data.get('team1')
-            date1 = job_data.get('date1')
-            if team1 is not None and isinstance(team1, int) and team1 > 0:
-                try:
-                    result = self.assignment_service.assign_jobs({
-                        'job_ids': [job_id],
-                        'counting_order': 1,
-                        'session_id': team1,
-                        'date_start': date1 or timezone.now()
-                    })
-                    assignments_created += result.get('assignments_created', 0)
-                    assignments_updated += result.get('assignments_updated', 0)
-                except Exception as e:
-                    errors.append(f"Erreur affectation team1: {str(e)}")
-            elif team1 is not None:
-                errors.append(f"team1 invalide: {team1} (doit être un nombre positif)")
+            # Vérifier que le job n'est pas en statut 'EN ATTENTE'
+            if job.status == 'EN ATTENTE':
+                errors.append(f"Le job {job_reference} est en statut 'EN ATTENTE' et ne peut pas être affecté. Il doit d'abord être validé.")
+                return {
+                    'job_id': job_id,
+                    'job_reference': job_reference,
+                    'assignments_created': 0,
+                    'assignments_updated': 0,
+                    'resources_created': 0,
+                    'resources_updated': 0,
+                    'errors': errors
+                }
             
-            # Affecter le 2ème comptage si fourni
-            team2 = job_data.get('team2')
-            date2 = job_data.get('date2')
-            if team2 is not None and isinstance(team2, int) and team2 > 0:
-                try:
-                    result = self.assignment_service.assign_jobs({
-                        'job_ids': [job_id],
-                        'counting_order': 2,
-                        'session_id': team2,
-                        'date_start': date2 or timezone.now()
-                    })
-                    assignments_created += result.get('assignments_created', 0)
-                    assignments_updated += result.get('assignments_updated', 0)
-                except Exception as e:
-                    errors.append(f"Erreur affectation team2: {str(e)}")
-            elif team2 is not None:
-                errors.append(f"team2 invalide: {team2} (doit être un nombre positif)")
+            # Affecter tous les teams fournis (team1, team2, team3, team4, etc.)
+            # Note: Le service AssignmentService gère automatiquement :
+            # - Vérification que le job existe et appartient au bon inventaire
+            # - Rejet des jobs en statut 'EN ATTENTE'
+            # - Récupération du comptage selon counting_order et inventory_id
+            # - Vérification si une session peut être affectée (selon le mode de comptage)
+            # - Préservation des statuts 'PRET', 'TRANSFERT', 'ENTAME', 'TERMINE' pour les jobs et assignments
+            # - Dans la réaffectation, le statut du job n'est pas modifié s'il est 'PRET', 'TRANSFERT', 'ENTAME' ou 'TERMINE'
+            teams = job_data.get('teams', {})
+            
+            # Traiter chaque team dans l'ordre
+            for team_num in sorted(teams.keys()):
+                team_info = teams[team_num]
+                session_id = team_info.get('session_id')
+                counting_order = team_info.get('counting_order', team_num)
+                date_start = team_info.get('date')
+                
+                if session_id is not None:
+                    if not isinstance(session_id, int) or session_id <= 0:
+                        errors.append(f"team{team_num} invalide: {session_id} (doit être un nombre positif)")
+                        continue
+                    
+                    try:
+                        result = self.assignment_service.assign_jobs({
+                            'job_ids': [job_id],
+                            'counting_order': counting_order,
+                            'session_id': session_id,
+                            'date_start': date_start or timezone.now()
+                        })
+                        assignments_created += result.get('assignments_created', 0)
+                        assignments_updated += result.get('assignments_updated', 0)
+                    except Exception as e:
+                        errors.append(f"Erreur affectation team{team_num} (comptage {counting_order}): {str(e)}")
             
             # Affecter les ressources si fournies
             resources_ids = job_data.get('resources', [])
