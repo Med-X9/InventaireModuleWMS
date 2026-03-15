@@ -13,6 +13,7 @@ from typing import Dict, Any, List, Optional
 from django.core.exceptions import ValidationError
 
 from apps.inventory.models import CountingDetail, EcartComptage, ComptageSequence
+from apps.inventory.utils.ecart_consensus import calculate_ecart_consensus_result
 from apps.mobile.exceptions import EcartComptageResoluError
 import logging
 
@@ -86,7 +87,8 @@ class EcartComptageAutomaticProcessingUseCase:
         sequence_result = self._process_sequence(counting_detail, ecart, cache_entry)
         
         # Calculer le consensus si possible
-        final_result = self._calculate_consensus(cache_entry['sequences'], ecart.final_result)
+        quantities = [s.quantity for s in cache_entry['sequences']]
+        final_result = calculate_ecart_consensus_result(quantities, ecart.final_result)
         if final_result is not None:
             ecart.final_result = final_result
         
@@ -324,48 +326,4 @@ class EcartComptageAutomaticProcessingUseCase:
                 return seq
         
         return None
-    
-    def _calculate_consensus(
-        self, 
-        sequences: List[ComptageSequence], 
-        current_result: Optional[int]
-    ) -> Optional[int]:
-        """
-        Calcule le résultat final selon les règles de consensus.
-        
-        Règles :
-        1. Si < 2 séquences → pas de consensus
-        2. Si dernière séquence = au moins une précédente → consensus trouvé
-        3. Si exactement 2 séquences différentes → pas de consensus
-        4. Sinon → conserver le résultat actuel s'il existe
-        
-        Args:
-            sequences: Liste de toutes les ComptageSequence (ordre chronologique)
-            current_result: Résultat actuel de l'écart
-        
-        Returns:
-            int ou None - Résultat final calculé
-        """
-        if len(sequences) < 2:
-            return None
-        
-        # Prendre le dernier comptage (le plus récent)
-        comptage_actuel = sequences[-1]
-        quantite_actuelle = comptage_actuel.quantity
-        
-        # Extraire toutes les quantités des comptages précédents
-        quantites_precedentes = [seq.quantity for seq in sequences[:-1]]
-        
-        # Vérifier si le comptage actuel correspond à au moins un comptage précédent
-        if quantite_actuelle in quantites_precedentes:
-            # Consensus trouvé → retourner cette quantité
-            return quantite_actuelle
-        else:
-            # Pas de consensus
-            if len(sequences) == 2:
-                # Exactement 2 comptages différents → pas de consensus
-                return None
-            else:
-                # Plus de 2 comptages : conserver le résultat actuel s'il existe
-                return current_result
 

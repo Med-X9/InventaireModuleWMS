@@ -21,32 +21,17 @@ for order in range(1, 7):
     quantity_key = f"{order}er comptage"
     result_row[quantity_key] = quantity if quantity is not None else None
 
-    # Calculer les écarts pour tous les ordres précédents
-    if quantity is not None and previous_quantities:
-        # Optimisation : vérifier une seule fois si la quantité actuelle correspond à au moins une précédente
-        has_match_with_any_previous = any(
-            quantity == prev_qty for prev_qty in previous_quantities.values()
-        )
-
+    # Calculer les écarts pour tous les ordres précédents (entier signé : q_actuel - q_précédent)
+    if quantity is not None:
         print(f'\nComptage {order} (valeur: {quantity}):')
-        print(f'  Quantités précédentes: {list(previous_quantities.values())}')
-        print(f'  Correspondance avec au moins un précédent: {has_match_with_any_previous}')
-
-        # Calculer tous les écarts pour cet ordre
         for prev_order in range(1, order):
             ecart_key = f"ecart_{prev_order}_{order}"
             prev_quantity = previous_quantities.get(prev_order)
 
             if prev_quantity is not None:
-                # Pour ecart_1_2 : afficher la valeur numérique
-                if prev_order == 1 and order == 2:
-                    ecart_value = abs(quantity - prev_quantity)
-                    result_row[ecart_key] = ecart_value
-                    print(f'  {ecart_key}: {ecart_value} (valeur numérique)')
-                else:
-                    # Pour les autres écarts : vérifier si égal à AU MOINS UN comptage précédent
-                    result_row[ecart_key] = has_match_with_any_previous
-                    print(f'  {ecart_key}: {has_match_with_any_previous} (correspondance)')
+                ecart_value = quantity - prev_quantity
+                result_row[ecart_key] = ecart_value
+                print(f'  {ecart_key}: {ecart_value} (entier signé: {quantity} - {prev_quantity})')
             else:
                 result_row[ecart_key] = None
 
@@ -63,9 +48,9 @@ for key, value in result_row.items():
         print(f'  "{key}": null,')
 print('}')
 
-print('\n=== RÉSUMÉ DES ÉCARTS ===')
-print('ecart_1_2: 2 (différence numérique entre 1er et 2ème)')
-print('ecart_2_3: true (3ème=10, égal au 1er=10)')
-print('ecart_3_4: false (4ème=15, différent de 10 et 12)')
-print('ecart_4_5: true (5ème=12, égal au 2ème=12)')
-print('ecart_5_6: true (6ème=10, égal au 1er=10 et au 3ème=10)')
+print('\n=== RÉSUMÉ DES ÉCARTS (entiers signés: q_actuel - q_précédent) ===')
+print('ecart_1_2: 2 (12 - 10)')
+print('ecart_2_3: -2 (10 - 12)')
+print('ecart_3_4: 5 (15 - 10)')
+print('ecart_4_5: -3 (12 - 15)')
+print('ecart_5_6: -2 (10 - 12)')

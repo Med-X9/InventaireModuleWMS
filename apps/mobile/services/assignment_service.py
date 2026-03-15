@@ -2,6 +2,7 @@ from typing import Optional, List, Set, Tuple, Dict, Any
 from django.utils import timezone
 from django.db import transaction
 from apps.inventory.models import Assigment, Job, JobDetail, Personne, EcartComptage, CountingDetail, Counting, ComptageSequence, Inventory
+from apps.inventory.utils.ecart_consensus import calculate_ecart_consensus_result
 from apps.users.models import UserApp
 import logging
 from apps.mobile.exceptions import (
@@ -757,7 +758,9 @@ class AssignmentService:
             all_sequences = list(ecart.counting_sequences.order_by('sequence_number'))
             
             if len(all_sequences) >= 2:
-                final_result = self._calculate_consensus_result(all_sequences, ecart.final_result)
+                final_result = calculate_ecart_consensus_result(
+                    [s.quantity for s in all_sequences], ecart.final_result
+                )
                 ecart.final_result = final_result
             
             # Mettre à jour les métadonnées de l'écart
@@ -855,54 +858,6 @@ class AssignmentService:
             ecarts_map[key]['counting_details'].append(counting_detail)
         
         return ecarts_map
-    
-    def _calculate_consensus_result(
-        self,
-        sequences: List[ComptageSequence],
-        current_result: Optional[int]
-    ) -> Optional[int]:
-        """
-        Détermine le résultat final d'un écart selon les règles métier.
-        
-        Logique :
-        - Pour le comptage actuel (dernière séquence), vérifier s'il correspond 
-          à au moins un comptage précédent.
-        - Si oui → enregistrer cette valeur dans resultat
-        - Si non → conserver le résultat actuel (ou None)
-        
-        Args:
-            sequences: Liste de toutes les ComptageSequence (dans l'ordre chronologique)
-            current_result: Résultat actuel de l'écart (peut être None)
-            
-        Returns:
-            int: La valeur à enregistrer dans final_result, ou None si pas de consensus
-        """
-        if len(sequences) < 2:
-            return None  # Pas de résultat si moins de 2 comptages
-        
-        # Logique uniforme : pour le comptage actuel (dernière séquence),
-        # toujours vérifier s'il correspond à au moins un comptage précédent
-        comptage_actuel = sequences[-1]
-        quantite_actuelle = comptage_actuel.quantity
-        
-        # Extraire toutes les quantités des comptages précédents
-        # (on exclut la dernière séquence qui est le comptage actuel)
-        quantites_precedentes = [seq.quantity for seq in sequences[:-1]]
-        
-        # Vérifier si le comptage actuel correspond à au moins un comptage précédent
-        if quantite_actuelle in quantites_precedentes:
-            # Le comptage actuel correspond à au moins un précédent → enregistrer dans resultat
-            return quantite_actuelle
-        else:
-            # Le comptage actuel est différent de tous les précédents → enregistrer dans ecart
-            # Cas spécial : si exactement 2 comptages différents, pas de consensus (retourner None)
-            # Sinon, conserver le résultat actuel s'il existe (cas où un précédent comptage avait trouvé un consensus)
-            if len(sequences) == 2:
-                # Exactement 2 comptages différents → pas de consensus
-                return None
-            else:
-                # Plus de 2 comptages : conserver le résultat actuel s'il existe
-                return current_result
     
     @transaction.atomic
     def block_assignment(self, assignment_id: int, user_id: int) -> dict:
