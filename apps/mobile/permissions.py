@@ -25,7 +25,12 @@ def _user_group_names(user):
     """Retourne l'ensemble des noms de groupes de l'utilisateur (minuscules)."""
     if not user or not user.is_authenticated:
         return set()
-    return {g.name.strip().lower() for g in user.groups.all()}
+    try:
+        if not hasattr(user, "groups"):
+            return set()
+        return {g.name.strip().lower() for g in user.groups.all()}
+    except Exception:
+        return set()
 
 
 def is_admin(user):
@@ -49,13 +54,20 @@ class MobileGroupPermission(BasePermission):
       protégées par cette permission.
     """
 
-    message = "Vous n'avez pas la permission d'accéder à cette ressource."
+    message = (
+        "Vous n'avez pas la permission d'accéder à cette ressource. "
+        "Assurez-vous que votre utilisateur appartient au groupe « admin » ou « operateur »."
+    )
 
     def has_permission(self, request, view):
         if not request.user or not request.user.is_authenticated:
             return False
 
         groups = _user_group_names(request.user)
+
+        # Superusers ont tous les droits
+        if getattr(request.user, "is_superuser", False):
+            return True
 
         if GROUP_ADMIN in groups:
             return True

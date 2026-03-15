@@ -79,20 +79,28 @@ class AutoCreateAccountWidget(widgets.ForeignKeyWidget):
                 raise ValueError(f"Impossible de créer le compte '{value}': {str(e)}")
 
 class FamilyLookupWidget(widgets.ForeignKeyWidget):
-    """Widget personnalisé pour rechercher les familles par ID ou nom"""
+    """
+    Widget pour rechercher les familles par ID ou nom (insensible à la casse).
+    Lève ValueError avec le nom de la famille si non trouvée, pour afficher
+    « La famille X n'existe pas » au lieu de « Family matching query does not exist ».
+    """
     
     def clean(self, value, row=None, *args, **kwargs):
-        if not value:
+        if not value or not str(value).strip():
             return None
-        
+        value = str(value).strip()
         try:
-            # Essayer d'abord par ID
-            if str(value).isdigit():
-                return Family.objects.get(id=value)
-            # Puis par nom
-            return Family.objects.get(family_name=value)
+            if value.isdigit():
+                return Family.objects.get(id=int(value))
+            # Recherche insensible à la casse (Excel vs base)
+            family = Family.objects.filter(family_name__iexact=value).first()
+            if family:
+                return family
+            raise ValueError(f"La famille « {value} » n'existe pas dans la base de données.")
+        except ValueError:
+            raise
         except Family.DoesNotExist:
-            raise ValueError(f"La famille '{value}' n'existe pas dans la base de données.")
+            raise ValueError(f"La famille « {value} » n'existe pas dans la base de données.")
 
 class ProductLookupWidget(widgets.ForeignKeyWidget):
     """Widget personnalisé pour rechercher les produits par ID ou référence"""
@@ -428,7 +436,7 @@ class LocationResource(resources.ModelResource):
         if not location_ref:
             # Essayer de chercher dans d'autres colonnes possibles
             possible_columns = ['location reference', 'location_reference', 'Location Reference',
-                              'emplacement', 'Emplacement', 'reference', 'Reference']
+                                'emplacement', 'Emplacement', 'reference', 'Reference']
             for col in possible_columns:
                 if col in row and row[col] and str(row[col]).strip():
                     row['location_reference'] = str(row[col]).strip()
@@ -501,7 +509,7 @@ class ProductResource(resources.ModelResource):
     product_family = fields.Field(
         column_name='product family',
         attribute='Product_Family',
-        widget=ForeignKeyWidget(Family, 'family_name')
+        widget=FamilyLookupWidget(Family, 'family_name')
     )
     n_lot = fields.Field(column_name='n lot', attribute='n_lot', widget=OptionalBooleanWidget())
     n_serie = fields.Field(column_name='n serie', attribute='n_serie', widget=OptionalBooleanWidget())
@@ -550,9 +558,9 @@ class ProductResource(resources.ModelResource):
             raise exceptions.ImportError(
                 "La colonne 'product family' est obligatoire pour chaque produit."
             )
-        if not Family.objects.filter(family_name=family_name.strip()).exists():
+        if not Family.objects.filter(family_name__iexact=family_name.strip()).exists():
             raise exceptions.ImportError(
-                f"La famille '{family_name}' n'existe pas dans la base de données."
+                f"La famille « {family_name.strip()} » n'existe pas dans la base de données."
             )
         
         # Normaliser les valeurs booléennes pour éviter les NULL
