@@ -5,7 +5,7 @@ from django.db import transaction
 from ..interfaces.stock_interface import IStockService
 from ..repositories.stock_repository import StockRepository
 from ..repositories import InventoryRepository
-from apps.masterdata.models import Stock, Location, Product, UnitOfMeasure
+from apps.masterdata.models import Stock, Location, Product
 from ..models import Inventory
 from ..exceptions import InventoryNotFoundError, StockValidationError, StockNotFoundError
 import uuid
@@ -19,7 +19,7 @@ class StockService(IStockService):
         self.repository = repository or StockRepository()
         self.inventory_repository = InventoryRepository()
     
-    def import_stocks_from_excel(self, inventory_id: int, excel_file) -> Dict[str, Any]:
+    def import_stocks_from_excel(self, inventory_id: int, warehouse_id: int, excel_file) -> Dict[str, Any]:
         """
         Importe des stocks depuis un fichier Excel avec validation.
         
@@ -84,7 +84,10 @@ class StockService(IStockService):
                             'location': stock_data['location'],
                             'quantity_available': stock_data['quantity_available'],
                             'inventory_id': stock_data['inventory_id'],
-                            'unit_of_measure': UnitOfMeasure.objects.get(id=4)  # Valeur par défaut
+                            'warehouse_id': warehouse_id,
+                            # L'unité de mesure n'est pas obligatoire sur Stock (nullable).
+                            # Éviter toute dépendance à un ID fixe (ex: id=4) qui n'existe pas forcément en base.
+                            'unit_of_measure': None,
                         }
                         valid_stocks_data.append(clean_stock_data)
                         results['valid_rows'] += 1
