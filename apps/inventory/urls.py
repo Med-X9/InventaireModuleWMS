@@ -54,7 +54,13 @@ from .views.assignment_views import (
 from .views.resource_assignment_views import AssignResourcesToJobsView, JobResourcesView, RemoveResourcesFromJobView
 from .views.counting_tracking_views import InventoryCountingTrackingView, JobDetailTrackingView
 from .views.counting_views import CountingLaunchView
-from .views.pdf_views import InventoryJobsPdfView, JobAssignmentPdfView
+from .views.pdf_views import (
+    InventoryJobsPdfView,
+    JobAssignmentPdfView,
+    InventoryJobsPdfAsyncStartView,
+    JobAssignmentPdfAsyncStartView,
+    PdfTaskStatusView,
+)
 from .views.excel_export_views import ConsolidatedArticleExcelExportView
 from .views.job_export_view import JobExportView
 
@@ -191,8 +197,14 @@ urlpatterns = [
     
     # API pour generer le PDF des jobs d'inventaire (tous les comptages)
     path('inventory/<int:inventory_id>/jobs/pdf/', InventoryJobsPdfView.as_view(), name='inventory-jobs-pdf'),
+    # API pour lancer la génération PDF en asynchrone (sans Celery)
+    path('inventory/<int:inventory_id>/jobs/pdf/async/', InventoryJobsPdfAsyncStartView.as_view(), name='inventory-jobs-pdf-async'),
     # API pour generer le PDF d'un job/assignment/equipe specifique
     path('jobs/<int:job_id>/assignments/<int:assignment_id>/pdf/', JobAssignmentPdfView.as_view(), name='job-assignment-pdf'),
+    # API pour lancer la génération PDF job/assignment en asynchrone (sans Celery)
+    path('jobs/<int:job_id>/assignments/<int:assignment_id>/pdf/async/', JobAssignmentPdfAsyncStartView.as_view(), name='job-assignment-pdf-async'),
+    # API pour suivre le statut et récupérer l'URL du PDF généré
+    path('pdf-tasks/<uuid:task_id>/', PdfTaskStatusView.as_view(), name='pdf-task-status'),
     
     # ========================================
     # URL POUR L'EXPORT EXCEL CONSOLIDE
