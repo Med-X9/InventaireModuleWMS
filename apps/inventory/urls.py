@@ -59,6 +59,7 @@ from .views.pdf_views import (
     JobAssignmentPdfView,
     InventoryJobsPdfAsyncStartView,
     JobAssignmentPdfAsyncStartView,
+    InventoryWarehouseFinishedAssignmentsPdfAsyncStartView,
     PdfTaskStatusView,
 )
 from .views.excel_export_views import ConsolidatedArticleExcelExportView
@@ -199,6 +200,8 @@ urlpatterns = [
     path('inventory/<int:inventory_id>/jobs/pdf/', InventoryJobsPdfView.as_view(), name='inventory-jobs-pdf'),
     # API pour lancer la génération PDF en asynchrone (sans Celery)
     path('inventory/<int:inventory_id>/jobs/pdf/async/', InventoryJobsPdfAsyncStartView.as_view(), name='inventory-jobs-pdf-async'),
+    # API pour générer en asynchrone les PDFs des jobs TERMINE non imprimés par inventaire/entrepôt
+    path('inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/pdf/finished-assignments/async/', InventoryWarehouseFinishedAssignmentsPdfAsyncStartView.as_view(), name='inventory-warehouse-finished-assignments-pdf-async'),
     # API pour generer le PDF d'un job/assignment/equipe specifique
     path('jobs/<int:job_id>/assignments/<int:assignment_id>/pdf/', JobAssignmentPdfView.as_view(), name='job-assignment-pdf'),
     # API pour lancer la génération PDF job/assignment en asynchrone (sans Celery)

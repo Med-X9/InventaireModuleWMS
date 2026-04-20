@@ -10,10 +10,11 @@ from django.http import HttpResponse
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.base import ContentFile
 from django.db import close_old_connections
+from django.utils import timezone
 from ..serializers.job_serializer import InventoryJobsPdfRequestSerializer
 from ..usecases.inventory_jobs_pdf import InventoryJobsPdfUseCase
 from ..usecases.job_assignment_pdf import JobAssignmentPdfUseCase
-from ..models import Inventory, Job, PdfTask
+from ..models import Inventory, Job, PdfTask, Assigment
 from ..exceptions.pdf_exceptions import (
     PDFGenerationError,
     PDFValidationError,
@@ -60,6 +61,9 @@ def _run_inventory_jobs_pdf_task(task_id):
     try:
         inventory_id = int(task.params.get("inventory_id"))
         job_ids = task.params.get("job_ids", None)
+        assignment_statuses = task.params.get("assignment_statuses", None)
+        job_statuses = task.params.get("job_statuses", None)
+        assignment_ids_to_mark = task.params.get("assignment_ids_to_mark", None)
         if isinstance(job_ids, list):
             job_ids = [int(x) for x in job_ids]
         elif job_ids is None:
@@ -67,8 +71,23 @@ def _run_inventory_jobs_pdf_task(task_id):
         else:
             job_ids = [int(job_ids)]
 
+        if isinstance(assignment_statuses, str):
+            assignment_statuses = [assignment_statuses]
+        if isinstance(job_statuses, str):
+            job_statuses = [job_statuses]
+        if isinstance(assignment_ids_to_mark, list):
+            assignment_ids_to_mark = [int(x) for x in assignment_ids_to_mark]
+        else:
+            assignment_ids_to_mark = None
+
         use_case = InventoryJobsPdfUseCase()
-        result = use_case.execute(inventory_id, counting_id=None, job_ids=job_ids)
+        result = use_case.execute(
+            inventory_id,
+            counting_id=None,
+            job_ids=job_ids,
+            assignment_statuses=assignment_statuses,
+            job_statuses=job_statuses,
+        )
         pdf_buffer = result["pdf_buffer"]
         pdf_content = pdf_buffer.getvalue()
 
@@ -89,6 +108,12 @@ def _run_inventory_jobs_pdf_task(task_id):
 
         task.status = PdfTask.STATUS_SUCCESS
         task.save(update_fields=["status", "result_file", "updated_at"])
+
+        if assignment_ids_to_mark:
+            Assigment.objects.filter(
+                id__in=assignment_ids_to_mark,
+                imprime=False,
+            ).update(imprime=True, imprime_date=timezone.now())
 
     except Exception as e:
         logger.error(f"Echec génération PDF async task={task_id}: {str(e)}", exc_info=True)
@@ -344,6 +369,65 @@ class InventoryJobsPdfAsyncStartView(APIView):
 
         return Response(
             {"success": True, "task_id": str(task.id), "status": task.status},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class InventoryWarehouseFinishedAssignmentsPdfAsyncStartView(APIView):
+    """
+    Lance une génération PDF asynchrone pour les jobs d'un inventaire/entrepôt
+    dont les assignments sont TERMINE et non imprimés.
+    """
+
+    def post(self, request, inventory_id, warehouse_id):
+        if not inventory_id or not warehouse_id:
+            return Response(
+                {"success": False, "message": "inventory_id et warehouse_id sont requis"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        assignments = Assigment.objects.filter(
+            job__inventory_id=inventory_id,
+            job__warehouse_id=warehouse_id,
+            status="TERMINE",
+            imprime=False,
+        ).select_related("job")
+
+        if not assignments.exists():
+            return Response(
+                {
+                    "success": False,
+                    "message": "Aucun assignment TERMINE non imprimé trouvé pour cet inventaire et entrepôt",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        assignment_ids = list(assignments.values_list("id", flat=True))
+        job_ids = list(assignments.values_list("job_id", flat=True).distinct())
+
+        task = PdfTask.objects.create(
+            task_type=PdfTask.TYPE_INVENTORY_JOBS_PDF,
+            params={
+                "inventory_id": int(inventory_id),
+                "warehouse_id": int(warehouse_id),
+                "job_ids": job_ids,
+                "assignment_statuses": ["TERMINE"],
+                "job_statuses": [],
+                "assignment_ids_to_mark": assignment_ids,
+            },
+            status=PdfTask.STATUS_PENDING,
+        )
+
+        threading.Thread(target=_run_inventory_jobs_pdf_task, args=(task.id,), daemon=True).start()
+
+        return Response(
+            {
+                "success": True,
+                "task_id": str(task.id),
+                "status": task.status,
+                "jobs_count": len(job_ids),
+                "assignments_count": len(assignment_ids),
+            },
             status=status.HTTP_202_ACCEPTED,
         )
 

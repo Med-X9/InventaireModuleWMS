@@ -337,6 +337,8 @@ class Assigment(TimeStampedModel, ReferenceMixin):
     pret_date = models.DateTimeField(null=True, blank=True)
     bloqued_date = models.DateTimeField(null=True, blank=True)
     debloqued_date = models.DateTimeField(null=True, blank=True)
+    imprime = models.BooleanField(default=False)
+    imprime_date = models.DateTimeField(null=True, blank=True)
     job = models.ForeignKey('Job', on_delete=models.CASCADE)
     date_start = models.DateTimeField(null=True, blank=True)
     termine_date = models.DateTimeField(null=True, blank=True)

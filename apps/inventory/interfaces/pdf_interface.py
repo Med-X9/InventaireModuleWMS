@@ -54,7 +54,13 @@ class PDFRepositoryInterface(ABC):
         pass
     
     @abstractmethod
-    def get_assignments_by_inventory(self, inventory: Any, job_ids: Optional[List[int]] = None) -> List[Any]:
+    def get_assignments_by_inventory(
+        self,
+        inventory: Any,
+        job_ids: Optional[List[int]] = None,
+        assignment_statuses: Optional[List[str]] = None,
+        job_statuses: Optional[List[str]] = None,
+    ) -> List[Any]:
         """
         Récupère tous les assignments d'un inventaire avec counting.order et session
         
@@ -73,7 +79,9 @@ class PDFServiceInterface(ABC):
         self, 
         inventory_id: int, 
         counting_id: Optional[int] = None,
-        job_ids: Optional[List[int]] = None
+        job_ids: Optional[List[int]] = None,
+        assignment_statuses: Optional[List[str]] = None,
+        job_statuses: Optional[List[str]] = None,
     ) -> BytesIO:
         """
         Génère un PDF des jobs d'un inventaire

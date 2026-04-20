@@ -128,7 +128,9 @@ class PDFRepository(PDFRepositoryInterface):
     def get_assignments_by_inventory(
         self, 
         inventory: Inventory, 
-        job_ids: Optional[List[int]] = None
+        job_ids: Optional[List[int]] = None,
+        assignment_statuses: Optional[List[str]] = None,
+        job_statuses: Optional[List[str]] = None,
     ) -> List[Assigment]:
         """
         Récupère tous les assignments d'un inventaire avec counting.order et session
@@ -148,12 +150,18 @@ class PDFRepository(PDFRepositoryInterface):
             PDFRepositoryError: Si une erreur survient lors de la récupération
         """
         try:
+            effective_assignment_statuses = ['TRANSFERT', 'PRET'] if assignment_statuses is None else assignment_statuses
+            effective_job_statuses = ['TRANSFERT', 'PRET'] if job_statuses is None else job_statuses
+
             queryset = Assigment.objects.filter(
                 job__inventory=inventory,
-                job__status__in=['TRANSFERT', 'PRET'],
-                status__in=['TRANSFERT', 'PRET']  # Filtrer uniquement les assignments PRET ou TRANSFERT (exclure ENTAME)
+                status__in=effective_assignment_statuses
                 # Pas de filtre sur counting__order : récupère tous les ordres de comptage
             )
+
+            # Si une liste vide est fournie explicitement, ne pas filtrer sur le statut job
+            if effective_job_statuses:
+                queryset = queryset.filter(job__status__in=effective_job_statuses)
             
             # Si job_ids est fourni, filtrer uniquement ces jobs
             if job_ids:

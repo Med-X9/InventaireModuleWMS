@@ -28,7 +28,9 @@ class InventoryJobsPdfUseCase(PDFUseCaseInterface):
         self, 
         inventory_id: int, 
         counting_id: Optional[int] = None,
-        job_ids: Optional[List[int]] = None
+        job_ids: Optional[List[int]] = None,
+        assignment_statuses: Optional[List[str]] = None,
+        job_statuses: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Execute la generation du PDF des jobs d'inventaire
@@ -54,7 +56,9 @@ class InventoryJobsPdfUseCase(PDFUseCaseInterface):
             pdf_buffer = self.pdf_service.generate_inventory_jobs_pdf(
                 inventory_id, 
                 counting_id, 
-                job_ids=job_ids
+                job_ids=job_ids,
+                assignment_statuses=assignment_statuses,
+                job_statuses=job_statuses,
             )
             
             # Retourner le resultat
@@ -63,7 +67,9 @@ class InventoryJobsPdfUseCase(PDFUseCaseInterface):
                 'pdf_buffer': pdf_buffer,
                 'inventory_id': inventory_id,
                 'counting_id': counting_id,
-                'job_ids': job_ids
+                'job_ids': job_ids,
+                'assignment_statuses': assignment_statuses,
+                'job_statuses': job_statuses,
             }
             
         except (PDFValidationError, PDFNotFoundError, PDFEmptyContentError) as e:
