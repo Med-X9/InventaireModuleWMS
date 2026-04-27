@@ -61,6 +61,7 @@ from .views.pdf_views import (
     JobAssignmentPdfAsyncStartView,
     InventoryWarehouseFinishedAssignmentsPdfAsyncStartView,
     PdfTaskStatusView,
+    AssignmentGeneratedPdfListView,
 )
 from .views.excel_export_views import ConsolidatedArticleExcelExportView
 from .views.job_export_view import JobExportView
@@ -208,6 +209,8 @@ urlpatterns = [
     path('jobs/<int:job_id>/assignments/<int:assignment_id>/pdf/async/', JobAssignmentPdfAsyncStartView.as_view(), name='job-assignment-pdf-async'),
     # API pour suivre le statut et récupérer l'URL du PDF généré
     path('pdf-tasks/<uuid:task_id>/', PdfTaskStatusView.as_view(), name='pdf-task-status'),
+    # API pour lister les PDFs générés après clôture d'assignments
+    path('assignments/pdfs/generated/', AssignmentGeneratedPdfListView.as_view(), name='assignment-generated-pdf-list'),
     
     # ========================================
     # URL POUR L'EXPORT EXCEL CONSOLIDE

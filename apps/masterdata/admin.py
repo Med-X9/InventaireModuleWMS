@@ -597,7 +597,7 @@ class ProductResource(resources.ModelResource):
 
 
     # Surcharge pour gérer les variations de noms de colonne pour internal_product_code et barcode
-    # et gérer les doublons sur barcode
+    # sans logique d'unicité : on crée toujours une nouvelle instance.
     def get_or_init_instance(self, instance_loader, row):
         field_variations = {
             'internal_product_code': ['internal product code', 'Internal Product Code', 'INTERNAL PRODUCT CODE', 
@@ -612,50 +612,14 @@ class ProductResource(resources.ModelResource):
                     row[field_name] = row[key]
                     break
 
-        # Essayer de trouver une instance existante par barcode
-        barcode_value = row.get('barcode')
-        if barcode_value and str(barcode_value).strip():
-            try:
-                # Essayer de trouver un produit avec ce barcode
-                instance = self._meta.model.objects.get(Barcode=str(barcode_value).strip())
-                return instance, False  # False = instance exists, will be updated
-            except self._meta.model.DoesNotExist:
-                # Aucun produit trouvé, créer une nouvelle instance
-                instance = self._meta.model()
-                return instance, True  # True = new instance
-            except self._meta.model.MultipleObjectsReturned:
-                # Plusieurs produits avec le même barcode, créer une nouvelle instance
-                # pour éviter l'erreur "get() returned more than one"
-                instance = self._meta.model()
-                return instance, True  # True = new instance
-        else:
-            # Pas de barcode fourni, créer une nouvelle instance
-            instance = self._meta.model()
-            return instance, True  # True = new instance
+        # Désactivation explicite de la déduplication:
+        # aucun matching sur barcode (ou autre champ), import en création systématique.
+        instance = self._meta.model()
+        return instance, True  # True = new instance
 
-    # Vérifie que la colonne barcode est présente
+    # Aucune colonne d'identification n'est obligatoire (pas d'unicité imposée à l'import)
     def _check_import_id_fields(self, headers):
-        field_to_columns = {
-            'barcode': ['barcode', 'Barcode', 'BARCODE', 'code barre', 'Code Barre', 'CODE BARRE',
-                       'code-barres', 'Code-Barres', 'CODE-BARRES'],
-        }
-        normalized_headers = {h.lower().strip(): h for h in headers}
-        available_headers = ', '.join(headers[:10])
-        if len(headers) > 10:
-            available_headers += f', ... ({len(headers)} en-têtes au total)'
-
-        # Vérifier que la colonne barcode est présente
-        found = False
-        for possible_column in field_to_columns.get('barcode', ['barcode']):
-            if possible_column.lower().strip() in normalized_headers:
-                found = True
-                break
-
-        if not found:
-            raise exceptions.FieldError(
-                f"La colonne 'barcode' est obligatoire pour l'import. "
-                f"En-têtes disponibles dans le fichier: {available_headers}"
-            )
+        return
 
 class UnitOfMeasureResource(resources.ModelResource):
     name = fields.Field(column_name='nom', attribute='name')

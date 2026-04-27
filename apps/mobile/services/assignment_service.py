@@ -434,6 +434,38 @@ class AssignmentService:
         
         # Synchroniser les CountingDetail entre les deux countings si nécessaire
         sync_result = self._synchronize_counting_details_if_needed(job, assignment)
+
+        # Déclencher la génération PDF asynchrone pour l'assignment terminé.
+        # Le fichier sera stocké sous pdf_tasks/JOB-xxxx/comptage-xx.pdf
+        try:
+            from apps.inventory.views.pdf_views import enqueue_job_assignment_pdf_task
+
+            job_reference = (job.reference or f"job-{job.id}").replace("\\", "-").replace("/", "-")
+            counting_order = assignment.counting.order if assignment.counting and assignment.counting.order else 0
+            output_subpath = f"{job_reference}/comptage-{int(counting_order):02d}.pdf"
+
+            pdf_task = enqueue_job_assignment_pdf_task(
+                job_id=job.id,
+                assignment_id=assignment.id,
+                equipe_id=None,
+                output_subpath=output_subpath,
+            )
+            pdf_task_info = {
+                "task_id": str(pdf_task.id),
+                "status": pdf_task.status,
+                "target_path": output_subpath,
+            }
+        except Exception as e:
+            logger.error(
+                f"Erreur lors du déclenchement async du PDF assignment={assignment.id}: {str(e)}",
+                exc_info=True
+            )
+            pdf_task_info = {
+                "task_id": None,
+                "status": "ERROR",
+                "target_path": None,
+                "error": str(e),
+            }
         
         # Vérifier si tous les assignments du job sont terminés
         all_assignments = Assigment.objects.filter(job=job)
@@ -489,7 +521,8 @@ class AssignmentService:
                 'all_ecarts_resolved': all_ecarts_resolved,
                 'job_closed': job_closed
             },
-            'counting_detail_sync': sync_result
+            'counting_detail_sync': sync_result,
+            'pdf_generation': pdf_task_info,
         }
     
     def _synchronize_counting_details_if_needed(

@@ -2,6 +2,7 @@
 Vue pour la generation de PDF des jobs d'inventaire
 """
 import threading
+from pathlib import PurePosixPath
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -26,6 +27,41 @@ from ..exceptions.pdf_exceptions import (
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_output_subpath(output_subpath):
+    """
+    Normalise un sous-chemin relatif de sortie pour le FileField.
+    Exemples valides:
+      - JOB-0001/comptage-01.pdf
+      - JOB-0001\\comptage-01.pdf
+    """
+    if not output_subpath:
+        return None
+    normalized = str(PurePosixPath(str(output_subpath).replace("\\", "/")))
+    if normalized.startswith("/"):
+        normalized = normalized.lstrip("/")
+    return normalized or None
+
+
+def enqueue_job_assignment_pdf_task(job_id, assignment_id, equipe_id=None, output_subpath=None):
+    """
+    Crée et lance une tâche asynchrone de génération PDF job/assignment.
+    Retourne l'instance PdfTask créée.
+    """
+    task = PdfTask.objects.create(
+        task_type=PdfTask.TYPE_JOB_ASSIGNMENT_PDF,
+        params={
+            "job_id": int(job_id),
+            "assignment_id": int(assignment_id),
+            "equipe_id": equipe_id,
+            "output_subpath": _normalize_output_subpath(output_subpath),
+        },
+        status=PdfTask.STATUS_PENDING,
+    )
+
+    threading.Thread(target=_run_job_assignment_pdf_task, args=(task.id,), daemon=True).start()
+    return task
 
 def _parse_job_ids_from_request_data(data):
     """
@@ -162,7 +198,8 @@ def _run_job_assignment_pdf_task(task_id):
         except Job.DoesNotExist:
             job_reference = f"job_{job_id}"
 
-        filename = f"FICHE DE COMPTAGE : {job_reference}.pdf"
+        output_subpath = _normalize_output_subpath(task.params.get("output_subpath"))
+        filename = output_subpath or f"FICHE DE COMPTAGE : {job_reference}.pdf"
         task.result_file.save(filename, ContentFile(pdf_content))
 
         task.status = PdfTask.STATUS_SUCCESS
@@ -454,17 +491,11 @@ class JobAssignmentPdfAsyncStartView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        task = PdfTask.objects.create(
-            task_type=PdfTask.TYPE_JOB_ASSIGNMENT_PDF,
-            params={
-                "job_id": int(job_id),
-                "assignment_id": int(assignment_id),
-                "equipe_id": equipe_id,
-            },
-            status=PdfTask.STATUS_PENDING,
+        task = enqueue_job_assignment_pdf_task(
+            job_id=job_id,
+            assignment_id=assignment_id,
+            equipe_id=equipe_id,
         )
-
-        threading.Thread(target=_run_job_assignment_pdf_task, args=(task.id,), daemon=True).start()
 
         return Response(
             {"success": True, "task_id": str(task.id), "status": task.status},
@@ -498,6 +529,94 @@ class PdfTaskStatusView(APIView):
             data["download_url"] = request.build_absolute_uri(task.result_file.url)
 
         return Response(data, status=status.HTTP_200_OK)
+
+
+class AssignmentGeneratedPdfListView(APIView):
+    """
+    Liste les PDFs générés pour les assignments terminés, triés par référence job.
+    """
+
+    def get(self, request):
+        tasks = PdfTask.objects.filter(
+            task_type=PdfTask.TYPE_JOB_ASSIGNMENT_PDF
+        ).order_by("-created_at")
+
+        assignment_ids = set()
+        task_assignment_map = {}
+        for task in tasks:
+            assignment_id = task.params.get("assignment_id")
+            try:
+                assignment_id = int(assignment_id)
+            except (TypeError, ValueError):
+                assignment_id = None
+            task_assignment_map[task.id] = assignment_id
+            if assignment_id is not None:
+                assignment_ids.add(assignment_id)
+
+        assignments = Assigment.objects.filter(
+            id__in=assignment_ids,
+            status="TERMINE",
+        ).select_related("job", "counting")
+        assignments_map = {assignment.id: assignment for assignment in assignments}
+
+        grouped = {}
+        for task in tasks:
+            assignment_id = task_assignment_map.get(task.id)
+            if assignment_id is None:
+                continue
+
+            assignment = assignments_map.get(assignment_id)
+            if not assignment:
+                continue
+
+            job_key = assignment.job_id
+            if job_key not in grouped:
+                grouped[job_key] = {
+                    "job": {
+                        "id": assignment.job_id,
+                        "reference": assignment.job.reference,
+                        "status": assignment.job.status,
+                    },
+                    "pdfs": [],
+                }
+
+            item = {
+                "task_id": str(task.id),
+                "task_status": task.status,
+                "task_type": task.task_type,
+                "created_at": task.created_at,
+                "updated_at": task.updated_at,
+                "error_message": task.error_message,
+                "assignment": {
+                    "id": assignment.id,
+                    "reference": assignment.reference,
+                    "status": assignment.status,
+                    "counting_order": assignment.counting.order if assignment.counting else None,
+                },
+                "pdf_path": task.result_file.name if task.result_file else None,
+                "download_url": None,
+            }
+
+            if task.status == PdfTask.STATUS_SUCCESS and task.result_file:
+                item["download_url"] = request.build_absolute_uri(task.result_file.url)
+
+            grouped[job_key]["pdfs"].append(item)
+
+        results = list(grouped.values())
+        for group in results:
+            group["pdfs"].sort(key=lambda x: (x["assignment"]["counting_order"] or 0, x["created_at"] or ""))
+
+        results.sort(key=lambda x: (x["job"]["reference"] or ""))
+
+        return Response(
+            {
+                "success": True,
+                "count_jobs": len(results),
+                "count_pdfs": sum(len(group["pdfs"]) for group in results),
+                "results": results,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class JobAssignmentPdfView(APIView):
