@@ -1869,7 +1869,8 @@ class StockAdmin(ImportExportModelAdmin):
     search_fields = (
         'location__location_reference',
         'product__reference',
-        'product__name',
+        'product__Internal_Product_Code',
+        'product__Short_Description',
         'unit_of_measure__name',
     )
     exclude = ('created_at', 'updated_at', 'deleted_at', 'is_deleted', 'reference')

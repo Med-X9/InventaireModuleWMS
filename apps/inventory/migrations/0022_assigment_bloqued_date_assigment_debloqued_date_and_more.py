@@ -10,26 +10,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
-            model_name='assigment',
-            name='bloqued_date',
-            field=models.DateTimeField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name='assigment',
-            name='debloqued_date',
-            field=models.DateTimeField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name='historicalassigment',
-            name='bloqued_date',
-            field=models.DateTimeField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name='historicalassigment',
-            name='debloqued_date',
-            field=models.DateTimeField(blank=True, null=True),
-        ),
         migrations.AlterField(
             model_name='assigment',
             name='status',

@@ -10,6 +10,7 @@ from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from apps.inventory.services.inventory_location_job_import_service import InventoryLocationJobImportService
 from apps.inventory.serializers.inventory_location_job_import_serializer import InventoryLocationJobImportSerializer
+from apps.inventory.utils.response_utils import success_response, error_response, validation_error_response
 from apps.masterdata.exceptions import InventoryLocationJobValidationError
 from apps.inventory.exceptions import InventoryNotFoundError
 from apps.masterdata.models import ImportTask, ImportError
@@ -49,9 +50,9 @@ class InventoryLocationJobImportView(APIView):
             # Valider le serializer
             serializer = InventoryLocationJobImportSerializer(data=request.data)
             if not serializer.is_valid():
-                return self._error_response(
+                return validation_error_response(
+                    serializer.errors,
                     message="Erreur de validation du fichier",
-                    errors=serializer.errors,
                     status_code=status.HTTP_400_BAD_REQUEST
                 )
             
@@ -90,13 +91,14 @@ class InventoryLocationJobImportView(APIView):
                 )
                 
                 # Retourner immédiatement une réponse indiquant que le traitement est en cours
-                return self._success_response(
+                return success_response(
                     data={
                         'status': 'processing',
                         'message': 'Import en cours de traitement. Le traitement est effectué en arrière-plan.',
                         'inventory_id': inventory_id,
                         'import_task_id': import_task.id
                     },
+                    message='Import en cours de traitement. Le traitement est effectué en arrière-plan.',
                     status_code=status.HTTP_202_ACCEPTED
                 )
                 
@@ -108,44 +110,23 @@ class InventoryLocationJobImportView(APIView):
                 
         except InventoryNotFoundError as e:
             logger.warning(f"Inventaire non trouvé: {str(e)}")
-            return self._error_response(
+            return error_response(
                 message=str(e),
                 status_code=status.HTTP_404_NOT_FOUND
             )
         except InventoryLocationJobValidationError as e:
             logger.warning(f"Erreur de validation: {str(e)}")
-            return self._error_response(
+            return error_response(
                 message=str(e),
                 status_code=status.HTTP_400_BAD_REQUEST
             )
         except Exception as e:
             logger.error(f"Erreur lors de l'import: {str(e)}", exc_info=True)
-            return self._error_response(
+            return error_response(
                 message=f"Erreur lors de l'import: {str(e)}",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
-    def _success_response(self, data, message=None, status_code=status.HTTP_200_OK):
-        """Helper pour créer une réponse de succès"""
-        from rest_framework.response import Response
-        response_data = {
-            'success': True,
-            'message': message or 'Opération réussie',
-            'data': data
-        }
-        return Response(response_data, status=status_code)
-    
-    def _error_response(self, message, errors=None, status_code=status.HTTP_400_BAD_REQUEST):
-        """Helper pour créer une réponse d'erreur"""
-        from rest_framework.response import Response
-        response_data = {
-            'success': False,
-            'message': message,
-            'errors': errors or []
-        }
-        return Response(response_data, status=status_code)
-
-
 class InventoryLocationJobImportSyncView(APIView):
     """
     Vue pour importer des InventoryLocationJob depuis un fichier Excel (version asynchrone)
@@ -166,9 +147,9 @@ class InventoryLocationJobImportSyncView(APIView):
             # Valider le serializer
             serializer = InventoryLocationJobImportSerializer(data=request.data)
             if not serializer.is_valid():
-                return self._error_response(
+                return validation_error_response(
+                    serializer.errors,
                     message="Erreur de validation du fichier",
-                    errors=serializer.errors,
                     status_code=status.HTTP_400_BAD_REQUEST
                 )
             
@@ -194,7 +175,7 @@ class InventoryLocationJobImportSyncView(APIView):
                     total_rows = len(df)
                 except Exception as e:
                     logger.error(f"Erreur lors de la lecture du fichier Excel: {str(e)}")
-                    return self._error_response(
+                    return error_response(
                         message=f"Erreur lors de la lecture du fichier Excel: {str(e)}",
                         status_code=status.HTTP_400_BAD_REQUEST
                     )
@@ -211,16 +192,16 @@ class InventoryLocationJobImportSyncView(APIView):
                     except Exception as e:
                         logger.warning(f"Erreur lors de la suppression du fichier temporaire: {str(e)}")
                     
-                    return self._error_response(
+                    return error_response(
                         message=f"Colonnes manquantes dans le fichier Excel: {', '.join(missing_columns)}",
-                        errors={
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        data={
                             'missing_columns': missing_columns,
                             'required_columns': required_columns,
                             'found_columns': columns,
                             'file_name': file_name,
                             'total_rows': total_rows
-                        },
-                        status_code=status.HTTP_400_BAD_REQUEST
+                        }
                     )
                 
                 # Lancer l'import de manière asynchrone
@@ -248,7 +229,7 @@ class InventoryLocationJobImportSyncView(APIView):
                 )
                 
                 # Retourner immédiatement une réponse indiquant que le traitement est en cours
-                return self._success_response(
+                return success_response(
                     data={
                         'status': 'processing',
                         'message': 'Import en cours de traitement. Le traitement est effectué en arrière-plan.',
@@ -258,6 +239,7 @@ class InventoryLocationJobImportSyncView(APIView):
                         'columns': columns,
                         'total_rows': total_rows
                     },
+                    message='Import en cours de traitement. Le traitement est effectué en arrière-plan.',
                     status_code=status.HTTP_202_ACCEPTED
                 )
                     
@@ -267,52 +249,23 @@ class InventoryLocationJobImportSyncView(APIView):
                 
         except InventoryNotFoundError as e:
             logger.warning(f"Inventaire non trouvé: {str(e)}")
-            return self._error_response(
+            return error_response(
                 message=str(e),
                 status_code=status.HTTP_404_NOT_FOUND
             )
         except InventoryLocationJobValidationError as e:
             logger.warning(f"Erreur de validation: {str(e)}")
-            return self._error_response(
+            return error_response(
                 message=str(e),
                 status_code=status.HTTP_400_BAD_REQUEST
             )
         except Exception as e:
             logger.error(f"Erreur lors de l'import: {str(e)}", exc_info=True)
-            return self._error_response(
+            return error_response(
                 message=f"Erreur lors de l'import: {str(e)}",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
-    def _success_response(self, data, message=None, status_code=status.HTTP_200_OK):
-        """Helper pour créer une réponse de succès"""
-        from rest_framework.response import Response
-        response_data = {
-            'success': True,
-            'message': message or 'Opération réussie',
-            'data': data
-        }
-        return Response(response_data, status=status_code)
-    
-    def _error_response(self, message, errors=None, status_code=status.HTTP_400_BAD_REQUEST):
-        """Helper pour créer une réponse d'erreur"""
-        from rest_framework.response import Response
-        # Si errors est un dict, le mettre dans 'data', sinon dans 'errors'
-        if isinstance(errors, dict):
-            response_data = {
-                'success': False,
-                'message': message,
-                'data': errors
-            }
-        else:
-            response_data = {
-                'success': False,
-                'message': message,
-                'data': {'errors': errors or []}
-            }
-        return Response(response_data, status=status_code)
-
-
 class InventoryLocationJobImportStatusView(APIView):
     """
     Vue pour récupérer le statut et les erreurs d'un import
@@ -331,7 +284,7 @@ class InventoryLocationJobImportStatusView(APIView):
             import_task = ImportTask.objects.filter(inventory_id=inventaire_id).order_by('-created_at').first()
             
             if not import_task:
-                return self._error_response(
+                return error_response(
                     message=f"Aucune tâche d'import trouvée pour l'inventaire {inventaire_id}",
                     status_code=status.HTTP_404_NOT_FOUND
                 )
@@ -415,7 +368,7 @@ class InventoryLocationJobImportStatusView(APIView):
                     'chunks_detail': chunks_data
                 }
             
-            return self._success_response(
+            return success_response(
                 data=response_data,
                 message=f"Statut de l'import: {import_task.get_status_display()}",
                 status_code=status.HTTP_200_OK
@@ -423,27 +376,7 @@ class InventoryLocationJobImportStatusView(APIView):
             
         except Exception as e:
             logger.error(f"Erreur lors de la récupération du statut: {str(e)}", exc_info=True)
-            return self._error_response(
+            return error_response(
                 message=f"Erreur lors de la récupération du statut: {str(e)}",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-    
-    def _success_response(self, data, message=None, status_code=status.HTTP_200_OK):
-        """Helper pour créer une réponse de succès"""
-        from rest_framework.response import Response
-        response_data = {
-            'success': True,
-            'message': message or 'Opération réussie',
-            'data': data
-        }
-        return Response(response_data, status=status_code)
-    
-    def _error_response(self, message, errors=None, status_code=status.HTTP_400_BAD_REQUEST):
-        """Helper pour créer une réponse d'erreur"""
-        from rest_framework.response import Response
-        response_data = {
-            'success': False,
-            'message': message,
-            'errors': errors or []
-        }
-        return Response(response_data, status=status_code)

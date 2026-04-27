@@ -10,6 +10,7 @@ from apps.inventory.models import CountingDetail, Assigment, Job, EcartComptage,
 from apps.inventory.usecases.counting_detail_creation import CountingDetailCreationUseCase
 from apps.mobile.exceptions import CountingAssignmentValidationError, EcartComptageResoluError
 from apps.masterdata.models import Product, Location
+from apps.inventory.utils.ecart_consensus import calculate_ecart_consensus_result
 import logging
 
 logger = logging.getLogger(__name__)
@@ -736,9 +737,13 @@ class CountingDetailService:
             ecart_value = ecart_value  # Utiliser la valeur calculée pour les nouvelles séquences
         
         # Mettre à jour le résultat final éventuel (seulement si 2 comptages ou plus)
+        # Trier les séquences par sequence_number pour garantir l'ordre métier (1er, 2e, 3e comptage)
+        # même si le batch a été traité dans un ordre différent
         final_result = None
         if len(cache_entry['sequences']) >= 2:
-            final_result = self._calculate_consensus_result(cache_entry['sequences'], ecart.final_result)
+            sequences_sorted = sorted(cache_entry['sequences'], key=lambda s: s.sequence_number)
+            quantities = [seq.quantity for seq in sequences_sorted]
+            final_result = calculate_ecart_consensus_result(quantities, ecart.final_result)
             if final_result is not None:
                 ecart.final_result = final_result
         
@@ -1571,57 +1576,3 @@ class CountingDetailService:
             "ecart_value": ecart_value,
             "needs_resolution": ecart_value == 0  # Info seulement, pas de résolution auto
         }
-
-    def _calculate_consensus_result(
-        self,
-        sequences: List[ComptageSequence],
-        current_result: Optional[int]
-    ) -> Optional[int]:
-        """
-        Détermine le résultat final d'un écart selon les règles métier.
-        
-        Logique uniforme pour TOUS les comptages :
-        - Pour n'importe quel comptage (2ème, 3ème, 4ème, etc.), toujours vérifier
-          s'il correspond à au moins un comptage précédent.
-        - Si oui → enregistrer cette valeur dans resultat
-        - Si non → enregistrer dans ecart (pas de resultat, ou conserver le précédent)
-        
-        Règles détaillées :
-        1. 1er = 2ème → enregistrer dans resultat
-        2. 1er ≠ 2ème → enregistrer dans ecart (pas de resultat)
-        3. Nᵉ différent de tous les comptages précédents → enregistrer dans ecart (pas de resultat)
-        4. Nᵉ égal à au moins un seul comptage parmi tous les précédents → enregistrer dans resultat
-        
-        Args:
-            sequences: Liste de toutes les ComptageSequence (dans l'ordre chronologique)
-            current_result: Résultat actuel de l'écart (peut être None)
-            
-        Returns:
-            int: La valeur à enregistrer dans final_result, ou None si pas de consensus
-        """
-        if len(sequences) < 2:
-            return None  # Pas de résultat si moins de 2 comptages
-        
-        # Logique uniforme : pour le comptage actuel (dernière séquence),
-        # toujours vérifier s'il correspond à au moins un comptage précédent
-        comptage_actuel = sequences[-1]
-        quantite_actuelle = comptage_actuel.quantity
-        
-        # Extraire toutes les quantités des comptages précédents
-        # (on exclut la dernière séquence qui est le comptage actuel)
-        quantites_precedentes = [seq.quantity for seq in sequences[:-1]]
-        
-        # Vérifier si le comptage actuel correspond à au moins un comptage précédent
-        if quantite_actuelle in quantites_precedentes:
-            # Le comptage actuel correspond à au moins un précédent → enregistrer dans resultat
-            return quantite_actuelle
-        else:
-            # Le comptage actuel est différent de tous les précédents → enregistrer dans ecart
-            # Cas spécial : si exactement 2 comptages différents, pas de consensus (retourner None)
-            # Sinon, conserver le résultat actuel s'il existe (cas où un précédent comptage avait trouvé un consensus)
-            if len(sequences) == 2:
-                # Exactement 2 comptages différents → pas de consensus
-                return None
-            else:
-                # Plus de 2 comptages : conserver le résultat actuel s'il existe
-                return current_result

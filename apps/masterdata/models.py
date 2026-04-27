@@ -388,7 +388,7 @@ class Stock(TimeStampedModel):
     quantity_reserved = models.IntegerField(validators=[MinValueValidator(0)], blank=True, null=True)
     quantity_in_transit = models.IntegerField(validators=[MinValueValidator(0)], blank=True, null=True)
     quantity_in_receiving = models.IntegerField(validators=[MinValueValidator(0)], blank=True, null=True)
-    unit_of_measure = models.ForeignKey(UnitOfMeasure, on_delete=models.CASCADE)
+    unit_of_measure = models.ForeignKey(UnitOfMeasure, on_delete=models.CASCADE,blank=True,null=True)
     inventory = models.ForeignKey('inventory.Inventory', on_delete=models.CASCADE)
     warehouse = models.ForeignKey('Warehouse', on_delete=models.CASCADE)
     history = HistoricalRecords()

@@ -282,20 +282,13 @@ class InventoryResultService:
                 result_row[status_key] = assignment_status  # Peut être None
 
                 # Ajouter TOUS les écarts possibles (même null) pour standardiser le format
+                # Spécification : tous les écarts en entier signé (q_actuel - q_précédent)
                 for prev_order in range(1, order):
                     ecart_key = f"ecart_{prev_order}_{order}"
                     prev_quantity = previous_quantities.get(prev_order)
 
                     if quantity is not None and prev_quantity is not None:
-                        # Pour ecart_1_2 : afficher la valeur numérique
-                        if prev_order == 1 and order == 2:
-                            result_row[ecart_key] = abs(quantity - prev_quantity)
-                        else:
-                            # Pour les autres écarts : vérifier si égal à AU MOINS UN comptage précédent
-                            has_match_with_any_previous = any(
-                                quantity == prev_qty for prev_qty in previous_quantities.values()
-                            )
-                            result_row[ecart_key] = has_match_with_any_previous
+                        result_row[ecart_key] = quantity - prev_quantity
                     else:
                         result_row[ecart_key] = None
 

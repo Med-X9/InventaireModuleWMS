@@ -1894,7 +1894,8 @@ class StockImportView(APIView):
                 )
             
             # ÉTAPE 2: Si l'import est autorisé, procéder à l'import
-            result = self.stock_service.import_stocks_from_excel(inventory_id, excel_file)
+            # On passe aussi l'ID de l'entrepôt pour renseigner le champ obligatoire warehouse sur Stock
+            result = self.stock_service.import_stocks_from_excel(inventory_id, warehouse_id, excel_file)
             
             # Préparer la réponse
             summary = {

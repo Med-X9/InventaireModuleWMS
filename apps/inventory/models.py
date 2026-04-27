@@ -337,6 +337,8 @@ class Assigment(TimeStampedModel, ReferenceMixin):
     pret_date = models.DateTimeField(null=True, blank=True)
     bloqued_date = models.DateTimeField(null=True, blank=True)
     debloqued_date = models.DateTimeField(null=True, blank=True)
+    imprime = models.BooleanField(default=False)
+    imprime_date = models.DateTimeField(null=True, blank=True)
     job = models.ForeignKey('Job', on_delete=models.CASCADE)
     date_start = models.DateTimeField(null=True, blank=True)
     termine_date = models.DateTimeField(null=True, blank=True)
@@ -514,3 +516,45 @@ class ComptageSequence(TimeStampedModel, ReferenceMixin):
     def _str_(self):
         ecart_value = f" (écart: {self.ecart_with_previous})" if self.ecart_with_previous is not None else ""
         return f"Séquence {self.sequence_number} - {self.ecart_comptage.reference}{ecart_value}"
+
+
+class PdfTask(TimeStampedModel):
+    """
+    Tâche de génération asynchrone (sans Celery) pour les fichiers PDF.
+    Utilisée pour éviter de bloquer le serveur lors des générations lourdes.
+    """
+
+    STATUS_PENDING = "PENDING"
+    STATUS_RUNNING = "RUNNING"
+    STATUS_SUCCESS = "SUCCESS"
+    STATUS_ERROR = "ERROR"
+
+    STATUS_CHOICES = (
+        (STATUS_PENDING, "En attente"),
+        (STATUS_RUNNING, "En cours"),
+        (STATUS_SUCCESS, "Terminé"),
+        (STATUS_ERROR, "Erreur"),
+    )
+
+    TYPE_INVENTORY_JOBS_PDF = "inventory_jobs_pdf"
+    TYPE_JOB_ASSIGNMENT_PDF = "job_assignment_pdf"
+
+    TASK_TYPE_CHOICES = (
+        (TYPE_INVENTORY_JOBS_PDF, "PDF jobs inventaire"),
+        (TYPE_JOB_ASSIGNMENT_PDF, "PDF job/assignment"),
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    task_type = models.CharField(max_length=50, choices=TASK_TYPE_CHOICES)
+    params = models.JSONField(default=dict)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    result_file = models.FileField(upload_to="pdf_tasks/", null=True, blank=True)
+    error_message = models.TextField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Tâche PDF"
+        verbose_name_plural = "Tâches PDF"
+        indexes = [
+            models.Index(fields=["task_type", "status"], name="pdf_task_type_status_idx"),
+            models.Index(fields=["created_at"], name="pdf_task_created_at_idx"),
+        ]

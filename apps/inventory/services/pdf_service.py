@@ -37,7 +37,7 @@ class PDFService(PDFServiceInterface):
         
         Logique STRICTE:
         - La colonne DLC s'affiche seulement si counting.dlc == True
-        - ET si au moins un produit dans counting_details ou products a DLC activé (product.dlc == True)
+        - Basé sur la configuration du comptage (counting.dlc == True)
         - Certains modes de comptage ne supportent pas DLC (ex: 'image de stock')
         
         Args:
@@ -61,33 +61,40 @@ class PDFService(PDFServiceInterface):
             # Mode vrac pur ne supporte pas DLC
             return False
         
-        # LOGIQUE STRICTE: Si counting_details est fourni, verifier si au moins un produit supporte DLC
-        # Si aucun produit n'a DLC activé, ne pas afficher la colonne même si counting.dlc est True
-        if counting_details:
-            has_product_with_dlc = False
-            for item in counting_details:
-                # Accepter soit CountingDetail (avec .product) soit Product directement
-                if hasattr(item, 'product'):
-                    # C'est un CountingDetail
-                    product = item.product
-                else:
-                    # C'est un Product directement
-                    product = item
-                
-                if product and hasattr(product, 'dlc') and product.dlc:
-                    has_product_with_dlc = True
-                    break
-            # Si aucun produit ne supporte DLC, ne pas afficher la colonne
-            if not has_product_with_dlc:
-                return False
-        
         return True
+
+    def _get_personne_name_parts(self, personne):
+        """
+        Retourne (nom, prenom, nom_complet) avec compatibilité ancien/nouveau schéma.
+        """
+        if not personne:
+            return None, None, None
+
+        # Nouveau schéma: Personne.full_name
+        full_name = getattr(personne, "full_name", None)
+        if full_name:
+            full_name = str(full_name).strip()
+            if full_name:
+                parts = full_name.split(maxsplit=1)
+                nom = parts[0]
+                prenom = parts[1] if len(parts) > 1 else None
+                return nom, prenom, full_name
+
+        # Ancien schéma (fallback): Personne.nom / Personne.prenom
+        nom = getattr(personne, "nom", None)
+        prenom = getattr(personne, "prenom", None)
+        nom = str(nom).strip() if nom else None
+        prenom = str(prenom).strip() if prenom else None
+        full = " ".join([p for p in [nom, prenom] if p]) or None
+        return nom, prenom, full
     
     def generate_inventory_jobs_pdf(
         self, 
         inventory_id: int, 
         counting_id: Optional[int] = None,
-        job_ids: Optional[List[int]] = None
+        job_ids: Optional[List[int]] = None,
+        assignment_statuses: Optional[List[str]] = None,
+        job_statuses: Optional[List[str]] = None,
     ) -> BytesIO:
         """
         Genere un PDF des jobs d'un inventaire
@@ -140,7 +147,12 @@ class PDFService(PDFServiceInterface):
             
             # Nouvelle logique : récupérer tous les assignments de l'inventaire avec counting.order et session
             # Si job_ids est fourni, filtrer uniquement les assignments de ces jobs
-            all_assignments = self.repository.get_assignments_by_inventory(inventory, job_ids=job_ids)
+            all_assignments = self.repository.get_assignments_by_inventory(
+                inventory,
+                job_ids=job_ids,
+                assignment_statuses=assignment_statuses,
+                job_statuses=job_statuses,
+            )
         except PDFRepositoryError:
             raise
         except Exception as e:
@@ -180,13 +192,14 @@ class PDFService(PDFServiceInterface):
                     all_table_rows = self._prepare_inventory_jobs_table_rows(job_details, counting, job)
                     if all_table_rows:
                         lines_per_page = 40  # Meme design que job-assignment-pdf
-                        total_pages = 1  # Une seule page par job (meme design)
-                        page_counter += 1
-                        page_info_map[page_counter] = {
-                            'current': 1,
-                            'total': 1,
-                            'job_ref': job.reference
-                        }
+                        total_pages = max(1, (len(all_table_rows) + lines_per_page - 1) // lines_per_page)
+                        for current_page in range(1, total_pages + 1):
+                            page_counter += 1
+                            page_info_map[page_counter] = {
+                                'current': current_page,
+                                'total': total_pages,
+                                'job_ref': job.reference
+                            }
         
         # Creer le buffer PDF
         buffer = BytesIO()
@@ -1241,38 +1254,26 @@ class PDFService(PDFServiceInterface):
         if not all_table_rows:
             return elements
         
-        # Meme design que job-assignment-pdf: 40 lignes maximum, une seule page
+        # Meme design que job-assignment-pdf: 40 lignes par page, autant de pages que nécessaire
         lines_per_page = 40
-        total_pages = 1  # Un seul tableau = une seule page
-        
-        # Prendre seulement les 40 premières lignes (ignorer le reste)
-        page_rows = all_table_rows[:lines_per_page]
-        
-        # Ajouter des lignes vides pour compléter jusqu'à 40 lignes
-        num_data_rows = len(page_rows)
-        num_empty_rows_needed = lines_per_page - num_data_rows
-        
-        if num_empty_rows_needed > 0:
-            # Déterminer si DLC est présent dans les lignes existantes
-            has_dlc = any('dlc' in row for row in page_rows)
-            
-            # Créer des lignes vides avec la même structure
-            empty_rows = self._create_empty_rows_for_inventory_jobs(
-                num_empty_rows_needed, counting, has_dlc
+        total_pages = max(1, (len(all_table_rows) + lines_per_page - 1) // lines_per_page)
+
+        for page_num in range(1, total_pages + 1):
+            start = (page_num - 1) * lines_per_page
+            end = start + lines_per_page
+            page_rows = all_table_rows[start:end]
+
+            # Saut de page avant les pages 2, 3, ...
+            if page_num > 1:
+                elements.append(PageBreak())
+
+            # Construire l'en-tête/tableau avec la même logique que job-assignment
+            header_elements = self._build_job_assignment_page_header(
+                inventory, job, user, counting, warehouse_info, account_info, page_num, total_pages
             )
-            page_rows.extend(empty_rows)
-        
-        # Construire l'en-tête de la page (une seule fois) - utiliser le design de job assignment
-        header_elements = self._build_job_assignment_page_header(
-            inventory, job, user, counting, warehouse_info, account_info, 1, total_pages
-        )
-        
-        # Construire un SEUL tableau avec exactement 40 lignes (ou moins) - utiliser le design de job assignment
-        table_elements = self._build_job_assignment_table_from_rows(page_rows, counting, 1, total_pages)
-        
-        # Garder l'en-tête et le tableau ensemble sur une seule page (meme design)
-        all_elements = header_elements + table_elements
-        elements.append(KeepTogether(all_elements))
+            table_elements = self._build_job_assignment_table_from_rows(page_rows, counting, page_num, total_pages)
+            all_elements = header_elements + table_elements
+            elements.append(KeepTogether(all_elements))
         
         return elements
     
@@ -1282,6 +1283,10 @@ class PDFService(PDFServiceInterface):
         Utilise JobDetail + Stock comme source de données
         """
         rows = []
+        counting_details = self.repository.get_counting_details_by_job_and_counting(job, counting)
+        counting_details_by_location = {}
+        for counting_detail in counting_details:
+            counting_details_by_location.setdefault(counting_detail.location_id, []).append(counting_detail)
         
         # Récupérer tous les stocks pour vérifier si au moins un produit supporte DLC
         all_stocks = []
@@ -1296,10 +1301,14 @@ class PDFService(PDFServiceInterface):
         for stock in all_stocks:
             if stock.product and hasattr(stock.product, 'dlc') and stock.product.dlc:
                 products_with_dlc.append(stock.product)
+        for counting_detail in counting_details:
+            if counting_detail.product and hasattr(counting_detail.product, 'dlc') and counting_detail.product.dlc:
+                products_with_dlc.append(counting_detail.product)
         
         for job_detail in job_details:
             location = job_detail.location
             stocks = self.repository.get_stocks_by_location_and_inventory(location, job.inventory)
+            location_counting_details = counting_details_by_location.get(location.id, [])
             has_stock_for_location = len(stocks) > 0 if stocks else False
             
             if 'vrac' not in counting.count_mode.lower():
@@ -1314,15 +1323,29 @@ class PDFService(PDFServiceInterface):
                             'designation': stock.product.Short_Description if stock.product else '-',
                             'quantite_theorique': stock.quantity_available,
                             'quantite_physique': '',  # Vide pour saisie manuelle
-                            'n_lot': stock.product and stock.product.n_lot if stock.product else False,
+                            # Colonnes N° lot et DLC affichées mais sans valeur par défaut
+                            'n_lot': '',
                         }
-                        # Ajouter DLC seulement si le comptage le supporte ET si le produit supporte DLC
-                        # Utiliser la même logique que _prepare_job_assignment_table_rows avec _should_show_dlc
-                        # Pour Stock, on vérifie si le produit a DLC activé et si counting supporte DLC
                         if self._should_show_dlc(counting, products_with_dlc):
-                            # Stock n'a pas de champ dlc directement, donc on met '-' pour l'inventaire jobs
-                            # (car on n'a pas de date DLC dans Stock, seulement le flag product.dlc)
-                            row['dlc'] = '-'  # Pas de date DLC disponible dans Stock
+                            row['dlc'] = ''
+                        rows.append(row)
+                elif location_counting_details:
+                    # Fallback : alimenter depuis CountingDetail si le stock n'est pas disponible
+                    for counting_detail in location_counting_details:
+                        product = counting_detail.product
+                        row = {
+                            'location': location.location_reference,
+                            'internal_product_code': product.Internal_Product_Code if product and product.Internal_Product_Code else '-',
+                            'barcode': product.Barcode if product and product.Barcode else '-',
+                            'designation': product.Short_Description if product else '-',
+                            # Pas de quantité théorique fiable depuis CountingDetail
+                            'quantite_theorique': '-',
+                            # En mode assignment TERMINE, on affiche la quantité comptée
+                            'quantite_physique': counting_detail.quantity_inventoried,
+                            'n_lot': counting_detail.n_lot or '',
+                        }
+                        if self._should_show_dlc(counting, products_with_dlc):
+                            row['dlc'] = counting_detail.dlc.strftime('%d/%m/%Y') if counting_detail.dlc else ''
                         rows.append(row)
                 else:
                     # Pas de stock - une ligne vide
@@ -1333,11 +1356,11 @@ class PDFService(PDFServiceInterface):
                         'designation': ' ',
                         'quantite_theorique': ' ',
                         'quantite_physique': '',  # Vide pour saisie
-                        'n_lot': False,
+                        # Colonnes N° lot et DLC vides
+                        'n_lot': '',
                     }
-                    # Ajouter DLC seulement si nécessaire (même logique que ci-dessus)
                     if self._should_show_dlc(counting, products_with_dlc):
-                        row['dlc'] = '-'
+                        row['dlc'] = ''
                     rows.append(row)
         
         return rows
@@ -1358,11 +1381,11 @@ class PDFService(PDFServiceInterface):
                 'designation': ' ',
                 'quantite_theorique': ' ',
                 'quantite_physique': '',  # Vide pour saisie manuelle
-                'n_lot': False,
+                # Colonnes N° lot et DLC vides
+                'n_lot': '',
             }
-            # Ajouter DLC seulement si présent dans les autres lignes
             if has_dlc:
-                row['dlc'] = '-'
+                row['dlc'] = ''
             empty_rows.append(row)
         
         return empty_rows
@@ -1411,16 +1434,16 @@ class PDFService(PDFServiceInterface):
             headers.append('Article')  # Internal_Product_Code
             headers.append('CAB')  # Barcode
             headers.append('Désignation')
+            # Colonnes optionnelles N° Lot et DLC AVANT la colonne QTE
+            if counting.n_lot:
+                headers.append('N° Lot')
+            if show_dlc:
+                headers.append('DLC')
+            # Colonne QTE ensuite
             headers.append('QTE')  # Toujours présent
             
             if show_theorique:
                 headers.append('QTE théorique')
-            
-            # Colonnes optionnelles - Ne pas afficher DLC si show_dlc est False
-            if show_dlc:
-                headers.append('DLC')
-            if counting.n_lot:
-                headers.append('N° Lot')
         else:
                 # Mode vrac
                 if has_stock_for_location and stocks:
@@ -1452,11 +1475,11 @@ class PDFService(PDFServiceInterface):
         designation_style = ParagraphStyle(
             'DesignationStyle',
             parent=styles['Normal'],
-            fontSize=9,  # Réduit pour économiser l'espace
+            fontSize=10,  # Police plus grande pour plus de lisibilité
             textColor=colors.black,
-            fontName='Arial',
-            alignment=0,  # Left align
-            leading=8,  # Modéré pour plus d'espace vertical sans dépasser
+            fontName='Helvetica-Bold',  # Même graisse que les autres colonnes
+            alignment=0,  # Aligné à gauche pour lecture plus claire
+            leading=11,  # Interligne légèrement augmenté
             spaceBefore=0,
             spaceAfter=0,
             wordWrap='CJK',  # Permet le retour à la ligne automatique
@@ -1489,16 +1512,16 @@ class PDFService(PDFServiceInterface):
             headers.append('Article')  # Internal_Product_Code
             headers.append('CAB')  # Barcode
             headers.append('Désignation')
+            # Colonnes optionnelles N° Lot et DLC AVANT la colonne QTE
+            if counting.n_lot:
+                headers.append('N° Lot')
+            if show_dlc:
+                headers.append('DLC')
+            # Colonne QTE ensuite
             headers.append('QTE')  # Toujours présent
             
             if show_theorique:
                 headers.append('QTE théorique')
-            
-            # Colonnes optionnelles - Ne pas afficher DLC si show_dlc est False
-            if show_dlc:
-                headers.append('DLC')
-            if counting.n_lot:
-                headers.append('N° Lot')
         else:
             # Mode vrac
             headers.append('QTE')  # Toujours présent
@@ -1527,25 +1550,23 @@ class PDFService(PDFServiceInterface):
                 designation_text = str(designation_text).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
                 table_row.append(Paragraph(designation_text, designation_style))
                 
+                # Colonnes optionnelles N° Lot et DLC AVANT la quantité
+                if counting.n_lot:
+                    table_row.append(row.get('n_lot', ''))
+                if show_dlc:
+                    dlc_value = row.get('dlc', '')
+                    # Forcer vide si False/None pour respecter "aucune valeur"
+                    if dlc_value is False or dlc_value is None:
+                        dlc_value = ''
+                    table_row.append(str(dlc_value) if dlc_value != '' else '')
+                
                 # Quantité (toujours)
                 table_row.append(row.get('quantite_physique', ''))
                 
                 # Quantité théorique (si configuré)
                 if show_theorique:
-                    quantite_theorique = row.get('quantite_theorique', '-')
-                    table_row.append(quantite_theorique if quantite_theorique != '' else '-')
-                
-                # Colonnes optionnelles - ajouter seulement si show_dlc est True (même logique que job-assignment)
-                if show_dlc:
-                    # DLC est déjà formatée comme date ou '-' dans _prepare_inventory_jobs_table_rows
-                    dlc_value = row.get('dlc', '-')
-                    # Convertir False en '-' pour éviter d'afficher "False"
-                    if dlc_value is False or dlc_value == False or str(dlc_value).lower() == 'false':
-                        dlc_value = '-'
-                    table_row.append(str(dlc_value) if dlc_value else '-')
-                if counting.n_lot:
-                    # n_lot est déjà la valeur ou '-' dans _prepare_table_rows_from_counting_details
-                    table_row.append(row.get('n_lot', '-'))
+                    quantite_theorique = row.get('quantite_theorique', '')
+                    table_row.append(quantite_theorique if quantite_theorique != '' else '')
             else:
                 # Mode vrac
                 # Quantité (toujours)
@@ -2478,28 +2499,30 @@ class PDFService(PDFServiceInterface):
         import logging
         logger = logging.getLogger(__name__)
         logger.info(f"Assignment ID: {assignment_id}, Personne 1: {personne}, Personne 2: {personne_two}")
+        personne_nom, personne_prenom, personne_full = self._get_personne_name_parts(personne)
+        personne_two_nom, personne_two_prenom, personne_two_full = self._get_personne_name_parts(personne_two)
         if personne:
-            logger.info(f"Personne 1 - ID: {personne.id}, Nom: {personne.nom}, Prenom: {personne.prenom}")
+            logger.info(f"Personne 1 - ID: {personne.id}, Nom: {personne_nom}, Prenom: {personne_prenom}, Full: {personne_full}")
         if personne_two:
-            logger.info(f"Personne 2 - ID: {personne_two.id}, Nom: {personne_two.nom}, Prenom: {personne_two.prenom}")
+            logger.info(f"Personne 2 - ID: {personne_two.id}, Nom: {personne_two_nom}, Prenom: {personne_two_prenom}, Full: {personne_two_full}")
         if not personne and not personne_two:
             logger.warning(f"ATTENTION: Aucune personne trouvée pour l'assignment {assignment_id}")
         
         # Si equipe_id est fourni, filtrer par cette personne
         if equipe_id:
             if personne and personne.id == equipe_id:
-                equipe_nom = f"{personne.nom} {personne.prenom}"
+                equipe_nom = personne_full or "Non affecte"
             elif personne_two and personne_two.id == equipe_id:
-                equipe_nom = f"{personne_two.nom} {personne_two.prenom}"
+                equipe_nom = personne_two_full or "Non affecte"
             else:
                 raise ValueError(f"L'equipe {equipe_id} n'est pas associee a l'assignment {assignment_id}")
         else:
             # Construire le nom de l'equipe a partir des deux personnes
             equipe_parts = []
-            if personne:
-                equipe_parts.append(f"{personne.nom} {personne.prenom}")
-            if personne_two:
-                equipe_parts.append(f"{personne_two.nom} {personne_two.prenom}")
+            if personne_full:
+                equipe_parts.append(personne_full)
+            if personne_two_full:
+                equipe_parts.append(personne_two_full)
             equipe_nom = " / ".join(equipe_parts) if equipe_parts else "Non affecte"
         
         # Recuperer les counting details pour ce job et ce counting
@@ -2531,18 +2554,16 @@ class PDFService(PDFServiceInterface):
             bottomMargin=2*cm  # Espace pour les signatures
         )
         
-        # Calculer la pagination - limiter à 40 lignes maximum sur une seule page
+        # Calculer la pagination - 40 lignes par page, autant de pages que nécessaire
         page_info_map = {}
         lines_per_page = 40
         # Préparer les lignes pour calculer correctement
         all_table_rows = self._prepare_job_assignment_table_rows(counting_details, counting)
-        # Limiter à 40 lignes maximum - une seule page
-        total_rows = min(len(all_table_rows), lines_per_page)
-        total_pages = 1  # Toujours une seule page avec maximum 40 lignes
+        total_pages = max(1, (len(all_table_rows) + lines_per_page - 1) // lines_per_page)
         
-        for page_num in range(total_pages):
-            page_info_map[page_num + 1] = {
-                'current': page_num + 1,
+        for page_num in range(1, total_pages + 1):
+            page_info_map[page_num] = {
+                'current': page_num,
                 'total': total_pages,
                 'job_ref': job.reference
             }
@@ -2552,35 +2573,10 @@ class PDFService(PDFServiceInterface):
         
         # Stocker les informations des personnes pour la signature
         # Stocker aussi le nom séparément pour la vérification
-        personne_nom_value = None
-        personne_prenom_value = None
-        personne_full = None
-        if personne:
-            personne_nom_value = getattr(personne, 'nom', None)
-            personne_prenom_value = getattr(personne, 'prenom', None)
-            # Construire le nom complet seulement si au moins un champ existe
-            if personne_nom_value or personne_prenom_value:
-                parts = []
-                if personne_nom_value:
-                    parts.append(str(personne_nom_value).strip())
-                if personne_prenom_value:
-                    parts.append(str(personne_prenom_value).strip())
-                personne_full = ' '.join(parts) if parts else None
-        
-        personne_two_nom_value = None
-        personne_two_prenom_value = None
-        personne_two_full = None
-        if personne_two:
-            personne_two_nom_value = getattr(personne_two, 'nom', None)
-            personne_two_prenom_value = getattr(personne_two, 'prenom', None)
-            # Construire le nom complet seulement si au moins un champ existe
-            if personne_two_nom_value or personne_two_prenom_value:
-                parts = []
-                if personne_two_nom_value:
-                    parts.append(str(personne_two_nom_value).strip())
-                if personne_two_prenom_value:
-                    parts.append(str(personne_two_prenom_value).strip())
-                personne_two_full = ' '.join(parts) if parts else None
+        personne_nom_value = personne_nom
+        personne_prenom_value = personne_prenom
+        personne_two_nom_value = personne_two_nom
+        personne_two_prenom_value = personne_two_prenom
         
         doc.personne_info = {
             'personne': personne_full,
@@ -2657,24 +2653,26 @@ class PDFService(PDFServiceInterface):
         if not all_table_rows:
             return elements
         
-        # Limiter à exactement 40 lignes pour un seul tableau sur une seule page
+        # 40 lignes par page, autant de pages que nécessaire
         lines_per_page = 40
-        total_pages = 1  # Un seul tableau = une seule page
+        total_pages = max(1, (len(all_table_rows) + lines_per_page - 1) // lines_per_page)
         
-        # Prendre seulement les 40 premières lignes (ignorer le reste)
-        page_rows = all_table_rows[:lines_per_page]
-        
-        # Construire l'en-tête de la page (une seule fois)
-        header_elements = self._build_job_assignment_page_header(
-            inventory, job, session_nom, counting, warehouse_info, account_info, 1, total_pages
-        )
-        
-        # Construire un SEUL tableau avec exactement 40 lignes (ou moins si moins de lignes disponibles)
-        table_elements = self._build_job_assignment_table_from_rows(page_rows, counting, 1, total_pages)
-        
-        # Garder l'en-tête et le tableau ensemble sur une seule page
-        all_elements = header_elements + table_elements
-        elements.append(KeepTogether(all_elements))
+        for page_num in range(1, total_pages + 1):
+            start = (page_num - 1) * lines_per_page
+            end = start + lines_per_page
+            page_rows = all_table_rows[start:end]
+            
+            # Saut de page avant les pages 2, 3, ...
+            if page_num > 1:
+                elements.append(PageBreak())
+            
+            # En-tête avec numéro de page (ex: 1/69)
+            header_elements = self._build_job_assignment_page_header(
+                inventory, job, session_nom, counting, warehouse_info, account_info, page_num, total_pages
+            )
+            table_elements = self._build_job_assignment_table_from_rows(page_rows, counting, page_num, total_pages)
+            all_elements = header_elements + table_elements
+            elements.append(KeepTogether(all_elements))
         
         return elements
     
@@ -2799,10 +2797,11 @@ class PDFService(PDFServiceInterface):
         designation_style = ParagraphStyle(
             'DesignationStyle',
             parent=styles['Normal'],
-            fontSize=6,  # Réduit encore plus pour économiser l'espace
+            fontSize=8,  # Police plus grande pour une meilleure lisibilité
             textColor=colors.black,
-            alignment=0,  # Left align
-            leading=7,  # Réduit pour économiser l'espace vertical
+            fontName='Helvetica-Bold',  # Même graisse que les autres cellules
+            alignment=0,  # Aligné à gauche
+            leading=9,  # Interligne légèrement augmenté
             spaceBefore=0,
             spaceAfter=0,
             wordWrap='CJK',  # Permet le retour à la ligne automatique
@@ -2831,16 +2830,16 @@ class PDFService(PDFServiceInterface):
             headers.append('Article')  # Internal_Product_Code
             headers.append('CAB')  # Barcode
             headers.append('Désignation')
+            # Colonnes optionnelles N° Lot et DLC AVANT la colonne QTE
+            if counting.n_lot:
+                headers.append('N° Lot')
+            if show_dlc:
+                headers.append('DLC')
+            # Colonne QTE ensuite
             headers.append('QTE')  # Toujours présent
             
             if show_theorique:
                 headers.append('QTE théorique')
-            
-            # Colonnes optionnelles - Ne pas afficher DLC si show_dlc est False
-            if show_dlc:
-                headers.append('DLC')
-            if counting.n_lot:
-                headers.append('N° Lot')
         else:
             # Mode vrac
             headers.append('QTE')  # Toujours présent
@@ -2869,6 +2868,16 @@ class PDFService(PDFServiceInterface):
                 designation_text = str(designation_text).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
                 table_row.append(Paragraph(designation_text, designation_style))
                 
+                # Colonnes optionnelles N° Lot et DLC AVANT la quantité
+                if counting.n_lot:
+                    table_row.append(row.get('n_lot', ''))
+                if show_dlc:
+                    dlc_value = row.get('dlc', '')
+                    # Forcer vide si False/None
+                    if dlc_value is False or dlc_value is None:
+                        dlc_value = ''
+                    table_row.append(str(dlc_value) if dlc_value != '' else '')
+                
                 # Quantité (toujours)
                 table_row.append(row.get('quantite_physique', ''))
                 
@@ -2876,17 +2885,6 @@ class PDFService(PDFServiceInterface):
                 if show_theorique:
                     quantite_theorique = row.get('quantite_theorique', '-')
                     table_row.append(quantite_theorique if quantite_theorique != '' else '-')
-                
-                # Colonnes optionnelles - ajouter seulement si show_dlc est True
-                if show_dlc:
-                    # DLC est déjà formatée comme date ou '-' dans _prepare_job_assignment_table_rows
-                    dlc_value = row.get('dlc', '-')
-                    # Convertir False en '-' pour éviter d'afficher "False"
-                    if dlc_value is False or dlc_value == False or str(dlc_value).lower() == 'false':
-                        dlc_value = '-'
-                    table_row.append(str(dlc_value) if dlc_value else '-')
-                if counting.n_lot:
-                    table_row.append(row.get('n_lot', '-'))
             else:
                 # Mode vrac
                 # Quantité (toujours)

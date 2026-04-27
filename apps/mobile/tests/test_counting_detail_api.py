@@ -6,7 +6,7 @@ from rest_framework.test import APIClient
 from rest_framework import status
 from django.contrib.auth import get_user_model
 from django.utils import timezone
-from apps.inventory.models import Counting, CountingDetail, Job, Assigment, Inventory
+from apps.inventory.models import Counting, CountingDetail, Job, Assigment, Inventory, JobDetail
 from apps.masterdata.models import Product, Location, Warehouse, Account
 import json
 
@@ -77,6 +77,14 @@ class CountingDetailAPITestCase(TestCase):
             job=self.job,
             counting=self.counting,
             status='EN_ATTENTE'
+        )
+        # JobDetail requis pour la validation counting-detail (job, counting, location)
+        JobDetail.objects.create(
+            reference=JobDetail().generate_reference(JobDetail.REFERENCE_PREFIX),
+            location=self.location,
+            job=self.job,
+            counting=self.counting,
+            status='EN_ATTENTE',
         )
     
     def test_create_counting_detail(self):
@@ -159,6 +167,13 @@ class CountingDetailAPITestCase(TestCase):
         location2 = Location.objects.create(
             code='LOC_TEST_002',
             location_reference='Location Test 2'
+        )
+        JobDetail.objects.create(
+            reference=JobDetail().generate_reference(JobDetail.REFERENCE_PREFIX),
+            location=location2,
+            job=self.job,
+            counting=self.counting,
+            status='EN_ATTENTE',
         )
         
         data = [
@@ -268,4 +283,135 @@ class CountingDetailAPITestCase(TestCase):
         self.assertEqual(response2.status_code, status.HTTP_201_CREATED)
         final_result_2 = response2.data['data']['results'][0]['result'].get('ecart_comptage', {}).get('final_result')
         self.assertEqual(final_result_2, 30, "Final result should be 30 (2 identical counts)")
+
+    def test_counting_order_2_then_1_consensus_and_sequence_order(self):
+        """
+        Test 6: Envoi 2e comptage puis 1er comptage (même product/location).
+        Vérifie que le tri des séquences par sequence_number donne le bon consensus
+        et que final_result / ecart_with_previous sont cohérents.
+        """
+        from apps.inventory.models import ComptageSequence, EcartComptage
+        # Deuxième comptage (order=2)
+        counting_2 = Counting.objects.create(
+            inventory=self.inventory,
+            count_mode='par article',
+            order=2,
+            n_serie=False,
+            dlc=False,
+            n_lot=False,
+        )
+        assignment_2 = Assigment.objects.create(
+            job=self.job,
+            counting=counting_2,
+            status='EN_ATTENTE',
+        )
+        JobDetail.objects.create(
+            reference=JobDetail().generate_reference(JobDetail.REFERENCE_PREFIX),
+            location=self.location,
+            job=self.job,
+            counting=counting_2,
+            status='EN_ATTENTE',
+        )
+        # Envoyer d'abord 2e comptage (q=50), puis 1er comptage (q=50) -> consensus 50
+        data = [
+            {
+                'counting_id': counting_2.id,
+                'location_id': self.location.id,
+                'quantity_inventoried': 50,
+                'assignment_id': assignment_2.id,
+                'product_id': self.product.id,
+            },
+            {
+                'counting_id': self.counting.id,
+                'location_id': self.location.id,
+                'quantity_inventoried': 50,
+                'assignment_id': self.assignment.id,
+                'product_id': self.product.id,
+            },
+        ]
+        response = self.client.post(
+            f'/mobile/api/job/{self.job.id}/counting-detail/',
+            data=data,
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(response.data['success'])
+        self.assertEqual(len(response.data['data']['results']), 2)
+        # Dernier résultat (1er comptage traité en 2e) doit avoir final_result=50 (consensus)
+        last_ecart = response.data['data']['results'][-1]['result'].get('ecart_comptage', {})
+        self.assertEqual(last_ecart.get('final_result'), 50)
+        # Vérifier en base : un seul EcartComptage, 2 ComptageSequence triées par sequence_number
+        ecarts = EcartComptage.objects.filter(inventory=self.inventory)
+        self.assertEqual(ecarts.count(), 1)
+        sequences = list(
+            ComptageSequence.objects.filter(ecart_comptage=ecarts.first()).order_by('sequence_number')
+        )
+        self.assertEqual(len(sequences), 2)
+        self.assertEqual(sequences[0].sequence_number, 1)
+        self.assertEqual(sequences[1].sequence_number, 2)
+        # Premier enregistré (2e comptage) : quantity 50, ecart_with_previous None
+        self.assertEqual(sequences[0].quantity, 50)
+        self.assertIsNone(sequences[0].ecart_with_previous)
+        # Second (1er comptage) : quantity 50, ecart_with_previous 0
+        self.assertEqual(sequences[1].quantity, 50)
+        self.assertEqual(sequences[1].ecart_with_previous, 0)
+
+    def test_update_second_counting_recalculates_final_result(self):
+        """
+        Test 7: Créer 2 comptages puis mettre à jour la quantité du 2e via un 2e POST.
+        Vérifier que EcartComptage.final_result et les ComptageSequence sont recalculés.
+        """
+        from apps.inventory.models import ComptageSequence, EcartComptage
+        counting_2 = Counting.objects.create(
+            inventory=self.inventory,
+            count_mode='par article',
+            order=2,
+            n_serie=False,
+            dlc=False,
+            n_lot=False,
+        )
+        assignment_2 = Assigment.objects.create(
+            job=self.job,
+            counting=counting_2,
+            status='EN_ATTENTE',
+        )
+        JobDetail.objects.create(
+            reference=JobDetail().generate_reference(JobDetail.REFERENCE_PREFIX),
+            location=self.location,
+            job=self.job,
+            counting=counting_2,
+            status='EN_ATTENTE',
+        )
+        # 1er comptage q=20, 2e comptage q=20 -> consensus 20
+        batch1 = [
+            {'counting_id': self.counting.id, 'location_id': self.location.id, 'quantity_inventoried': 20,
+             'assignment_id': self.assignment.id, 'product_id': self.product.id},
+            {'counting_id': counting_2.id, 'location_id': self.location.id, 'quantity_inventoried': 20,
+             'assignment_id': assignment_2.id, 'product_id': self.product.id},
+        ]
+        r1 = self.client.post(f'/mobile/api/job/{self.job.id}/counting-detail/', data=batch1, format='json')
+        self.assertEqual(r1.status_code, status.HTTP_201_CREATED)
+        ecart = EcartComptage.objects.filter(inventory=self.inventory).first()
+        self.assertIsNotNone(ecart)
+        self.assertEqual(ecart.final_result, 20)
+        # Mise à jour du 2e comptage : 20 -> 22. Pas de consensus (20 != 22) -> final_result doit devenir None
+        batch2 = [{
+            'counting_id': counting_2.id,
+            'location_id': self.location.id,
+            'quantity_inventoried': 22,
+            'assignment_id': assignment_2.id,
+            'product_id': self.product.id,
+        }]
+        r2 = self.client.post(f'/mobile/api/job/{self.job.id}/counting-detail/', data=batch2, format='json')
+        self.assertEqual(r2.status_code, status.HTTP_201_CREATED)
+        ecart.refresh_from_db()
+        # Règles métier : 2 comptages différents -> pas de consensus
+        self.assertIsNone(ecart.final_result)
+        sequences = list(
+            ComptageSequence.objects.filter(ecart_comptage=ecart).order_by('sequence_number')
+        )
+        self.assertEqual(len(sequences), 2)
+        self.assertEqual(sequences[0].quantity, 20)
+        self.assertEqual(sequences[1].quantity, 22)
+        self.assertEqual(sequences[1].ecart_with_previous, 2)
 
