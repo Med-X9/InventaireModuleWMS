@@ -1,4 +1,4 @@
-from django.urls import path
+from django.urls import include, path
 
 from .views.inventory_views import (
     InventoryListView,
@@ -66,6 +66,11 @@ from .views.excel_export_views import ConsolidatedArticleExcelExportView
 from .views.job_export_view import JobExportView
 
 urlpatterns = [
+    # ========================================
+    # PRÉSENCE MOBILE (Redis, temps réel)
+    # ========================================
+    path('presence/', include('apps.realtime.urls')),
+
     # ========================================
     # URLs POUR LES INVENTAIRES
     # ========================================
@@ -209,7 +214,7 @@ urlpatterns = [
     # API pour suivre le statut et récupérer l'URL du PDF généré
     path('pdf-tasks/<uuid:task_id>/', PdfTaskStatusView.as_view(), name='pdf-task-status'),
     
-    # ========================================
+    # ======================================== 
     # URL POUR L'EXPORT EXCEL CONSOLIDE
     # ========================================
     

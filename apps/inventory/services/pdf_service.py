@@ -162,6 +162,24 @@ class PDFService(PDFServiceInterface):
         # Filtrer les assignments selon les comptages valides
         valid_counting_ids = [c.id for c in countings]
         assignments = [a for a in all_assignments if a.counting_id in valid_counting_ids]
+
+        # Calculer les dates globales pour le footer du PDF inventaire (min début / max fin)
+        def _assignment_start_dt(a):
+            for attr in ("entame_date", "date_start", "affecte_date", "pret_date"):
+                dt = getattr(a, attr, None)
+                if dt is not None:
+                    return dt
+            return None
+
+        def _assignment_end_dt(a):
+            if getattr(a, "termine_date", None):
+                return a.termine_date
+            return getattr(a, "updated_at", None)
+
+        start_datetimes = [d for d in (_assignment_start_dt(a) for a in assignments) if d is not None]
+        end_datetimes = [d for d in (_assignment_end_dt(a) for a in assignments) if d is not None]
+        global_date_debut = min(start_datetimes).strftime('%d/%m/%Y %H:%M') if start_datetimes else '-'
+        global_date_fin = max(end_datetimes).strftime('%d/%m/%Y %H:%M') if end_datetimes else '-'
         
         # Grouper les assignments par job
         assignments_by_job = {}
@@ -273,8 +291,8 @@ class PDFService(PDFServiceInterface):
                 'warehouse_name': warehouse_info['name'],
                 'inventory_type': inventory.inventory_type,
                 'date': inventory.date.strftime('%d/%m/%Y') if inventory.date else '-',
-                'date_debut': None,  # Pas de date de début pour l'inventaire global
-                'date_fin': None,  # Pas de date de fin pour l'inventaire global
+                'date_debut': global_date_debut,
+                'date_fin': global_date_fin,
                 'job_reference': '-'  # Sera remplacé par page_info_map pour chaque page
             }
             
@@ -434,8 +452,10 @@ class PDFService(PDFServiceInterface):
             account = inventory_info.get('account_name', '-')
             warehouse = inventory_info.get('warehouse_name', '-')
             
-            # Construire le footer
+            # Construire le footer (référence / compte / magasin uniquement ; dates sur la ligne dédiée)
             footer_parts = [f"Réf. Inventaire: {reference}", f"Compte: {account}", f"Magasin: {warehouse}"]
+            date_debut = inventory_info.get("date_debut")
+            date_fin = inventory_info.get("date_fin")
             footer_text = "-".join(footer_parts)
             
             # Centrer le footer horizontalement
@@ -443,22 +463,20 @@ class PDFService(PDFServiceInterface):
             footer_x = (doc.pagesize[0] - footer_width) / 2
             canvas_obj.drawString(footer_x, footer_y, footer_text)
             
-            # Afficher les labels de dates séparés
-            # Positionner les labels entre le footer et les signatures (2.8cm du bas)
+            # Ligne dédiée sous le footer : libellés + valeurs (même source que inventory_info)
             date_line_y = 2.8*cm
             signature_margin = 0.5*cm
             canvas_obj.setFont("Helvetica", 10)
             canvas_obj.setFillColor(colors.black)
             
-            # Label Date début (à gauche, aligné avec Signature L'Oréal)
+            date_debut_val = date_debut if date_debut not in (None, "", "-") else "-"
+            date_fin_val = date_fin if date_fin not in (None, "", "-") else "-"
             date_debut_x = doc.leftMargin + signature_margin
-            canvas_obj.drawString(date_debut_x, date_line_y, "Date début:")
+            canvas_obj.drawString(date_debut_x, date_line_y, f"Date début: {date_debut_val}")
             
-            # Label Date fin (à droite, aligné avec Signature AGL)
-            label_text_fin = "Date fin :"
+            space_for_manual_entry = 4*cm
+            label_text_fin = f"Date fin : {date_fin_val}"
             label_fin_width = canvas_obj.stringWidth(label_text_fin, "Helvetica", 10)
-            space_for_manual_entry = 4*cm  # Espace pour la saisie manuelle
-            # Calculer la position de la même manière que la signature AGL
             date_fin_label_x = doc.pagesize[0] - doc.rightMargin - label_fin_width - signature_margin - space_for_manual_entry
             canvas_obj.drawString(date_fin_label_x, date_line_y, label_text_fin)
         
@@ -986,15 +1004,14 @@ class PDFService(PDFServiceInterface):
                 canvas_obj.setFont("Helvetica", 10)
                 canvas_obj.setFillColor(colors.black)
                 
-                # Label Date début (à gauche, aligné avec Signature L'Oréal)
+                date_debut_val = date_debut if date_debut not in (None, "", "-") else "-"
+                date_fin_val = date_fin if date_fin not in (None, "", "-") else "-"
                 date_debut_x = doc.leftMargin + signature_margin
-                canvas_obj.drawString(date_debut_x, date_line_y, "Date début:")
+                canvas_obj.drawString(date_debut_x, date_line_y, f"Date début: {date_debut_val}")
                 
-                # Label Date fin (à droite, aligné avec Signature AGL)
-                label_text_fin = "Date fin :"
+                label_text_fin = f"Date fin : {date_fin_val}"
                 label_fin_width = canvas_obj.stringWidth(label_text_fin, "Helvetica", 10)
                 space_for_manual_entry = 4*cm  # Espace pour la saisie manuelle
-                # Calculer la position de la même manière que la signature AGL
                 date_fin_label_x = doc.pagesize[0] - doc.rightMargin - label_fin_width - signature_margin - space_for_manual_entry
                 canvas_obj.drawString(date_fin_label_x, date_line_y, label_text_fin)
         
