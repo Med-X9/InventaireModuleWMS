@@ -25,6 +25,8 @@ ALLOWED_HOSTS = config('DJANGO_ALLOWED_HOSTS', cast=Csv())
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',
+    'channels',
     'jazzmin',
     'django.contrib.admin',
     'django.contrib.auth',
@@ -44,8 +46,7 @@ INSTALLED_APPS = [
     'apps.mobile',
     'corsheaders',
     'apps.masterdata',
-
-
+    'apps.realtime',
 ]
 
 # AUTH_USER_MODEL = 'users.UserWeb'
@@ -109,6 +110,24 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'project.wsgi.application'
+
+# ASGI / Django Channels (WebSocket présence mobile — sans persistance SQL)
+ASGI_APPLICATION = 'project.asgi.application'
+
+# Redis pour le channel layer (pub/sub entre workers ASGI)
+REDIS_URL = config('REDIS_URL', default='redis://127.0.0.1:6379/0')
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            'hosts': [REDIS_URL],
+        },
+    },
+}
+
+# Redis dédié aux clés de présence (TTL). Peut être la même instance, autre DB logique.
+PRESENCE_REDIS_URL = config('PRESENCE_REDIS_URL', default='redis://127.0.0.1:6379/1')
+PRESENCE_TTL_SECONDS = config('PRESENCE_TTL_SECONDS', default=45, cast=int)
 
 
 # Database

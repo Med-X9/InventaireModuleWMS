@@ -34,6 +34,7 @@ schema_view = get_schema_view(
     permission_classes=(permissions.AllowAny,),
     patterns=[
         path('web/api/', include('apps.inventory.urls')),
+        path('web/api/presence/', include('apps.realtime.urls')),
         path('mobile/api/', include('apps.mobile.urls')),
         path('api/auth/', include('apps.users.urls')),
         path('masterdata/api/', include('apps.masterdata.urls')),
