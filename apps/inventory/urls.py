@@ -67,9 +67,9 @@ from .views.job_export_view import JobExportView
 
 urlpatterns = [
     # ========================================
-    # PRÉSENCE MOBILE (Redis, temps réel)
+    # CONNECTIVITÉ PDA (heartbeat mobile → PostgreSQL)
     # ========================================
-    path('presence/', include('apps.realtime.urls')),
+    path('devices/', include('apps.devices.urls_web')),
 
     # ========================================
     # URLs POUR LES INVENTAIRES

@@ -1,4 +1,4 @@
-from django.urls import path
+from django.urls import include, path
 from . import views
 
 app_name = "mobile"
@@ -11,6 +11,8 @@ urlpatterns = [
     path(
         "auth/refresh/", views.RefreshTokenView.as_view(), name="mobile_refresh_token"
     ),
+    # Connectivité PDA (heartbeat Flutter)
+    path("devices/", include("apps.devices.urls_mobile")),
     # Synchronisation unifiée - Bonne pratique
     path(  
         "sync/data/",
