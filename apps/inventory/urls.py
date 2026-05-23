@@ -64,6 +64,28 @@ from .views.pdf_views import (
 )
 from .views.excel_export_views import ConsolidatedArticleExcelExportView
 from .views.job_export_view import JobExportView
+from .views.kpis_views import (
+    KpiEquipesMultiEcartsView,
+    KpiJobsAvecEcartParEquipeView,
+    KpiNombreEcartsOuvertsView,
+    KpiNombreEcartsView,
+    KpiNombreEmplacementsAvecEcartView,
+    KpiNombreEmplacementsCouvertsView,
+    KpiNombreEquipesView,
+    KpiNombreJobsAffectesView,
+    KpiNombreJobsAvecEcartView,
+    KpiNombreJobsTotalView,
+    KpiRepartition1erComptageParEquipeView,
+    KpiRepartition2eComptageParEquipeView,
+    KpiRepartitionAssignments1erComptageView,
+    KpiRepartitionAssignments2eComptageView,
+    KpiRepartitionAssignments3eComptageView,
+    KpiRepartitionAssignmentsNiemeComptageView,
+    KpiTauxJobsTermines1erComptageView,
+    KpiTauxJobsTermines2eComptageView,
+    KpiTauxTermine1erComptageParEquipeView,
+    KpiTauxTermine2eComptageParEquipeView,
+)
 
 urlpatterns = [
     # ========================================
@@ -105,6 +127,130 @@ urlpatterns = [
     path('inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/results/export/', InventoryResultExportExcelView.as_view(), name='inventory-warehouse-results-export'),
     path('inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/monitoring/', ZoneMonitoringByInventoryAndWarehouseView.as_view(), name='inventory-warehouse-monitoring'),
     path('inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/global-monitoring/', GlobalMonitoringByInventoryAndWarehouseView.as_view(), name='inventory-warehouse-global-monitoring'),
+
+    # ========================================
+    # URLs KPI MAGASIN (catalogue INVENTORY_KPI_CATALOG.md)
+    # Préfixe : inventory/<inventory_id>/warehouses/<warehouse_id>/kpis/
+    # ========================================
+
+    # KPI — Volume magasin (A01–A03)
+    path(
+        'inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/kpis/nombre-jobs-total/',
+        KpiNombreJobsTotalView.as_view(),
+        name='kpi-nombre-jobs-total',
+    ),
+    path(
+        'inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/kpis/nombre-jobs-affectes/',
+        KpiNombreJobsAffectesView.as_view(),
+        name='kpi-nombre-jobs-affectes',
+    ),
+    path(
+        'inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/kpis/nombre-emplacements-couverts/',
+        KpiNombreEmplacementsCouvertsView.as_view(),
+        name='kpi-nombre-emplacements-couverts',
+    ),
+
+    # KPI — Taux jobs terminés par comptage (B01–B02)
+    path(
+        'inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/kpis/taux-jobs-termines-1er-comptage/',
+        KpiTauxJobsTermines1erComptageView.as_view(),
+        name='kpi-taux-jobs-termines-1er-comptage',
+    ),
+    path(
+        'inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/kpis/taux-jobs-termines-2e-comptage/',
+        KpiTauxJobsTermines2eComptageView.as_view(),
+        name='kpi-taux-jobs-termines-2e-comptage',
+    ),
+
+    # KPI — Répartition assignments par ordre de comptage (C01–C04)
+    path(
+        'inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/kpis/repartition-assignments-1er-comptage/',
+        KpiRepartitionAssignments1erComptageView.as_view(),
+        name='kpi-repartition-assignments-1er-comptage',
+    ),
+    path(
+        'inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/kpis/repartition-assignments-2e-comptage/',
+        KpiRepartitionAssignments2eComptageView.as_view(),
+        name='kpi-repartition-assignments-2e-comptage',
+    ),
+    path(
+        'inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/kpis/repartition-assignments-3e-comptage/',
+        KpiRepartitionAssignments3eComptageView.as_view(),
+        name='kpi-repartition-assignments-3e-comptage',
+    ),
+    path(
+        'inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/kpis/repartition-assignments-nieme-comptage/',
+        KpiRepartitionAssignmentsNiemeComptageView.as_view(),
+        name='kpi-repartition-assignments-nieme-comptage',
+    ),
+
+    # KPI — Écarts (D01–D04)
+    path(
+        'inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/kpis/nombre-ecarts/',
+        KpiNombreEcartsView.as_view(),
+        name='kpi-nombre-ecarts',
+    ),
+    path(
+        'inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/kpis/nombre-jobs-avec-ecart/',
+        KpiNombreJobsAvecEcartView.as_view(),
+        name='kpi-nombre-jobs-avec-ecart',
+    ),
+    path(
+        'inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/kpis/nombre-emplacements-avec-ecart/',
+        KpiNombreEmplacementsAvecEcartView.as_view(),
+        name='kpi-nombre-emplacements-avec-ecart',
+    ),
+    path(
+        'inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/kpis/nombre-ecarts-ouverts/',
+        KpiNombreEcartsOuvertsView.as_view(),
+        name='kpi-nombre-ecarts-ouverts',
+    ),
+
+    # KPI — Équipes (T01–T07)
+    path(
+        'inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/kpis/nombre-equipes/',
+        KpiNombreEquipesView.as_view(),
+        name='kpi-nombre-equipes',
+    ),
+    path(
+        'inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/kpis/taux-termine-1er-comptage-par-equipe/',
+        KpiTauxTermine1erComptageParEquipeView.as_view(),
+        name='kpi-taux-termine-1er-comptage-par-equipe',
+    ),
+    path(
+        'inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/kpis/taux-termine-2e-comptage-par-equipe/',
+        KpiTauxTermine2eComptageParEquipeView.as_view(),
+        name='kpi-taux-termine-2e-comptage-par-equipe',
+    ),
+    path(
+        'inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/kpis/repartition-1er-comptage-par-equipe/',
+        KpiRepartition1erComptageParEquipeView.as_view(),
+        name='kpi-repartition-1er-comptage-par-equipe',
+    ),
+    path(
+        'inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/kpis/repartition-2e-comptage-par-equipe/',
+        KpiRepartition2eComptageParEquipeView.as_view(),
+        name='kpi-repartition-2e-comptage-par-equipe',
+    ),
+    path(
+        'inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/kpis/equipes-multi-ecarts/',
+        KpiEquipesMultiEcartsView.as_view(),
+        name='kpi-equipes-multi-ecarts',
+    ),
+    path(
+        'inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/kpis/jobs-avec-ecart-par-equipe/',
+        KpiJobsAvecEcartParEquipeView.as_view(),
+        name='kpi-jobs-avec-ecart-par-equipe',
+    ),
+
+
+
+
+
+
+
+    # ========================================
+
     path('inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/stocks/import/', StockImportView.as_view(), name='stock-import'),
     path('inventory/<int:inventory_id>/location-jobs/import/', InventoryLocationJobImportView.as_view(), name='inventory-location-job-import'),
     path('inventory/<int:inventory_id>/location-jobs/import-async/', InventoryLocationJobImportSyncView.as_view(), name='inventory-location-job-import-sync'),
