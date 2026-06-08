@@ -20,6 +20,8 @@ from apps.mobile.exceptions import (
 
 logger = logging.getLogger(__name__)
 
+MAX_ENTAME_ASSIGNMENTS_PER_INVENTORY = 2
+
 
 class AssignmentService:
     """
@@ -56,9 +58,7 @@ class AssignmentService:
         except Assigment.DoesNotExist:
             raise AssignmentNotFoundException(f"Assignment avec l'ID {assignment_id} non trouvé")
         
-        # Vérifier que l'utilisateur est affecté à cet assignment
         if assignment.session_id != user_id:
-            # Récupérer le username de l'utilisateur pour le message d'erreur
             try:
                 user = UserApp.objects.get(id=user_id)
                 username = user.username
@@ -98,7 +98,6 @@ class AssignmentService:
         except Assigment.DoesNotExist:
             raise AssignmentNotFoundException(f"Assignment non trouvé pour le job {job_id}")
         
-        # Vérifier que l'utilisateur est affecté à cet assignment
         if assignment.session_id != user_id:
             raise UserNotAssignedException(
                 f"L'utilisateur {user_id} n'est pas affecté au job {job_id}"
@@ -126,7 +125,7 @@ class AssignmentService:
             InvalidStatusTransitionException: Si la transition de statut n'est pas autorisée
             JobNotFoundException: Si le job associé n'existe pas
             AssignmentAlreadyStartedException: Si l'assignment est déjà en statut ENTAME
-            MaxEntameAssignmentsException: Si l'utilisateur a déjà 3 assignments ENTAME pour le même inventory
+            MaxEntameAssignmentsException: Si l'utilisateur a déjà atteint la limite d'assignments ENTAME pour le même inventory
         """
         # Vérifier que l'utilisateur est autorisé
         assignment = self.verify_user_assignment(assignment_id, user_id)
@@ -138,36 +137,27 @@ class AssignmentService:
                 f"L'assignment {assignment_id} est déjà entamé et ne peut pas être modifié"
             )
         
-        # Vérifier la transition de statut pour l'assignment
         if new_status not in self.allowed_status_transitions.get(current_assignment_status, []):
             raise InvalidStatusTransitionException(
                 f"Transition de statut non autorisée: {current_assignment_status} -> {new_status}"
             )
         
-        # Récupérer le job associé
         job = assignment.job
         if not job:
             raise JobNotFoundException(f"Job non trouvé pour l'assignment {assignment_id}")
         
-        # Vérifier la limite de 3 assignments ENTAME pour le même utilisateur et le même inventory
-        # Cette vérification s'applique uniquement si on passe à ENTAME
         if new_status == 'ENTAME':
-            # Récupérer l'inventory associé au job de l'assignment
             inventory = job.inventory
-            
-            # Compter les assignments ENTAME de l'utilisateur pour le même inventory
-            # (exclure l'assignment actuel qui n'est pas encore en statut ENTAME)
             entame_count = Assigment.objects.filter(
                 session_id=user_id,
                 job__inventory=inventory,
                 status='ENTAME'
             ).exclude(id=assignment_id).count()
             
-            # Vérifier si l'utilisateur a déjà 3 assignments ENTAME
-            if entame_count >= 3:
+            if entame_count >= MAX_ENTAME_ASSIGNMENTS_PER_INVENTORY:
                 raise MaxEntameAssignmentsException(
                     f"Vous ne pouvez pas lancer (entamer) cet assignment car vous avez déjà {entame_count} assignments "
-                    f"en statut ENTAME pour le même inventaire. Maximum autorisé: 3."
+                    f"en statut ENTAME pour le même inventaire. Maximum autorisé: {MAX_ENTAME_ASSIGNMENTS_PER_INVENTORY}."
                 )
         
         # Mettre à jour le statut de l'assignment et la date correspondante
@@ -240,13 +230,11 @@ class AssignmentService:
                 f"L'assignment {assignment.id} est déjà entamé et ne peut pas être modifié"
             )
         
-        # Vérifier la transition de statut pour l'assignment
         if new_status not in self.allowed_status_transitions.get(current_assignment_status, []):
             raise InvalidStatusTransitionException(
                 f"Transition de statut non autorisée: {current_assignment_status} -> {new_status}"
             )
         
-        # Vérifier la transition de statut pour le job
         current_job_status = job.status
         if new_status not in self.allowed_status_transitions.get(current_job_status, []):
             raise InvalidStatusTransitionException(
@@ -403,7 +391,6 @@ class AssignmentService:
             except Assigment.DoesNotExist:
                 raise AssignmentNotFoundException(f"Assignment avec l'ID {assignment_id} non trouvé")
         
-        # Vérifier que l'assignment appartient au job
         if assignment.job_id != job_id:
             raise InvalidStatusTransitionException(
                 f"L'assignment {assignment_id} n'appartient pas au job {job_id}"
@@ -462,7 +449,7 @@ class AssignmentService:
         
         return {
             'success': True,
-            'message': f'Assignment {assignment.reference} clôturé avec succès' + 
+            'message': f'Assignment {assignment.reference} clôturé avec succès' +
                       (f' et job {job.reference} clôturé' if job_closed else ''),
             'job': {
                 'id': job.id,
@@ -918,7 +905,7 @@ class AssignmentService:
         """
         Débloque un assignment en changeant son statut vers ENTAME.
         Cette opération n'est autorisée que si l'assignment est en statut bloqué.
-        Vérifie également qu'il n'y a pas déjà 3 assignments ENTAME pour le même utilisateur et inventory.
+        Vérifie également la limite d'assignments ENTAME pour le même utilisateur et inventaire.
         
         Args:
             assignment_id: ID de l'assignment à débloquer
@@ -931,7 +918,7 @@ class AssignmentService:
             AssignmentNotFoundException: Si l'assignment n'existe pas
             UserNotAssignedException: Si l'utilisateur n'est pas affecté à l'assignment
             AssignmentNotBloqueException: Si l'assignment n'est pas en statut bloqué
-            MaxEntameAssignmentsException: Si l'utilisateur a déjà 3 assignments ENTAME pour le même inventory
+            MaxEntameAssignmentsException: Si la limite d'assignments ENTAME pour le même inventory est atteinte
         """
         # Vérifier que l'utilisateur est autorisé
         assignment = self.verify_user_assignment(assignment_id, user_id)
@@ -943,7 +930,6 @@ class AssignmentService:
                 f"Seuls les assignments en statut 'BLOQUE' peuvent être débloqués."
             )
         
-        # Récupérer l'inventory associé au job de l'assignment
         inventory = assignment.job.inventory
         
         # Compter les assignments ENTAME de l'utilisateur pour le même inventory
@@ -954,20 +940,18 @@ class AssignmentService:
             status='ENTAME'
         ).exclude(id=assignment_id).count()
         
-        # Vérifier si l'utilisateur a déjà 3 assignments ENTAME
-        if entame_count >= 3:
+        if entame_count >= MAX_ENTAME_ASSIGNMENTS_PER_INVENTORY:
             raise MaxEntameAssignmentsException(
                 f"Vous ne pouvez pas débloquer cet assignment car vous avez déjà {entame_count} assignments en statut ENTAME "
-                f"pour le même inventaire. Pour débloquer, vous devez terminer ou bloquer un assignment."
+                f"pour le même inventaire (maximum: {MAX_ENTAME_ASSIGNMENTS_PER_INVENTORY}). "
+                f"Pour débloquer, vous devez terminer ou bloquer un assignment."
             )
         
-        # Mettre à jour le statut vers ENTAME
         now = timezone.now()
         assignment.status = 'ENTAME'
         assignment.debloqued_date = now
         assignment.save(update_fields=['status', 'debloqued_date', 'updated_at'])
         
-        # Récupérer le job associé pour information
         job = assignment.job
         
         return {

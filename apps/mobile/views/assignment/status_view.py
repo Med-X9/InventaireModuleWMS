@@ -36,7 +36,7 @@ class AssignmentStatusView(APIView):
     - L'utilisateur est récupéré automatiquement depuis le token d'authentification
     - Validation des permissions utilisateur
     - Gestion des transitions de statut valides
-    - Vérification de la limite de 3 assignments ENTAME par utilisateur et par inventaire
+    - Vérification de la limite de 2 assignments ENTAME par utilisateur et par inventaire
     - Cohérence des données entre assignment et job
     
     Paramètres d'URL:
@@ -44,7 +44,7 @@ class AssignmentStatusView(APIView):
     
     Réponses:
     - 200: Statut mis à jour avec succès
-    - 400: Transition de statut invalide, assignment déjà entamé, ou limite d'assignments ENTAME atteinte (max 3)
+    - 400: Transition de statut invalide, assignment déjà entamé, ou limite d'assignments ENTAME atteinte (max 2)
     - 401: Non authentifié
     - 403: Utilisateur non autorisé pour cet assignment
     - 404: Assignment ou job non trouvé
@@ -95,7 +95,7 @@ class AssignmentStatusView(APIView):
                         'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
                         'error': openapi.Schema(
                             type=openapi.TYPE_STRING, 
-                            example='Vous ne pouvez pas lancer (entamer) cet assignment car vous avez déjà 3 assignments en statut ENTAME pour le même inventaire. Maximum autorisé: 3.'
+                            example='Vous ne pouvez pas lancer (entamer) cet assignment car vous avez déjà 2 assignments en statut ENTAME pour le même inventaire. Maximum autorisé: 2.'
                         )
                     }
                 )

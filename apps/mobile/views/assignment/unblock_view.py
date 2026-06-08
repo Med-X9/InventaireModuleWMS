@@ -26,7 +26,7 @@ class UnblockAssignmentView(APIView):
     
     Permet de débloquer un assignment en changeant son statut vers ENTAME.
     Cette opération n'est autorisée que si l'assignment est en statut bloqué.
-    Vérifie également qu'il n'y a pas déjà 3 assignments ENTAME pour le même utilisateur et inventory.
+    Vérifie également qu'il n'y a pas déjà 2 assignments ENTAME pour le même utilisateur et inventory.
     
     URL: /api/mobile/assignment/{assignment_id}/unblock/
     
@@ -36,7 +36,7 @@ class UnblockAssignmentView(APIView):
     - L'utilisateur est récupéré automatiquement depuis le token d'authentification
     - Validation des permissions utilisateur
     - Vérification que l'assignment est en statut bloqué
-    - Vérification qu'il n'y a pas déjà 3 assignments ENTAME pour le même inventory
+    - Vérification qu'il n'y a pas déjà 2 assignments ENTAME pour le même inventory
     
     Paramètres d'URL:
     - assignment_id (int): ID de l'assignment à débloquer
@@ -57,7 +57,7 @@ class UnblockAssignmentView(APIView):
     
     @swagger_auto_schema(
         operation_summary="Débloquer un assignment",
-        operation_description="Débloque un assignment en changeant son statut vers ENTAME. Seuls les assignments en statut bloqué peuvent être débloqués. Vérifie également qu'il n'y a pas déjà 3 assignments ENTAME pour le même inventory. L'utilisateur est récupéré depuis le token d'authentification",
+        operation_description="Débloque un assignment en changeant son statut vers ENTAME. Seuls les assignments en statut bloqué peuvent être débloqués. Vérifie également qu'il n'y a pas déjà 2 assignments ENTAME pour le même inventory. L'utilisateur est récupéré depuis le token d'authentification",
         manual_parameters=[
             openapi.Parameter(
                 'assignment_id',
@@ -110,7 +110,7 @@ class UnblockAssignmentView(APIView):
                         'success': openapi.Schema(type=openapi.TYPE_BOOLEAN, example=False),
                         'error': openapi.Schema(
                             type=openapi.TYPE_STRING, 
-                            example='Vous ne pouvez pas débloquer cet assignment car vous avez déjà 3 assignments en statut ENTAME pour le même inventaire. Pour débloquer, vous devez terminer ou bloquer un assignment.'
+                            example='Vous ne pouvez pas débloquer cet assignment car vous avez déjà 2 assignments en statut ENTAME pour le même inventaire (maximum: 2). Pour débloquer, vous devez terminer ou bloquer un assignment.'
                         )
                     }
                 )
