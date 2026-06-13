@@ -1,0 +1,4 @@
+from django.conf import settings
+
+OFFLINE_THRESHOLD_SECONDS = getattr(settings, "PDA_OFFLINE_THRESHOLD_SECONDS", 120)
+HEARTBEAT_MIN_INTERVAL_SECONDS = getattr(settings, "PDA_HEARTBEAT_MIN_INTERVAL_SECONDS", 25)
