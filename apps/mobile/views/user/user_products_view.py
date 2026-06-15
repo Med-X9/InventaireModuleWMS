@@ -20,6 +20,19 @@ from apps.mobile.exceptions import (
 )
 
 
+def _get_export_format(request) -> str:
+    """
+    Retourne le format d'export (csv par défaut).
+
+    Utilise export_format au lieu de format pour éviter le conflit
+    avec le paramètre de négociation de contenu DRF (?format=...).
+    """
+    export_format = request.GET.get('export_format', 'csv').lower()
+    if export_format not in ('csv', 'excel'):
+        raise ValueError("Le paramètre 'export_format' doit être 'csv' ou 'excel'")
+    return export_format
+
+
 class UserProductsView(APIView):
     """
     API pour exporter les produits du même compte qu'un utilisateur en format CSV ou Excel.
@@ -30,7 +43,7 @@ class UserProductsView(APIView):
     
     URL: /mobile/api/products/
     Paramètres GET:
-    - format: 'csv' (défaut) ou 'excel' pour choisir le format d'export
+    - export_format: 'csv' (défaut) ou 'excel' pour choisir le format d'export
     
     Fonctionnalités:
     - Export des produits du même compte en format CSV (par défaut) ou Excel
@@ -50,10 +63,10 @@ class UserProductsView(APIView):
     
     @swagger_auto_schema(
         operation_summary="Export CSV/Excel des produits utilisateur mobile",
-        operation_description="Exporte la liste des produits appartenant au même compte de l'utilisateur connecté en format CSV (par défaut) ou Excel (.xlsx). Utilisez ?format=excel pour Excel.",
+        operation_description="Exporte la liste des produits appartenant au même compte de l'utilisateur connecté en format CSV (par défaut) ou Excel (.xlsx). Utilisez ?export_format=excel pour Excel.",
         manual_parameters=[
             openapi.Parameter(
-                'format',
+                'export_format',
                 openapi.IN_QUERY,
                 description="Format d'export: 'csv' (défaut) ou 'excel'",
                 type=openapi.TYPE_STRING,
@@ -132,7 +145,7 @@ class UserProductsView(APIView):
         Args:
             request: Requête GET
             - L'utilisateur est récupéré automatiquement depuis le token d'authentification
-            - format: Paramètre optionnel 'excel' pour exporter en Excel (défaut: 'csv')
+            - export_format: Paramètre optionnel 'excel' pour exporter en Excel (défaut: 'csv')
             
         Returns:
             HttpResponse: Fichier CSV ou Excel contenant les produits
@@ -141,8 +154,7 @@ class UserProductsView(APIView):
             # Récupérer l'utilisateur depuis le token d'authentification
             user_id = request.user.id
             
-            # Vérifier le format demandé (csv par défaut)
-            export_format = request.GET.get('format', 'csv').lower()
+            export_format = _get_export_format(request)
             
             user_service = UserService()
             
@@ -162,6 +174,7 @@ class UserProductsView(APIView):
 
                     products.append({
                         'web_id': product.get('web_id'),
+                        'product_name': product.get('product_name'),
                         'product_code': raw_product_code,
                         'internal_product_code': raw_internal_product_code,
                         'family_name': product.get('family_name'),
@@ -217,7 +230,7 @@ class UserProductsView(APIView):
             )
         except ProductNotFoundException as e:
             # Générer un fichier vide avec seulement les en-têtes
-            export_format = request.GET.get('format', 'csv').lower()
+            export_format = _get_export_format(request)
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             
             if export_format == 'excel':
@@ -493,7 +506,7 @@ class AllProductsView(APIView):
     
     URL: /mobile/api/products/all/
     Paramètres GET:
-    - format: 'csv' (défaut) ou 'excel' pour choisir le format d'export
+    - export_format: 'csv' (défaut) ou 'excel' pour choisir le format d'export
     - status: 'ACTIVE' (défaut), 'INACTIVE' ou 'all' pour filtrer par statut
     
     Fonctionnalités:
@@ -512,10 +525,10 @@ class AllProductsView(APIView):
     
     @swagger_auto_schema(
         operation_summary="Export CSV/Excel de tous les produits (sans filtre account)",
-        operation_description="Exporte la liste de TOUS les produits du système sans vérification de compte. Utilisez ?format=excel pour Excel et ?status=ACTIVE/INACTIVE/all pour filtrer par statut.",
+        operation_description="Exporte la liste de TOUS les produits du système sans vérification de compte. Utilisez ?export_format=excel pour Excel et ?status=ACTIVE/INACTIVE/all pour filtrer par statut.",
         manual_parameters=[
             openapi.Parameter(
-                'format',
+                'export_format',
                 openapi.IN_QUERY,
                 description="Format d'export: 'csv' (défaut) ou 'excel'",
                 type=openapi.TYPE_STRING,
@@ -590,15 +603,14 @@ class AllProductsView(APIView):
         
         Args:
             request: Requête GET
-            - format: Paramètre optionnel 'excel' pour exporter en Excel (défaut: 'csv')
+            - export_format: Paramètre optionnel 'excel' pour exporter en Excel (défaut: 'csv')
             - status: Paramètre optionnel 'ACTIVE', 'INACTIVE' ou 'all' (défaut: 'ACTIVE')
             
         Returns:
             HttpResponse: Fichier CSV ou Excel contenant tous les produits
         """
         try:
-            # Récupérer le format demandé (csv par défaut)
-            export_format = request.GET.get('format', 'csv').lower()
+            export_format = _get_export_format(request)
             
             # Récupérer le statut demandé (ACTIVE par défaut)
             status_filter = request.GET.get('status', 'ACTIVE').upper()
@@ -620,7 +632,7 @@ class AllProductsView(APIView):
                 products_queryset = Product.objects.select_related('Product_Family').all().order_by('Short_Description')
             else:
                 products_queryset = Product.objects.select_related('Product_Family').filter(
-                    Product_Status=status_filter
+                    Product_Status__iexact=status_filter,
                 ).order_by('Short_Description')
             
             # Formater les produits comme le fait le repository
