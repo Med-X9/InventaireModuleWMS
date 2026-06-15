@@ -242,7 +242,7 @@ class UserProductsExportView(APIView):
                 'numeros_serie'  # Prefetch des numéros de série
             ).filter(
                 Product_Family__compte_id=account_id,
-                Product_Status='ACTIVE'
+                Product_Status__iexact='ACTIVE',
             ).order_by('id')[offset:offset + limit]
             
             # Formater les données

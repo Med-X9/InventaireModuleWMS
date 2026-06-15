@@ -70,7 +70,7 @@ class UserRepository:
             try:
                 products = Product.objects.select_related('Product_Family').filter(
                     Product_Family__compte=account,
-                    Product_Status='ACTIVE'
+                    Product_Status__iexact='ACTIVE',
                 ).order_by('Short_Description')
                 
                 # Si aucun produit trouvé, retourner une liste vide (pas d'exception)
@@ -295,7 +295,7 @@ class UserRepository:
                 'family_id': family_id,
                 'brand': family_name,  # Alias pour compatibilité
                 'unit_of_measure': product.Stock_Unit,
-                'is_active': product.Product_Status == 'ACTIVE',
+                'is_active': (product.Product_Status or '').upper() == 'ACTIVE',
                 'is_variant': product.Is_Variant,
                 'n_lot': product.n_lot,
                 'n_serie': product.n_serie,
