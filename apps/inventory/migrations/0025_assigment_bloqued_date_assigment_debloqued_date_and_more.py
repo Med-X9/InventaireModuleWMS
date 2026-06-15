@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('inventory', '0024_assigment_imprime_fields'),
+        ('inventory', '0024_assigment_bloqued_date_assigment_debloqued_date_and_more'),
     ]
 
     operations = [

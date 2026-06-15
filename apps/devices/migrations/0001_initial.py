@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('inventory', '0024_assigment_imprime_fields'),
+        ('inventory', '0024_assigment_bloqued_date_assigment_debloqued_date_and_more'),
         ('masterdata', '0018_alter_stock_unit_of_measure'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]

@@ -5,7 +5,7 @@ import uuid
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("inventory", "0022_alter_assigment_status_choices"),
+        ("inventory", "0022_assigment_bloqued_date_assigment_debloqued_date_and_more"),
     ]
 
     operations = [
