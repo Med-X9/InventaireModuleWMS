@@ -14,6 +14,10 @@ from apps.inventory.utils.response_utils import success_response, error_response
 from apps.masterdata.exceptions import InventoryLocationJobValidationError
 from apps.inventory.exceptions import InventoryNotFoundError
 from apps.masterdata.models import ImportTask, ImportError
+from apps.inventory.models import Inventory
+from apps.inventory.usecases.location_job_import_session_dispatcher import (
+    LocationJobImportSessionDispatcher,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -180,8 +184,18 @@ class InventoryLocationJobImportSyncView(APIView):
                         status_code=status.HTTP_400_BAD_REQUEST
                     )
                 
-                # Valider la structure du fichier (colonnes requises)
-                required_columns = ['warehouse', 'emplacement', 'active', 'job', 'session_1', 'session_2']
+                # Valider la structure du fichier (colonnes selon type inventaire)
+                try:
+                    inventory = Inventory.objects.get(id=inventory_id)
+                except Inventory.DoesNotExist:
+                    return error_response(
+                        message=f"Inventaire {inventory_id} introuvable",
+                        status_code=status.HTTP_404_NOT_FOUND,
+                    )
+                session_strategy = LocationJobImportSessionDispatcher().get_strategy(
+                    inventory.inventory_type
+                )
+                required_columns = session_strategy.required_columns()
                 missing_columns = [col for col in required_columns if col not in columns]
                 
                 if missing_columns:
@@ -200,7 +214,9 @@ class InventoryLocationJobImportSyncView(APIView):
                             'required_columns': required_columns,
                             'found_columns': columns,
                             'file_name': file_name,
-                            'total_rows': total_rows
+                            'total_rows': total_rows,
+                            'inventory_type': inventory.inventory_type,
+                            'session_strategy': session_strategy.strategy_key(),
                         }
                     )
                 
@@ -237,7 +253,10 @@ class InventoryLocationJobImportSyncView(APIView):
                         'import_task_id': import_task.id,
                         'file_name': file_name,
                         'columns': columns,
-                        'total_rows': total_rows
+                        'total_rows': total_rows,
+                        'inventory_type': inventory.inventory_type,
+                        'session_strategy': session_strategy.strategy_key(),
+                        'session_2_required': session_strategy.session_2_required(),
                     },
                     message='Import en cours de traitement. Le traitement est effectué en arrière-plan.',
                     status_code=status.HTTP_202_ACCEPTED

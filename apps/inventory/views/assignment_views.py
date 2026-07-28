@@ -510,15 +510,18 @@ class AutoAssignJobsFromInventoryLocationJobView(APIView):
     
     POST /api/inventory/{inventory_id}/auto-assign-jobs-from-location-jobs/
     
+    Strategy selon inventory_type :
+    - GENERAL : équipes session_1 + session_2, assignments comptages 1 et 2
+    - MAGASIN / TOURNANT : équipe session_1 seule, assignment comptage 1 uniquement
+    
     Cette API :
     1. Récupère tous les InventoryLocationJob pour l'inventaire donné
-    2. Extrait les équipes uniques de session_1 et session_2
+    2. Extrait les équipes (session_1, et session_2 si GENERAL)
     3. Vérifie que les équipes existent dans UserApp (type='Mobile')
-    4. Vérifie que les équipes ne sont pas déjà affectées à un inventaire GENERAL en cours
-    5. Applique l'affectation automatique avec transaction atomique (tout ou rien)
-    6. Trouve les Jobs correspondants par référence
-    7. Crée les assignments pour les comptages 1 et 2 avec le statut AFFECTE
-    8. Met à jour le statut des jobs à AFFECTE
+    4. Applique l'affectation automatique avec transaction atomique (tout ou rien)
+    5. Trouve les Jobs correspondants par référence
+    6. Crée les assignments selon le type d'inventaire (statut AFFECTE)
+    7. Met à jour le statut des jobs à AFFECTE
     
     Logique "tout ou rien" : Si une seule équipe échoue la validation, toute l'opération est annulée
     

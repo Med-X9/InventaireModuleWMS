@@ -15,6 +15,13 @@ from apps.masterdata.repositories.warehouse_repository import WarehouseRepositor
 from apps.masterdata.repositories.location_repository import LocationRepository
 from apps.masterdata.exceptions import InventoryLocationJobValidationError
 from apps.inventory.repositories.inventory_repository import InventoryRepository
+from apps.inventory.constants import InventoryType
+from apps.inventory.interfaces.location_job_import_session_strategy_interface import (
+    ILocationJobImportSessionStrategy,
+)
+from apps.inventory.usecases.location_job_import_session_dispatcher import (
+    LocationJobImportSessionDispatcher,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +40,7 @@ class InventoryLocationJobImportService:
         self.warehouse_repo = WarehouseRepository()
         self.location_repo = LocationRepository()
         self.inventory_repo = InventoryRepository()
+        self.session_dispatcher = LocationJobImportSessionDispatcher()
     
     def import_from_excel_async(
         self,
@@ -264,6 +272,15 @@ class InventoryLocationJobImportService:
         try:
             # Vérifier que l'inventaire existe
             inventory = self.inventory_repo.get_by_id(inventory_id)
+            session_strategy = self.session_dispatcher.get_strategy(
+                getattr(inventory, "inventory_type", "") or ""
+            )
+            logger.info(
+                "Import location-jobs inventaire %s type=%s strategy=%s",
+                inventory_id,
+                getattr(inventory, "inventory_type", None),
+                session_strategy.strategy_key(),
+            )
             
             # Lire le fichier Excel
             print(f"[IMPORT] Lecture du fichier Excel: {file_path}")
@@ -285,7 +302,7 @@ class InventoryLocationJobImportService:
             # Valider la structure du fichier
             try:
                 print(f"[IMPORT] Validation de la structure du fichier...")
-                self._validate_excel_structure(df)
+                self._validate_excel_structure(df, session_strategy)
                 print(f"[IMPORT] Structure validée avec succès")
             except InventoryLocationJobValidationError as e:
                 # Convertir l'exception en erreur de validation
@@ -318,7 +335,8 @@ class InventoryLocationJobImportService:
                 errors = self._validate_row(
                     row_dict=row_dict,
                     row_number=row_number,
-                    inventory=inventory
+                    inventory=inventory,
+                    session_strategy=session_strategy,
                 )
                 
                 if errors:
@@ -379,25 +397,20 @@ class InventoryLocationJobImportService:
                     'imported_count': 0
                 }
             
-            # Valider la cohérence des sessions par job
-            session_errors = self._validate_job_sessions_consistency(validated_data)
+            # Valider la cohérence des sessions selon le type d'inventaire (Strategy)
+            session_errors = session_strategy.validate_cross_job_rules(validated_data)
             if session_errors:
-                logger.warning(f"Import annulé: erreur(s) de cohérence des sessions par job")
+                logger.warning(
+                    "Import annulé: erreur(s) de sessions (%s)",
+                    session_strategy.strategy_key(),
+                )
                 return {
                     'success': False,
-                    'message': f"Import annulé: erreur(s) de cohérence des sessions par job",
+                    'message': (
+                        f"Import annulé: erreur(s) de sessions "
+                        f"({session_strategy.strategy_key()})"
+                    ),
                     'errors': session_errors,
-                    'imported_count': 0
-                }
-            
-            # Valider qu'un job est affecté à une seule équipe dans les deux sessions
-            single_team_errors = self._validate_job_single_team_in_sessions(validated_data)
-            if single_team_errors:
-                logger.warning(f"Import annulé: erreur(s) de validation - un job doit être affecté à une seule équipe dans les deux sessions")
-                return {
-                    'success': False,
-                    'message': f"Import annulé: erreur(s) de validation - un job doit être affecté à une seule équipe dans les deux sessions",
-                    'errors': single_team_errors,
                     'imported_count': 0
                 }
             
@@ -596,17 +609,17 @@ class InventoryLocationJobImportService:
                 'imported_count': 0
             }
     
-    def _validate_excel_structure(self, df: pd.DataFrame) -> None:
+    def _validate_excel_structure(
+        self,
+        df: pd.DataFrame,
+        session_strategy: Optional[ILocationJobImportSessionStrategy] = None,
+    ) -> None:
         """
-        Valide la structure du fichier Excel (colonnes requises)
-        
-        Args:
-            df: DataFrame pandas
-            
-        Raises:
-            InventoryLocationJobValidationError: Si la structure est invalide
+        Valide la structure du fichier Excel (colonnes selon Strategy inventory_type).
         """
-        required_columns = ['warehouse', 'emplacement', 'active', 'job', 'session_1', 'session_2']
+        if session_strategy is None:
+            session_strategy = self.session_dispatcher.get_strategy(InventoryType.GENERAL)
+        required_columns = session_strategy.required_columns()
         missing_columns = [col for col in required_columns if col not in df.columns]
         
         if missing_columns:
@@ -618,7 +631,8 @@ class InventoryLocationJobImportService:
         self,
         row_dict: Dict[str, Any],
         row_number: int,
-        inventory: Inventory
+        inventory: Inventory,
+        session_strategy: Optional[ILocationJobImportSessionStrategy] = None,
     ) -> List[Dict[str, Any]]:
         """
         Valide une ligne du fichier Excel
@@ -627,10 +641,15 @@ class InventoryLocationJobImportService:
             row_dict: Dictionnaire contenant les données de la ligne
             row_number: Numéro de la ligne (pour les messages d'erreur)
             inventory: Objet Inventory
+            session_strategy: Strategy sessions selon inventory_type
             
         Returns:
             List[Dict]: Liste des erreurs de validation (vide si aucune erreur)
         """
+        if session_strategy is None:
+            session_strategy = self.session_dispatcher.get_strategy(
+                getattr(inventory, "inventory_type", "") or ""
+            )
         errors = []
         
         # 0. Déterminer si la ligne est active
@@ -833,10 +852,10 @@ class InventoryLocationJobImportService:
                             'message': f"La session_1 '{session_1_value}' est hors plage. Plage attendue: equipe-1001 à equipe-1999"
                         })
         
-        # 5. Validation de session_2 (equipe-2001 à equipe-2999) - Obligatoire seulement si active = true
+        # 5. Validation session_2 selon Strategy (GENERAL obligatoire ; MAGASIN/TOURNANT optionnelle)
         session_2_value = self._normalize_excel_value(row_dict.get('session_2'))
-        if is_active:
-            # Si active = true, session_2 est obligatoire
+        session_2_required = session_strategy.session_2_required()
+        if is_active and session_2_required:
             if not session_2_value:
                 errors.append({
                     'row_number': row_number,
@@ -863,28 +882,27 @@ class InventoryLocationJobImportService:
                             'value': session_2_value,
                             'message': f"La session_2 '{session_2_value}' est hors plage. Plage attendue: equipe-2001 à equipe-2999"
                         })
-        else:
-            # Si active = false, session_2 n'est pas obligatoire mais on peut quand même le valider s'il est présent
-            if session_2_value:
-                session_2_pattern = r'^equipe-(\d+)$'
-                match = re.match(session_2_pattern, session_2_value, re.IGNORECASE)
-                if not match:
+        elif session_2_value:
+            # Optionnelle (MAGASIN/TOURNANT) ou active=false : valider le format si renseignée
+            session_2_pattern = r'^equipe-(\d+)$'
+            match = re.match(session_2_pattern, session_2_value, re.IGNORECASE)
+            if not match:
+                errors.append({
+                    'row_number': row_number,
+                    'field': 'session_2',
+                    'value': session_2_value,
+                    'message': f"Le format de session_2 '{session_2_value}' est invalide. Format attendu: equipe-XXXX"
+                })
+            elif session_2_required:
+                session_number = int(match.group(1))
+                if session_number < 2001 or session_number > 2999:
                     errors.append({
                         'row_number': row_number,
                         'field': 'session_2',
                         'value': session_2_value,
-                        'message': f"Le format de session_2 '{session_2_value}' est invalide. Format attendu: equipe-XXXX"
+                        'message': f"La session_2 '{session_2_value}' est hors plage. Plage attendue: equipe-2001 à equipe-2999"
                     })
-                else:
-                    session_number = int(match.group(1))
-                    if session_number < 2001 or session_number > 2999:
-                        errors.append({
-                            'row_number': row_number,
-                            'field': 'session_2',
-                            'value': session_2_value,
-                            'message': f"La session_2 '{session_2_value}' est hors plage. Plage attendue: equipe-2001 à equipe-2999"
-                        })
-        
+
         # 6. Règle métier supplémentaire :
         #    Si active = false, alors job, session_1 et session_2 doivent être vides.
         #    Sinon, retourner une erreur de validation claire.
@@ -1456,17 +1474,23 @@ class InventoryLocationJobImportService:
             # Récupérer l'inventaire
             inventory = self.inventory_repo.get_by_id(inventory_id)
             
-            # Vérifier qu'il y a au moins deux comptages pour cet inventaire
+            # GENERAL : 2 comptages ; MAGASIN/TOURNANT : 1 comptage
             countings = Counting.objects.filter(inventory=inventory).order_by('order')
-            if countings.count() < 2:
-                logger.warning(f"Il faut au moins deux comptages pour créer les jobs. Comptages trouvés: {countings.count()}")
+            is_single = inventory.inventory_type in InventoryType.SINGLE_COUNTING
+            counting1 = countings.filter(order=1).first()
+            counting2 = countings.filter(order=2).first() if not is_single else None
+
+            if not counting1:
+                logger.warning(
+                    "Comptage d'ordre 1 requis. Comptages trouvés: %s",
+                    countings.count(),
+                )
                 return {'jobs_created': 0, 'job_details_created': 0}
-            
-            counting1 = countings.filter(order=1).first()  # 1er comptage
-            counting2 = countings.filter(order=2).first()  # 2ème comptage
-            
-            if not counting1 or not counting2:
-                logger.warning(f"Comptages d'ordre 1 et 2 requis. Comptages trouvés: {countings.count()}")
+            if not is_single and not counting2:
+                logger.warning(
+                    "Comptages d'ordre 1 et 2 requis (GENERAL). Comptages trouvés: %s",
+                    countings.count(),
+                )
                 return {'jobs_created': 0, 'job_details_created': 0}
             
             # Filtrer uniquement les lignes avec job (ignorer les lignes où active = false et job est vide)
@@ -1624,20 +1648,13 @@ class InventoryLocationJobImportService:
         job: Job,
         locations: List[Location],
         counting1: Counting,
-        counting2: Counting
+        counting2: Optional[Counting] = None,
     ) -> int:
         """
         Crée ou met à jour les JobDetails pour un job selon la logique des comptages (UPSERT)
         Clé unique : (job_id, location_id, counting_id)
-        
-        Args:
-            job: Le job pour lequel créer/mettre à jour les JobDetails
-            locations: Liste des emplacements (déjà triés)
-            counting1: Premier comptage
-            counting2: Deuxième comptage
-            
-        Returns:
-            int: Nombre de JobDetails créés/mis à jour
+
+        MAGASIN/TOURNANT : counting2=None → JobDetails sur le comptage 1 uniquement.
         """
         details_count = 0
         
@@ -1657,8 +1674,26 @@ class InventoryLocationJobImportService:
         # Préparer les objets à créer et à mettre à jour
         objects_to_create = []
         objects_to_update = []
-        
-        if counting1.count_mode == "image de stock":
+
+        # Mono-comptage (MAGASIN / TOURNANT) : JobDetails uniquement sur counting1
+        if counting2 is None:
+            for location in locations:
+                key1 = (location.id, counting1.id)
+                existing_jd1 = existing_map.get(key1)
+                if existing_jd1:
+                    existing_jd1.status = 'EN ATTENTE'
+                    existing_jd1.en_attente_date = timezone.now()
+                    objects_to_update.append(existing_jd1)
+                else:
+                    objects_to_create.append(JobDetail(
+                        location=location,
+                        job=job,
+                        counting=counting1,
+                        status='EN ATTENTE',
+                        en_attente_date=timezone.now()
+                    ))
+                details_count += 1
+        elif counting1.count_mode == "image de stock":
             # Cas 1: 1er comptage = image de stock
             # Créer/mettre à jour les emplacements seulement pour le 2ème comptage
             logger.debug(f"Configuration 'image de stock' détectée pour le job {job.reference}")

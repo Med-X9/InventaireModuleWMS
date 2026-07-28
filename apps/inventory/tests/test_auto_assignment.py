@@ -102,6 +102,80 @@ class AutoAssignmentServiceTest(TestCase):
         result = self.service._extract_teams_from_location_jobs(location_jobs)
         
         self.assertEqual(result, {'team1', 'team2', 'team3'})
+
+    def test_extract_teams_single_counting_ignores_session_2(self):
+        """MAGASIN/TOURNANT : n'extraire que session_1."""
+        mock_location_job = Mock(session_1='equipe-1001', session_2='equipe-2001')
+        result = self.service._extract_teams_from_location_jobs(
+            [mock_location_job],
+            include_session_2=False,
+        )
+        self.assertEqual(result, {'equipe-1001'})
+
+    def test_auto_assign_magasin_does_not_require_counting_2(self):
+        """MAGASIN : pas d'erreur si comptage 2 absent."""
+        from apps.inventory.constants import InventoryType
+
+        mock_inventory = Mock(
+            spec=Inventory,
+            id=1,
+            inventory_type=InventoryType.MAGASIN,
+            reference='INV-MAG',
+        )
+        mock_location_job = Mock(
+            job='JOB-0001',
+            session_1='equipe-1001',
+            session_2=None,
+        )
+
+        class _LocationJobsQS(list):
+            def exists(self):
+                return bool(self)
+
+        mock_qs = _LocationJobsQS([mock_location_job])
+
+        mock_counting_1 = Mock(id=10, order=1)
+        mock_job = Mock(reference='JOB-0001', status='EN ATTENTE')
+        mock_team = Mock(username='equipe-1001')
+
+        class _TeamsQS(list):
+            def values_list(self, *args, **kwargs):
+                return ['equipe-1001']
+
+        self.mock_repository.get_inventory_by_id.return_value = mock_inventory
+        self.mock_repository.get_location_jobs_by_inventory.return_value = mock_qs
+        self.mock_repository.get_teams_by_usernames.return_value = _TeamsQS([mock_team])
+
+        def counting_side_effect(inv_id, order):
+            if order == 1:
+                return mock_counting_1
+            return None
+
+        self.mock_repository.get_counting_by_inventory_and_order.side_effect = (
+            counting_side_effect
+        )
+        self.mock_repository.get_jobs_by_references_and_inventory.return_value = [
+            mock_job
+        ]
+        self.mock_repository.get_assignments_by_job_and_countings.return_value = []
+        self.mock_repository.get_or_create_assignment.return_value = (
+            Mock(id=1),
+            True,
+        )
+
+        result = self.service.auto_assign_jobs_from_location_jobs(1)
+
+        self.assertTrue(result['success'], msg=result.get('errors'))
+        self.assertEqual(result['data']['session_2_required'], False)
+        self.assertIsNone(result['data']['counting_2_order'])
+        self.assertEqual(result['data']['assignments_created_counting_1'], 1)
+        self.assertEqual(result['data']['assignments_created_counting_2'], 0)
+        # Comptage 2 non requis : un seul appel order=1
+        orders = [
+            c.args[1]
+            for c in self.mock_repository.get_counting_by_inventory_and_order.call_args_list
+        ]
+        self.assertEqual(orders, [1])
     
     def test_extract_teams_from_location_jobs_with_empty_sessions(self):
         """

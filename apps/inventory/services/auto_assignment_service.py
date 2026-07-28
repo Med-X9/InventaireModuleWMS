@@ -7,6 +7,12 @@ from django.db import transaction
 from django.utils import timezone
 from ..repositories.auto_assignment_repository import AutoAssignmentRepository
 from ..models import Assigment
+from ..usecases.location_job_import_session_dispatcher import (
+    LocationJobImportSessionDispatcher,
+)
+from ..interfaces.location_job_import_session_strategy_interface import (
+    ILocationJobImportSessionStrategy,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +20,10 @@ logger = logging.getLogger(__name__)
 class AutoAssignmentService:
     """
     Service contenant la logique métier pour l'affectation automatique des jobs
+
+    Strategy selon inventory_type :
+    - GENERAL : session_1 + session_2, comptages 1 et 2
+    - MAGASIN / TOURNANT : session_1 seule, comptage 1 uniquement
     """
     
     # Statuts de jobs qui doivent être préservés lors de l'affectation
@@ -27,6 +37,7 @@ class AutoAssignmentService:
             repository: Instance de AutoAssignmentRepository (injection de dépendance)
         """
         self.repository = repository or AutoAssignmentRepository()
+        self.session_dispatcher = LocationJobImportSessionDispatcher()
     
     def auto_assign_jobs_from_location_jobs(self, inventory_id: int) -> Dict:
         """
@@ -34,7 +45,7 @@ class AutoAssignmentService:
         
         Cette méthode :
         1. Valide l'inventaire et récupère les location jobs
-        2. Extrait et valide les équipes
+        2. Extrait et valide les équipes (selon Strategy)
         3. Vérifie les conflits d'affectation
         4. Crée/met à jour les assignments avec transaction atomique
         
@@ -62,6 +73,18 @@ class AutoAssignmentService:
                 'errors': errors,
                 'message': "Erreurs de validation"
             }
+
+        session_strategy = self.session_dispatcher.get_strategy(
+            getattr(inventory, "inventory_type", "") or ""
+        )
+        session_2_required = session_strategy.session_2_required()
+        logger.info(
+            "Auto-assign inventaire %s type=%s strategy=%s session_2_required=%s",
+            inventory_id,
+            getattr(inventory, "inventory_type", None),
+            session_strategy.strategy_key(),
+            session_2_required,
+        )
         
         # Récupération des location jobs
         location_jobs = self.repository.get_location_jobs_by_inventory(inventory_id)
@@ -73,8 +96,11 @@ class AutoAssignmentService:
                 'message': "Erreurs de validation"
             }
         
-        # Extraction des équipes uniques
-        teams_set = self._extract_teams_from_location_jobs(location_jobs)
+        # Extraction des équipes uniques (session_2 ignorée si mono-comptage)
+        teams_set = self._extract_teams_from_location_jobs(
+            location_jobs,
+            include_session_2=session_2_required,
+        )
         if not teams_set:
             errors.append("Aucune équipe trouvée dans les InventoryLocationJob")
         
@@ -89,14 +115,18 @@ class AutoAssignmentService:
                     f"Équipes non trouvées dans UserApp (type Mobile) : {', '.join(sorted(missing_teams))}"
                 )
         
-        # Validation des comptages
+        # Validation des comptages selon Strategy
         counting_1 = self.repository.get_counting_by_inventory_and_order(inventory_id, 1)
-        counting_2 = self.repository.get_counting_by_inventory_and_order(inventory_id, 2)
+        counting_2 = (
+            self.repository.get_counting_by_inventory_and_order(inventory_id, 2)
+            if session_2_required
+            else None
+        )
         
         if not counting_1:
             errors.append(f"Comptage d'ordre 1 non trouvé pour l'inventaire {inventory_id}")
         
-        if not counting_2:
+        if session_2_required and not counting_2:
             errors.append(f"Comptage d'ordre 2 non trouvé pour l'inventaire {inventory_id}")
         
         # Vérification des conflits d'affectation
@@ -154,7 +184,8 @@ class AutoAssignmentService:
                 counting_1,
                 counting_2,
                 inventory,
-                teams_set
+                teams_set,
+                session_strategy=session_strategy,
             )
             
             return {
@@ -174,13 +205,18 @@ class AutoAssignmentService:
                 'message': "Erreur lors de l'affectation automatique"
             }
     
-    def _extract_teams_from_location_jobs(self, location_jobs) -> Set[str]:
+    def _extract_teams_from_location_jobs(
+        self,
+        location_jobs,
+        include_session_2: bool = True,
+    ) -> Set[str]:
         """
-        Extrait les équipes uniques des location jobs
-        
+        Extrait les équipes uniques des location jobs.
+
         Args:
             location_jobs: QuerySet d'InventoryLocationJob
-            
+            include_session_2: False pour MAGASIN/TOURNANT (session_1 seule)
+
         Returns:
             Set des usernames d'équipes
         """
@@ -188,7 +224,7 @@ class AutoAssignmentService:
         for location_job in location_jobs:
             if location_job.session_1:
                 teams_set.add(location_job.session_1.strip())
-            if location_job.session_2:
+            if include_session_2 and location_job.session_2:
                 teams_set.add(location_job.session_2.strip())
         return teams_set
     
@@ -227,20 +263,24 @@ class AutoAssignmentService:
         # Retourne toujours une liste vide pour permettre l'affectation simultanée
         return []
 
-    def _check_jobs_and_assignments_already_ready(self, jobs_by_ref_dict: Dict, counting_1, counting_2) -> List[str]:
+    def _check_jobs_and_assignments_already_ready(
+        self,
+        jobs_by_ref_dict: Dict,
+        counting_1,
+        counting_2=None,
+    ) -> List[str]:
         """
         Vérifie si les jobs et leurs assignments ont des statuts non autorisés
 
         Les statuts non autorisés pour l'affectation automatique sont :
         PRET, TRANSFERT, ENTAME, TERMINE
 
-        Si un job ou ses assignments pour les comptages 1 et 2 ont ces statuts,
-        l'affectation automatique doit être bloquée.
+        MAGASIN/TOURNANT : seuls le comptage 1 est contrôlé (counting_2=None).
 
         Args:
             jobs_by_ref_dict: Dict mapping référence -> instance de Job
             counting_1: Instance de Counting (ordre 1)
-            counting_2: Instance de Counting (ordre 2)
+            counting_2: Instance de Counting (ordre 2) ou None
 
         Returns:
             Liste des messages d'erreur pour les jobs avec statuts non autorisés
@@ -250,6 +290,7 @@ class AutoAssignmentService:
 
         errors = []
         blocked_jobs = []
+        countings = [c for c in (counting_1, counting_2) if c is not None]
 
         for job_ref, job in jobs_by_ref_dict.items():
             # Vérifier si le job lui-même a un statut non autorisé
@@ -257,8 +298,13 @@ class AutoAssignmentService:
                 blocked_jobs.append(job_ref)
                 continue
 
-            # Vérifier les assignments pour les comptages 1 et 2
-            assignments = self.repository.get_assignments_by_job_and_countings(job, [counting_1, counting_2])
+            if not countings:
+                continue
+
+            # Vérifier les assignments pour les comptages concernés
+            assignments = self.repository.get_assignments_by_job_and_countings(
+                job, countings
+            )
 
             for assignment in assignments:
                 if assignment.status in NON_AUTHORIZED_STATUSES:
@@ -304,7 +350,8 @@ class AutoAssignmentService:
         counting_1,
         counting_2,
         inventory,
-        teams_set: Set
+        teams_set: Set,
+        session_strategy: Optional[ILocationJobImportSessionStrategy] = None,
     ) -> Dict:
         """
         Effectue les affectations avec transaction atomique
@@ -314,13 +361,17 @@ class AutoAssignmentService:
             jobs_by_ref_dict: Dict mapping référence -> instance de Job
             teams_userapp: Dict mapping username -> instance de UserApp
             counting_1: Instance de Counting (ordre 1)
-            counting_2: Instance de Counting (ordre 2)
+            counting_2: Instance de Counting (ordre 2) ou None (MAGASIN/TOURNANT)
             inventory: Instance d'Inventory
             teams_set: Set des usernames d'équipes
+            session_strategy: Strategy sessions selon inventory_type
             
         Returns:
             Dict contenant les statistiques de l'opération
         """
+        session_2_required = (
+            session_strategy.session_2_required() if session_strategy else True
+        )
         assignments_created_1 = []
         assignments_created_2 = []
         assignments_updated_1 = []
@@ -336,7 +387,7 @@ class AutoAssignmentService:
                 first_location_job = location_jobs_list[0]
                 
                 # Assignment pour le comptage 1 avec session_1
-                if first_location_job.session_1:
+                if first_location_job.session_1 and counting_1:
                     assignment_1_result = self._create_or_update_assignment(
                         job=job,
                         counting=counting_1,
@@ -350,8 +401,12 @@ class AutoAssignmentService:
                     elif assignment_1_result['updated']:
                         assignments_updated_1.append(assignment_1_result['assignment'].id)
                 
-                # Assignment pour le comptage 2 avec session_2
-                if first_location_job.session_2:
+                # Assignment comptage 2 uniquement pour GENERAL (bi-session)
+                if (
+                    session_2_required
+                    and counting_2
+                    and first_location_job.session_2
+                ):
                     assignment_2_result = self._create_or_update_assignment(
                         job=job,
                         counting=counting_2,
@@ -384,8 +439,13 @@ class AutoAssignmentService:
             'teams': sorted(list(teams_set)),
             'inventory_id': inventory.id,
             'inventory_reference': inventory.reference,
+            'inventory_type': getattr(inventory, 'inventory_type', None),
+            'session_strategy': (
+                session_strategy.strategy_key() if session_strategy else None
+            ),
+            'session_2_required': session_2_required,
             'counting_1_order': 1,
-            'counting_2_order': 2,
+            'counting_2_order': 2 if session_2_required else None,
             'timestamp': current_time
         }
     
