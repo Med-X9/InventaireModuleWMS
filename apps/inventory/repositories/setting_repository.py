@@ -59,7 +59,9 @@ class SettingRepository:
             InventoryNotFoundError: Si le Setting n'existe pas
         """
         try:
-            return Setting.objects.get(
+            return Setting.objects.select_related(
+                'warehouse', 'inventory', 'account'
+            ).get(
                 warehouse_id=warehouse_id,
                 inventory_id=inventory_id,
                 is_deleted=False

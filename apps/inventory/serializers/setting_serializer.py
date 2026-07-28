@@ -12,6 +12,26 @@ class SettingSerializer(serializers.ModelSerializer):
         fields = ['id', 'account', 'warehouse']
 
 
+class SettingStatusDetailSerializer(serializers.Serializer):
+    """Réponse lecture statut Setting pour un couple inventaire / magasin."""
+
+    setting_id = serializers.IntegerField()
+    reference = serializers.CharField()
+    status = serializers.CharField()
+    inventory_id = serializers.IntegerField()
+    inventory_reference = serializers.CharField(allow_null=True)
+    inventory_label = serializers.CharField(allow_null=True)
+    inventory_type = serializers.CharField(allow_null=True)
+    warehouse_id = serializers.IntegerField()
+    warehouse_name = serializers.CharField(allow_null=True)
+    warehouse_reference = serializers.CharField(allow_null=True)
+    warehouse_date = serializers.DateField(allow_null=True)
+    status_date_lancement = serializers.DateTimeField(allow_null=True)
+    status_date_termine = serializers.DateTimeField(allow_null=True)
+    status_date_analyse = serializers.DateTimeField(allow_null=True)
+    status_date_cloture = serializers.DateTimeField(allow_null=True)
+
+
 class MultiWarehouseLaunchSerializer(serializers.Serializer):
     """Body pour le lancement multi-magasins (sélection)."""
 

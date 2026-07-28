@@ -7,7 +7,10 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from ..services.setting_service import SettingService
-from ..serializers.setting_serializer import MultiWarehouseLaunchSerializer
+from ..serializers.setting_serializer import (
+    MultiWarehouseLaunchSerializer,
+    SettingStatusDetailSerializer,
+)
 from ..exceptions.inventory_exceptions import (
     InventoryValidationError,
     InventoryNotFoundError,
@@ -20,6 +23,49 @@ from ..utils.response_utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class SettingStatusDetailView(APIView):
+    """
+    Récupère le statut Setting pour un inventaire et un magasin.
+
+    GET /web/api/inventory/{inventory_id}/warehouse/{warehouse_id}/setting-status/
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def __init__(self, setting_service: SettingService = None, **kwargs):
+        super().__init__(**kwargs)
+        self.setting_service = setting_service or SettingService()
+
+    def get(self, request, inventory_id: int, warehouse_id: int):
+        try:
+            data = self.setting_service.get_setting_status(
+                inventory_id=inventory_id,
+                warehouse_id=warehouse_id,
+            )
+            serializer = SettingStatusDetailSerializer(data)
+            return success_response(
+                data=serializer.data,
+                message="Statut Setting récupéré avec succès",
+            )
+        except InventoryNotFoundError as exc:
+            return error_response(
+                message=str(exc),
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            logger.error(
+                "Erreur lecture Setting status inventaire=%s warehouse=%s: %s",
+                inventory_id,
+                warehouse_id,
+                exc,
+                exc_info=True,
+            )
+            return error_response(
+                message="Une erreur est survenue lors de la récupération du statut Setting",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 class SettingMultiLaunchView(APIView):

@@ -52,6 +52,48 @@ class SettingService:
         self.ecart_stock_service = ecart_stock_service or EcartStockTheoriqueService()
         self.validation_use_case = WarehouseLaunchValidationUseCase()
 
+    def get_setting_status(
+        self,
+        inventory_id: int,
+        warehouse_id: int,
+    ) -> Dict[str, Any]:
+        """
+        Retourne le statut Setting pour un inventaire et un magasin.
+
+        Args:
+            inventory_id: ID inventaire
+            warehouse_id: ID warehouse / magasin
+
+        Returns:
+            Dict sérialisable avec status et métadonnées
+
+        Raises:
+            InventoryNotFoundError: Si le Setting n'existe pas
+        """
+        setting = self.setting_repository.get_by_warehouse_and_inventory(
+            warehouse_id=warehouse_id,
+            inventory_id=inventory_id,
+        )
+        inventory = setting.inventory
+        warehouse = setting.warehouse
+        return {
+            "setting_id": setting.id,
+            "reference": setting.reference,
+            "status": setting.status,
+            "inventory_id": inventory.id,
+            "inventory_reference": getattr(inventory, "reference", None),
+            "inventory_label": getattr(inventory, "label", None),
+            "inventory_type": getattr(inventory, "inventory_type", None),
+            "warehouse_id": warehouse.id,
+            "warehouse_name": getattr(warehouse, "warehouse_name", None),
+            "warehouse_reference": getattr(warehouse, "reference", None),
+            "warehouse_date": setting.warehouse_date,
+            "status_date_lancement": setting.status_date_lancement,
+            "status_date_termine": setting.status_date_termine,
+            "status_date_analyse": setting.status_date_analyse,
+            "status_date_cloture": setting.status_date_cloture,
+        }
+
     @staticmethod
     def _jobs_not_completed_payload(jobs) -> List[Dict[str, Any]]:
         return [

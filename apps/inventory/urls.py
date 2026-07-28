@@ -39,6 +39,7 @@ from .views.setting_views import (
     SettingTermineView,
     SettingMultiTermineView,
     SettingAnalyserView,
+    SettingStatusDetailView,
 )
 from .views.stock_gap_views import StockGapListView
 from .views.ecart_stock_theorique_views import (
@@ -458,6 +459,11 @@ urlpatterns = [
     # URLs POUR LE LANCEMENT DE WAREHOUSE (SETTING)
     # ========================================
     
+    path(
+        'inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/setting-status/',
+        SettingStatusDetailView.as_view(),
+        name='setting-status-detail',
+    ),
     path('inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/launch/', SettingLaunchView.as_view(), name='setting-launch'),
     path(
         'inventory/<int:inventory_id>/warehouses/launch/',
