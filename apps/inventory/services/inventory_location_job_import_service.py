@@ -440,14 +440,23 @@ class InventoryLocationJobImportService:
             
             # Si toutes les validations passent, procéder à la synchronisation puis à l'insertion
             with transaction.atomic():
-                # 5bis. D'abord, purger toutes les données liées aux jobs de cet inventaire
-                # (InventoryLocationJob, JobDetail, Job) pour repartir sur une base propre
-                clear_stats = self._clear_inventory_jobs(inventory_id)
+                # Magasins présents dans le fichier uniquement (ne pas toucher les autres)
+                warehouse_ids_in_file = sorted({
+                    data['warehouse_id']
+                    for data in validated_data
+                    if data.get('warehouse_id')
+                })
+
+                # 5bis. Purger les jobs / location-jobs UNIQUEMENT pour ces warehouses
+                clear_stats = self._clear_inventory_jobs(
+                    inventory_id,
+                    warehouse_ids=warehouse_ids_in_file,
+                )
                 logger.info(
-                    f"Nettoyage initial de l'inventaire {inventory_id}: "
-                    f"{clear_stats['deleted_job_details']} JobDetail supprimé(s), "
-                    f"{clear_stats['deleted_location_jobs']} InventoryLocationJob supprimé(s), "
-                    f"{clear_stats['deleted_jobs']} job(s) supprimé(s)"
+                    f"Nettoyage inventaire {inventory_id} warehouses={warehouse_ids_in_file}: "
+                    f"{clear_stats['deleted_job_details']} JobDetail, "
+                    f"{clear_stats['deleted_location_jobs']} InventoryLocationJob, "
+                    f"{clear_stats['deleted_jobs']} job(s)"
                 )
 
                 # 6. Ensuite, synchroniser le champ active du fichier Excel avec Location.is_active
@@ -1263,52 +1272,49 @@ class InventoryLocationJobImportService:
         validated_data: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         """
-        Identifie les emplacements non consommés (liés au warehouse de l'inventaire mais absents du fichier Excel)
-        
-        Cette méthode est informative uniquement et ne doit pas bloquer le traitement.
-        Elle ne modifie aucune donnée en base.
-        
-        Args:
-            inventory_id: ID de l'inventaire
-            validated_data: Liste des données validées du fichier Excel (contient 'emplacement_id')
-            
-        Returns:
-            List[Dict]: Liste des emplacements non consommés avec leurs informations
+        Identifie les emplacements non consommés du/des warehouse(s) du fichier Excel
+        (présents en base pour ces magasins mais absents du fichier).
+
+        Ne considère PAS les autres magasins de l'inventaire.
         """
         try:
-            # Récupérer tous les warehouses associés à cet inventaire
-            warehouses = self.inventory_repo.get_warehouses_by_inventory_id(inventory_id)
-            
-            if not warehouses:
-                logger.info("Aucun warehouse associé à l'inventaire, aucun emplacement non consommé à identifier")
+            # Warehouses réellement présents dans le fichier (pas tout l'inventaire)
+            warehouse_ids_in_file = {
+                data.get('warehouse_id')
+                for data in validated_data
+                if data.get('warehouse_id')
+            }
+            if not warehouse_ids_in_file:
+                logger.info(
+                    "Aucun warehouse dans le fichier, aucun emplacement non consommé"
+                )
                 return []
-            
-            # Récupérer tous les emplacements présents dans le fichier Excel
-            excel_location_ids = set([
+
+            warehouses = Warehouse.objects.filter(id__in=warehouse_ids_in_file)
+            if not warehouses.exists():
+                return []
+
+            excel_location_ids = {
                 data.get('emplacement_id')
                 for data in validated_data
                 if data.get('emplacement_id')
-            ])
-            
-            # Pour chaque warehouse, récupérer tous les emplacements liés
+            }
+
             all_warehouse_location_ids = set()
             for warehouse in warehouses:
-                # Récupérer tous les emplacements du warehouse via: location -> sous_zone -> zone -> warehouse
                 warehouse_locations = Location.objects.filter(
                     sous_zone__zone__warehouse=warehouse,
-                    is_deleted=False
+                    is_deleted=False,
                 ).values_list('id', flat=True)
-                
                 all_warehouse_location_ids.update(warehouse_locations)
-            
-            # Identifier les emplacements absents du fichier Excel
+
             unconsumed_location_ids = all_warehouse_location_ids - excel_location_ids
-            
             if not unconsumed_location_ids:
-                logger.info("Tous les emplacements du warehouse sont présents dans le fichier Excel")
+                logger.info(
+                    "Tous les emplacements des warehouses du fichier sont dans l'Excel"
+                )
                 return []
-            
-            # Récupérer les informations des emplacements non consommés
+
             unconsumed_locations = Location.objects.filter(
                 id__in=unconsumed_location_ids
             ).select_related(
@@ -1319,10 +1325,9 @@ class InventoryLocationJobImportService:
                 'reference',
                 'sous_zone__zone__warehouse__warehouse_name',
                 'sous_zone__zone__warehouse__reference',
-                'is_active'
+                'is_active',
             )
-            
-            # Formater les résultats
+
             result = [
                 {
                     'id': loc['id'],
@@ -1330,18 +1335,21 @@ class InventoryLocationJobImportService:
                     'reference': loc['reference'],
                     'warehouse_name': loc['sous_zone__zone__warehouse__warehouse_name'],
                     'warehouse_reference': loc['sous_zone__zone__warehouse__reference'],
-                    'is_active': loc['is_active']
+                    'is_active': loc['is_active'],
                 }
                 for loc in unconsumed_locations
             ]
-            
-            logger.info(f"Emplacements non consommés identifiés: {len(result)} emplacement(s)")
+
+            logger.info(
+                f"Emplacements non consommés (warehouses fichier): {len(result)}"
+            )
             return result
-            
+
         except Exception as e:
-            # En cas d'erreur, ne pas bloquer le traitement, juste logger l'erreur
-            logger.warning(f"Erreur lors de l'identification des emplacements non consommés: {str(e)}")
-            return []  # Retourner une liste vide pour ne pas bloquer le traitement
+            logger.warning(
+                f"Erreur lors de l'identification des emplacements non consommés: {str(e)}"
+            )
+            return []
 
     def _delete_unconsumed_locations(
         self,
@@ -1424,26 +1432,41 @@ class InventoryLocationJobImportService:
             'deleted_jobs': deleted_jobs,
         }
 
-    def _clear_inventory_jobs(self, inventory_id: int) -> Dict[str, int]:
+    def _clear_inventory_jobs(
+        self,
+        inventory_id: int,
+        warehouse_ids: Optional[List[int]] = None,
+    ) -> Dict[str, int]:
         """
-        Supprime toutes les données de jobs pour un inventaire donné :
-        - tous les JobDetail liés aux jobs de cet inventaire
-        - tous les InventoryLocationJob de cet inventaire
-        - tous les Job de cet inventaire
+        Supprime les données de jobs pour un inventaire.
+
+        Si warehouse_ids est fourni : ne purge que ces magasins (import partiel).
+        Sinon : purge tout l'inventaire (comportement historique).
         """
         from apps.inventory.models import JobDetail, Job
         from apps.masterdata.models import InventoryLocationJob
 
-        # 1) Supprimer tous les JobDetail des jobs de cet inventaire
-        jd_qs = JobDetail.objects.filter(job__inventory_id=inventory_id)
+        if warehouse_ids is not None and len(warehouse_ids) == 0:
+            return {
+                'deleted_job_details': 0,
+                'deleted_location_jobs': 0,
+                'deleted_jobs': 0,
+            }
+
+        jobs_qs = Job.objects.filter(inventory_id=inventory_id)
+        if warehouse_ids is not None:
+            jobs_qs = jobs_qs.filter(warehouse_id__in=warehouse_ids)
+
+        jd_qs = JobDetail.objects.filter(job__in=jobs_qs)
         deleted_job_details, _ = jd_qs.delete()
 
-        # 2) Supprimer tous les InventoryLocationJob de cet inventaire
         ilj_qs = InventoryLocationJob.objects.filter(inventaire_id=inventory_id)
+        if warehouse_ids is not None:
+            ilj_qs = ilj_qs.filter(
+                emplacement__sous_zone__zone__warehouse_id__in=warehouse_ids
+            )
         deleted_location_jobs, _ = ilj_qs.delete()
 
-        # 3) Supprimer tous les Jobs de cet inventaire
-        jobs_qs = Job.objects.filter(inventory_id=inventory_id)
         deleted_jobs, _ = jobs_qs.delete()
 
         return {
