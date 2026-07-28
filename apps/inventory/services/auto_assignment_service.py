@@ -134,30 +134,39 @@ class AutoAssignmentService:
             conflict_errors = self._check_team_conflicts(teams_list, inventory_id)
             errors.extend(conflict_errors)
         
-        # Groupement des location jobs par référence de job
-        jobs_by_reference = self._group_location_jobs_by_job_reference(location_jobs)
+        # Groupement des location jobs par (warehouse, référence job)
+        # IMPORTANT: JOB-0001 peut exister sur plusieurs magasins du même inventaire
+        jobs_by_key = self._group_location_jobs_by_warehouse_and_reference(
+            location_jobs
+        )
         
         # Validation des jobs existants
-        job_references = list(jobs_by_reference.keys())
-        jobs_by_ref_dict = {}
+        job_keys = list(jobs_by_key.keys())
+        jobs_by_key_dict = {}
         
-        if job_references:
+        if job_keys:
+            job_references = list({ref for (_, ref) in job_keys})
             jobs = self.repository.get_jobs_by_references_and_inventory(
                 job_references, 
                 inventory_id
             )
-            jobs_by_ref_dict = {job.reference: job for job in jobs}
-            missing_job_refs = set(job_references) - set(jobs_by_ref_dict.keys())
+            jobs_by_key_dict = {
+                (job.warehouse_id, job.reference): job for job in jobs
+            }
+            missing_job_keys = set(job_keys) - set(jobs_by_key_dict.keys())
             
-            if missing_job_refs:
+            if missing_job_keys:
+                missing_labels = sorted(
+                    f"{ref} (warehouse={wh})" for wh, ref in missing_job_keys
+                )
                 errors.append(
-                    f"Jobs non trouvés pour les références : {', '.join(sorted(missing_job_refs))}"
+                    f"Jobs non trouvés pour les références : {', '.join(missing_labels)}"
                 )
         
         # Validation : vérifier si les jobs et leurs assignments sont déjà au statut PRET
-        if job_references:
+        if job_keys:
             ready_validation_errors = self._check_jobs_and_assignments_already_ready(
-                jobs_by_ref_dict, counting_1, counting_2
+                jobs_by_key_dict, counting_1, counting_2
             )
             errors.extend(ready_validation_errors)
 
@@ -178,8 +187,8 @@ class AutoAssignmentService:
         # Effectuer l'affectation avec transaction atomique
         try:
             result = self._perform_assignments(
-                jobs_by_reference,
-                jobs_by_ref_dict,
+                jobs_by_key,
+                jobs_by_key_dict,
                 teams_userapp,
                 counting_1,
                 counting_2,
@@ -188,12 +197,22 @@ class AutoAssignmentService:
                 session_strategy=session_strategy,
             )
             
+            created = (
+                result['assignments_created_counting_1']
+                + result['assignments_created_counting_2']
+            )
+            updated = (
+                result['assignments_updated_counting_1']
+                + result['assignments_updated_counting_2']
+            )
             return {
                 'success': True,
                 'data': result,
                 'message': (
                     f"Affectation automatique réussie : "
-                    f"pour {result['total_jobs']} jobs"
+                    f"{result['total_jobs']} job(s), "
+                    f"{created} assignment(s) créé(s), "
+                    f"{updated} mis à jour"
                 )
             }
             
@@ -292,10 +311,15 @@ class AutoAssignmentService:
         blocked_jobs = []
         countings = [c for c in (counting_1, counting_2) if c is not None]
 
-        for job_ref, job in jobs_by_ref_dict.items():
+        for job_key, job in jobs_by_ref_dict.items():
             # Vérifier si le job lui-même a un statut non autorisé
+            label = (
+                f"{job_key[1]} (warehouse={job_key[0]})"
+                if isinstance(job_key, tuple) and len(job_key) == 2
+                else str(job_key)
+            )
             if job.status in NON_AUTHORIZED_STATUSES:
-                blocked_jobs.append(job_ref)
+                blocked_jobs.append(label)
                 continue
 
             if not countings:
@@ -308,7 +332,7 @@ class AutoAssignmentService:
 
             for assignment in assignments:
                 if assignment.status in NON_AUTHORIZED_STATUSES:
-                    blocked_jobs.append(job_ref)
+                    blocked_jobs.append(label)
                     break
 
         # Générer les messages d'erreur pour les jobs bloqués
@@ -323,24 +347,43 @@ class AutoAssignmentService:
 
         return errors
 
+    def _get_warehouse_id_from_location_job(self, location_job) -> Optional[int]:
+        """Résout warehouse_id via emplacement → sous_zone → zone."""
+        emplacement = getattr(location_job, "emplacement", None)
+        if emplacement is None:
+            return None
+        try:
+            return emplacement.sous_zone.zone.warehouse_id
+        except Exception:
+            return None
+
+    def _group_location_jobs_by_warehouse_and_reference(self, location_jobs) -> Dict:
+        """
+        Groupe les location jobs par (warehouse_id, référence job).
+
+        Chaque magasin peut avoir son propre JOB-0001 : il ne faut pas fusionner.
+        """
+        jobs_by_key: Dict = {}
+        for location_job in location_jobs:
+            if not location_job.job:
+                continue
+            job_ref = location_job.job.strip()
+            warehouse_id = self._get_warehouse_id_from_location_job(location_job)
+            if warehouse_id is None:
+                logger.warning(
+                    "InventoryLocationJob sans warehouse (job=%s) — ignoré",
+                    job_ref,
+                )
+                continue
+            key = (warehouse_id, job_ref)
+            jobs_by_key.setdefault(key, []).append(location_job)
+        return jobs_by_key
+
     def _group_location_jobs_by_job_reference(self, location_jobs) -> Dict:
         """
-        Groupe les location jobs par référence de job
-        
-        Args:
-            location_jobs: QuerySet d'InventoryLocationJob
-            
-        Returns:
-            Dict[str, List] mapping référence -> liste de location jobs
+        Compatibilité : délègue au groupement (warehouse, référence).
         """
-        jobs_by_reference = {}
-        for location_job in location_jobs:
-            if location_job.job:
-                job_ref = location_job.job.strip()
-                if job_ref not in jobs_by_reference:
-                    jobs_by_reference[job_ref] = []
-                jobs_by_reference[job_ref].append(location_job)
-        return jobs_by_reference
+        return self._group_location_jobs_by_warehouse_and_reference(location_jobs)
     
     def _perform_assignments(
         self,
@@ -354,20 +397,10 @@ class AutoAssignmentService:
         session_strategy: Optional[ILocationJobImportSessionStrategy] = None,
     ) -> Dict:
         """
-        Effectue les affectations avec transaction atomique
-        
-        Args:
-            jobs_by_reference: Dict mapping référence -> liste de location jobs
-            jobs_by_ref_dict: Dict mapping référence -> instance de Job
-            teams_userapp: Dict mapping username -> instance de UserApp
-            counting_1: Instance de Counting (ordre 1)
-            counting_2: Instance de Counting (ordre 2) ou None (MAGASIN/TOURNANT)
-            inventory: Instance d'Inventory
-            teams_set: Set des usernames d'équipes
-            session_strategy: Strategy sessions selon inventory_type
-            
-        Returns:
-            Dict contenant les statistiques de l'opération
+        Effectue les affectations avec transaction atomique.
+
+        jobs_by_reference / jobs_by_ref_dict sont indexés par
+        (warehouse_id, job_reference).
         """
         session_2_required = (
             session_strategy.session_2_required() if session_strategy else True
@@ -379,9 +412,8 @@ class AutoAssignmentService:
         current_time = timezone.now()
         
         with transaction.atomic():
-            # Parcourir chaque job et créer/mettre à jour les assignments
-            for job_ref, location_jobs_list in jobs_by_reference.items():
-                job = jobs_by_ref_dict[job_ref]
+            for job_key, location_jobs_list in jobs_by_reference.items():
+                job = jobs_by_ref_dict[job_key]
                 
                 # Utiliser les sessions du premier location_job
                 first_location_job = location_jobs_list[0]
@@ -428,7 +460,6 @@ class AutoAssignmentService:
                         affecte_date=current_time
                     )
         
-        # Préparer les données de réponse
         return {
             'assignments_created_counting_1': len(assignments_created_1),
             'assignments_updated_counting_1': len(assignments_updated_1),

@@ -41,7 +41,10 @@ class AutoAssignmentRepository:
         return InventoryLocationJob.objects.filter(
             inventaire_id=inventory_id,
             is_deleted=False
-        ).select_related('inventaire', 'emplacement')
+        ).select_related(
+            'inventaire',
+            'emplacement__sous_zone__zone__warehouse',
+        )
     
     def get_teams_by_usernames(self, usernames: List[str]) -> QuerySet:
         """

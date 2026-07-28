@@ -127,6 +127,9 @@ class AutoAssignmentServiceTest(TestCase):
             session_1='equipe-1001',
             session_2=None,
         )
+        mock_location_job.emplacement = Mock()
+        mock_location_job.emplacement.sous_zone = Mock()
+        mock_location_job.emplacement.sous_zone.zone = Mock(warehouse_id=22)
 
         class _LocationJobsQS(list):
             def exists(self):
@@ -135,7 +138,7 @@ class AutoAssignmentServiceTest(TestCase):
         mock_qs = _LocationJobsQS([mock_location_job])
 
         mock_counting_1 = Mock(id=10, order=1)
-        mock_job = Mock(reference='JOB-0001', status='EN ATTENTE')
+        mock_job = Mock(reference='JOB-0001', status='EN ATTENTE', warehouse_id=22)
         mock_team = Mock(username='equipe-1001')
 
         class _TeamsQS(list):
@@ -205,18 +208,39 @@ class AutoAssignmentServiceTest(TestCase):
     
     def test_group_location_jobs_by_job_reference(self):
         """
-        Test de groupement des location jobs par référence de job
+        Test de groupement des location jobs par (warehouse, référence)
         """
-        mock_location_job_1 = Mock(job='JOB001')
-        mock_location_job_2 = Mock(job='JOB001')
-        mock_location_job_3 = Mock(job='JOB002')
+        def make_lj(job, warehouse_id):
+            lj = Mock(job=job)
+            lj.emplacement = Mock()
+            lj.emplacement.sous_zone = Mock()
+            lj.emplacement.sous_zone.zone = Mock(warehouse_id=warehouse_id)
+            return lj
+
+        mock_location_job_1 = make_lj('JOB001', 22)
+        mock_location_job_2 = make_lj('JOB001', 22)
+        mock_location_job_3 = make_lj('JOB002', 22)
         location_jobs = [mock_location_job_1, mock_location_job_2, mock_location_job_3]
         
         result = self.service._group_location_jobs_by_job_reference(location_jobs)
         
         self.assertEqual(len(result), 2)
-        self.assertEqual(len(result['JOB001']), 2)
-        self.assertEqual(len(result['JOB002']), 1)
+        self.assertEqual(len(result[(22, 'JOB001')]), 2)
+        self.assertEqual(len(result[(22, 'JOB002')]), 1)
+
+    def test_group_same_job_ref_different_warehouses(self):
+        """JOB-0001 sur 2 magasins = 2 clés distinctes."""
+        def make_lj(warehouse_id):
+            lj = Mock(job='JOB-0001', session_1='equipe-1001')
+            lj.emplacement = Mock()
+            lj.emplacement.sous_zone = Mock()
+            lj.emplacement.sous_zone.zone = Mock(warehouse_id=warehouse_id)
+            return lj
+
+        result = self.service._group_location_jobs_by_warehouse_and_reference(
+            [make_lj(22), make_lj(33)]
+        )
+        self.assertEqual(set(result.keys()), {(22, 'JOB-0001'), (33, 'JOB-0001')})
     
     def test_auto_assign_jobs_inventory_not_found(self):
         """
