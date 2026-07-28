@@ -1,15 +1,15 @@
 """
-Service KPI magasin — logique métier (catalogue INVENTORY_KPI_CATALOG.md).
+Service KPI — magasin OU inventaire complet (tous magasins).
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Dict, Tuple, TypedDict
+from typing import Any, Dict, Optional, Tuple, TypedDict
 
 from django.db.models import Q
 
 from ..exceptions.job_exceptions import JobCreationError
-from ..repositories.kpis_repository import KpisRepository, WarehouseKpiContext
+from ..repositories.kpis_repository import KpiContext, KpisRepository
 
 
 class _KpiMeta(TypedDict):
@@ -18,28 +18,128 @@ class _KpiMeta(TypedDict):
     data_key: str
 
 
-# Métadonnées réponse API par ID catalogue (cf. docs/INVENTORY_KPI_CATALOG.md)
 _KPI_BY_CATALOG_ID: Dict[str, _KpiMeta] = {
-    'KPI-A01': {'slug': 'nombre-jobs-total', 'label': 'Nombre total de jobs', 'data_key': 'nombre_jobs_total'},
-    'KPI-A02': {'slug': 'nombre-jobs-affectes', 'label': 'Nombre de jobs affectés', 'data_key': 'nombre_jobs_affectes'},
-    'KPI-A03': {'slug': 'nombre-emplacements-couverts', 'label': "Nombre d'emplacements couverts", 'data_key': 'nombre_emplacements_couverts'},
-    'KPI-B01': {'slug': 'taux-jobs-termines-1er-comptage', 'label': 'Taux de jobs terminés — 1er comptage', 'data_key': 'taux_jobs_termines_1er_comptage'},
-    'KPI-B02': {'slug': 'taux-jobs-termines-2e-comptage', 'label': 'Taux de jobs terminés — 2e comptage', 'data_key': 'taux_jobs_termines_2e_comptage'},
-    'KPI-C01': {'slug': 'repartition-assignments-1er-comptage', 'label': 'Répartition des assignments — 1er comptage', 'data_key': 'repartition_assignments_1er_comptage'},
-    'KPI-C02': {'slug': 'repartition-assignments-2e-comptage', 'label': 'Répartition des assignments — 2e comptage', 'data_key': 'repartition_assignments_2e_comptage'},
-    'KPI-C03': {'slug': 'repartition-assignments-3e-comptage', 'label': 'Répartition des assignments — 3e comptage', 'data_key': 'repartition_assignments_3e_comptage'},
-    'KPI-C04': {'slug': 'repartition-assignments-nieme-comptage', 'label': 'Répartition des assignments — comptages suivants (4e et +)', 'data_key': 'repartition_assignments_nieme_comptage'},
-    'KPI-D01': {'slug': 'nombre-ecarts', 'label': "Nombre d'écarts sur le magasin", 'data_key': 'nombre_ecarts'},
-    'KPI-D02': {'slug': 'nombre-jobs-avec-ecart', 'label': 'Nombre de jobs contenant un écart', 'data_key': 'nombre_jobs_avec_ecart'},
-    'KPI-D03': {'slug': 'nombre-emplacements-avec-ecart', 'label': "Nombre d'emplacements contenant un écart", 'data_key': 'nombre_emplacements_avec_ecart'},
-    'KPI-D04': {'slug': 'nombre-ecarts-ouverts', 'label': "Nombre d'écarts ouverts", 'data_key': 'nombre_ecarts_ouverts'},
-    'KPI-T01': {'slug': 'nombre-equipes', 'label': "Nombre d'équipes distinctes", 'data_key': 'nombre_equipes'},
-    'KPI-T02': {'slug': 'taux-termine-1er-comptage-par-equipe', 'label': 'Taux terminé — 1er comptage par équipe', 'data_key': 'taux_termine_1er_comptage_par_equipe'},
-    'KPI-T03': {'slug': 'taux-termine-2e-comptage-par-equipe', 'label': 'Taux terminé — 2e comptage par équipe', 'data_key': 'taux_termine_2e_comptage_par_equipe'},
-    'KPI-T04': {'slug': 'repartition-1er-comptage-par-equipe', 'label': 'Répartition 1er comptage par équipe', 'data_key': 'repartition_1er_comptage_par_equipe'},
-    'KPI-T05': {'slug': 'repartition-2e-comptage-par-equipe', 'label': 'Répartition 2e comptage par équipe', 'data_key': 'repartition_2e_comptage_par_equipe'},
-    'KPI-T06': {'slug': 'equipes-multi-ecarts', 'label': 'Équipes avec au moins 2 écarts ouverts', 'data_key': 'equipes_multi_ecarts'},
-    'KPI-T07': {'slug': 'jobs-avec-ecart-par-equipe', 'label': 'Nombre de jobs avec écart par équipe', 'data_key': 'jobs_avec_ecart_par_equipe'},
+    'KPI-A01': {
+        'slug': 'nombre-jobs-total',
+        'label': 'Nombre total de jobs',
+        'data_key': 'nombre_jobs_total',
+    },
+    'KPI-A02': {
+        'slug': 'nombre-jobs-affectes',
+        'label': 'Nombre de jobs affectés',
+        'data_key': 'nombre_jobs_affectes',
+    },
+    'KPI-A03': {
+        'slug': 'nombre-emplacements-couverts',
+        'label': "Nombre d'emplacements couverts",
+        'data_key': 'nombre_emplacements_couverts',
+    },
+    'KPI-B01': {
+        'slug': 'taux-jobs-termines-1er-comptage',
+        'label': 'Taux de jobs terminés — 1er comptage',
+        'data_key': 'taux_jobs_termines_1er_comptage',
+    },
+    'KPI-B02': {
+        'slug': 'taux-jobs-termines-2e-comptage',
+        'label': 'Taux de jobs terminés — 2e comptage',
+        'data_key': 'taux_jobs_termines_2e_comptage',
+    },
+    'KPI-C01': {
+        'slug': 'repartition-assignments-1er-comptage',
+        'label': 'Répartition des assignments — 1er comptage',
+        'data_key': 'repartition_assignments_1er_comptage',
+    },
+    'KPI-C02': {
+        'slug': 'repartition-assignments-2e-comptage',
+        'label': 'Répartition des assignments — 2e comptage',
+        'data_key': 'repartition_assignments_2e_comptage',
+    },
+    'KPI-C03': {
+        'slug': 'repartition-assignments-3e-comptage',
+        'label': 'Répartition des assignments — 3e comptage',
+        'data_key': 'repartition_assignments_3e_comptage',
+    },
+    'KPI-C04': {
+        'slug': 'repartition-assignments-nieme-comptage',
+        'label': 'Répartition des assignments — comptages suivants (4e et +)',
+        'data_key': 'repartition_assignments_nieme_comptage',
+    },
+    'KPI-D01': {
+        'slug': 'nombre-ecarts',
+        'label': "Nombre d'écarts de comptage",
+        'data_key': 'nombre_ecarts',
+    },
+    'KPI-D02': {
+        'slug': 'nombre-jobs-avec-ecart',
+        'label': 'Nombre de jobs contenant un écart',
+        'data_key': 'nombre_jobs_avec_ecart',
+    },
+    'KPI-D03': {
+        'slug': 'nombre-emplacements-avec-ecart',
+        'label': "Nombre d'emplacements contenant un écart",
+        'data_key': 'nombre_emplacements_avec_ecart',
+    },
+    'KPI-D04': {
+        'slug': 'nombre-ecarts-ouverts',
+        'label': "Nombre d'écarts ouverts",
+        'data_key': 'nombre_ecarts_ouverts',
+    },
+    'KPI-T01': {
+        'slug': 'nombre-equipes',
+        'label': "Nombre d'équipes distinctes",
+        'data_key': 'nombre_equipes',
+    },
+    'KPI-T02': {
+        'slug': 'taux-termine-1er-comptage-par-equipe',
+        'label': 'Taux terminé — 1er comptage par équipe',
+        'data_key': 'taux_termine_1er_comptage_par_equipe',
+    },
+    'KPI-T03': {
+        'slug': 'taux-termine-2e-comptage-par-equipe',
+        'label': 'Taux terminé — 2e comptage par équipe',
+        'data_key': 'taux_termine_2e_comptage_par_equipe',
+    },
+    'KPI-T04': {
+        'slug': 'repartition-1er-comptage-par-equipe',
+        'label': 'Répartition 1er comptage par équipe',
+        'data_key': 'repartition_1er_comptage_par_equipe',
+    },
+    'KPI-T05': {
+        'slug': 'repartition-2e-comptage-par-equipe',
+        'label': 'Répartition 2e comptage par équipe',
+        'data_key': 'repartition_2e_comptage_par_equipe',
+    },
+    'KPI-T06': {
+        'slug': 'equipes-multi-ecarts',
+        'label': 'Équipes avec au moins 2 écarts ouverts',
+        'data_key': 'equipes_multi_ecarts',
+    },
+    'KPI-T07': {
+        'slug': 'jobs-avec-ecart-par-equipe',
+        'label': 'Nombre de jobs avec écart par équipe',
+        'data_key': 'jobs_avec_ecart_par_equipe',
+    },
+    # Inventaire complet (tous magasins) — Setting / stock
+    'KPI-S01': {
+        'slug': 'nombre-magasins',
+        'label': 'Nombre de magasins de l’inventaire',
+        'data_key': 'nombre_magasins',
+    },
+    'KPI-S02': {
+        'slug': 'repartition-magasins-par-statut',
+        'label': 'Répartition des magasins par statut Setting',
+        'data_key': 'repartition_magasins_par_statut',
+    },
+    'KPI-E01': {
+        'slug': 'nombre-ecarts-stock',
+        'label': 'Nombre de lignes écart stock théorique/pratique',
+        'data_key': 'nombre_ecarts_stock',
+    },
+    'KPI-E02': {
+        'slug': 'nombre-ecarts-stock-valides',
+        'label': 'Nombre de lignes écart stock validées',
+        'data_key': 'nombre_ecarts_stock_valides',
+    },
 }
 
 
@@ -53,42 +153,60 @@ def _bucket_payload(
     counts: Dict[str, int], total: int
 ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
     return (
-        {'count': counts.get('en_attente', 0), 'percent': _percent(counts.get('en_attente', 0), total)},
-        {'count': counts.get('en_cours', 0), 'percent': _percent(counts.get('en_cours', 0), total)},
-        {'count': counts.get('termine', 0), 'percent': _percent(counts.get('termine', 0), total)},
+        {
+            'count': counts.get('en_attente', 0),
+            'percent': _percent(counts.get('en_attente', 0), total),
+        },
+        {
+            'count': counts.get('en_cours', 0),
+            'percent': _percent(counts.get('en_cours', 0), total),
+        },
+        {
+            'count': counts.get('termine', 0),
+            'percent': _percent(counts.get('termine', 0), total),
+        },
     )
 
 
 class KpisService:
-    """Calcule les 20 indicateurs pour un inventaire / magasin."""
+    """Calcule les indicateurs pour un magasin ou pour tout l'inventaire."""
 
     def __init__(self, repository: KpisRepository | None = None) -> None:
         self.repository = repository or KpisRepository()
 
     def _validate_and_build_context(
-        self, inventory_id: int, warehouse_id: int
-    ) -> WarehouseKpiContext:
+        self, inventory_id: int, warehouse_id: Optional[int] = None
+    ) -> KpiContext:
         if not self.repository.get_inventory(inventory_id):
             raise JobCreationError(f"Inventaire avec l'ID {inventory_id} non trouvé")
+        if warehouse_id is None:
+            return self.repository.build_inventory_context(inventory_id)
         if not self.repository.get_warehouse(warehouse_id):
             raise JobCreationError(f"Entrepôt avec l'ID {warehouse_id} non trouvé")
         return self.repository.build_context(inventory_id, warehouse_id)
 
-    def _build_meta(self, ctx: WarehouseKpiContext, kpi: _KpiMeta) -> Dict[str, Any]:
-        return {
+    def _build_meta(self, ctx: KpiContext, kpi: _KpiMeta) -> Dict[str, Any]:
+        meta: Dict[str, Any] = {
             'inventory_id': ctx.inventory_id,
-            'warehouse_id': ctx.warehouse_id,
-            'warehouse_name': ctx.warehouse_name,
+            'scope': ctx.scope,
             'kpi': kpi['slug'],
             'label': kpi['label'],
             'generated_at': datetime.now(timezone.utc).isoformat(),
         }
+        if ctx.scope == 'warehouse':
+            meta['warehouse_id'] = ctx.warehouse_id
+            meta['warehouse_name'] = ctx.warehouse_name
+        else:
+            meta['warehouse_id'] = None
+            meta['warehouse_name'] = None
+            meta['aggregation'] = 'all_warehouses'
+        return meta
 
-    def _wrap(self, ctx: WarehouseKpiContext, catalog_id: str, value: Any) -> Dict[str, Any]:
+    def _wrap(self, ctx: KpiContext, catalog_id: str, value: Any) -> Dict[str, Any]:
         kpi = _KPI_BY_CATALOG_ID[catalog_id]
         return {'meta': self._build_meta(ctx, kpi), 'data': {kpi['data_key']: value}}
 
-    def _jobs_termines_payload(self, ctx: WarehouseKpiContext, order: int) -> Dict[str, Any]:
+    def _jobs_termines_payload(self, ctx: KpiContext, order: int) -> Dict[str, Any]:
         counting_ids = self.repository.counting_ids_for_order(ctx.inventory_id, order)
         eligibles = self.repository.count_jobs_eligible_for_counting(ctx, counting_ids)
         termines = self.repository.count_jobs_finished_for_counting(ctx, counting_ids)
@@ -100,7 +218,7 @@ class KpisService:
         }
 
     def _assignment_distribution(
-        self, ctx: WarehouseKpiContext, order_filter: Q, counting_order: int
+        self, ctx: KpiContext, order_filter: Q, counting_order: int
     ) -> Dict[str, Any]:
         total = self.repository.count_assignments(ctx.assignments_qs, order_filter)
         bucket_counts = self.repository.assignment_status_counts(
@@ -115,7 +233,7 @@ class KpisService:
             'termine': termine,
         }
 
-    def _teams_rate_payload(self, ctx: WarehouseKpiContext, counting_order: int) -> Dict[str, Any]:
+    def _teams_rate_payload(self, ctx: KpiContext, counting_order: int) -> Dict[str, Any]:
         _, usernames = self.repository.build_assignment_team_map(ctx.assignments_qs)
         stats = self.repository.team_assignment_stats(ctx.assignments_qs, counting_order)
         teams = []
@@ -133,7 +251,7 @@ class KpisService:
         return {'teams': teams}
 
     def _teams_distribution_payload(
-        self, ctx: WarehouseKpiContext, counting_order: int
+        self, ctx: KpiContext, counting_order: int
     ) -> Dict[str, Any]:
         _, usernames = self.repository.build_assignment_team_map(ctx.assignments_qs)
         stats = self.repository.team_assignment_stats(ctx.assignments_qs, counting_order)
@@ -155,34 +273,42 @@ class KpisService:
             )
         return {'teams': teams}
 
-    def compute_nombre_jobs_total(self, inventory_id: int, warehouse_id: int) -> Dict[str, Any]:
+    # ------------------------------------------------------------------
+    # Indicateurs A–T (warehouse_id=None → inventaire complet)
+    # ------------------------------------------------------------------
+
+    def compute_nombre_jobs_total(
+        self, inventory_id: int, warehouse_id: Optional[int] = None
+    ) -> Dict[str, Any]:
         ctx = self._validate_and_build_context(inventory_id, warehouse_id)
         return self._wrap(ctx, 'KPI-A01', self.repository.count_jobs_total(ctx))
 
-    def compute_nombre_jobs_affectes(self, inventory_id: int, warehouse_id: int) -> Dict[str, Any]:
+    def compute_nombre_jobs_affectes(
+        self, inventory_id: int, warehouse_id: Optional[int] = None
+    ) -> Dict[str, Any]:
         ctx = self._validate_and_build_context(inventory_id, warehouse_id)
         return self._wrap(ctx, 'KPI-A02', self.repository.count_jobs_affected(ctx))
 
     def compute_nombre_emplacements_couverts(
-        self, inventory_id: int, warehouse_id: int
+        self, inventory_id: int, warehouse_id: Optional[int] = None
     ) -> Dict[str, Any]:
         ctx = self._validate_and_build_context(inventory_id, warehouse_id)
         return self._wrap(ctx, 'KPI-A03', self.repository.count_locations_covered(ctx))
 
     def compute_taux_jobs_termines_1er_comptage(
-        self, inventory_id: int, warehouse_id: int
+        self, inventory_id: int, warehouse_id: Optional[int] = None
     ) -> Dict[str, Any]:
         ctx = self._validate_and_build_context(inventory_id, warehouse_id)
         return self._wrap(ctx, 'KPI-B01', self._jobs_termines_payload(ctx, 1))
 
     def compute_taux_jobs_termines_2e_comptage(
-        self, inventory_id: int, warehouse_id: int
+        self, inventory_id: int, warehouse_id: Optional[int] = None
     ) -> Dict[str, Any]:
         ctx = self._validate_and_build_context(inventory_id, warehouse_id)
         return self._wrap(ctx, 'KPI-B02', self._jobs_termines_payload(ctx, 2))
 
     def compute_repartition_assignments_1er_comptage(
-        self, inventory_id: int, warehouse_id: int
+        self, inventory_id: int, warehouse_id: Optional[int] = None
     ) -> Dict[str, Any]:
         ctx = self._validate_and_build_context(inventory_id, warehouse_id)
         return self._wrap(
@@ -190,7 +316,7 @@ class KpisService:
         )
 
     def compute_repartition_assignments_2e_comptage(
-        self, inventory_id: int, warehouse_id: int
+        self, inventory_id: int, warehouse_id: Optional[int] = None
     ) -> Dict[str, Any]:
         ctx = self._validate_and_build_context(inventory_id, warehouse_id)
         return self._wrap(
@@ -198,7 +324,7 @@ class KpisService:
         )
 
     def compute_repartition_assignments_3e_comptage(
-        self, inventory_id: int, warehouse_id: int
+        self, inventory_id: int, warehouse_id: Optional[int] = None
     ) -> Dict[str, Any]:
         ctx = self._validate_and_build_context(inventory_id, warehouse_id)
         return self._wrap(
@@ -206,37 +332,45 @@ class KpisService:
         )
 
     def compute_repartition_assignments_nieme_comptage(
-        self, inventory_id: int, warehouse_id: int
+        self, inventory_id: int, warehouse_id: Optional[int] = None
     ) -> Dict[str, Any]:
         ctx = self._validate_and_build_context(inventory_id, warehouse_id)
         return self._wrap(
-            ctx, 'KPI-C04', self._assignment_distribution(ctx, Q(counting__order__gte=4), 4)
+            ctx,
+            'KPI-C04',
+            self._assignment_distribution(ctx, Q(counting__order__gte=4), 4),
         )
 
-    def compute_nombre_ecarts(self, inventory_id: int, warehouse_id: int) -> Dict[str, Any]:
+    def compute_nombre_ecarts(
+        self, inventory_id: int, warehouse_id: Optional[int] = None
+    ) -> Dict[str, Any]:
         ctx = self._validate_and_build_context(inventory_id, warehouse_id)
         return self._wrap(
-            ctx, 'KPI-D01', self.repository.count_ecarts(ctx.inventory_id, ctx.warehouse_id)
+            ctx,
+            'KPI-D01',
+            self.repository.count_ecarts(ctx.inventory_id, ctx.warehouse_id),
         )
 
     def compute_nombre_jobs_avec_ecart(
-        self, inventory_id: int, warehouse_id: int
+        self, inventory_id: int, warehouse_id: Optional[int] = None
     ) -> Dict[str, Any]:
         ctx = self._validate_and_build_context(inventory_id, warehouse_id)
         return self._wrap(ctx, 'KPI-D02', self.repository.count_jobs_with_ecart(ctx))
 
     def compute_nombre_emplacements_avec_ecart(
-        self, inventory_id: int, warehouse_id: int
+        self, inventory_id: int, warehouse_id: Optional[int] = None
     ) -> Dict[str, Any]:
         ctx = self._validate_and_build_context(inventory_id, warehouse_id)
         return self._wrap(
             ctx,
             'KPI-D03',
-            self.repository.count_locations_with_ecart(ctx.inventory_id, ctx.warehouse_id),
+            self.repository.count_locations_with_ecart(
+                ctx.inventory_id, ctx.warehouse_id
+            ),
         )
 
     def compute_nombre_ecarts_ouverts(
-        self, inventory_id: int, warehouse_id: int
+        self, inventory_id: int, warehouse_id: Optional[int] = None
     ) -> Dict[str, Any]:
         ctx = self._validate_and_build_context(inventory_id, warehouse_id)
         return self._wrap(
@@ -245,45 +379,51 @@ class KpisService:
             self.repository.count_open_ecarts(ctx.inventory_id, ctx.warehouse_id),
         )
 
-    def compute_nombre_equipes(self, inventory_id: int, warehouse_id: int) -> Dict[str, Any]:
+    def compute_nombre_equipes(
+        self, inventory_id: int, warehouse_id: Optional[int] = None
+    ) -> Dict[str, Any]:
         ctx = self._validate_and_build_context(inventory_id, warehouse_id)
         return self._wrap(
             ctx, 'KPI-T01', self.repository.count_distinct_teams(ctx.assignments_qs)
         )
 
     def compute_taux_termine_1er_comptage_par_equipe(
-        self, inventory_id: int, warehouse_id: int
+        self, inventory_id: int, warehouse_id: Optional[int] = None
     ) -> Dict[str, Any]:
         ctx = self._validate_and_build_context(inventory_id, warehouse_id)
         return self._wrap(ctx, 'KPI-T02', self._teams_rate_payload(ctx, 1))
 
     def compute_taux_termine_2e_comptage_par_equipe(
-        self, inventory_id: int, warehouse_id: int
+        self, inventory_id: int, warehouse_id: Optional[int] = None
     ) -> Dict[str, Any]:
         ctx = self._validate_and_build_context(inventory_id, warehouse_id)
         return self._wrap(ctx, 'KPI-T03', self._teams_rate_payload(ctx, 2))
 
     def compute_repartition_1er_comptage_par_equipe(
-        self, inventory_id: int, warehouse_id: int
+        self, inventory_id: int, warehouse_id: Optional[int] = None
     ) -> Dict[str, Any]:
         ctx = self._validate_and_build_context(inventory_id, warehouse_id)
         return self._wrap(ctx, 'KPI-T04', self._teams_distribution_payload(ctx, 1))
 
     def compute_repartition_2e_comptage_par_equipe(
-        self, inventory_id: int, warehouse_id: int
+        self, inventory_id: int, warehouse_id: Optional[int] = None
     ) -> Dict[str, Any]:
         ctx = self._validate_and_build_context(inventory_id, warehouse_id)
         return self._wrap(ctx, 'KPI-T05', self._teams_distribution_payload(ctx, 2))
 
     def compute_equipes_multi_ecarts(
-        self, inventory_id: int, warehouse_id: int
+        self, inventory_id: int, warehouse_id: Optional[int] = None
     ) -> Dict[str, Any]:
         ctx = self._validate_and_build_context(inventory_id, warehouse_id)
-        team_map, usernames = self.repository.build_assignment_team_map(ctx.assignments_qs)
+        team_map, usernames = self.repository.build_assignment_team_map(
+            ctx.assignments_qs
+        )
         open_ecarts_by_team, _ = self.repository.link_ecarts_to_teams(
             ctx.inventory_id, ctx.warehouse_id, team_map, open_only=True
         )
-        multi_keys = sorted(tk for tk, ids in open_ecarts_by_team.items() if len(ids) >= 2)
+        multi_keys = sorted(
+            tk for tk, ids in open_ecarts_by_team.items() if len(ids) >= 2
+        )
         teams = [
             {
                 'team_key': tk,
@@ -300,10 +440,12 @@ class KpisService:
         )
 
     def compute_jobs_avec_ecart_par_equipe(
-        self, inventory_id: int, warehouse_id: int
+        self, inventory_id: int, warehouse_id: Optional[int] = None
     ) -> Dict[str, Any]:
         ctx = self._validate_and_build_context(inventory_id, warehouse_id)
-        team_map, usernames = self.repository.build_assignment_team_map(ctx.assignments_qs)
+        team_map, usernames = self.repository.build_assignment_team_map(
+            ctx.assignments_qs
+        )
         _, jobs_by_team = self.repository.link_ecarts_to_teams(
             ctx.inventory_id, ctx.warehouse_id, team_map, open_only=False
         )
@@ -316,3 +458,61 @@ class KpisService:
             for tk, job_ids in sorted(jobs_by_team.items())
         ]
         return self._wrap(ctx, 'KPI-T07', {'teams': teams})
+
+    # ------------------------------------------------------------------
+    # Indicateurs inventaire (tous magasins) — Setting / écarts stock
+    # ------------------------------------------------------------------
+
+    def compute_nombre_magasins(self, inventory_id: int) -> Dict[str, Any]:
+        ctx = self._validate_and_build_context(inventory_id, None)
+        return self._wrap(
+            ctx, 'KPI-S01', self.repository.count_warehouses(inventory_id)
+        )
+
+    def compute_repartition_magasins_par_statut(
+        self, inventory_id: int
+    ) -> Dict[str, Any]:
+        ctx = self._validate_and_build_context(inventory_id, None)
+        counts = self.repository.settings_status_counts(inventory_id)
+        total = sum(counts.values())
+        by_status = {
+            status: {
+                'count': count,
+                'percent': _percent(count, total),
+            }
+            for status, count in counts.items()
+        }
+        return self._wrap(
+            ctx,
+            'KPI-S02',
+            {
+                'total_magasins': total,
+                'by_status': by_status,
+            },
+        )
+
+    def compute_nombre_ecarts_stock(self, inventory_id: int) -> Dict[str, Any]:
+        ctx = self._validate_and_build_context(inventory_id, None)
+        total = self.repository.count_ecarts_stock(inventory_id, only_nonzero=False)
+        nonzero = self.repository.count_ecarts_stock(inventory_id, only_nonzero=True)
+        return self._wrap(
+            ctx,
+            'KPI-E01',
+            {'total': total, 'avec_ecart_non_nul': nonzero},
+        )
+
+    def compute_nombre_ecarts_stock_valides(
+        self, inventory_id: int
+    ) -> Dict[str, Any]:
+        ctx = self._validate_and_build_context(inventory_id, None)
+        valides = self.repository.count_ecarts_stock_valides(inventory_id)
+        total = self.repository.count_ecarts_stock(inventory_id, only_nonzero=False)
+        return self._wrap(
+            ctx,
+            'KPI-E02',
+            {
+                'valides': valides,
+                'total': total,
+                'percent': _percent(valides, total),
+            },
+        )

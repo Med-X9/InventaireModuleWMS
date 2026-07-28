@@ -12,9 +12,9 @@ from django.conf import settings
 import os
 import logging
 from django.utils import timezone
-from ..interfaces.pdf_interface import PDFServiceInterface
-from ..repositories.pdf_repository import PDFRepository
-from ..exceptions.pdf_exceptions import (
+from apps.inventory.interfaces.pdf_interface import PDFServiceInterface
+from apps.inventory.repositories.pdf_repository import PDFRepository
+from apps.inventory.exceptions.pdf_exceptions import (
     PDFValidationError,
     PDFNotFoundError,
     PDFEmptyContentError,
@@ -329,7 +329,7 @@ class PDFService(PDFServiceInterface):
     
     def _get_warehouse_info(self, inventory):
         """Récupère les informations du warehouse via les jobs ou settings"""
-        from ..models import Job
+        from apps.inventory.models import Job
         # Essayer via les jobs
         jobs = Job.objects.filter(inventory=inventory).select_related('warehouse').first()
         if jobs and jobs.warehouse:

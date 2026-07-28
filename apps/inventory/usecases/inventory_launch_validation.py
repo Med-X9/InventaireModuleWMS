@@ -1,5 +1,6 @@
 from typing import Dict, Any, List
 from apps.inventory.models import Inventory, Job, JobDetail, Counting
+from apps.inventory.constants import InventoryType
 from apps.masterdata.models import Location, RegroupementEmplacement, Stock
 from apps.inventory.exceptions import InventoryValidationError, InventoryNotFoundError
 from django.db.models import Q
@@ -35,9 +36,11 @@ class InventoryLaunchValidationUseCase:
         # Vérification de l'image de stock pour tous les comptages
         self._validate_stock_image(inventory, errors, info_messages)
 
-        if inventory_type == 'GENERAL':
+        if inventory_type in InventoryType.FULL_COVERAGE_LAUNCH:
+            # GENERAL / MAGASIN : couverture complète
             self._validate_general_inventory(inventory, account_id, errors, info_messages)
-        elif inventory_type == 'TOURNANT':
+        elif inventory_type == InventoryType.TOURNANT:
+            # TOURNANT : ≥1 job PRET + ≥1 emplacement
             self._validate_tournant_inventory(inventory, errors, info_messages)
         else:
             errors.append(f"Type d'inventaire non supporté: {inventory_type}")

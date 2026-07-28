@@ -94,4 +94,64 @@ class InventoryManagementService(IInventoryUpdateService):
             self.use_case.validate_only(data)
         except Exception as e:
             logger.error(f"Erreur de validation des données: {str(e)}", exc_info=True)
-            raise InventoryValidationError(f"Erreur de validation des données: {str(e)}") 
+            raise InventoryValidationError(f"Erreur de validation des données: {str(e)}")
+
+    def configure_magasin_counting(
+        self,
+        inventory_id: int,
+        counting_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Configure le comptage unique d'un inventaire MAGASIN / TOURNANT.
+
+        Raises:
+            InventoryNotFoundError / InventoryValidationError
+        """
+        try:
+            return self.use_case.configure_magasin_counting(
+                inventory_id, counting_data
+            )
+        except InventoryNotFoundError:
+            raise
+        except InventoryValidationError:
+            raise
+        except Exception as e:
+            logger.error(
+                "Erreur configuration comptage unique inventory_id=%s: %s",
+                inventory_id,
+                str(e),
+                exc_info=True,
+            )
+            raise InventoryValidationError(
+                f"Erreur lors de la configuration du comptage: {str(e)}"
+            )
+
+    def configure_general_countings(
+        self,
+        inventory_id: int,
+        comptages: list,
+    ) -> Dict[str, Any]:
+        """
+        Configure les 3 comptages initiaux d'un inventaire GENERAL.
+
+        Raises:
+            InventoryNotFoundError / InventoryValidationError
+        """
+        try:
+            return self.use_case.configure_general_countings(
+                inventory_id, comptages
+            )
+        except InventoryNotFoundError:
+            raise
+        except InventoryValidationError:
+            raise
+        except Exception as e:
+            logger.error(
+                "Erreur configuration comptages GENERAL inventory_id=%s: %s",
+                inventory_id,
+                str(e),
+                exc_info=True,
+            )
+            raise InventoryValidationError(
+                f"Erreur lors de la configuration des comptages: {str(e)}"
+            )

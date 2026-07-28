@@ -128,14 +128,15 @@ class InventoryCreationUseCase:
             Inventory: L'inventaire créé
         """
         from django.utils import timezone
+        from apps.inventory.constants import InventoryStatus
         
-        # Créer l'objet Inventory sans sauvegarder
+        # Création sans comptages → EN CONFIGURATION
         inventory = Inventory(
             label=data['label'],
             date=data['date'],
-            status='EN PREPARATION',
+            status=InventoryStatus.EN_CONFIGURATION,
             inventory_type=data.get('inventory_type', 'GENERAL'),
-            en_preparation_status_date=timezone.now()  # Définir la date de préparation
+            en_configuration_status_date=timezone.now(),
         )
         
         # Générer la référence manuellement

@@ -13,7 +13,9 @@ from typing import Dict, Any, List, Optional
 from django.core.exceptions import ValidationError
 
 from apps.inventory.models import CountingDetail, EcartComptage, ComptageSequence
-from apps.inventory.utils.ecart_consensus import calculate_ecart_consensus_result
+from apps.mobile.usecases.counting_detail_ecart_final_result import (
+    CountingDetailEcartFinalResultUseCase,
+)
 from apps.mobile.exceptions import EcartComptageResoluError
 import logging
 
@@ -35,9 +37,13 @@ class EcartComptageAutomaticProcessingUseCase:
             print(f"Écart détecté : {result['ecart_value']}")
     """
     
-    def __init__(self):
-        """Initialise le use case."""
-        pass
+    def __init__(
+        self,
+        ecart_final_result_use_case: Optional[CountingDetailEcartFinalResultUseCase] = None,
+    ):
+        self.ecart_final_result_use_case = (
+            ecart_final_result_use_case or CountingDetailEcartFinalResultUseCase()
+        )
     
     def execute(
         self, 
@@ -86,11 +92,18 @@ class EcartComptageAutomaticProcessingUseCase:
         # Traiter la séquence (création ou mise à jour)
         sequence_result = self._process_sequence(counting_detail, ecart, cache_entry)
         
-        # Calculer le consensus si possible
-        quantities = [s.quantity for s in cache_entry['sequences']]
-        final_result = calculate_ecart_consensus_result(quantities, ecart.final_result)
-        if final_result is not None:
-            ecart.final_result = final_result
+        # final_result : Strategy selon inventory_type
+        quantities = [
+            s.quantity
+            for s in sorted(cache_entry["sequences"], key=lambda s: s.sequence_number)
+        ]
+        inventory = counting_detail.counting.inventory
+        inventory_type = getattr(inventory, "inventory_type", None) or ""
+        final_result = self.ecart_final_result_use_case.apply_to_ecart(
+            inventory_type,
+            ecart,
+            quantities,
+        )
         
         return {
             "ecart": ecart,

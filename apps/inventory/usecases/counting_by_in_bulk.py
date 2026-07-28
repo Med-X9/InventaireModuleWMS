@@ -4,6 +4,7 @@ Use case pour le comptage en lot (bulk counting).
 from typing import Dict, Any
 from ..models import Counting, Inventory
 from ..exceptions import CountingValidationError
+from ..interfaces.counting_strategy_interface import ICountingStrategy
 
 # --- Définition des règles de validation ---
 def rule_order_required(data):
@@ -33,9 +34,9 @@ BULK_RULES = [
     rule_entry_quantity_block,
 ]
 
-class CountingByInBulk:
+class CountingByInBulk(ICountingStrategy):
     """
-    Use case pour gérer le comptage d'inventaire en vrac (en lot).
+    Stratégie de comptage d'inventaire en vrac (en lot).
     Validation déclarative par liste de règles.
     """
     

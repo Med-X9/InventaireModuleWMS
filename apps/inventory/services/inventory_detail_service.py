@@ -86,28 +86,49 @@ class InventoryDetailService:
     def get_warehouses(self, inventory_id: int) -> List[Dict[str, Any]]:
         """
         Récupère la liste des magasins d'un inventaire.
-        
+
+        Inclut le statut Setting (EN ATTENTE / LANCEE / CLOTURE) pour
+        permettre la sélection multi-lancement côté UI.
+
         Args:
             inventory_id: L'ID de l'inventaire
-            
+
         Returns:
-            Liste des magasins avec nom et date
-            
+            Liste des magasins avec id, reference, nom, date, status, etc.
+
         Raises:
             InventoryNotFoundError: Si l'inventaire n'existe pas
         """
         inventory = self.repository.get_with_related_data(inventory_id)
-        settings = Setting.objects.filter(inventory=inventory).select_related('warehouse')
-        
+        settings = Setting.objects.filter(inventory=inventory).select_related(
+            'warehouse'
+        )
+
         magasins = []
         for setting in settings:
             magasins.append({
                 'id': setting.warehouse.id,
+                'setting_id': setting.id,
                 'reference': setting.warehouse.reference or '',
                 'nom': setting.warehouse.warehouse_name,
-                'date': setting.created_at.date() if setting.created_at else None
+                'date': (
+                    setting.warehouse_date
+                    if setting.warehouse_date
+                    else (setting.created_at.date() if setting.created_at else None)
+                ),
+                'status': setting.status,
+                'status_date_lancement': (
+                    setting.status_date_lancement.isoformat()
+                    if setting.status_date_lancement
+                    else None
+                ),
+                'status_date_cloture': (
+                    setting.status_date_cloture.isoformat()
+                    if setting.status_date_cloture
+                    else None
+                ),
             })
-        
+
         return magasins
     
     def get_countings(self, inventory_id: int) -> List[Dict[str, Any]]:

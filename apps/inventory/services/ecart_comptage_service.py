@@ -5,6 +5,7 @@ from django.db import transaction
 from django.db.models import Prefetch, Q
 from django.utils import timezone
 
+from apps.inventory.constants import InventoryType
 from ..models import (
     EcartComptage,
     ComptageSequence,
@@ -27,6 +28,28 @@ class EcartComptageService:
     def __init__(self, repository: Optional[EcartComptageRepository] = None) -> None:
         self.repository = repository or EcartComptageRepository()
 
+    def _min_sequences_for_inventory(self, inventory: Optional[Inventory]) -> int:
+        """
+        Nombre minimal de séquences pour résoudre / valider un écart.
+
+        - GENERAL : 2 séquences (double comptage)
+        - MAGASIN / TOURNANT : 1 séquence (mono-comptage)
+        """
+        if inventory and inventory.inventory_type in InventoryType.SINGLE_COUNTING:
+            return 1
+        return 2
+
+    def _get_sequences_count(self, ecart: EcartComptage) -> int:
+        sequences_count = ecart.total_sequences or 0
+        if sequences_count <= 0:
+            sequences_count = ecart.counting_sequences.count()
+        elif sequences_count < 2:
+            # Recalcule si total_sequences semble sous-estimé
+            db_count = ecart.counting_sequences.count()
+            if db_count > sequences_count:
+                sequences_count = db_count
+        return sequences_count
+
     @transaction.atomic
     def update_final_result(
         self,
@@ -38,22 +61,11 @@ class EcartComptageService:
         """
         Met à jour le résultat final d'un EcartComptage.
 
-        Règles métier :
-        - Il doit y avoir au moins deux comptages (séquences) enregistrés
-          pour cet écart avant toute modification du résultat final.
+        Règles métier selon le type d'inventaire :
+        - GENERAL : ≥ 2 séquences recommandées
+        - MAGASIN / TOURNANT : ≥ 1 séquence
         """
         ecart = self.repository.get_by_id(ecart_id)
-
-        # Sécurité : on s'appuie sur total_sequences, mais on recalcule si besoin
-        sequences_count = ecart.total_sequences or 0
-        # if sequences_count < 2:
-        #     # Double check via la relation si jamais total_sequences n'est pas à jour
-        #     sequences_count = ecart.counting_sequences.count()
-
-        # if sequences_count < 2:
-        #     raise InventoryValidationError(
-        #         "Il faut au moins deux comptages enregistrés pour modifier le résultat final."
-        #     )
 
         ecart.final_result = final_result
         ecart.manual_result = True
@@ -79,19 +91,24 @@ class EcartComptageService:
         Marque un EcartComptage comme résolu (resolved = True).
 
         Règles métier :
-        - Il doit y avoir au moins deux comptages (séquences) enregistrés.
-        - Le champ final_result doit être renseigné (non nul).
+        - GENERAL : au moins 2 séquences de comptage
+        - MAGASIN / TOURNANT : au moins 1 séquence
+        - Le champ final_result doit être renseigné (non nul)
         """
         ecart = self.repository.get_by_id(ecart_id)
+        inventory = ecart.inventory
+        min_sequences = self._min_sequences_for_inventory(inventory)
+        sequences_count = self._get_sequences_count(ecart)
 
-        # Vérifier le nombre de séquences
-        sequences_count = ecart.total_sequences or 0
-        if sequences_count < 2:
-            sequences_count = ecart.counting_sequences.count()
-
-        if sequences_count < 2:
+        if sequences_count < min_sequences:
+            inventory_type = (
+                inventory.inventory_type if inventory else "inconnu"
+            )
             raise InventoryValidationError(
-                "Il faut au moins deux comptages enregistrés pour résoudre l'écart."
+                f"Il faut au moins {min_sequences} comptage(s) enregistré(s) "
+                f"pour résoudre l'écart "
+                f"(type inventaire : {inventory_type}, "
+                f"séquences trouvées : {sequences_count})."
             )
 
         # Vérifier que le résultat final est renseigné

@@ -90,9 +90,10 @@ class EcartComptageResolveView(APIView):
     """
     API pour marquer un EcartComptage comme résolu (resolved = true).
 
-    Contraintes métier :
-    - Il doit y avoir au moins deux comptages (séquences) enregistrés.
-    - Le champ final_result doit être renseigné (non nul).
+    Contraintes métier selon le type d'inventaire :
+    - GENERAL : au moins 2 séquences de comptage
+    - MAGASIN / TOURNANT : au moins 1 séquence
+    - Le champ final_result doit être renseigné (non nul)
 
     Corps attendu (JSON) :
     {

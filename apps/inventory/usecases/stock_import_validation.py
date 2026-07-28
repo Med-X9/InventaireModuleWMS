@@ -7,6 +7,7 @@ from ..models import Inventory
 from ..repositories import InventoryRepository
 from ..repositories.stock_repository import StockRepository
 from ..exceptions import InventoryNotFoundError, StockValidationError
+from apps.inventory.constants import InventoryType
 from apps.masterdata.models import Stock
 import logging
 
@@ -17,8 +18,8 @@ class StockImportValidationUseCase:
     Use case pour valider l'import de stock selon le type d'inventaire.
     
     Règles métier:
-    - Pour un inventaire de type TOURNANT: vérifier s'il y a déjà des stocks importés
-    - Pour un inventaire de type GENERAL: pas de restriction
+    - TOURNANT / MAGASIN: vérifier s'il y a déjà des stocks importés
+    - GENERAL: pas de restriction
     """
     
     def __init__(self):
@@ -55,9 +56,9 @@ class StockImportValidationUseCase:
                 }
             
             # Vérifier le type d'inventaire
-            if inventory.inventory_type == 'TOURNANT':
+            if inventory.inventory_type in InventoryType.SINGLE_COUNTING:
                 return self._validate_tournant_inventory(inventory)
-            elif inventory.inventory_type == 'GENERAL':
+            elif inventory.inventory_type == InventoryType.GENERAL:
                 return self._validate_general_inventory(inventory)
             else:
                 raise StockValidationError(f"Type d'inventaire non supporté: {inventory.inventory_type}")
@@ -118,7 +119,7 @@ class StockImportValidationUseCase:
     
     def _validate_tournant_inventory(self, inventory: Inventory) -> Dict[str, Any]:
         """
-        Valide l'import pour un inventaire de type TOURNANT.
+        Valide l'import pour un inventaire TOURNANT / MAGASIN (comptage unique).
         
         Args:
             inventory: L'inventaire à valider
@@ -126,6 +127,7 @@ class StockImportValidationUseCase:
         Returns:
             Dict[str, Any]: Résultat de la validation
         """
+        inventory_type = inventory.inventory_type
         # Vérifier s'il y a déjà des stocks importés pour cet inventaire
         existing_stocks_count = Stock.objects.filter(
             inventory_id=inventory.id,
@@ -136,10 +138,10 @@ class StockImportValidationUseCase:
             # Il y a déjà des stocks importés
             return {
                 'can_import': False,
-                'inventory_type': 'TOURNANT',
+                'inventory_type': inventory_type,
                 'existing_stocks_count': existing_stocks_count,
                 'message': (
-                    f"Cet inventaire de type TOURNANT a déjà {existing_stocks_count} stocks importés. "
+                    f"Cet inventaire de type {inventory_type} a déjà {existing_stocks_count} stocks importés. "
                     "Pour importer de nouveaux stocks, vous devez supprimer cet inventaire et en créer un nouveau."
                 ),
                 'action_required': 'DELETE_AND_RECREATE'
@@ -148,9 +150,9 @@ class StockImportValidationUseCase:
             # Aucun stock importé, l'import est autorisé
             return {
                 'can_import': True,
-                'inventory_type': 'TOURNANT',
+                'inventory_type': inventory_type,
                 'existing_stocks_count': 0,
-                'message': "Import autorisé pour cet inventaire de type TOURNANT.",
+                'message': f"Import autorisé pour cet inventaire de type {inventory_type}.",
                 'action_required': None
             }
     

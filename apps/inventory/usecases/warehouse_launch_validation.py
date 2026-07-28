@@ -4,6 +4,7 @@ Adaptation des conditions de lancement d'inventaire au niveau warehouse.
 """
 from typing import Dict, Any, List
 from apps.inventory.models import Inventory, Job, JobDetail, Counting, Setting
+from apps.inventory.constants import InventoryType
 from apps.masterdata.models import Location, RegroupementEmplacement, Stock, Warehouse
 from apps.inventory.exceptions import InventoryValidationError, InventoryNotFoundError
 from django.db.models import Q
@@ -75,11 +76,13 @@ class WarehouseLaunchValidationUseCase:
         # Vérification de l'image de stock pour le warehouse spécifique
         self._validate_stock_image_for_warehouse(inventory, warehouse_id, errors, info_messages)
         
-        if inventory_type == 'GENERAL':
-            self._validate_general_inventory_for_warehouse(
+        if inventory_type in InventoryType.FULL_COVERAGE_LAUNCH:
+            # GENERAL + MAGASIN : couverture complète du warehouse
+            self._validate_full_coverage_inventory_for_warehouse(
                 inventory, warehouse_id, account_id, errors, info_messages
             )
-        elif inventory_type == 'TOURNANT':
+        elif inventory_type == InventoryType.TOURNANT:
+            # TOURNANT : couverture partielle (≥1 job PRET)
             self._validate_tournant_inventory_for_warehouse(
                 inventory, warehouse_id, errors, info_messages
             )
@@ -188,7 +191,7 @@ class WarehouseLaunchValidationUseCase:
                     f"(warehouse {warehouse_id})"
                 )
     
-    def _validate_general_inventory_for_warehouse(
+    def _validate_full_coverage_inventory_for_warehouse(
         self,
         inventory: Inventory,
         warehouse_id: int,
@@ -197,7 +200,12 @@ class WarehouseLaunchValidationUseCase:
         info_messages: List[str]
     ):
         """
-        Valide les conditions spécifiques pour un inventaire GENERAL au niveau du warehouse.
+        Valide le lancement pour inventaires GENERAL et MAGASIN.
+
+        Règles (couverture complète du warehouse) :
+        - Tous les emplacements actifs du regroupement compte/warehouse
+          doivent être dans des JobDetail
+        - Tous les jobs du warehouse doivent être au statut PRET
         """
         # 1. Tous les emplacements du warehouse et du compte doivent être affectés à des jobs
         regroupement = RegroupementEmplacement.objects.filter(
@@ -250,30 +258,39 @@ class WarehouseLaunchValidationUseCase:
                 )
         
         # 2. Tous les jobs du warehouse doivent être PRET
-        not_ready_jobs = Job.objects.filter(
+        warehouse_jobs = Job.objects.filter(
             inventory=inventory,
-            warehouse_id=warehouse_id
-        ).exclude(status='PRET')
-        
-        if not_ready_jobs.exists():
+            warehouse_id=warehouse_id,
+        )
+        if not warehouse_jobs.exists():
             errors.append(
-                f"Tous les jobs du warehouse ne sont pas au statut PRET. "
-                f"({not_ready_jobs.count()} jobs non prêts)"
-            )
-            logger.warning(
-                f"Jobs non prêts pour le warehouse {warehouse_id}: "
-                f"{not_ready_jobs.count()} jobs ne sont pas au statut PRET"
+                "Aucun job trouvé pour ce warehouse. "
+                "Créez et passez les jobs en PRET avant le lancement."
             )
         else:
-            logger.info(
-                f"Tous les jobs du warehouse {warehouse_id} sont au statut PRET"
-            )
+            not_ready_jobs = warehouse_jobs.exclude(status='PRET')
+            if not_ready_jobs.exists():
+                errors.append(
+                    f"Tous les jobs du warehouse ne sont pas au statut PRET. "
+                    f"({not_ready_jobs.count()} jobs non prêts)"
+                )
+                logger.warning(
+                    f"Jobs non prêts pour le warehouse {warehouse_id}: "
+                    f"{not_ready_jobs.count()} jobs ne sont pas au statut PRET"
+                )
+            else:
+                logger.info(
+                    f"Tous les jobs du warehouse {warehouse_id} sont au statut PRET"
+                )
         
         # Ajout des messages d'information
         info_messages.append(
             "Merci de réceptionner tous les commandes et ranger et clôturer tous les commandes."
         )
-    
+
+    # Alias rétrocompatibilité
+    _validate_general_inventory_for_warehouse = _validate_full_coverage_inventory_for_warehouse
+
     def _validate_tournant_inventory_for_warehouse(
         self,
         inventory: Inventory,

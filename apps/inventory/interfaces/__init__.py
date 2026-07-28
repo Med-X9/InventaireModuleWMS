@@ -2,6 +2,8 @@ from .inventory_interface import IInventoryRepository, IInventoryService, ICount
 from .warehouse_interface import IWarehouseRepository
 from .stock_interface import IStockService
 from .ressource_interface import IRessourceRepository, IRessourceService
+from .counting_strategy_interface import ICountingStrategy
+from .ecart_final_result_strategy_interface import IEcartFinalResultStrategy
 
 __all__ = [
     'IInventoryRepository',
@@ -10,5 +12,7 @@ __all__ = [
     'IWarehouseRepository',
     'IStockService',
     'IRessourceRepository',
-    'IRessourceService'
+    'IRessourceService',
+    'ICountingStrategy',
+    'IEcartFinalResultStrategy',
 ] 

@@ -382,7 +382,14 @@ class Stock(TimeStampedModel):
     Modèle pour les stocks
     """
     reference = models.CharField(unique=True, max_length=20)
-    location = models.ForeignKey(Location, on_delete=models.CASCADE)
+    location = models.ForeignKey(
+        Location,
+        on_delete=models.CASCADE,
+        blank=True,
+        null=True,
+        verbose_name='Emplacement',
+        help_text='Optionnel — extractions ERP article/quantité sans emplacement',
+    )
     product = models.ForeignKey(Product, on_delete=models.CASCADE,blank=True,null=True)
     quantity_available = models.IntegerField(validators=[MinValueValidator(0)])
     quantity_reserved = models.IntegerField(validators=[MinValueValidator(0)], blank=True, null=True)
@@ -403,8 +410,14 @@ class Stock(TimeStampedModel):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.product.Short_Description} - {self.location.location_reference}"
-    
+        product_label = (
+            self.product.Short_Description if self.product else "N/A"
+        )
+        location_label = (
+            self.location.location_reference if self.location_id else "sans emplacement"
+        )
+        return f"{product_label} - {location_label}"
+
 class TypeRessource(CodeGeneratorMixin, TimeStampedModel):
     CODE_PREFIX = 'TR'
     reference = models.CharField(unique=True, max_length=20)

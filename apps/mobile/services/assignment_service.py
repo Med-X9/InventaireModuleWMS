@@ -425,7 +425,9 @@ class AssignmentService:
         # Déclencher la génération PDF asynchrone pour l'assignment terminé.
         # Le fichier sera stocké sous pdf_tasks/JOB-xxxx/comptage-xx.pdf
         try:
-            from apps.inventory.views.pdf_views import enqueue_job_assignment_pdf_task
+            from apps.inventory.services.pdf_task_service import (
+                enqueue_job_assignment_pdf_task,
+            )
 
             job_reference = (job.reference or f"job-{job.id}").replace("\\", "-").replace("/", "-")
             counting_order = assignment.counting.order if assignment.counting and assignment.counting.order else 0

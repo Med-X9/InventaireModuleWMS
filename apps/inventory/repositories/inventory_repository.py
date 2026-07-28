@@ -5,10 +5,12 @@ from ..interfaces.inventory_interface import IInventoryRepository
 from typing import List, Dict, Any, Optional
 from django.utils import timezone
 from django.db import transaction
+from apps.inventory.constants import InventoryStatus
+
 
 class InventoryRepository(IInventoryRepository):
     """
-    Repository pour la gestion des inventaires
+    Repository pour la gestion des inventaires (accès ORM uniquement).
     """
     def get_all(self) -> List[Any]:
         """
@@ -81,21 +83,29 @@ class InventoryRepository(IInventoryRepository):
             account_id = inventory_data.pop('account_id', None)
 
             # S'assurer que les champs status et date sont définis
+            # Création sans comptages → EN CONFIGURATION par défaut
             if 'status' not in inventory_data:
-                inventory_data['status'] = 'EN PREPARATION'
+                inventory_data['status'] = InventoryStatus.EN_CONFIGURATION
             if 'date' not in inventory_data:
                 inventory_data['date'] = timezone.now()
-            
-            # S'assurer que la date de préparation est définie si le statut est EN PREPARATION
-            if inventory_data.get('status') == 'EN PREPARATION' and 'en_preparation_status_date' not in inventory_data:
+
+            if (
+                inventory_data.get('status') == InventoryStatus.EN_CONFIGURATION
+                and 'en_configuration_status_date' not in inventory_data
+            ):
+                inventory_data['en_configuration_status_date'] = timezone.now()
+            if (
+                inventory_data.get('status') == InventoryStatus.EN_PREPARATION
+                and 'en_preparation_status_date' not in inventory_data
+            ):
                 inventory_data['en_preparation_status_date'] = timezone.now()
 
             # Créer l'objet Inventory sans sauvegarder
             inventory = Inventory(**inventory_data)
-            
+
             # Générer la référence manuellement
             inventory.reference = inventory.generate_reference(inventory.REFERENCE_PREFIX)
-            
+
             # Sauvegarder l'objet
             inventory.save()
 
@@ -105,12 +115,12 @@ class InventoryRepository(IInventoryRepository):
                 setting = Setting(
                     inventory=inventory,
                     warehouse_id=warehouse_id,
-                    account_id=account_id
+                    account_id=account_id,
                 )
-                
+
                 # Générer la référence manuellement
                 setting.reference = setting.generate_reference(setting.REFERENCE_PREFIX)
-                
+
                 # Sauvegarder l'objet
                 setting.save()
 
@@ -119,12 +129,12 @@ class InventoryRepository(IInventoryRepository):
                 # Créer l'objet Counting sans sauvegarder
                 counting = Counting(
                     inventory=inventory,
-                    **comptage
+                    **comptage,
                 )
-                
+
                 # Générer la référence manuellement
                 counting.reference = counting.generate_reference(counting.REFERENCE_PREFIX)
-                
+
                 # Sauvegarder l'objet
                 counting.save()
 
@@ -411,13 +421,15 @@ class InventoryRepository(IInventoryRepository):
         inventory.status = new_status
         
         # Mettre à jour la date correspondante au statut
-        if new_status == 'EN PREPARATION':
+        if new_status == InventoryStatus.EN_CONFIGURATION:
+            inventory.en_configuration_status_date = timezone.now()
+        elif new_status == InventoryStatus.EN_PREPARATION:
             inventory.en_preparation_status_date = timezone.now()
-        elif new_status == 'EN REALISATION':
+        elif new_status == InventoryStatus.EN_REALISATION:
             inventory.en_realisation_status_date = timezone.now()
-        elif new_status == 'TERMINE':
+        elif new_status == InventoryStatus.TERMINE:
             inventory.termine_status_date = timezone.now()
-        elif new_status == 'CLOTURE':
+        elif new_status == InventoryStatus.CLOTURE:
             inventory.cloture_status_date = timezone.now()
         
         inventory.save()

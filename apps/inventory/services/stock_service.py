@@ -121,8 +121,10 @@ class StockService(IStockService):
                 return results
 
             # Vérifier les doublons déjà existants en base selon le type d'inventaire
-            if inventory.inventory_type == 'TOURNANT':
-                # Pour les inventaires TOURNANT, refuser les doublons existants
+            from apps.inventory.constants import InventoryType
+
+            if inventory.inventory_type in InventoryType.SINGLE_COUNTING:
+                # TOURNANT / MAGASIN : refuser les doublons existants
                 for stock in valid_stocks_data:
                     if Stock.objects.filter(
                         product=stock['product'],
@@ -130,7 +132,11 @@ class StockService(IStockService):
                         inventory_id=stock['inventory_id']
                     ).exists():
                         results['success'] = False
-                        results['message'] = f"Import échoué: un stock existe déjà pour le produit {stock['product']} à l'emplacement {stock['location']} pour cet inventaire de type TOURNANT."
+                        results['message'] = (
+                            f"Import échoué: un stock existe déjà pour le produit "
+                            f"{stock['product']} à l'emplacement {stock['location']} "
+                            f"pour cet inventaire de type {inventory.inventory_type}."
+                        )
                         return results
             # Pour les inventaires GENERAL, permettre le remplacement (pas de vérification de doublons)
 

@@ -1,5 +1,5 @@
 """
-Repository KPI magasin — accès aux données (requêtes ORM).
+Repository KPI — accès aux données (magasin ou inventaire complet).
 """
 from __future__ import annotations
 
@@ -7,11 +7,22 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Tuple
 
-from django.db.models import Q, QuerySet
+from django.db.models import Count, Q, QuerySet
 
 from apps.masterdata.models import Warehouse
 
-from ..models import Assigment, ComptageSequence, Counting, EcartComptage, Inventory, Job, JobDetail
+from ..constants import SettingStatus
+from ..models import (
+    Assigment,
+    ComptageSequence,
+    Counting,
+    EcartComptage,
+    EcartStockTheorique,
+    Inventory,
+    Job,
+    JobDetail,
+    Setting,
+)
 from .job_repository import JobRepository
 
 ASSIGNMENT_EN_ATTENTE = ('EN ATTENTE', 'AFFECTE', 'PRET', 'TRANSFERT')
@@ -36,16 +47,23 @@ def bucket_for_status(status: str) -> str:
 
 
 @dataclass
-class WarehouseKpiContext:
+class KpiContext:
+    """Contexte KPI : un magasin OU tout l'inventaire (tous magasins)."""
+
     inventory_id: int
-    warehouse_id: int
+    warehouse_id: Optional[int]
     warehouse_name: str
+    scope: str  # 'warehouse' | 'inventory'
     jobs_qs: QuerySet
     assignments_qs: QuerySet
 
 
+# Alias historique
+WarehouseKpiContext = KpiContext
+
+
 class KpisRepository:
-    """Requêtes ORM pour les indicateurs magasin."""
+    """Requêtes ORM pour les indicateurs magasin ou inventaire."""
 
     def __init__(self, job_repository: Optional[JobRepository] = None) -> None:
         self._job_repository = job_repository or JobRepository()
@@ -56,12 +74,13 @@ class KpisRepository:
     def get_warehouse(self, warehouse_id: int) -> Optional[Warehouse]:
         return self._job_repository.get_warehouse_by_id(warehouse_id)
 
-    def build_context(self, inventory_id: int, warehouse_id: int) -> WarehouseKpiContext:
+    def build_context(self, inventory_id: int, warehouse_id: int) -> KpiContext:
         warehouse = self.get_warehouse(warehouse_id)
-        return WarehouseKpiContext(
+        return KpiContext(
             inventory_id=inventory_id,
             warehouse_id=warehouse_id,
             warehouse_name=warehouse.warehouse_name if warehouse else '',
+            scope='warehouse',
             jobs_qs=Job.objects.filter(
                 inventory_id=inventory_id,
                 warehouse_id=warehouse_id,
@@ -72,13 +91,26 @@ class KpisRepository:
             ).select_related('session', 'counting', 'personne', 'personne_two'),
         )
 
-    def count_jobs_total(self, ctx: WarehouseKpiContext) -> int:
+    def build_inventory_context(self, inventory_id: int) -> KpiContext:
+        """Agrège tous les magasins (jobs / assignments) de l'inventaire."""
+        return KpiContext(
+            inventory_id=inventory_id,
+            warehouse_id=None,
+            warehouse_name='',
+            scope='inventory',
+            jobs_qs=Job.objects.filter(inventory_id=inventory_id),
+            assignments_qs=Assigment.objects.filter(
+                job__inventory_id=inventory_id,
+            ).select_related('session', 'counting', 'personne', 'personne_two'),
+        )
+
+    def count_jobs_total(self, ctx: KpiContext) -> int:
         return ctx.jobs_qs.count()
 
-    def count_jobs_affected(self, ctx: WarehouseKpiContext) -> int:
+    def count_jobs_affected(self, ctx: KpiContext) -> int:
         return ctx.jobs_qs.filter(assigment__isnull=False).distinct().count()
 
-    def count_locations_covered(self, ctx: WarehouseKpiContext) -> int:
+    def count_locations_covered(self, ctx: KpiContext) -> int:
         return (
             JobDetail.objects.filter(job__in=ctx.jobs_qs)
             .values('location_id')
@@ -94,14 +126,14 @@ class KpisRepository:
         )
 
     def count_jobs_eligible_for_counting(
-        self, ctx: WarehouseKpiContext, counting_ids: List[int]
+        self, ctx: KpiContext, counting_ids: List[int]
     ) -> int:
         if not counting_ids:
             return 0
         return ctx.jobs_qs.filter(assigment__counting_id__in=counting_ids).distinct().count()
 
     def count_jobs_finished_for_counting(
-        self, ctx: WarehouseKpiContext, counting_ids: List[int]
+        self, ctx: KpiContext, counting_ids: List[int]
     ) -> int:
         if not counting_ids:
             return 0
@@ -123,38 +155,50 @@ class KpisRepository:
     def count_assignments(self, assignments_qs: QuerySet, order_filter: Q) -> int:
         return assignments_qs.filter(order_filter).count()
 
-    def ecarts_queryset(self, inventory_id: int, warehouse_id: int) -> QuerySet:
-        return EcartComptage.objects.filter(
-            inventory_id=inventory_id,
-            counting_sequences__counting_detail__job__warehouse_id=warehouse_id,
-        ).distinct()
+    def ecarts_queryset(
+        self, inventory_id: int, warehouse_id: Optional[int] = None
+    ) -> QuerySet:
+        qs = EcartComptage.objects.filter(inventory_id=inventory_id)
+        if warehouse_id is not None:
+            qs = qs.filter(
+                counting_sequences__counting_detail__job__warehouse_id=warehouse_id
+            )
+        return qs.distinct()
 
-    def count_ecarts(self, inventory_id: int, warehouse_id: int) -> int:
+    def count_ecarts(
+        self, inventory_id: int, warehouse_id: Optional[int] = None
+    ) -> int:
         return self.ecarts_queryset(inventory_id, warehouse_id).count()
 
-    def count_open_ecarts(self, inventory_id: int, warehouse_id: int) -> int:
+    def count_open_ecarts(
+        self, inventory_id: int, warehouse_id: Optional[int] = None
+    ) -> int:
         return (
             self.ecarts_queryset(inventory_id, warehouse_id)
             .filter(resolved=False)
             .count()
         )
 
-    def count_jobs_with_ecart(self, ctx: WarehouseKpiContext) -> int:
+    def count_jobs_with_ecart(self, ctx: KpiContext) -> int:
+        seq_filter = Q(ecart_comptage__inventory_id=ctx.inventory_id)
+        if ctx.warehouse_id is not None:
+            seq_filter &= Q(counting_detail__job__warehouse_id=ctx.warehouse_id)
         job_ids = list(
-            ComptageSequence.objects.filter(
-                ecart_comptage__inventory_id=ctx.inventory_id,
-                counting_detail__job__warehouse_id=ctx.warehouse_id,
-            )
+            ComptageSequence.objects.filter(seq_filter)
             .values_list('counting_detail__job_id', flat=True)
             .distinct()
         )
         return ctx.jobs_qs.filter(id__in=job_ids).distinct().count()
 
-    def count_locations_with_ecart(self, inventory_id: int, warehouse_id: int) -> int:
-        location_ids = ComptageSequence.objects.filter(
-            ecart_comptage__inventory_id=inventory_id,
-            counting_detail__job__warehouse_id=warehouse_id,
-        ).values_list('counting_detail__location_id', flat=True).distinct()
+    def count_locations_with_ecart(
+        self, inventory_id: int, warehouse_id: Optional[int] = None
+    ) -> int:
+        seq_filter = Q(ecart_comptage__inventory_id=inventory_id)
+        if warehouse_id is not None:
+            seq_filter &= Q(counting_detail__job__warehouse_id=warehouse_id)
+        location_ids = ComptageSequence.objects.filter(seq_filter).values_list(
+            'counting_detail__location_id', flat=True
+        ).distinct()
         return len(set(location_ids))
 
     def build_assignment_team_map(
@@ -192,14 +236,13 @@ class KpisRepository:
     def link_ecarts_to_teams(
         self,
         inventory_id: int,
-        warehouse_id: int,
+        warehouse_id: Optional[int],
         team_map: Dict[Tuple[int, int], str],
         open_only: bool = False,
     ) -> Tuple[Dict[str, Set[int]], Dict[str, Set[int]]]:
-        ecart_filter = Q(
-            ecart_comptage__inventory_id=inventory_id,
-            counting_detail__job__warehouse_id=warehouse_id,
-        )
+        ecart_filter = Q(ecart_comptage__inventory_id=inventory_id)
+        if warehouse_id is not None:
+            ecart_filter &= Q(counting_detail__job__warehouse_id=warehouse_id)
         if open_only:
             ecart_filter &= Q(ecart_comptage__resolved=False)
 
@@ -222,3 +265,38 @@ class KpisRepository:
             jobs_by_team[tk].add(row['counting_detail__job_id'])
 
         return dict(ecarts_by_team), dict(jobs_by_team)
+
+    def count_warehouses(self, inventory_id: int) -> int:
+        return Setting.objects.filter(inventory_id=inventory_id).count()
+
+    def settings_status_counts(self, inventory_id: int) -> Dict[str, int]:
+        """Répartition des Settings (magasins) par statut pour l'inventaire."""
+        rows = (
+            Setting.objects.filter(inventory_id=inventory_id)
+            .values('status')
+            .annotate(count=Count('id'))
+        )
+        counts = {row['status']: row['count'] for row in rows}
+        # Garantir toutes les clés métier
+        for status in (
+            SettingStatus.EN_ATTENTE,
+            SettingStatus.LANCEE,
+            SettingStatus.TERMINEE,
+            SettingStatus.ANALYSER,
+            SettingStatus.CLOTURE,
+        ):
+            counts.setdefault(status, 0)
+        return counts
+
+    def count_ecarts_stock(
+        self, inventory_id: int, only_nonzero: bool = False
+    ) -> int:
+        qs = EcartStockTheorique.objects.filter(inventory_id=inventory_id)
+        if only_nonzero:
+            qs = qs.exclude(ecart=0)
+        return qs.count()
+
+    def count_ecarts_stock_valides(self, inventory_id: int) -> int:
+        return EcartStockTheorique.objects.filter(
+            inventory_id=inventory_id, valide=True
+        ).count()

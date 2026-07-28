@@ -65,8 +65,10 @@ class InventoryManagementUseCase:
                 # ÉTAPE 2: Création de l'inventaire et des settings
                 inventory = self.step2_manage_inventory_and_settings(None, data)
                 
-                # ÉTAPE 3: Création des comptages liés à l'inventaire créé
-                countings = self.step3_manage_countings(inventory, data['comptages'])
+                # ÉTAPE 3: Aucun comptage à la création (tous types).
+                # Configuration via POST /inventory/<id>/countings/
+                # (GENERAL = 3 comptages ; MAGASIN/TOURNANT = 1 ; 4e/n-ième au déroulement)
+                countings = []
                 
                 # Retour du résultat formaté
                 return self._format_response(inventory, countings, "créé")
@@ -74,6 +76,144 @@ class InventoryManagementUseCase:
         except Exception as e:
             logger.error(f"Erreur dans InventoryManagementUseCase.create: {str(e)}", exc_info=True)
             raise
+    
+    def configure_magasin_counting(
+        self,
+        inventory_id: int,
+        counting_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Configure le comptage unique d'un inventaire MAGASIN (après création).
+
+        Args:
+            inventory_id: ID inventaire MAGASIN.
+            counting_data: Données du comptage (mode + options).
+
+        Returns:
+            Dict avec l'inventaire et le comptage créé/mis à jour.
+
+        Raises:
+            InventoryNotFoundError / InventoryValidationError
+        """
+        from apps.inventory.constants import InventoryType
+
+        with transaction.atomic():
+            inventory = self.inventory_repository.get_by_id(inventory_id)
+
+            if inventory.inventory_type not in InventoryType.SINGLE_COUNTING:
+                raise InventoryValidationError(
+                    "La configuration d'un comptage unique via cette API "
+                    "est réservée aux inventaires de type MAGASIN ou TOURNANT."
+                )
+
+            existing = list(
+                Counting.objects.filter(inventory=inventory).order_by('order')
+            )
+            if len(existing) > 1:
+                raise InventoryValidationError(
+                    f"Cet inventaire {inventory.inventory_type} a déjà plusieurs comptages — état incohérent."
+                )
+
+            # Remplacer le comptage unique s'il existe déjà (reconfiguration)
+            if existing:
+                Counting.objects.filter(inventory=inventory).delete()
+
+            payload = dict(counting_data)
+            payload['inventory_id'] = inventory.id
+            payload.setdefault('order', 1)
+
+            countings = self._create_countings_for_inventory(inventory, [payload])
+            counting = countings[0]
+            self._transition_to_preparation(inventory)
+
+            return {
+                "success": True,
+                "message": f"Comptage {inventory.inventory_type} configuré avec succès",
+                "inventory_id": inventory.id,
+                "inventory_type": inventory.inventory_type,
+                "status": inventory.status,
+                "counting": {
+                    "id": counting.id,
+                    "reference": counting.reference,
+                    "order": counting.order,
+                    "count_mode": counting.count_mode,
+                    "n_lot": counting.n_lot,
+                    "n_serie": counting.n_serie,
+                    "dlc": counting.dlc,
+                    "show_product": counting.show_product,
+                    "quantity_show": counting.quantity_show,
+                    "unit_scanned": counting.unit_scanned,
+                    "entry_quantity": counting.entry_quantity,
+                },
+            }
+
+    def configure_general_countings(
+        self,
+        inventory_id: int,
+        comptages: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """
+        Configure les 3 comptages initiaux d'un inventaire GENERAL.
+
+        Les 4e, 5e, n-ième se créent au déroulement via jobs/launch-counting/.
+
+        Raises:
+            InventoryNotFoundError / InventoryValidationError
+        """
+        from apps.inventory.constants import InventoryType
+
+        with transaction.atomic():
+            inventory = self.inventory_repository.get_by_id(inventory_id)
+
+            if inventory.inventory_type != InventoryType.GENERAL:
+                raise InventoryValidationError(
+                    "La configuration de 3 comptages via cette API "
+                    "est réservée aux inventaires de type GENERAL."
+                )
+
+            # Validation métier (modes / cohérence) — exactement 3
+            self._validate_countings(comptages)
+
+            existing = Counting.objects.filter(inventory=inventory)
+            if existing.exists():
+                # Reconfiguration : remplacer uniquement les 3 premiers (ordres 1-3)
+                # Conserver éventuels comptages n-ième déjà lancés au déroulement
+                Counting.objects.filter(inventory=inventory, order__in=[1, 2, 3]).delete()
+
+            created = self._create_countings_for_inventory(inventory, comptages)
+            self._transition_to_preparation(inventory)
+
+            return {
+                "success": True,
+                "message": "Comptages GENERAL configurés avec succès (3 comptages)",
+                "inventory_id": inventory.id,
+                "inventory_type": inventory.inventory_type,
+                "status": inventory.status,
+                "countings": [
+                    {
+                        "id": c.id,
+                        "reference": c.reference,
+                        "order": c.order,
+                        "count_mode": c.count_mode,
+                        "n_lot": c.n_lot,
+                        "n_serie": c.n_serie,
+                        "dlc": c.dlc,
+                        "show_product": c.show_product,
+                        "quantity_show": c.quantity_show,
+                    }
+                    for c in created
+                ],
+            }
+
+    def _transition_to_preparation(self, inventory: Inventory) -> None:
+        """Passe l'inventaire de EN CONFIGURATION à EN PREPARATION après config comptages."""
+        from apps.inventory.constants import InventoryStatus
+
+        inventory.status = InventoryStatus.EN_PREPARATION
+        inventory.en_preparation_status_date = timezone.now()
+        inventory.save(
+            update_fields=["status", "en_preparation_status_date", "updated_at"]
+        )
     
     def update(self, inventory_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -123,10 +263,23 @@ class InventoryManagementUseCase:
         Raises:
             InventoryValidationError: Si les données sont invalides
         """
+        from apps.inventory.constants import InventoryType
+
         self._validate_input_data(data)
         self._validate_entities(data)
+
+        inventory_type = data.get('inventory_type', InventoryType.GENERAL)
+
+        # Tous types : pas de comptages à la création
         if data.get('comptages'):
-            self._validate_countings(data['comptages'])
+            raise InventoryValidationError(
+                f"Pour un inventaire {inventory_type}, ne pas fournir de comptages à la création."
+            )
+        for i, warehouse_info in enumerate(data.get('warehouse', [])):
+            if not warehouse_info.get('date'):
+                raise InventoryValidationError(
+                    f"L'entrepôt {i + 1} doit avoir une date (date magasin)"
+                )
     
     def step2_manage_inventory_and_settings(self, inventory_id: Optional[int], data: Dict[str, Any]) -> Inventory:
         """
@@ -178,14 +331,15 @@ class InventoryManagementUseCase:
             Inventory: L'inventaire créé
         """
         from django.utils import timezone
+        from apps.inventory.constants import InventoryStatus
         
-        # Créer l'objet Inventory sans sauvegarder
+        # Création sans comptages → EN CONFIGURATION jusqu'à POST /countings/
         inventory = Inventory(
             label=data['label'],
             date=data['date'],
-            status='EN PREPARATION',
+            status=InventoryStatus.EN_CONFIGURATION,
             inventory_type=data.get('inventory_type', 'GENERAL'),
-            en_preparation_status_date=timezone.now()  # Définir la date de préparation
+            en_configuration_status_date=timezone.now(),
         )
         
         # Générer la référence manuellement
@@ -203,7 +357,8 @@ class InventoryManagementUseCase:
             setting = Setting(
                 inventory=inventory,
                 warehouse_id=warehouse_id,
-                account_id=account_id
+                account_id=account_id,
+                warehouse_date=warehouse_info.get('date') or None,
             )
             
             # Générer la référence manuellement
@@ -253,7 +408,8 @@ class InventoryManagementUseCase:
                 setting = Setting(
                     inventory=inventory,
                     warehouse_id=warehouse_id,
-                    account_id=account_id
+                    account_id=account_id,
+                    warehouse_date=warehouse_info.get('date') or None,
                 )
                 
                 # Générer la référence manuellement
@@ -497,10 +653,7 @@ class InventoryManagementUseCase:
         """
         try:
             # ÉTAPE 1: Validation des données
-            self._validate_input_data(data)
-            self._validate_entities(data)
-            if data.get('comptages'):
-                self._validate_countings(data['comptages'])
+            self.step1_validate_data(data)
             
             return {
                 "success": True,

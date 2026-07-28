@@ -31,7 +31,23 @@ from .views.monitoring_views import (
     GlobalMonitoringByInventoryAndWarehouseView,
 )
 from apps.inventory.views import InventoryWarehousesView, AccountWarehousesView
-from .views.setting_views import SettingLaunchView, SettingCancelLaunchView, SettingCloseView
+from .views.setting_views import (
+    SettingLaunchView,
+    SettingMultiLaunchView,
+    SettingCancelLaunchView,
+    SettingCloseView,
+    SettingTermineView,
+    SettingMultiTermineView,
+    SettingAnalyserView,
+)
+from .views.stock_gap_views import StockGapListView
+from .views.ecart_stock_theorique_views import (
+    EcartStockTheoriqueSyncView,
+    EcartStockTheoriqueListView,
+    EcartStockTheoriqueUpdateView,
+    EcartStockTheoriqueValiderView,
+    EcartStockTheoriqueValiderSelectionView,
+)
 
 
 from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobAutoValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobSetReadyView, JobAutoSetReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView, JobReassignmentView, JobTransferView, JobTransferAllView, JobManualEntryView, JobCancelView, JobProgressByCountingView, InventoryProgressByCountingView, JobsWithAssignmentsByWarehouseAndCountingView, JobDetailsByJobAndCountingView
@@ -86,6 +102,30 @@ from .views.kpis_views import (
     KpiTauxJobsTermines2eComptageView,
     KpiTauxTermine1erComptageParEquipeView,
     KpiTauxTermine2eComptageParEquipeView,
+    InventoryKpiNombreJobsTotalView,
+    InventoryKpiNombreJobsAffectesView,
+    InventoryKpiNombreEmplacementsCouvertsView,
+    InventoryKpiTauxJobsTermines1erComptageView,
+    InventoryKpiTauxJobsTermines2eComptageView,
+    InventoryKpiRepartitionAssignments1erComptageView,
+    InventoryKpiRepartitionAssignments2eComptageView,
+    InventoryKpiRepartitionAssignments3eComptageView,
+    InventoryKpiRepartitionAssignmentsNiemeComptageView,
+    InventoryKpiNombreEcartsView,
+    InventoryKpiNombreJobsAvecEcartView,
+    InventoryKpiNombreEmplacementsAvecEcartView,
+    InventoryKpiNombreEcartsOuvertsView,
+    InventoryKpiNombreEquipesView,
+    InventoryKpiTauxTermine1erComptageParEquipeView,
+    InventoryKpiTauxTermine2eComptageParEquipeView,
+    InventoryKpiRepartition1erComptageParEquipeView,
+    InventoryKpiRepartition2eComptageParEquipeView,
+    InventoryKpiEquipesMultiEcartsView,
+    InventoryKpiJobsAvecEcartParEquipeView,
+    InventoryKpiNombreMagasinsView,
+    InventoryKpiRepartitionMagasinsParStatutView,
+    InventoryKpiNombreEcartsStockView,
+    InventoryKpiNombreEcartsStockValidesView,
 )
 
 urlpatterns = [
@@ -130,7 +170,7 @@ urlpatterns = [
     path('inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/global-monitoring/', GlobalMonitoringByInventoryAndWarehouseView.as_view(), name='inventory-warehouse-global-monitoring'),
 
     # ========================================
-    # URLs KPI MAGASIN (catalogue INVENTORY_KPI_CATALOG.md)
+    # URLs KPI MAGASIN (catalogue)
     # Préfixe : inventory/<inventory_id>/warehouses/<warehouse_id>/kpis/
     # ========================================
 
@@ -244,6 +284,131 @@ urlpatterns = [
         name='kpi-jobs-avec-ecart-par-equipe',
     ),
 
+    # ========================================
+    # URLs KPI INVENTAIRE (tous magasins)
+    # Préfixe : inventory/<inventory_id>/kpis/
+    # ========================================
+    path(
+        'inventory/<int:inventory_id>/kpis/nombre-jobs-total/',
+        InventoryKpiNombreJobsTotalView.as_view(),
+        name='inv-kpi-nombre-jobs-total',
+    ),
+    path(
+        'inventory/<int:inventory_id>/kpis/nombre-jobs-affectes/',
+        InventoryKpiNombreJobsAffectesView.as_view(),
+        name='inv-kpi-nombre-jobs-affectes',
+    ),
+    path(
+        'inventory/<int:inventory_id>/kpis/nombre-emplacements-couverts/',
+        InventoryKpiNombreEmplacementsCouvertsView.as_view(),
+        name='inv-kpi-nombre-emplacements-couverts',
+    ),
+    path(
+        'inventory/<int:inventory_id>/kpis/taux-jobs-termines-1er-comptage/',
+        InventoryKpiTauxJobsTermines1erComptageView.as_view(),
+        name='inv-kpi-taux-jobs-termines-1er-comptage',
+    ),
+    path(
+        'inventory/<int:inventory_id>/kpis/taux-jobs-termines-2e-comptage/',
+        InventoryKpiTauxJobsTermines2eComptageView.as_view(),
+        name='inv-kpi-taux-jobs-termines-2e-comptage',
+    ),
+    path(
+        'inventory/<int:inventory_id>/kpis/repartition-assignments-1er-comptage/',
+        InventoryKpiRepartitionAssignments1erComptageView.as_view(),
+        name='inv-kpi-repartition-assignments-1er-comptage',
+    ),
+    path(
+        'inventory/<int:inventory_id>/kpis/repartition-assignments-2e-comptage/',
+        InventoryKpiRepartitionAssignments2eComptageView.as_view(),
+        name='inv-kpi-repartition-assignments-2e-comptage',
+    ),
+    path(
+        'inventory/<int:inventory_id>/kpis/repartition-assignments-3e-comptage/',
+        InventoryKpiRepartitionAssignments3eComptageView.as_view(),
+        name='inv-kpi-repartition-assignments-3e-comptage',
+    ),
+    path(
+        'inventory/<int:inventory_id>/kpis/repartition-assignments-nieme-comptage/',
+        InventoryKpiRepartitionAssignmentsNiemeComptageView.as_view(),
+        name='inv-kpi-repartition-assignments-nieme-comptage',
+    ),
+    path(
+        'inventory/<int:inventory_id>/kpis/nombre-ecarts/',
+        InventoryKpiNombreEcartsView.as_view(),
+        name='inv-kpi-nombre-ecarts',
+    ),
+    path(
+        'inventory/<int:inventory_id>/kpis/nombre-jobs-avec-ecart/',
+        InventoryKpiNombreJobsAvecEcartView.as_view(),
+        name='inv-kpi-nombre-jobs-avec-ecart',
+    ),
+    path(
+        'inventory/<int:inventory_id>/kpis/nombre-emplacements-avec-ecart/',
+        InventoryKpiNombreEmplacementsAvecEcartView.as_view(),
+        name='inv-kpi-nombre-emplacements-avec-ecart',
+    ),
+    path(
+        'inventory/<int:inventory_id>/kpis/nombre-ecarts-ouverts/',
+        InventoryKpiNombreEcartsOuvertsView.as_view(),
+        name='inv-kpi-nombre-ecarts-ouverts',
+    ),
+    path(
+        'inventory/<int:inventory_id>/kpis/nombre-equipes/',
+        InventoryKpiNombreEquipesView.as_view(),
+        name='inv-kpi-nombre-equipes',
+    ),
+    path(
+        'inventory/<int:inventory_id>/kpis/taux-termine-1er-comptage-par-equipe/',
+        InventoryKpiTauxTermine1erComptageParEquipeView.as_view(),
+        name='inv-kpi-taux-termine-1er-comptage-par-equipe',
+    ),
+    path(
+        'inventory/<int:inventory_id>/kpis/taux-termine-2e-comptage-par-equipe/',
+        InventoryKpiTauxTermine2eComptageParEquipeView.as_view(),
+        name='inv-kpi-taux-termine-2e-comptage-par-equipe',
+    ),
+    path(
+        'inventory/<int:inventory_id>/kpis/repartition-1er-comptage-par-equipe/',
+        InventoryKpiRepartition1erComptageParEquipeView.as_view(),
+        name='inv-kpi-repartition-1er-comptage-par-equipe',
+    ),
+    path(
+        'inventory/<int:inventory_id>/kpis/repartition-2e-comptage-par-equipe/',
+        InventoryKpiRepartition2eComptageParEquipeView.as_view(),
+        name='inv-kpi-repartition-2e-comptage-par-equipe',
+    ),
+    path(
+        'inventory/<int:inventory_id>/kpis/equipes-multi-ecarts/',
+        InventoryKpiEquipesMultiEcartsView.as_view(),
+        name='inv-kpi-equipes-multi-ecarts',
+    ),
+    path(
+        'inventory/<int:inventory_id>/kpis/jobs-avec-ecart-par-equipe/',
+        InventoryKpiJobsAvecEcartParEquipeView.as_view(),
+        name='inv-kpi-jobs-avec-ecart-par-equipe',
+    ),
+    path(
+        'inventory/<int:inventory_id>/kpis/nombre-magasins/',
+        InventoryKpiNombreMagasinsView.as_view(),
+        name='inv-kpi-nombre-magasins',
+    ),
+    path(
+        'inventory/<int:inventory_id>/kpis/repartition-magasins-par-statut/',
+        InventoryKpiRepartitionMagasinsParStatutView.as_view(),
+        name='inv-kpi-repartition-magasins-par-statut',
+    ),
+    path(
+        'inventory/<int:inventory_id>/kpis/nombre-ecarts-stock/',
+        InventoryKpiNombreEcartsStockView.as_view(),
+        name='inv-kpi-nombre-ecarts-stock',
+    ),
+    path(
+        'inventory/<int:inventory_id>/kpis/nombre-ecarts-stock-valides/',
+        InventoryKpiNombreEcartsStockValidesView.as_view(),
+        name='inv-kpi-nombre-ecarts-stock-valides',
+    ),
+
 
 
 
@@ -253,6 +418,36 @@ urlpatterns = [
     # ========================================
 
     path('inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/stocks/import/', StockImportView.as_view(), name='stock-import'),
+    path(
+        'inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/stock-gaps/',
+        StockGapListView.as_view(),
+        name='stock-gaps',
+    ),
+    path(
+        'inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/ecarts-stock/sync/',
+        EcartStockTheoriqueSyncView.as_view(),
+        name='ecarts-stock-sync',
+    ),
+    path(
+        'inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/ecarts-stock/',
+        EcartStockTheoriqueListView.as_view(),
+        name='ecarts-stock-list',
+    ),
+    path(
+        'ecarts-stock/<int:ecart_id>/',
+        EcartStockTheoriqueUpdateView.as_view(),
+        name='ecarts-stock-update',
+    ),
+    path(
+        'ecarts-stock/valider/',
+        EcartStockTheoriqueValiderSelectionView.as_view(),
+        name='ecarts-stock-valider-selection',
+    ),
+    path(
+        'ecarts-stock/<int:ecart_id>/valider/',
+        EcartStockTheoriqueValiderView.as_view(),
+        name='ecarts-stock-valider',
+    ),
     path('inventory/<int:inventory_id>/location-jobs/import/', InventoryLocationJobImportView.as_view(), name='inventory-location-job-import'),
     path('inventory/<int:inventory_id>/location-jobs/import-async/', InventoryLocationJobImportSyncView.as_view(), name='inventory-location-job-import-sync'),
     path('inventory/location-jobs/import/<int:inventaire_id>/status/', InventoryLocationJobImportStatusView.as_view(), name='inventory-location-job-import-status'),
@@ -264,7 +459,27 @@ urlpatterns = [
     # ========================================
     
     path('inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/launch/', SettingLaunchView.as_view(), name='setting-launch'),
+    path(
+        'inventory/<int:inventory_id>/warehouses/launch/',
+        SettingMultiLaunchView.as_view(),
+        name='setting-multi-launch',
+    ),
     path('inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/cancel-launch/', SettingCancelLaunchView.as_view(), name='setting-cancel-launch'),
+    path(
+        'inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/termine/',
+        SettingTermineView.as_view(),
+        name='setting-termine',
+    ),
+    path(
+        'inventory/<int:inventory_id>/warehouses/termine/',
+        SettingMultiTermineView.as_view(),
+        name='setting-multi-termine',
+    ),
+    path(
+        'inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/analyser/',
+        SettingAnalyserView.as_view(),
+        name='setting-analyser',
+    ),
     path('inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/close/', SettingCloseView.as_view(), name='setting-close'),
     
     # ========================================

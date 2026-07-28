@@ -1,34 +1,40 @@
 """
 Service pour la gestion des comptages d'inventaire.
 """
-from typing import Dict, Any, List
-from django.utils import timezone
+from typing import Dict, Any, List, Optional
+
+from ..constants import CountMode
 from ..interfaces.inventory_interface import ICountingService
 from ..repositories import InventoryRepository
 from ..exceptions import CountingValidationError
-from ..models import Counting, Inventory
-from ..usecases import CountingByArticle, CountingByInBulk, CountingByStockimage
+from ..models import Counting
+from ..usecases.counting_dispatcher import CountingDispatcher
+
 
 class CountingService(ICountingService):
-    """Service pour la gestion des comptages d'inventaire."""   
-    
-    def __init__(self, repository: InventoryRepository = None):
+    """Service pour la gestion des comptages d'inventaire."""
+
+    def __init__(
+        self,
+        repository: InventoryRepository = None,
+        counting_dispatcher: Optional[CountingDispatcher] = None,
+    ):
         self.repository = repository or InventoryRepository()
+        self.counting_dispatcher = counting_dispatcher or CountingDispatcher()
 
     def create_counting(self, data: Dict[str, Any]) -> Counting:
         """
         Crée un nouveau comptage.
-        
+
         Args:
             data: Les données du comptage
-            
+
         Returns:
             Counting: Le comptage créé
-            
+
         Raises:
             CountingValidationError: Si les données sont invalides
         """
-        # Créer l'objet Counting sans sauvegarder
         counting = Counting(
             inventory_id=data['inventory_id'],
             order=data['order'],
@@ -43,52 +49,39 @@ class CountingService(ICountingService):
             show_product=data.get('show_product', False),
             quantity_show=data.get('quantity_show', False),
         )
-        
-        # Générer la référence manuellement
+
         counting.reference = counting.generate_reference(counting.REFERENCE_PREFIX)
-        
-        # Sauvegarder l'objet
         counting.save()
-        
+
         return counting
 
-    def create_countings(self, inventory_id: int, comptages_data: List[Dict[str, Any]]) -> List[Counting]:
+    def create_countings(
+        self,
+        inventory_id: int,
+        comptages_data: List[Dict[str, Any]],
+    ) -> List[Counting]:
         """
-        Crée plusieurs comptages pour un inventaire en utilisant les use cases appropriés.
-        
+        Crée plusieurs comptages pour un inventaire via le CountingDispatcher.
+
         Args:
             inventory_id: L'ID de l'inventaire
             comptages_data: Liste des données des comptages
-            
+
         Returns:
             List[Counting]: Liste des comptages créés
-            
+
         Raises:
             CountingValidationError: Si les données sont invalides
         """
         countings = []
-        
+
         for comptage_data in comptages_data:
             comptage_data['inventory_id'] = inventory_id
-            
-            # Sélection du use case approprié selon le mode de comptage
-            count_mode = comptage_data.get('count_mode')
-            
-            if count_mode == "en vrac":
-                use_case = CountingByInBulk()
-            elif count_mode == "par article":
-                use_case = CountingByArticle()
-            elif count_mode == "image de stock":
-                use_case = CountingByStockimage()
-            else:
-                raise CountingValidationError(f"Mode de comptage non supporté: {count_mode}")
-            
-            # Création du comptage via le use case approprié
-            counting = use_case.create_counting(comptage_data)
+            counting = self.counting_dispatcher.create_counting(comptage_data)
             countings.append(counting)
-        
+
         return countings
-    
+
     def validate_countings_consistency(self, comptages: List[Dict[str, Any]]) -> None:
         """
         Valide la cohérence des modes de comptage selon les règles métier.
@@ -122,7 +115,7 @@ class CountingService(ICountingService):
         count_modes = [c.get('count_mode') for c in comptages_sorted]
         
         # Vérifier que tous les modes sont valides
-        valid_modes = ['en vrac', 'par article', 'image stock']
+        valid_modes = [CountMode.IN_BULK, CountMode.BY_ARTICLE, CountMode.STOCK_IMAGE_ALIAS]
         for i, mode in enumerate(count_modes):
             if mode not in valid_modes:
                 errors.append(f"Comptage {i+1}: Mode de comptage invalide '{mode}'")
@@ -133,19 +126,19 @@ class CountingService(ICountingService):
         third_mode = count_modes[2]
         
         # Scénario 1: Premier comptage = "image stock"
-        if first_mode == "image stock":
+        if first_mode == CountMode.STOCK_IMAGE_ALIAS:
             # Les 2e et 3e comptages doivent être du même mode (soit "en vrac", soit "par article")
             if second_mode != third_mode:
                 errors.append("Si le premier comptage est 'image stock', les 2e et 3e comptages doivent avoir le même mode")
             
-            if second_mode not in ["en vrac", "par article"]:
+            if second_mode not in [CountMode.IN_BULK, CountMode.BY_ARTICLE]:
                 errors.append("Si le premier comptage est 'image stock', les 2e et 3e comptages doivent être 'en vrac' ou 'par article'")
         
         # Scénario 2: Premier comptage = "en vrac" ou "par article"
-        elif first_mode in ["en vrac", "par article"]:
+        elif first_mode in [CountMode.IN_BULK, CountMode.BY_ARTICLE]:
             # Tous les comptages doivent être "en vrac" ou "par article"
             for i, mode in enumerate(count_modes):
-                if mode not in ["en vrac", "par article"]:
+                if mode not in [CountMode.IN_BULK, CountMode.BY_ARTICLE]:
                     errors.append(f"Si le premier comptage n'est pas 'image stock', tous les comptages doivent être 'en vrac' ou 'par article' (comptage {i+1}: '{mode}')")
         
         if errors:
@@ -172,8 +165,8 @@ class CountingService(ICountingService):
         
         # Validation du mode de comptage
         count_mode = comptage_data.get('count_mode')
-        if count_mode and count_mode not in ['en vrac', 'par article', 'image stock']:
+        if count_mode and count_mode not in [CountMode.IN_BULK, CountMode.BY_ARTICLE, CountMode.STOCK_IMAGE_ALIAS]:
             errors.append(f"Mode de comptage invalide: {count_mode}")
         
         if errors:
-            raise CountingValidationError(" | ".join(errors)) 
+            raise CountingValidationError(" | ".join(errors))

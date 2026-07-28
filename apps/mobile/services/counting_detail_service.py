@@ -10,7 +10,12 @@ from apps.inventory.models import CountingDetail, Assigment, Job, EcartComptage,
 from apps.inventory.usecases.counting_detail_creation import CountingDetailCreationUseCase
 from apps.mobile.exceptions import CountingAssignmentValidationError, EcartComptageResoluError
 from apps.masterdata.models import Product, Location
-from apps.inventory.utils.ecart_consensus import calculate_ecart_consensus_result
+from apps.inventory.usecases.ecart_final_result_dispatcher import (
+    EcartFinalResultDispatcher,
+)
+from apps.mobile.usecases.counting_detail_ecart_final_result import (
+    CountingDetailEcartFinalResultUseCase,
+)
 import logging
 
 logger = logging.getLogger(__name__)
@@ -22,8 +27,44 @@ class CountingDetailService:
     Ce service utilise le CountingDetailCreationUseCase existant pour éviter la duplication de code.
     """
     
-    def __init__(self):
+    def __init__(
+        self,
+        final_result_dispatcher: EcartFinalResultDispatcher | None = None,
+        ecart_final_result_use_case: CountingDetailEcartFinalResultUseCase | None = None,
+    ):
         self.usecase = CountingDetailCreationUseCase()
+        self.final_result_dispatcher = (
+            final_result_dispatcher or EcartFinalResultDispatcher()
+        )
+        self.ecart_final_result_use_case = (
+            ecart_final_result_use_case
+            or CountingDetailEcartFinalResultUseCase(self.final_result_dispatcher)
+        )
+
+    def get_job_inventory_context(self, job_id: Optional[int]) -> dict:
+        """Type inventaire + stratégie final_result pour l'API counting-detail."""
+        if not job_id:
+            from apps.inventory.constants import InventoryType
+
+            return {
+                "inventory_id": None,
+                "inventory_type": InventoryType.GENERAL,
+                "final_result_strategy": CountingDetailEcartFinalResultUseCase.STRATEGY_GENERAL,
+            }
+        return self.ecart_final_result_use_case.get_context_for_job(job_id)
+
+    def _apply_ecart_final_result_strategy(
+        self,
+        inventory_type: str,
+        ecart: EcartComptage,
+        quantities: List[int],
+    ) -> Optional[int]:
+        """Délègue au use case Strategy (MAGASIN/TOURNANT vs GENERAL)."""
+        return self.ecart_final_result_use_case.apply_to_ecart(
+            inventory_type,
+            ecart,
+            quantities,
+        )
     
     def validate_assignments_belong_to_job(self, job_id: int, assignment_ids: list) -> None:
         """
@@ -112,6 +153,9 @@ class CountingDetailService:
         """
         try:
             logger.info(f"Création en lot de {len(data_list)} CountingDetail")
+
+            inventory_context = self.get_job_inventory_context(job_id)
+            inventory_type = inventory_context["inventory_type"]
             
             results = []
             errors = []
@@ -275,7 +319,8 @@ class CountingDetailService:
                         # Traiter automatiquement l'écart de comptage (avec cache optimisé)
                         sequence_result = self.traiter_comptage_automatique_optimized(
                             counting_detail,
-                            ecart_cache
+                            ecart_cache,
+                            inventory_type=inventory_type,
                         )
                         
                         sequence = sequence_result['sequence']
@@ -383,7 +428,8 @@ class CountingDetailService:
                 'successful': len(results),
                 'failed': 0,
                 'results': results,
-                'errors': []
+                'errors': [],
+                'inventory_context': inventory_context,
             }
             
         except Exception as e:
@@ -581,7 +627,8 @@ class CountingDetailService:
     def traiter_comptage_automatique_optimized(
         self, 
         counting_detail: CountingDetail,
-        ecart_cache: Dict[tuple, Dict[str, Any]]
+        ecart_cache: Dict[tuple, Dict[str, Any]],
+        inventory_type: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Version optimisée de traiter_comptage_automatique qui utilise un cache préchargé.
@@ -736,16 +783,18 @@ class CountingDetailService:
             is_update = False
             ecart_value = ecart_value  # Utiliser la valeur calculée pour les nouvelles séquences
         
-        # Mettre à jour le résultat final éventuel (seulement si 2 comptages ou plus)
-        # Trier les séquences par sequence_number pour garantir l'ordre métier (1er, 2e, 3e comptage)
-        # même si le batch a été traité dans un ordre différent
-        final_result = None
-        if len(cache_entry['sequences']) >= 2:
-            sequences_sorted = sorted(cache_entry['sequences'], key=lambda s: s.sequence_number)
-            quantities = [seq.quantity for seq in sequences_sorted]
-            final_result = calculate_ecart_consensus_result(quantities, ecart.final_result)
-            if final_result is not None:
-                ecart.final_result = final_result
+        # final_result selon type inventaire (Strategy via use case)
+        sequences_sorted = sorted(
+            cache_entry["sequences"], key=lambda s: s.sequence_number
+        )
+        quantities = [seq.quantity for seq in sequences_sorted]
+        if inventory_type is None:
+            inventory_type = getattr(inventory, "inventory_type", None) or ""
+        final_result = self._apply_ecart_final_result_strategy(
+            inventory_type,
+            ecart,
+            quantities,
+        )
         
         return {
             "ecart": ecart,
@@ -753,7 +802,12 @@ class CountingDetailService:
             "ecart_value": ecart_value,
             "needs_resolution": ecart_value == 0 if ecart_value is not None else False,
             "final_result": final_result,
-            "is_update": is_update  # Indicateur si c'est une mise à jour ou création
+            "is_update": is_update,
+            "final_result_strategy": (
+                CountingDetailEcartFinalResultUseCase.strategy_key_for_type(
+                    inventory_type
+                )
+            ),
         }
     
     def _prefetch_all_related_objects(self, data_list: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -1561,10 +1615,22 @@ class CountingDetailService:
         )
         # Générer la référence avant sauvegarde pour éviter les doublons
         nouvelle_sequence.reference = nouvelle_sequence.generate_reference(ComptageSequence.REFERENCE_PREFIX)
+        nouvelle_sequence.save()
         
-        # Mettre à jour l'écart
+        # Mettre à jour l'écart + final_result (Strategy)
         ecart.total_sequences = nouveau_numero
         ecart.stopped_sequence = nouveau_numero
+        sequences = list(ecart.counting_sequences.order_by("sequence_number"))
+        quantities = [s.quantity for s in sequences]
+        if not quantities or quantities[-1] != counting_detail.quantity_inventoried:
+            quantities.append(counting_detail.quantity_inventoried)
+        inventory = counting_detail.counting.inventory
+        inventory_type = getattr(inventory, "inventory_type", None) or ""
+        final_result = self._apply_ecart_final_result_strategy(
+            inventory_type,
+            ecart,
+            quantities,
+        )
         ecart.save()
         
         # 7. Ne pas résoudre automatiquement même si écart = 0
@@ -1574,5 +1640,6 @@ class CountingDetailService:
             "ecart": ecart,
             "sequence": nouvelle_sequence,
             "ecart_value": ecart_value,
-            "needs_resolution": ecart_value == 0  # Info seulement, pas de résolution auto
+            "needs_resolution": ecart_value == 0,  # Info seulement, pas de résolution auto
+            "final_result": ecart.final_result,
         }

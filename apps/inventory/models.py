@@ -9,7 +9,15 @@ import string
 import uuid
 from django.utils.translation import gettext_lazy as _
 from django.core.exceptions import ValidationError
-from django.core.exceptions import ValidationError
+
+from apps.inventory.constants import (
+    InventoryStatus,
+    InventoryType,
+    SettingStatus,
+    JobStatus,
+    JobDetailStatus,
+    AssignmentStatus,
+)
 
 # Create your models here.
 
@@ -58,16 +66,17 @@ class Inventory(TimeStampedModel, ReferenceMixin):
     REFERENCE_PREFIX = 'INV'
     
     STATUS_CHOICES = (
-        ('EN PREPARATION', 'EN PREPARATION'),
-        ('EN REALISATION', 'EN REALISATION'),
-        ('TERMINE', 'TERMINE'),  
-        ('CLOTURE', 'CLOTURE'),
-        
+        (InventoryStatus.EN_CONFIGURATION, InventoryStatus.EN_CONFIGURATION),
+        (InventoryStatus.EN_PREPARATION, InventoryStatus.EN_PREPARATION),
+        (InventoryStatus.EN_REALISATION, InventoryStatus.EN_REALISATION),
+        (InventoryStatus.TERMINE, InventoryStatus.TERMINE),
+        (InventoryStatus.CLOTURE, InventoryStatus.CLOTURE),
     )
     
     INVENTORY_TYPE_CHOICES = (
-        ('TOURNANT', 'TOURNANT'),
-        ('GENERAL', 'GENERAL'),
+        (InventoryType.TOURNANT, InventoryType.TOURNANT),
+        (InventoryType.GENERAL, InventoryType.GENERAL),
+        (InventoryType.MAGASIN, InventoryType.MAGASIN),
     )
 
     reference = models.CharField(max_length=50, unique=True, null=False)
@@ -75,6 +84,7 @@ class Inventory(TimeStampedModel, ReferenceMixin):
     date = models.DateTimeField()
     status = models.CharField(max_length=50, choices=STATUS_CHOICES)
     inventory_type = models.CharField(max_length=20, choices=INVENTORY_TYPE_CHOICES, default='GENERAL')
+    en_configuration_status_date = models.DateTimeField(null=True, blank=True)
     en_preparation_status_date = models.DateTimeField(null=True, blank=True)
     en_realisation_status_date = models.DateTimeField(null=True, blank=True)
     termine_status_date = models.DateTimeField(null=True, blank=True)
@@ -88,17 +98,23 @@ class Inventory(TimeStampedModel, ReferenceMixin):
 
 class Setting(TimeStampedModel, ReferenceMixin):
     STATUS_CHOICES = (
-        ('EN ATTENTE', 'EN ATTENTE'),
-        ('LANCEE', 'LANCEE'),  
-        ('CLOTURE', 'CLOTURE'),
-    )   
+        (SettingStatus.EN_ATTENTE, SettingStatus.EN_ATTENTE),
+        (SettingStatus.LANCEE, SettingStatus.LANCEE),
+        (SettingStatus.TERMINEE, SettingStatus.TERMINEE),
+        (SettingStatus.ANALYSER, SettingStatus.ANALYSER),
+        (SettingStatus.CLOTURE, SettingStatus.CLOTURE),
+    )
     REFERENCE_PREFIX = 'SET'
     reference = models.CharField(unique=True, max_length=20, null=False)
     account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name='awi_links')
     warehouse = models.ForeignKey('masterdata.Warehouse', on_delete=models.CASCADE, related_name='awi_links')
     inventory = models.ForeignKey(Inventory, on_delete=models.CASCADE, related_name='awi_links')
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='EN ATTENTE')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=SettingStatus.EN_ATTENTE)
+    # Date magasin (optionnelle — utilisée notamment pour inventaire type MAGASIN)
+    warehouse_date = models.DateField(null=True, blank=True)
     status_date_lancement = models.DateTimeField(null=True, blank=True)
+    status_date_termine = models.DateTimeField(null=True, blank=True)
+    status_date_analyse = models.DateTimeField(null=True, blank=True)
     status_date_cloture = models.DateTimeField(null=True, blank=True)
     history = HistoricalRecords()    
 
@@ -154,15 +170,15 @@ class Job(TimeStampedModel):
     REFERENCE_PREFIX = 'JOB'
     
     STATUS_CHOICES = (
-        ('EN ATTENTE', 'EN ATTENTE'),
-        ('AFFECTE', 'AFFECTE'),
-        ('PRET', 'PRET'),
-        ('TRANSFERT', 'TRANSFERT'), 
-        ('ENTAME', 'ENTAME'),
-        ('VALIDE', 'VALIDE'),
-        ('TERMINE', 'TERMINE'),
-        ('SAISIE MANUELLE', 'SAISIE MANUELLE'),
-        ('ANNULE', 'ANNULE'),
+        (JobStatus.EN_ATTENTE, JobStatus.EN_ATTENTE),
+        (JobStatus.AFFECTE, JobStatus.AFFECTE),
+        (JobStatus.PRET, JobStatus.PRET),
+        (JobStatus.TRANSFERT, JobStatus.TRANSFERT),
+        (JobStatus.ENTAME, JobStatus.ENTAME),
+        (JobStatus.VALIDE, JobStatus.VALIDE),
+        (JobStatus.TERMINE, JobStatus.TERMINE),
+        (JobStatus.SAISIE_MANUELLE, JobStatus.SAISIE_MANUELLE),
+        (JobStatus.ANNULE, JobStatus.ANNULE),
     )
 
     TERMINE_ETAT_CHOICES = (
@@ -292,16 +308,16 @@ class Personne(TimeStampedModel, ReferenceMixin):
 
 class JobDetail(TimeStampedModel, ReferenceMixin):
     STATUS_CHOICES = (
-        ('EN ATTENTE', 'EN ATTENTE'),
-        ('TERMINE', 'TERMINE'),
-        ('ANNULE', 'ANNULE'),
+        (JobDetailStatus.EN_ATTENTE, JobDetailStatus.EN_ATTENTE),
+        (JobDetailStatus.TERMINE, JobDetailStatus.TERMINE),
+        (JobDetailStatus.ANNULE, JobDetailStatus.ANNULE),
     )
     REFERENCE_PREFIX = 'JBD' 
     reference = models.CharField(unique=True, max_length=20, null=False)
     location = models.ForeignKey('masterdata.Location', on_delete=models.CASCADE)
     job = models.ForeignKey('Job', on_delete=models.CASCADE)  
     counting = models.ForeignKey('Counting', on_delete=models.CASCADE, null=True, blank=True)
-    status = models.CharField(max_length=50, choices=STATUS_CHOICES, default='EN ATTENTE')
+    status = models.CharField(max_length=50, choices=STATUS_CHOICES, default=JobDetailStatus.EN_ATTENTE)
     termine_manuelle = models.BooleanField(default=False)
     termine_manuelle_date = models.DateTimeField(null=True, blank=True)
     en_attente_date = models.DateTimeField(null=True, blank=True)
@@ -317,14 +333,14 @@ class JobDetail(TimeStampedModel, ReferenceMixin):
 class Assigment(TimeStampedModel, ReferenceMixin):
 
     STATUS_CHOICES = (
-        ('EN ATTENTE', 'EN ATTENTE'),
-        ('AFFECTE', 'AFFECTE'),
-        ('PRET', 'PRET'),
-        ('TRANSFERT', 'TRANSFERT'), 
-        ('ENTAME', 'ENTAME'),
-        ('TERMINE', 'TERMINE'),
-        ('BLOQUE', 'BLOQUE'),
-        ('DEBLOQUE', 'DEBLOQUE'),
+        (AssignmentStatus.EN_ATTENTE, AssignmentStatus.EN_ATTENTE),
+        (AssignmentStatus.AFFECTE, AssignmentStatus.AFFECTE),
+        (AssignmentStatus.PRET, AssignmentStatus.PRET),
+        (AssignmentStatus.TRANSFERT, AssignmentStatus.TRANSFERT),
+        (AssignmentStatus.ENTAME, AssignmentStatus.ENTAME),
+        (AssignmentStatus.TERMINE, AssignmentStatus.TERMINE),
+        (AssignmentStatus.BLOQUE, AssignmentStatus.BLOQUE),
+        (AssignmentStatus.DEBLOQUE, AssignmentStatus.DEBLOQUE),
     )
     REFERENCE_PREFIX = 'ASS'
     reference = models.CharField(unique=True, max_length=20, null=False)
@@ -516,6 +532,111 @@ class ComptageSequence(TimeStampedModel, ReferenceMixin):
     def _str_(self):
         ecart_value = f" (écart: {self.ecart_with_previous})" if self.ecart_with_previous is not None else ""
         return f"Séquence {self.sequence_number} - {self.ecart_comptage.reference}{ecart_value}"
+
+
+class EcartStockTheorique(TimeStampedModel, ReferenceMixin):
+    """
+    Écart stock théorique vs pratique (persisté), validable ligne par ligne.
+    """
+
+    REFERENCE_PREFIX = "EST"
+
+    reference = models.CharField(unique=True, max_length=20, null=False)
+
+    def save(self, *args, **kwargs):
+        # ReferenceMixin.save n'est pas dans le MRO avant Model (TimeStampedModel d'abord).
+        if not self.reference:
+            self.reference = self.generate_reference(self.REFERENCE_PREFIX)
+        super().save(*args, **kwargs)
+    inventory = models.ForeignKey(
+        Inventory,
+        on_delete=models.CASCADE,
+        related_name="ecarts_stock_theorique",
+        verbose_name=_("Inventaire"),
+    )
+    warehouse = models.ForeignKey(
+        Warehouse,
+        on_delete=models.CASCADE,
+        related_name="ecarts_stock_theorique",
+        verbose_name=_("Magasin"),
+    )
+    article_cle = models.CharField(
+        max_length=255,
+        verbose_name=_("Clé article"),
+        help_text=_("Barcode ou Internal_Product_Code selon le mode de groupement"),
+    )
+    mode_groupement = models.CharField(
+        max_length=50,
+        verbose_name=_("Mode de groupement"),
+    )
+    designation = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name=_("Désignation"),
+    )
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ecarts_stock_theorique",
+        verbose_name=_("Produit"),
+    )
+    qte_theorique = models.IntegerField(default=0, verbose_name=_("Quantité théorique"))
+    qte_pratique = models.IntegerField(default=0, verbose_name=_("Quantité pratique"))
+    ecart = models.IntegerField(
+        default=0,
+        verbose_name=_("Écart"),
+        help_text=_("théorique - pratique (signe conservé)"),
+    )
+    resultat_final = models.IntegerField(
+        null=True,
+        blank=True,
+        verbose_name=_("Résultat final"),
+    )
+    valide = models.BooleanField(default=False, verbose_name=_("Validé"))
+    validated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Date de validation"),
+    )
+    validated_by = models.ForeignKey(
+        UserApp,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ecarts_stock_valides",
+        verbose_name=_("Validé par"),
+    )
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("Écart stock théorique")
+        verbose_name_plural = _("Écarts stock théorique")
+        ordering = ["article_cle", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["inventory", "warehouse", "article_cle", "mode_groupement"],
+                name="uniq_ecart_stock_inv_wh_cle_mode",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["inventory", "warehouse"],
+                name="est_inv_wh_idx",
+            ),
+            models.Index(fields=["valide"], name="est_valide_idx"),
+            models.Index(
+                fields=["inventory", "warehouse", "valide"],
+                name="est_inv_wh_valide_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        status = "Validé" if self.valide else "En cours"
+        return f"{self.reference} - {self.article_cle} ({status})"
 
 
 class PdfTask(TimeStampedModel):

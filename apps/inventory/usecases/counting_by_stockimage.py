@@ -2,20 +2,15 @@
 Use case pour le comptage basé sur l'image de stock.
 """
 from typing import Dict, Any
-from ..models import Counting,  Inventory
+from ..models import Counting, Inventory
 from ..exceptions import CountingValidationError
+from ..interfaces.counting_strategy_interface import ICountingStrategy
 
 
-class CountingByStockimage:
+class CountingByStockimage(ICountingStrategy):
     """
-    Use case pour gérer le comptage d'inventaire basé sur l'image de stock.
-    
-    Ce use case permet de :
-    - Créer des comptages en mode "image de stock" avec la configuration appropriée
+    Stratégie de comptage d'inventaire basé sur l'image de stock.
     """
-    
-    def __init__(self):
-        self.counting_service = None  # Sera injecté via DI
 
     def validate_counting_data(self, data: Dict[str, Any]) -> None:
         """

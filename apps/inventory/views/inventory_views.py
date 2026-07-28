@@ -1,5 +1,11 @@
 """
 Vues pour la gestion des inventaires.
+
+Future split boundaries (package apps/inventory/views/inventory/):
+- crud: création, mise à jour, liste, détail inventaire
+- results: InventoryResultService, export résultats
+- settings: configuration warehouse/comptages par inventaire
+- status: transitions de statut et actions métier
 """
 import logging
 from collections import defaultdict
@@ -8,9 +14,10 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
-from ..models import Inventory, Job
+from ..models import Inventory
 from ..services.inventory_result_service import InventoryResultService
 from ..services.inventory_service import InventoryService
+from ..services.job_service import JobService
 from ..serializers.inventory_serializer import (
     InventoryCreateSerializer,
     InventoryDuplicateSerializer,
@@ -25,14 +32,14 @@ from ..serializers.inventory_serializer import (
     InventoryAccountSerializer,
     InventoryWarehousesSerializer,
     InventoryCountingsSerializer,
+    MagasinCountingConfigSerializer,
+    GeneralCountingConfigSerializer,
     InventoryTeamDetailSerializer,
     InventoryResourcesDetailSerializer,
 )
 from ..serializers import InventoryWarehouseResultSerializer, InventoryWarehouseResultEntrySerializer
 from ..exceptions import InventoryValidationError, InventoryNotFoundError, StockValidationError
 from ..filters import InventoryFilter
-from ..repositories import InventoryRepository
-from ..interfaces import IInventoryRepository
 from ..services.inventory_detail_service import InventoryDetailService
 from ..utils.response_utils import success_response, error_response, validation_error_response
 from rest_framework.decorators import api_view, permission_classes
@@ -135,14 +142,8 @@ class InventoryListView(ServerSideDataTableView):
     export_filename = 'inventaires'
 
     def get_datatable_queryset(self):
-        """Optimisation automatique des requêtes"""
-        queryset = super().get_datatable_queryset()
-        # awi_links est une relation inverse (reverse relation), utiliser prefetch_related
-        return queryset.prefetch_related(
-            'awi_links__account',
-            'awi_links__warehouse',
-            'countings'
-        )
+        """Optimisation automatique des requêtes via InventoryService."""
+        return InventoryService().get_inventories_queryset_optimized()
 
 
 
@@ -187,8 +188,8 @@ class CustomInventoryListView(ServerSideDataTableView):
     order_fields = ['id', 'label', 'created_at']
     
     def get_datatable_queryset(self):
-        """Queryset personnalisé - seulement les inventaires non supprimés"""
-        return Inventory.objects.filter(is_deleted=False)
+        """Queryset personnalisé via InventoryService."""
+        return InventoryService().get_inventories_queryset_optimized()
     
     def get_datatable_config(self):
         """Configuration personnalisée"""
@@ -387,14 +388,14 @@ class InventoryDetailView(APIView):
     """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.repository = InventoryRepository()
+        self.service = InventoryService()
 
     def get(self, request, pk, *args, **kwargs):
         """
         Récupère les détails d'un inventaire avec informations complètes des warehouses.
         """
         try:
-            inventory = self.repository.get_with_related_data(pk)
+            inventory = self.service.get_inventory_with_related_data(pk)
             serializer = InventoryDetailWithWarehouseSerializer(inventory)
             return success_response(
                 data=serializer.data,
@@ -513,15 +514,14 @@ class InventoryDeleteView(APIView):
     """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.repository = InventoryRepository()
+        self.service = InventoryService()
 
     def delete(self, request, pk, *args, **kwargs):
         """
         Effectue un soft delete d'un inventaire si son statut est en attente.
         """
         try:
-            service = InventoryService()
-            service.delete_inventory(pk)
+            self.service.delete_inventory(pk)
             return success_response(
                 message="L'inventaire a été supprimé avec succès"
             )
@@ -641,14 +641,14 @@ class InventoryTeamView(APIView):
     """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.repository = InventoryRepository()
+        self.service = InventoryService()
 
     def get(self, request, pk, *args, **kwargs):
         """
         Récupère l'équipe d'un inventaire.
         """
         try:
-            inventory = self.repository.get_with_related_data(pk)
+            inventory = self.service.get_inventory_with_related_data(pk)
             serializer = InventoryDetailModeFieldsSerializer(inventory)
             return success_response(
                 data=serializer.data,
@@ -782,12 +782,20 @@ class InventoryWarehousesDetailView(APIView):
 
 class InventoryCountingsView(APIView):
     """
-    Vue pour récupérer la liste des comptages d'un inventaire.
+    Vue pour récupérer / configurer les comptages d'un inventaire.
     Respecte l'architecture : View -> Service -> Repository
+
+    GET  : liste des comptages (tous types)
+    POST : configuration des comptages
+           - GENERAL  : body { "comptages": [3 items] }
+           - MAGASIN / TOURNANT : body mode + options (1 comptage)
+           Les 4e, 5e, n-ième se lancent au déroulement (jobs/launch-counting/).
     """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.service = InventoryDetailService()
+        from ..services.inventory_management_service import InventoryManagementService
+        self.management_service = InventoryManagementService()
 
     def get(self, request, pk, *args, **kwargs):
         """
@@ -813,6 +821,75 @@ class InventoryCountingsView(APIView):
             return error_response(
                 message="Une erreur inattendue s'est produite lors de la récupération des comptages",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def post(self, request, pk, *args, **kwargs):
+        """
+        Configure les comptages selon le type d'inventaire.
+        """
+        from apps.inventory.constants import InventoryType
+        from ..services.inventory_service import InventoryService
+
+        try:
+            inventory = InventoryService().get_inventory_by_id(pk)
+        except InventoryNotFoundError as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            if inventory.inventory_type == InventoryType.GENERAL:
+                serializer = GeneralCountingConfigSerializer(data=request.data)
+                if not serializer.is_valid():
+                    return validation_error_response(
+                        serializer.errors,
+                        message="Erreur de validation des comptages GENERAL",
+                    )
+                result = self.management_service.configure_general_countings(
+                    pk, serializer.validated_data['comptages']
+                )
+            elif inventory.inventory_type in InventoryType.SINGLE_COUNTING:
+                serializer = MagasinCountingConfigSerializer(data=request.data)
+                if not serializer.is_valid():
+                    return validation_error_response(
+                        serializer.errors,
+                        message="Erreur de validation du comptage",
+                    )
+                result = self.management_service.configure_magasin_counting(
+                    pk, serializer.validated_data
+                )
+            else:
+                return error_response(
+                    message=f"Type d'inventaire non supporté: {inventory.inventory_type}",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            return success_response(
+                data=result,
+                message=result.get("message", "Comptages configurés avec succès"),
+                status_code=status.HTTP_201_CREATED,
+            )
+        except InventoryNotFoundError as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+        except InventoryValidationError as e:
+            return error_response(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:
+            logger.error(
+                "Erreur configuration comptages inventory_id=%s: %s",
+                pk,
+                str(e),
+                exc_info=True,
+            )
+            return error_response(
+                message="Une erreur inattendue s'est produite lors de la configuration des comptages",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
 
@@ -1066,6 +1143,8 @@ class InventoryResultExportExcelView(APIView):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.service = InventoryResultService()
+        self.inventory_service = InventoryService()
+        self.job_service = JobService()
     
     def get(self, request, inventory_id: int, warehouse_id: int, *args, **kwargs):
         """
@@ -1098,11 +1177,9 @@ class InventoryResultExportExcelView(APIView):
             excel_buffer = self._generate_excel(enriched_results, inventory_id, warehouse_id)
             
             # Récupérer les informations de l'inventaire pour le nom du fichier
-            try:
-                inventory = Inventory.objects.get(id=inventory_id)
-                inventory_ref = inventory.reference.replace(' ', '_')
-            except Inventory.DoesNotExist:
-                inventory_ref = f"inventaire_{inventory_id}"
+            inventory_ref = self.inventory_service.get_inventory_reference_for_export(
+                inventory_id
+            )
             
             # Définir le nom du fichier
             filename = f"resultats_{inventory_ref}_warehouse_{warehouse_id}.xlsx"
@@ -1476,16 +1553,10 @@ class InventoryResultExportExcelView(APIView):
             return results
 
         # Récupérer tous les jobs avec leurs assignments en une seule requête
-        jobs = Job.objects.filter(
-            id__in=job_ids,
+        jobs = self.job_service.get_jobs_with_assignments_for_results_export(
+            job_ids=list(job_ids),
             inventory_id=inventory_id,
-            warehouse_id=warehouse_id
-        ).select_related(
-            'inventory',
-            'warehouse'
-        ).prefetch_related(
-            'assigment_set__counting',
-            'assigment_set__session'
+            warehouse_id=warehouse_id,
         )
 
         # Créer un dictionnaire pour accès rapide : job_id -> job
@@ -1849,7 +1920,7 @@ class StockImportView(APIView):
         Importe des stocks depuis un fichier Excel pour un inventaire et un entrepôt spécifiques.
         
         Règles métier:
-        - Inventaire TOURNANT: Un seul import autorisé (refusé si stocks existants)
+        - Inventaire TOURNANT / MAGASIN: Un seul import autorisé (refusé si stocks existants)
         - Inventaire GENERAL: Import autorisé (remplace les stocks existants)
         
         Args:

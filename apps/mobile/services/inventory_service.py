@@ -1,7 +1,6 @@
 from django.utils import timezone
 from apps.mobile.repositories.inventory_repository import InventoryRepository
 from apps.mobile.repositories.sync_repository import SyncRepository
-from apps.inventory.repositories.warehouse_repository import WarehouseRepository
 
 
 class InventoryService:
@@ -10,7 +9,6 @@ class InventoryService:
     def __init__(self):
         self.repository = InventoryRepository()
         self.sync_repository = SyncRepository()
-        self.warehouse_repository = WarehouseRepository()
     
     def get_inventory_users(self, inventory_id):
         """Récupère les utilisateurs du même compte qu'un inventaire"""
@@ -46,30 +44,28 @@ class InventoryService:
     
     def get_user_inventories(self, user_id):
         """
-        Récupère la liste des inventaires avec statut EN REALISATION
-        affectés à l'utilisateur authentifié, avec leurs warehouses associés.
-        
+        Inventaires EN REALISATION de l'utilisateur connecté,
+        avec uniquement les magasins où il est affecté.
+
         Args:
-            user_id: ID de l'utilisateur authentifié
-            
+            user_id: ID de l'utilisateur authentifié (session)
+
         Returns:
-            Dict contenant la liste des inventaires EN REALISATION avec leurs warehouses
+            Dict avec liste inventaires + warehouses filtrés par affectation
         """
         try:
-            # Récupérer les inventaires via le repository sync
             inventories = self.sync_repository.get_inventories_by_user_assignments(user_id)
-            
-            # Formater les données des inventaires
+
             inventories_list = []
             for inventory in inventories:
                 try:
-                    # Récupérer les warehouses associés à cet inventaire
-                    warehouses = self.warehouse_repository.get_by_inventory_id(inventory.id)
-                    
-                    # Formater les données des warehouses
-                    warehouses_list = []
-                    for warehouse in warehouses:
-                        warehouse_data = {
+                    # Uniquement les magasins liés aux jobs de cette session
+                    warehouses = self.sync_repository.get_warehouses_for_user_inventory(
+                        user_id, inventory.id
+                    )
+
+                    warehouses_list = [
+                        {
                             'web_id': warehouse.id,
                             'reference': warehouse.reference,
                             'warehouse_name': warehouse.warehouse_name,
@@ -78,28 +74,39 @@ class InventoryService:
                             'description': warehouse.description,
                             'address': warehouse.address,
                         }
-                        warehouses_list.append(warehouse_data)
-                    
-                    inventory_data = {
+                        for warehouse in warehouses
+                    ]
+
+                    # Pas d'inventaire sans magasin concerné pour cet utilisateur
+                    if not warehouses_list:
+                        continue
+
+                    inventories_list.append({
                         'web_id': inventory.id,
                         'reference': inventory.reference,
                         'label': inventory.label,
                         'status': inventory.status,
                         'inventory_type': inventory.inventory_type,
                         'date': inventory.date.isoformat() if inventory.date else None,
-                        'en_realisation_status_date': inventory.en_realisation_status_date.isoformat() if inventory.en_realisation_status_date else None,
-                        'created_at': inventory.created_at.isoformat() if inventory.created_at else None,
-                        'updated_at': inventory.updated_at.isoformat() if inventory.updated_at else None,
+                        'en_realisation_status_date': (
+                            inventory.en_realisation_status_date.isoformat()
+                            if inventory.en_realisation_status_date
+                            else None
+                        ),
+                        'created_at': (
+                            inventory.created_at.isoformat() if inventory.created_at else None
+                        ),
+                        'updated_at': (
+                            inventory.updated_at.isoformat() if inventory.updated_at else None
+                        ),
                         'warehouses': warehouses_list,
-                    }
-                    inventories_list.append(inventory_data)
+                    })
                 except Exception as e:
                     print(f"Erreur lors du formatage de l'inventaire {inventory.id}: {str(e)}")
                     continue
-            
-            return {
-                'inventories': inventories_list
-            }
-            
+
+            return {'inventories': inventories_list}
+
         except Exception as e:
-            raise e 
+            raise e
+ 

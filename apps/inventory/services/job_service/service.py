@@ -1,10 +1,19 @@
+"""
+Service pour les opérations de gestion des jobs.
+
+Future split boundaries (mixin candidates):
+- creation: create_jobs_for_inventory_warehouse, add/remove emplacements
+- validation: validate_jobs, auto_validate_jobs, cancel_jobs
+- assignments: reset, transfer, manual_entry
+- progress: get_job_progress_by_counting, get_inventory_progress_by_counting
+"""
 import logging
 from django.db import transaction
-from ..repositories.job_repository import JobRepository
-from ..exceptions.job_exceptions import JobCreationError
-from ..models import Job, JobDetail, Assigment, JobDetailRessource, CountingDetail, Counting
+from ...repositories.job_repository import JobRepository
+from ...exceptions.job_exceptions import JobCreationError
+from ...models import Job, JobDetail, Assigment, JobDetailRessource, CountingDetail, Counting
 from django.utils import timezone
-from ..interfaces.job_interface import JobServiceInterface
+from ...interfaces.job_interface import JobServiceInterface
 from typing import List, Dict, Any
 from django.db.models import Q, Count, Case, When, IntegerField
 
@@ -22,92 +31,134 @@ class JobService(JobServiceInterface):
     @transaction.atomic
     def create_jobs_for_inventory_warehouse(self, inventory_id, warehouse_id, emplacements):
         """
-        Crée un job pour un inventaire et un warehouse avec les emplacements spécifiés
+        Crée un job pour un inventaire et un warehouse avec les emplacements spécifiés.
+
+        - GENERAL : 2 comptages
+        - MAGASIN / TOURNANT : 1 comptage
         """
         try:
-            # Vérifier que l'inventaire existe
+            from apps.inventory.constants import InventoryType, CountMode
+
             inventory = self.repository.get_inventory_by_id(inventory_id)
             if not inventory:
                 raise JobCreationError(f"Inventaire avec l'ID {inventory_id} non trouvé")
-            
-            # Vérifier que le warehouse existe
+
             warehouse = self.repository.get_warehouse_by_id(warehouse_id)
             if not warehouse:
                 raise JobCreationError(f"Warehouse avec l'ID {warehouse_id} non trouvé")
-            
-            # Vérifier qu'il y a au moins deux comptages pour cet inventaire
+
             countings = self.repository.get_countings_by_inventory(inventory)
-            if len(countings) < 2:
-                raise JobCreationError(f"Il faut au moins deux comptages pour l'inventaire {inventory.reference}. Comptages trouvés : {len(countings)}")
-            
-            # Prendre les deux premiers comptages
-            countings_to_use = countings[:2]
-            counting1 = countings_to_use[0]  # 1er comptage
-            counting2 = countings_to_use[1]  # 2ème comptage
-            
-            # Vérifier que tous les emplacements existent et appartiennent au warehouse
+            counting1 = next((c for c in countings if c.order == 1), None)
+            counting2 = next((c for c in countings if c.order == 2), None)
+            is_single = inventory.inventory_type in InventoryType.SINGLE_COUNTING
+
+            if is_single:
+                if not counting1:
+                    raise JobCreationError(
+                        f"Au moins un comptage (ordre 1) est requis pour "
+                        f"l'inventaire {inventory.reference} "
+                        f"(type {inventory.inventory_type}). "
+                        f"Comptages trouvés : {len(countings)}"
+                    )
+                countings_to_use = [counting1]
+            else:
+                if len(countings) < 2 or not counting1 or not counting2:
+                    raise JobCreationError(
+                        f"Il faut au moins deux comptages pour l'inventaire "
+                        f"{inventory.reference}. Comptages trouvés : {len(countings)}"
+                    )
+                countings_to_use = [counting1, counting2]
+
             locations = []
             for emplacement_id in emplacements:
                 location = self.repository.get_location_by_id(emplacement_id)
                 if not location:
-                    raise JobCreationError(f"Emplacement avec l'ID {emplacement_id} non trouvé")
-                
-                # Vérifier que l'emplacement appartient au warehouse via la relation sous_zone.zone.warehouse
+                    raise JobCreationError(
+                        f"Emplacement avec l'ID {emplacement_id} non trouvé"
+                    )
+
                 if location.sous_zone.zone.warehouse.id != warehouse_id:
-                    raise JobCreationError(f"L'emplacement {location.location_reference} n'appartient pas au warehouse {warehouse.warehouse_name}")
-                
-                # Vérifier que l'emplacement n'est pas déjà affecté à un autre job pour cet inventaire
-                existing_job_detail = self.repository.get_existing_job_detail_by_location_and_inventory(location, inventory)
+                    raise JobCreationError(
+                        f"L'emplacement {location.location_reference} n'appartient pas "
+                        f"au warehouse {warehouse.warehouse_name}"
+                    )
+
+                existing_job_detail = (
+                    self.repository.get_existing_job_detail_by_location_and_inventory(
+                        location, inventory
+                    )
+                )
                 if existing_job_detail:
-                    raise JobCreationError(f"L'emplacement {location.location_reference} est déjà affecté au job {existing_job_detail.job.reference}")
-                
+                    raise JobCreationError(
+                        f"L'emplacement {location.location_reference} est déjà affecté "
+                        f"au job {existing_job_detail.job.reference}"
+                    )
                 locations.append(location)
-            
-            # Créer un seul job pour tous les emplacements
-            # La référence sera générée automatiquement par la méthode save() du modèle
+
             job = self.repository.create_job(
-                status='EN ATTENTE',
+                status="EN ATTENTE",
                 en_attente_date=timezone.now(),
                 warehouse=warehouse,
-                inventory=inventory
+                inventory=inventory,
             )
-            
-            # Créer les JobDetail pour tous les emplacements
-            for location in locations:
-                self.repository.create_job_detail(
-                    reference=JobDetail().generate_reference(JobDetail.REFERENCE_PREFIX),
-                    location=location,
-                    job=job,
-                    status='EN ATTENTE',
-                    en_attente_date=timezone.now(),
-                )
-            
-            # Créer les assignements selon la configuration des comptages
-            if counting1.count_mode == "image de stock":
-                # Cas spécial : 1er comptage = image de stock
-                # Créer seulement l'affectation pour le 2ème comptage (sans session)
-                self.repository.create_assignment(
-                    reference=Assigment().generate_reference(Assigment.REFERENCE_PREFIX),
-                    job=job,
-                    counting=counting2,
-                    status='EN ATTENTE'  # Statut initial sans session
-                )
+
+            # JobDetails : mono-comptage → counting1 ; bi-comptage → selon mode
+            if is_single:
+                detail_countings = [counting1]
+            elif counting1.count_mode in (
+                CountMode.STOCK_IMAGE,
+                CountMode.STOCK_IMAGE_ALIAS,
+                "image de stock",
+            ):
+                detail_countings = [counting2]
             else:
-                # Cas normal : Créer les affectations pour les deux comptages
-                for counting in countings_to_use:
-                    self.repository.create_assignment(
-                        reference=Assigment().generate_reference(Assigment.REFERENCE_PREFIX),
+                detail_countings = countings_to_use
+
+            for location in locations:
+                for counting in detail_countings:
+                    self.repository.create_job_detail(
+                        reference=JobDetail().generate_reference(
+                            JobDetail.REFERENCE_PREFIX
+                        ),
+                        location=location,
                         job=job,
                         counting=counting,
-                        status='EN ATTENTE'
+                        status="EN ATTENTE",
+                        en_attente_date=timezone.now(),
                     )
-            
+
+            # Assignments
+            if (
+                not is_single
+                and counting1.count_mode
+                in (
+                    CountMode.STOCK_IMAGE,
+                    CountMode.STOCK_IMAGE_ALIAS,
+                    "image de stock",
+                )
+            ):
+                assignment_countings = [counting2]
+            else:
+                assignment_countings = countings_to_use
+
+            for counting in assignment_countings:
+                self.repository.create_assignment(
+                    reference=Assigment().generate_reference(
+                        Assigment.REFERENCE_PREFIX
+                    ),
+                    job=job,
+                    counting=counting,
+                    status="EN ATTENTE",
+                )
+
             return [job]
-            
+
         except JobCreationError:
             raise
         except Exception as e:
-            raise JobCreationError(f"Erreur inattendue lors de la création des jobs : {str(e)}")
+            raise JobCreationError(
+                f"Erreur inattendue lors de la création des jobs : {str(e)}"
+            )
 
     def get_pending_jobs_references(self, warehouse_id, filters=None):
         """
@@ -342,7 +393,7 @@ class JobService(JobServiceInterface):
                 raise JobCreationError(f"Jobs non trouvés avec les IDs : {missing_jobs_str}. Jobs trouvés : {found_jobs_str}")
             
             # Vérifier que tous les jobs ont des affectations avec statut AFFECTE
-            from ..models import Assigment
+            from ...models import Assigment
             non_assigned_jobs = []
             for job in jobs:
                 assignments = Assigment.objects.filter(job=job, status='AFFECTE')
@@ -440,7 +491,7 @@ class JobService(JobServiceInterface):
         Met les assignements (job, counting) au statut PRET pour les jobs et ordres de comptage donnés
         Si un assignement existe mais n'est pas au statut 'AFFECTE', lever une exception explicite.
         """
-        from ..models import Assigment, Counting
+        from ...models import Assigment, Counting
         current_time = timezone.now()
         updated_jobs = []
         for job_id in job_ids:
@@ -484,7 +535,7 @@ class JobService(JobServiceInterface):
         - Vide toutes les dates des assignements
         - Supprime tous les JobDetailRessource des jobs
         """
-        from ..models import Assigment, JobDetailRessource
+        from ...models import Assigment, JobDetailRessource
         
         # Vérifier que tous les jobs existent
         jobs = self.repository.get_jobs_by_ids(job_ids)
@@ -541,7 +592,7 @@ class JobService(JobServiceInterface):
         Returns:
             Dict contenant les informations sur les jobs transférés
         """
-        from ..models import Assigment, Counting
+        from ...models import Assigment, Counting
         
         current_time = timezone.now()
         transferred_jobs = []
@@ -617,7 +668,7 @@ class JobService(JobServiceInterface):
         Returns:
             Dict contenant les informations sur les jobs transférés
         """
-        from ..models import Assigment, Counting
+        from ...models import Assigment, Counting
         
         current_time = timezone.now()
         transferred_jobs = []
@@ -753,7 +804,7 @@ class JobService(JobServiceInterface):
         Raises:
             JobCreationError: Si des erreurs de validation sont détectées
         """
-        from ..models import Assigment, Counting
+        from ...models import Assigment, Counting
         
         current_time = timezone.now()
         transferred_assignments = []
@@ -798,7 +849,7 @@ class JobService(JobServiceInterface):
             else:
                 # Si aucun assignment trouvé, essayer de récupérer le job directement
                 try:
-                    from ..models import Job
+                    from ...models import Job
                     job = Job.objects.get(id=job_id)
                 except Job.DoesNotExist:
                     errors.append(f"Job avec l'ID {job_id} non trouvé")
@@ -909,7 +960,7 @@ class JobService(JobServiceInterface):
         Raises:
             JobCreationError: Si des erreurs de validation sont détectées
         """
-        from ..models import Assigment
+        from ...models import Assigment
         
         current_time = timezone.now()
         transferred_assignments = []
@@ -1023,7 +1074,7 @@ class JobService(JobServiceInterface):
         Raises:
             JobCreationError: Si des erreurs de validation sont détectées (tout-ou-rien)
         """
-        from ..models import Assigment
+        from ...models import Assigment
 
         current_time = timezone.now()
         errors = []
@@ -1145,7 +1196,7 @@ class JobService(JobServiceInterface):
         Raises:
             JobCreationError: Si des erreurs de validation sont détectées
         """
-        from ..models import Assigment, Counting
+        from ...models import Assigment, Counting
         
         current_time = timezone.now()
         manual_entry_jobs = []
@@ -1191,7 +1242,7 @@ class JobService(JobServiceInterface):
             else:
                 # Si aucun assignment trouvé, essayer de récupérer le job directement
                 try:
-                    from ..models import Job
+                    from ...models import Job
                     job = Job.objects.get(id=job_id)
                 except Job.DoesNotExist:
                     errors.append(f"Job avec l'ID {job_id} non trouvé")
@@ -1789,7 +1840,7 @@ class JobService(JobServiceInterface):
             job_ids = [job.id for job in assigned_jobs]
 
             # Utiliser l'usecase JobSetReadyUseCase pour mettre en PRET
-            from ..usecases.job_set_ready import JobSetReadyUseCase
+            from ...usecases.job_set_ready import JobSetReadyUseCase
             use_case = JobSetReadyUseCase()
             return use_case.execute(job_ids)
 
@@ -1798,3 +1849,68 @@ class JobService(JobServiceInterface):
         except Exception as e:
             logger.error(f"Erreur lors de la mise automatique en PRET des jobs: {str(e)}", exc_info=True)
             raise JobCreationError(f"Erreur lors de la mise automatique en PRET: {str(e)}")
+
+    def get_jobs_for_datatable(self):
+        """QuerySet jobs pour DataTable (liste générale)."""
+        return self.repository.get_jobs_for_datatable()
+
+    def get_inventory_by_id(self, inventory_id: int):
+        """Vérifie l'existence d'un inventaire (lookup repository)."""
+        return self.repository.get_inventory_by_id(inventory_id)
+
+    def get_warehouse_by_id(self, warehouse_id: int):
+        """Vérifie l'existence d'un entrepôt (lookup repository)."""
+        return self.repository.get_warehouse_by_id(warehouse_id)
+
+    def get_jobs_for_inventory_warehouse_datatable(
+        self, inventory_id: int, warehouse_id: int
+    ):
+        """QuerySet jobs filtrés par inventaire et entrepôt."""
+        return self.repository.get_jobs_for_inventory_warehouse_datatable(
+            inventory_id, warehouse_id
+        )
+
+    def get_pending_jobs_for_warehouse_datatable(self, warehouse_id: int):
+        """QuerySet jobs en attente pour un entrepôt."""
+        return self.repository.get_pending_jobs_for_warehouse_datatable(warehouse_id)
+
+    def get_validated_jobs_datatable(
+        self, warehouse_id=None, inventory_id=None
+    ):
+        """QuerySet jobs validés / entamés."""
+        return self.repository.get_validated_jobs_datatable(warehouse_id, inventory_id)
+
+    def get_pending_jobs_datatable(self):
+        """QuerySet jobs en attente (liste globale)."""
+        return self.repository.get_pending_jobs_datatable()
+
+    def get_job_details_by_job_and_counting_order_queryset(
+        self, job_id: int, counting_order: int
+    ):
+        """QuerySet JobDetail filtrés par job et ordre de comptage."""
+        return self.repository.get_job_details_by_job_and_counting_order_queryset(
+            job_id, counting_order
+        )
+
+    def get_empty_job_details_queryset(self):
+        """QuerySet vide pour JobDetail (paramètres invalides)."""
+        return JobDetail.objects.none()
+
+    def get_jobs_with_assignments_for_results_export(
+        self,
+        job_ids: List[int],
+        inventory_id: int,
+        warehouse_id: int,
+    ):
+        """Jobs avec assignments préchargés pour export résultats inventaire."""
+        return Job.objects.filter(
+            id__in=job_ids,
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id,
+        ).select_related(
+            'inventory',
+            'warehouse',
+        ).prefetch_related(
+            'assigment_set__counting',
+            'assigment_set__session',
+        )

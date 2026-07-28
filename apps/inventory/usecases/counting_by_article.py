@@ -4,6 +4,7 @@ Use case pour le comptage par article.
 from typing import Dict, Any
 from ..models import Counting, Inventory
 from ..exceptions import CountingValidationError
+from ..interfaces.counting_strategy_interface import ICountingStrategy
 
 # --- Définition des règles de validation ---
 def rule_order_required(data):
@@ -39,9 +40,9 @@ ARTICLE_RULES = [
     rule_n_serie_exclusif,
 ]
 
-class CountingByArticle:
+class CountingByArticle(ICountingStrategy):
     """
-    Use case pour gérer le comptage d'inventaire par article.
+    Stratégie de comptage d'inventaire par article.
     Validation déclarative par liste de règles.
     """
     

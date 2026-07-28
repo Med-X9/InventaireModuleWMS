@@ -120,7 +120,7 @@ class Command(BaseCommand):
                 label=f"Inventaire Test {inv_idx + 1} - {fake.date_between(start_date='-1y', end_date='today').strftime('%Y-%m-%d')}",
                 date=timezone.now() - timedelta(days=random.randint(1, 30)),
                 status=random.choice(['EN REALISATION', 'TERMINE', 'CLOTURE']),
-                inventory_type=random.choice(['GENERAL', 'TOURNANT']),
+                inventory_type=random.choice(['GENERAL', 'TOURNANT', 'MAGASIN']),
             )
             
             # Créer les Settings (liens entre inventaire, compte et entrepôts)

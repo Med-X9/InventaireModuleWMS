@@ -1,67 +1,43 @@
 """
-Vue pour la generation de PDF des jobs d'inventaire
-"""
-import threading
-from pathlib import PurePosixPath
+Vue pour la generation de PDF des jobs d'inventaire.
 
+La logique d'enqueue / exécution asynchrone est dans
+apps.inventory.services.pdf_task_service (pas de logique métier ici).
+"""
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.http import HttpResponse
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.core.files.base import ContentFile
-from django.db import close_old_connections
-from django.utils import timezone
 from ..serializers.job_serializer import InventoryJobsPdfRequestSerializer
 from ..usecases.inventory_jobs_pdf import InventoryJobsPdfUseCase
 from ..usecases.job_assignment_pdf import JobAssignmentPdfUseCase
-from ..models import Inventory, Job, PdfTask, Assigment
+from ..models import PdfTask
 from ..exceptions.pdf_exceptions import (
     PDFGenerationError,
     PDFValidationError,
     PDFNotFoundError,
     PDFEmptyContentError,
     PDFServiceError,
-    PDFRepositoryError
+    PDFRepositoryError,
 )
+from ..services.pdf_task_service import (
+    PdfTaskService,
+    enqueue_job_assignment_pdf_task,
+    enqueue_inventory_jobs_pdf_task,
+    normalize_output_subpath as _normalize_output_subpath,
+)
+from ..services.assignment_service import AssignmentService
+from ..constants import AssignmentStatus
 import logging
 
 logger = logging.getLogger(__name__)
 
+# Rétrocompatibilité pour les imports historiques depuis cette vue
+_pdf_task_service = PdfTaskService()
+_run_inventory_jobs_pdf_task = PdfTaskService.run_inventory_jobs_pdf_task
+_run_job_assignment_pdf_task = PdfTaskService.run_job_assignment_pdf_task
 
-def _normalize_output_subpath(output_subpath):
-    """
-    Normalise un sous-chemin relatif de sortie pour le FileField.
-    Exemples valides:
-      - JOB-0001/comptage-01.pdf
-      - JOB-0001\\comptage-01.pdf
-    """
-    if not output_subpath:
-        return None
-    normalized = str(PurePosixPath(str(output_subpath).replace("\\", "/")))
-    if normalized.startswith("/"):
-        normalized = normalized.lstrip("/")
-    return normalized or None
-
-
-def enqueue_job_assignment_pdf_task(job_id, assignment_id, equipe_id=None, output_subpath=None):
-    """
-    Crée et lance une tâche asynchrone de génération PDF job/assignment.
-    Retourne l'instance PdfTask créée.
-    """
-    task = PdfTask.objects.create(
-        task_type=PdfTask.TYPE_JOB_ASSIGNMENT_PDF,
-        params={
-            "job_id": int(job_id),
-            "assignment_id": int(assignment_id),
-            "equipe_id": equipe_id,
-            "output_subpath": _normalize_output_subpath(output_subpath),
-        },
-        status=PdfTask.STATUS_PENDING,
-    )
-
-    threading.Thread(target=_run_job_assignment_pdf_task, args=(task.id,), daemon=True).start()
-    return task
 
 def _parse_job_ids_from_request_data(data):
     """
@@ -79,143 +55,12 @@ def _parse_job_ids_from_request_data(data):
     return [int(job_ids)]
 
 
-def _run_inventory_jobs_pdf_task(task_id):
-    """
-    Exécute la génération PDF en arrière-plan.
-    IMPORTANT: utilisé depuis un thread (sans Celery).
-    """
-    close_old_connections()
-    try:
-        task = PdfTask.objects.get(id=task_id)
-    except PdfTask.DoesNotExist:
-        return
-
-    task.status = PdfTask.STATUS_RUNNING
-    task.error_message = None
-    task.save(update_fields=["status", "error_message", "updated_at"])
-
-    try:
-        inventory_id = int(task.params.get("inventory_id"))
-        job_ids = task.params.get("job_ids", None)
-        assignment_statuses = task.params.get("assignment_statuses", None)
-        job_statuses = task.params.get("job_statuses", None)
-        assignment_ids_to_mark = task.params.get("assignment_ids_to_mark", None)
-        if isinstance(job_ids, list):
-            job_ids = [int(x) for x in job_ids]
-        elif job_ids is None:
-            job_ids = None
-        else:
-            job_ids = [int(job_ids)]
-
-        if isinstance(assignment_statuses, str):
-            assignment_statuses = [assignment_statuses]
-        if isinstance(job_statuses, str):
-            job_statuses = [job_statuses]
-        if isinstance(assignment_ids_to_mark, list):
-            assignment_ids_to_mark = [int(x) for x in assignment_ids_to_mark]
-        else:
-            assignment_ids_to_mark = None
-
-        use_case = InventoryJobsPdfUseCase()
-        result = use_case.execute(
-            inventory_id,
-            counting_id=None,
-            job_ids=job_ids,
-            assignment_statuses=assignment_statuses,
-            job_statuses=job_statuses,
-        )
-        pdf_buffer = result["pdf_buffer"]
-        pdf_content = pdf_buffer.getvalue()
-
-        if not pdf_content or len(pdf_content) == 0:
-            raise PDFEmptyContentError("Le PDF généré est vide")
-        if not pdf_content.startswith(b"%PDF"):
-            raise PDFGenerationError("Le contenu généré n'est pas un PDF valide")
-
-        # Nom de fichier
-        try:
-            inventory = Inventory.objects.get(id=inventory_id)
-            inventory_ref = inventory.reference
-        except Inventory.DoesNotExist:
-            inventory_ref = str(inventory_id)
-
-        filename = f"Job inventaire ({inventory_ref}).pdf"
-        task.result_file.save(filename, ContentFile(pdf_content))
-
-        task.status = PdfTask.STATUS_SUCCESS
-        task.save(update_fields=["status", "result_file", "updated_at"])
-
-        if assignment_ids_to_mark:
-            Assigment.objects.filter(
-                id__in=assignment_ids_to_mark,
-                imprime=False,
-            ).update(imprime=True, imprime_date=timezone.now())
-
-    except Exception as e:
-        logger.error(f"Echec génération PDF async task={task_id}: {str(e)}", exc_info=True)
-        task.status = PdfTask.STATUS_ERROR
-        task.error_message = str(e)
-        task.save(update_fields=["status", "error_message", "updated_at"])
-    finally:
-        close_old_connections()
-
-def _run_job_assignment_pdf_task(task_id):
-    """
-    Exécute la génération du PDF job/assignment en arrière-plan.
-    """
-    close_old_connections()
-    try:
-        task = PdfTask.objects.get(id=task_id)
-    except PdfTask.DoesNotExist:
-        return
-
-    task.status = PdfTask.STATUS_RUNNING
-    task.error_message = None
-    task.save(update_fields=["status", "error_message", "updated_at"])
-
-    try:
-        job_id = int(task.params.get("job_id"))
-        assignment_id = int(task.params.get("assignment_id"))
-        equipe_id = task.params.get("equipe_id", None)
-        if equipe_id in ("", None):
-            equipe_id = None
-        else:
-            equipe_id = int(equipe_id)
-
-        use_case = JobAssignmentPdfUseCase()
-        result = use_case.execute(job_id, assignment_id, equipe_id)
-        pdf_buffer = result["pdf_buffer"]
-        pdf_content = pdf_buffer.getvalue()
-
-        if not pdf_content or len(pdf_content) == 0:
-            raise PDFEmptyContentError("Le PDF généré est vide")
-        if not pdf_content.startswith(b"%PDF"):
-            raise PDFGenerationError("Le contenu généré n'est pas un PDF valide")
-
-        try:
-            job = Job.objects.get(id=job_id)
-            job_reference = job.reference
-        except Job.DoesNotExist:
-            job_reference = f"job_{job_id}"
-
-        output_subpath = _normalize_output_subpath(task.params.get("output_subpath"))
-        filename = output_subpath or f"FICHE DE COMPTAGE : {job_reference}.pdf"
-        task.result_file.save(filename, ContentFile(pdf_content))
-
-        task.status = PdfTask.STATUS_SUCCESS
-        task.save(update_fields=["status", "result_file", "updated_at"])
-
-    except Exception as e:
-        logger.error(f"Echec génération PDF job assignment async task={task_id}: {str(e)}", exc_info=True)
-        task.status = PdfTask.STATUS_ERROR
-        task.error_message = str(e)
-        task.save(update_fields=["status", "error_message", "updated_at"])
-    finally:
-        close_old_connections()
-
-
 class InventoryJobsPdfView(APIView):
     """Vue pour generer le PDF des jobs d'inventaire"""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.pdf_task_service = PdfTaskService()
     
     def post(self, request, inventory_id):
         """
@@ -288,11 +133,9 @@ class InventoryJobsPdfView(APIView):
                     }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
                 
                 # Récupérer la référence de l'inventaire pour le nom du fichier
-                try:
-                    inventory = Inventory.objects.get(id=inventory_id)
-                    inventory_ref = inventory.reference
-                except Inventory.DoesNotExist:
-                    inventory_ref = str(inventory_id)
+                inventory_ref = self.pdf_task_service.get_inventory_reference_for_filename(
+                    inventory_id
+                )
                 
                 # Definir le nom du fichier au format "Job inventaire (ref d'inventaire)"
                 filename = f"Job inventaire ({inventory_ref}).pdf"
@@ -396,13 +239,10 @@ class InventoryJobsPdfAsyncStartView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        task = PdfTask.objects.create(
-            task_type=PdfTask.TYPE_INVENTORY_JOBS_PDF,
-            params={"inventory_id": int(inventory_id), "job_ids": job_ids},
-            status=PdfTask.STATUS_PENDING,
+        task = enqueue_inventory_jobs_pdf_task(
+            inventory_id=int(inventory_id),
+            job_ids=job_ids,
         )
-
-        threading.Thread(target=_run_inventory_jobs_pdf_task, args=(task.id,), daemon=True).start()
 
         return Response(
             {"success": True, "task_id": str(task.id), "status": task.status},
@@ -416,6 +256,10 @@ class InventoryWarehouseFinishedAssignmentsPdfAsyncStartView(APIView):
     dont les assignments sont TERMINE et non imprimés.
     """
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.pdf_task_service = PdfTaskService()
+
     def post(self, request, inventory_id, warehouse_id):
         if not inventory_id or not warehouse_id:
             return Response(
@@ -423,12 +267,9 @@ class InventoryWarehouseFinishedAssignmentsPdfAsyncStartView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        assignments = Assigment.objects.filter(
-            job__inventory_id=inventory_id,
-            job__warehouse_id=warehouse_id,
-            status="TERMINE",
-            imprime=False,
-        ).select_related("job")
+        assignments = self.pdf_task_service.get_finished_unprinted_assignments(
+            inventory_id, warehouse_id
+        )
 
         if not assignments.exists():
             return Response(
@@ -442,20 +283,13 @@ class InventoryWarehouseFinishedAssignmentsPdfAsyncStartView(APIView):
         assignment_ids = list(assignments.values_list("id", flat=True))
         job_ids = list(assignments.values_list("job_id", flat=True).distinct())
 
-        task = PdfTask.objects.create(
-            task_type=PdfTask.TYPE_INVENTORY_JOBS_PDF,
-            params={
-                "inventory_id": int(inventory_id),
-                "warehouse_id": int(warehouse_id),
-                "job_ids": job_ids,
-                "assignment_statuses": ["TERMINE"],
-                "job_statuses": [],
-                "assignment_ids_to_mark": assignment_ids,
-            },
-            status=PdfTask.STATUS_PENDING,
+        task = enqueue_inventory_jobs_pdf_task(
+            inventory_id=int(inventory_id),
+            job_ids=job_ids,
+            assignment_statuses=[AssignmentStatus.TERMINE],
+            job_statuses=[],
+            assignment_ids_to_mark=assignment_ids,
         )
-
-        threading.Thread(target=_run_inventory_jobs_pdf_task, args=(task.id,), daemon=True).start()
 
         return Response(
             {
@@ -508,10 +342,13 @@ class PdfTaskStatusView(APIView):
     Retourne le statut d'une tâche PDF et l'URL de téléchargement si prête.
     """
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.pdf_task_service = PdfTaskService()
+
     def get(self, request, task_id):
-        try:
-            task = PdfTask.objects.get(id=task_id)
-        except PdfTask.DoesNotExist:
+        task = self.pdf_task_service.get_pdf_task_by_id(task_id)
+        if not task:
             return Response(
                 {"success": False, "message": "Tâche PDF introuvable"},
                 status=status.HTTP_404_NOT_FOUND,
@@ -536,10 +373,13 @@ class AssignmentGeneratedPdfListView(APIView):
     Liste les PDFs générés pour les assignments terminés, triés par référence job.
     """
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.pdf_task_service = PdfTaskService()
+        self.assignment_service = AssignmentService()
+
     def get(self, request):
-        tasks = PdfTask.objects.filter(
-            task_type=PdfTask.TYPE_JOB_ASSIGNMENT_PDF
-        ).order_by("-created_at")
+        tasks = self.pdf_task_service.get_job_assignment_pdf_tasks()
 
         assignment_ids = set()
         task_assignment_map = {}
@@ -553,10 +393,10 @@ class AssignmentGeneratedPdfListView(APIView):
             if assignment_id is not None:
                 assignment_ids.add(assignment_id)
 
-        assignments = Assigment.objects.filter(
-            id__in=assignment_ids,
-            status="TERMINE",
-        ).select_related("job", "counting")
+        assignments = self.assignment_service.get_assignments_by_ids_and_status(
+            list(assignment_ids),
+            AssignmentStatus.TERMINE,
+        )
         assignments_map = {assignment.id: assignment for assignment in assignments}
 
         grouped = {}
@@ -621,6 +461,10 @@ class AssignmentGeneratedPdfListView(APIView):
 
 class JobAssignmentPdfView(APIView):
     """Vue pour generer le PDF d'un job/assignment/equipe"""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.pdf_task_service = PdfTaskService()
     
     def post(self, request, job_id, assignment_id):
         """
@@ -670,11 +514,7 @@ class JobAssignmentPdfView(APIView):
                 pdf_buffer = result['pdf_buffer']
                 
                 # Récupérer le job pour obtenir sa référence (pour le titre)
-                try:
-                    job = Job.objects.get(id=job_id)
-                    job_reference = job.reference
-                except Job.DoesNotExist:
-                    job_reference = f"job_{job_id}"
+                job_reference = self.pdf_task_service.get_job_reference_for_filename(job_id)
                 
                 # Definir le nom du fichier avec le titre "FICHE DE COMPTAGE : {job_reference}"
                 filename = f"FICHE DE COMPTAGE : {job_reference}.pdf"

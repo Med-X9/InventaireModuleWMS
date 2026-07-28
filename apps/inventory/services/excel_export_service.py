@@ -2,6 +2,9 @@
 Service pour la génération de fichiers Excel consolidés par article
 """
 from io import BytesIO
+from typing import Optional, Tuple
+
+from apps.inventory.constants import CountMode
 from ..repositories.excel_export_repository import ExcelExportRepository
 
 
@@ -10,6 +13,32 @@ class ExcelExportService:
     
     def __init__(self):
         self.repository = ExcelExportRepository()
+
+    def validate_countings_for_export(
+        self,
+        inventory_id: int,
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Règle métier : les comptages d'ordre 2 et 3 doivent exister
+        et être en mode "par article".
+        """
+        counting_order_2, counting_order_3 = (
+            self.repository.get_countings_orders_2_and_3(inventory_id)
+        )
+
+        if not counting_order_2:
+            return False, "Le comptage d'ordre 2 n'existe pas pour cet inventaire."
+
+        if not counting_order_3:
+            return False, "Le comptage d'ordre 3 n'existe pas pour cet inventaire."
+
+        if counting_order_2.count_mode.lower() != CountMode.BY_ARTICLE:
+            return False, "Le mode de comptage de cet inventaire n'est pas 'par article'."
+
+        if counting_order_3.count_mode.lower() != CountMode.BY_ARTICLE:
+            return False, "Le mode de comptage de cet inventaire n'est pas 'par article'."
+
+        return True, None
     
     def generate_consolidated_excel(
         self, 
@@ -39,7 +68,7 @@ class ExcelExportService:
             raise ValueError(f"Inventaire avec l'ID {inventory_id} non trouvé")
         
         # Vérifier que les comptages d'ordre 2 et 3 existent et ont le mode "par article"
-        is_valid, error_message = self.repository.check_countings_for_export(inventory_id)
+        is_valid, error_message = self.validate_countings_for_export(inventory_id)
         if not is_valid:
             raise ValueError(error_message)
         

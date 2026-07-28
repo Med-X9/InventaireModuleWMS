@@ -77,25 +77,53 @@ class SyncRepository:
     
     def get_inventories_by_user_assignments(self, user_id):
         """
-        Récupère les inventaires liés aux jobs assignés à l'utilisateur avec statut EN REALISATION uniquement
-        
+        Récupère les inventaires EN REALISATION où l'utilisateur a au moins
+        une affectation (session) sur un job.
+
         Args:
-            user_id: ID de l'utilisateur
-            
+            user_id: ID de l'utilisateur (session mobile)
+
         Returns:
-            Queryset des inventaires EN REALISATION contenant des jobs TRANSFERT ou ENTAME assignés à l'utilisateur
+            Queryset des inventaires EN REALISATION liés aux assignments de l'utilisateur
         """
-        # Récupérer les IDs des inventaires des jobs assignés à l'utilisateur avec statut TRANSFERT ou ENTAME uniquement
-        inventory_ids = Assigment.objects.filter(
-            session_id=user_id,
-            job__status__in=['TRANSFERT', 'ENTAME']
-        ).values_list('job__inventory_id', flat=True).distinct()
-        
+        inventory_ids = (
+            Assigment.objects.filter(
+                session_id=user_id,
+                job__inventory__status='EN REALISATION',
+                job__inventory__is_deleted=False,
+            )
+            .values_list('job__inventory_id', flat=True)
+            .distinct()
+        )
+
         if not inventory_ids:
             return Inventory.objects.none()
-        
-        # Récupérer les inventaires avec statut EN REALISATION uniquement
+
         return Inventory.objects.filter(id__in=inventory_ids, status='EN REALISATION')
+
+    def get_warehouses_for_user_inventory(self, user_id, inventory_id):
+        """
+        Magasins de l'inventaire où l'utilisateur est réellement affecté
+        (via Assigment.session → Job.warehouse).
+
+        Args:
+            user_id: ID session mobile
+            inventory_id: ID inventaire
+
+        Returns:
+            QuerySet Warehouse distincts concernés par les affectations de l'utilisateur
+        """
+        from apps.masterdata.models import Warehouse
+
+        warehouse_ids = (
+            Assigment.objects.filter(
+                session_id=user_id,
+                job__inventory_id=inventory_id,
+            )
+            .values_list('job__warehouse_id', flat=True)
+            .distinct()
+        )
+        return Warehouse.objects.filter(id__in=warehouse_ids, is_deleted=False)
     
     def get_countings_by_user_assignments(self, user_id, inventory_id=None):
         """

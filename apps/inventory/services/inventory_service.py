@@ -2,6 +2,7 @@
 Service pour la gestion des inventaires.
 """
 from typing import Dict, Any, List
+from django.db.models import QuerySet
 from django.utils import timezone
 from ..repositories import InventoryRepository
 from ..exceptions import InventoryValidationError, InventoryNotFoundError
@@ -47,9 +48,13 @@ class InventoryService:
             errors.append("Au moins un entrepôt est obligatoire")
         
         # Validation du type d'inventaire
-        inventory_type = data.get('inventory_type', 'GENERAL')
-        if inventory_type not in ['TOURNANT', 'GENERAL']:
-            errors.append("Le type d'inventaire doit être 'TOURNANT' ou 'GENERAL'")
+        from apps.inventory.constants import InventoryType
+
+        inventory_type = data.get('inventory_type', InventoryType.GENERAL)
+        if inventory_type not in InventoryType.ALL:
+            errors.append(
+                "Le type d'inventaire doit être 'TOURNANT', 'GENERAL' ou 'MAGASIN'"
+            )
         
         comptages = data.get('comptages', [])
         if not comptages:
@@ -161,6 +166,37 @@ class InventoryService:
         except Inventory.DoesNotExist:
             logger.error(f"Inventaire non trouvé avec l'ID: {inventory_id}")
             raise InventoryNotFoundError("L'inventaire demandé n'existe pas")
+
+    def get_inventories_queryset_optimized(self) -> QuerySet:
+        """
+        QuerySet inventaires non supprimés avec relations préchargées (Settings, countings).
+        """
+        return Inventory.objects.filter(is_deleted=False).prefetch_related(
+            'awi_links__account',
+            'awi_links__warehouse',
+            'countings',
+            'job_set__assigment_set__session',
+            'job_set__assigment_set__counting',
+            'inventorydetailressource_set__ressource',
+        ).order_by('-created_at')
+
+    def get_all_inventories(self) -> List[Inventory]:
+        """Retourne tous les inventaires non supprimés (liste matérialisée)."""
+        return list(self.get_inventories_queryset_optimized())
+
+    def get_inventory_with_related_data(self, inventory_id: int) -> Inventory:
+        """
+        Récupère un inventaire avec Settings (account, warehouse) et countings.
+        """
+        return self.repository.get_with_related_data(inventory_id)
+
+    def get_inventory_reference_for_export(self, inventory_id: int) -> str:
+        """Référence inventaire normalisée pour nom de fichier export."""
+        try:
+            inventory = self.get_inventory_by_id(inventory_id)
+            return inventory.reference.replace(' ', '_')
+        except InventoryNotFoundError:
+            return f"inventaire_{inventory_id}"
 
     def get_inventory_by_reference(self, reference: str) -> Inventory:
         """
@@ -638,7 +674,17 @@ class InventoryService:
                     f"Seuls les inventaires en statut 'TERMINE' peuvent être clôturés. "
                     f"Statut actuel: {inventory.status}"
                 )
-            
+
+            # MAGASIN : toutes les lignes EcartStockTheorique doivent être validées
+            if getattr(inventory, "inventory_type", None) == "MAGASIN":
+                from apps.inventory.services.ecart_stock_theorique_service import (
+                    EcartStockTheoriqueService,
+                )
+
+                EcartStockTheoriqueService().assert_all_valides_for_close(
+                    inventory_id
+                )
+
             # Si l'inventaire est terminé, mettre à jour le statut à CLOTURE
             inventory = self.repository.update_status(inventory_id, 'CLOTURE')
             

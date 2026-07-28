@@ -136,6 +136,17 @@ DATABASES = {
 DEFAULT_CHARSET = 'utf-8'
 AUTH_USER_MODEL = 'users.UserApp'
 
+# Cache (LocMem par défaut — remplacer par Redis en production si besoin)
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'inventaire-wms-cache',
+        'TIMEOUT': 60,
+        'OPTIONS': {
+            'MAX_ENTRIES': 5000,
+        },
+    }
+}
 
 
 # Password validation
@@ -511,6 +522,11 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',
     ),
     'DEFAULT_EXCEPTION_HANDLER': 'project.utils.exception_handler.custom_exception_handler',
+    # Versioning prêt pour /api/v1/... sans breaking change immédiat
+    # (Accept-header ou query param ?version=1). Les URLs existantes restent valides.
+    'DEFAULT_VERSIONING_CLASS': 'rest_framework.versioning.AcceptHeaderVersioning',
+    'DEFAULT_VERSION': '1.0',
+    'ALLOWED_VERSIONS': ['1.0'],
 }  
 
 # SimpleJWT settings

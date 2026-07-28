@@ -15,32 +15,20 @@ from apps.mobile.exceptions import (
 
 class InventoryUsersView(APIView):
     """
-    API pour récupérer la liste des inventaires avec statut EN REALISATION
-    affectés à l'utilisateur authentifié.
-    
-    Permet de récupérer la liste des inventaires en cours de réalisation
-    pour lesquels l'utilisateur authentifié a des assignments actifs.
-    Utile pour l'affichage des inventaires disponibles dans l'application mobile.
-    
-    URL: /mobile/api/inventory/
-    
-    Fonctionnalités:
-    - Récupération des inventaires EN REALISATION
-    - Filtrage par assignments de l'utilisateur authentifié
-    - Retourne uniquement les inventaires avec des jobs TRANSFERT ou ENTAME
-    - Inclut la liste des warehouses (entrepôts) associés à chaque inventaire
-    - Gestion des erreurs spécifiques
-    
-    Réponses:
-    - 200: Liste des inventaires récupérée avec succès
-    - 401: Non authentifié
-    - 500: Erreur interne du serveur
+    Liste des inventaires EN REALISATION de l'utilisateur connecté,
+    avec uniquement les magasins où il est affecté (Assigment.session).
+
+    URL: GET /mobile/api/inventory/
     """
     permission_classes = [IsAuthenticated]
     
     @swagger_auto_schema(
-        operation_summary="Récupération des inventaires EN REALISATION pour l'utilisateur mobile",
-        operation_description="Récupère la liste des inventaires avec statut EN REALISATION affectés à l'utilisateur authentifié",
+        operation_summary="Inventaires EN REALISATION pour l'utilisateur (magasins affectés uniquement)",
+        operation_description=(
+            "Retourne les inventaires EN REALISATION liés aux affectations de "
+            "l'utilisateur authentifié. La liste warehouses ne contient que les "
+            "magasins où la session est réellement affectée."
+        ),
         responses={
             200: openapi.Response(
                 description="Liste des inventaires récupérée avec succès",
@@ -79,7 +67,7 @@ class InventoryUsersView(APIView):
                                                         'address': openapi.Schema(type=openapi.TYPE_STRING, example='123 Rue Example'),
                                                     }
                                                 ),
-                                                description="Liste des entrepôts associés à l'inventaire"
+                                                description="Magasins où l'utilisateur est affecté uniquement"
                                             ),
                                         }
                                     ),
@@ -116,17 +104,9 @@ class InventoryUsersView(APIView):
     )
     def get(self, request):
         """
-        Récupère la liste des inventaires EN REALISATION affectés à l'utilisateur authentifié.
-        
-        Args:
-            request: Requête GET
-            - L'utilisateur est récupéré automatiquement depuis le token d'authentification
-            
-        Returns:
-            Response: Liste des inventaires EN REALISATION
+        Inventaires EN REALISATION + magasins d'affectation de l'utilisateur connecté.
         """
         try:
-            # Récupérer l'utilisateur depuis le token d'authentification
             user_id = request.user.id
             
             inventory_service = InventoryService()
