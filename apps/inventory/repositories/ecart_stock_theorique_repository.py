@@ -71,6 +71,16 @@ class EcartStockTheoriqueRepository:
         )
         return {(row.article_cle, row.mode_groupement): row for row in rows}
 
+    def get_nonzero_ecarts(
+        self, inventory_id: int, warehouse_id: int
+    ) -> QuerySet:
+        """Lignes d'analyse avec écart ≠ 0 pour inventaire + magasin."""
+        return (
+            self.get_for_inventory_warehouse(inventory_id, warehouse_id)
+            .exclude(ecart=0)
+            .select_related("product", "warehouse")
+        )
+
     def get_non_valides(
         self,
         inventory_id: int,

@@ -49,6 +49,10 @@ from .views.ecart_stock_theorique_views import (
     EcartStockTheoriqueValiderView,
     EcartStockTheoriqueValiderSelectionView,
 )
+from .views.ecart_analyse_export_views import (
+    EcartAnalyseExcelExportView,
+    EcartAnalysePdfExportView,
+)
 
 
 from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobAutoValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobSetReadyView, JobAutoSetReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView, JobReassignmentView, JobTransferView, JobTransferAllView, JobManualEntryView, JobCancelView, JobProgressByCountingView, InventoryProgressByCountingView, JobsWithAssignmentsByWarehouseAndCountingView, JobDetailsByJobAndCountingView
@@ -433,6 +437,16 @@ urlpatterns = [
         'inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/ecarts-stock/',
         EcartStockTheoriqueListView.as_view(),
         name='ecarts-stock-list',
+    ),
+    path(
+        'inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/analyse/export/excel/',
+        EcartAnalyseExcelExportView.as_view(),
+        name='ecart-analyse-export-excel',
+    ),
+    path(
+        'inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/analyse/export/pdf/',
+        EcartAnalysePdfExportView.as_view(),
+        name='ecart-analyse-export-pdf',
     ),
     path(
         'ecarts-stock/<int:ecart_id>/',
