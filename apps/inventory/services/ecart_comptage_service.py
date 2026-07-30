@@ -127,38 +127,51 @@ class EcartComptageService:
         return self.repository.save(ecart)
 
     @transaction.atomic
-    def bulk_resolve_ecarts_by_inventory(self, inventory_id: int) -> int:
+    def bulk_resolve_ecarts_by_inventory(
+        self,
+        inventory_id: int,
+        warehouse_id: int,
+    ) -> int:
         """
-        Marque comme résolus uniquement les EcartComptage d'un inventaire qui ont un final_result.
+        Marque comme résolus les EcartComptage d'un inventaire / magasin
+        qui ont un final_result et assez de séquences.
 
         Règles métier :
-        - Seuls les écarts ayant un final_result non nul seront marqués comme résolus.
-        - Les écarts sans final_result restent inchangés.
+        - Scope magasin uniquement (pas tout l'inventaire)
+        - GENERAL : ≥ 2 séquences
+        - MAGASIN / TOURNANT : ≥ 1 séquence
+        - Seuls les écarts avec final_result non nul sont résolus
 
         Retourne le nombre d'écarts résolus.
         """
-        # Vérifier que l'inventaire existe
-        self.repository.get_inventory_by_id(inventory_id)
+        inventory = self.repository.get_inventory_by_id(inventory_id)
+        self.repository.get_warehouse_by_id(warehouse_id)
+        min_sequences = self._min_sequences_for_inventory(inventory)
 
-        # Marquer comme résolus uniquement les écarts qui ont un final_result
-        return self.repository.bulk_resolve_ecarts_by_inventory(inventory_id)
+        return self.repository.bulk_resolve_ecarts_by_inventory_and_warehouse(
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id,
+            min_sequences=min_sequences,
+        )
 
     @transaction.atomic
     def close_jobs_with_all_locations_resolved_by_inventory(
-        self, inventory_id: int
+        self,
+        inventory_id: int,
+        warehouse_id: int,
     ) -> int:
         """
-        Met en statut TERMINE les jobs d'un inventaire dont :
+        Met en statut TERMINE les jobs d'un inventaire / magasin dont :
         - tous les emplacements (JobDetail) sont au statut TERMINE
         - aucun écart de comptage lié au job n'est non résolu
           (final_result NULL ou resolved = False).
 
         Retourne le nombre de jobs clôturés.
         """
-        # Jobs ayant au moins un EcartComptage non résolu (final_result NULL ou resolved False)
         unresolved_job_ids = set(
             CountingDetail.objects.filter(
                 job__inventory_id=inventory_id,
+                job__warehouse_id=warehouse_id,
                 counting_sequences__ecart_comptage__inventory_id=inventory_id,
             )
             .filter(
@@ -169,9 +182,11 @@ class EcartComptageService:
             .distinct()
         )
 
-        # Jobs ayant au moins un emplacement (JobDetail) non terminé
         jobs_with_non_termine_locations = set(
-            JobDetail.objects.filter(job__inventory_id=inventory_id)
+            JobDetail.objects.filter(
+                job__inventory_id=inventory_id,
+                job__warehouse_id=warehouse_id,
+            )
             .exclude(status="TERMINE")
             .values_list("job_id", flat=True)
             .distinct()
@@ -179,9 +194,10 @@ class EcartComptageService:
 
         jobs_to_exclude = unresolved_job_ids.union(jobs_with_non_termine_locations)
 
-        candidate_jobs = Job.objects.filter(inventory_id=inventory_id).exclude(
-            id__in=jobs_to_exclude
-        )
+        candidate_jobs = Job.objects.filter(
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id,
+        ).exclude(id__in=jobs_to_exclude)
 
         now = timezone.now()
         closed_count = 0
@@ -197,23 +213,34 @@ class EcartComptageService:
 
     @transaction.atomic
     def bulk_resolve_ecarts_and_close_jobs_by_inventory(
-        self, inventory_id: int
-    ) -> Dict[str, int]:
+        self,
+        inventory_id: int,
+        warehouse_id: int,
+    ) -> Dict[str, Any]:
         """
-        Combine la résolution en masse des écarts et la clôture des jobs :
-        - marque comme résolus tous les EcartComptage avec un final_result
-        - met en statut TERMINE les jobs dont tous les emplacements sont terminés
-          et n'ont plus d'écarts non résolus.
+        Combine la résolution en masse des écarts et la clôture des jobs
+        pour un couple inventaire / magasin :
+        - marque comme résolus les EcartComptage éligibles (final_result +
+          nombre de comptages selon type inventaire)
+        - met en statut TERMINE les jobs du magasin dont tous les emplacements
+          sont terminés et n'ont plus d'écarts non résolus.
 
         Retourne un dict avec les compteurs.
         """
-        resolved_count = self.bulk_resolve_ecarts_by_inventory(inventory_id)
+        inventory = self.repository.get_inventory_by_id(inventory_id)
+        min_sequences = self._min_sequences_for_inventory(inventory)
+        resolved_count = self.bulk_resolve_ecarts_by_inventory(
+            inventory_id, warehouse_id
+        )
         closed_jobs_count = self.close_jobs_with_all_locations_resolved_by_inventory(
-            inventory_id
+            inventory_id=inventory_id,
+            warehouse_id=warehouse_id,
         )
         return {
             "resolved_count": resolved_count,
             "closed_jobs_count": closed_jobs_count,
+            "min_sequences_required": min_sequences,
+            "inventory_type": inventory.inventory_type,
         }
 
     @transaction.atomic

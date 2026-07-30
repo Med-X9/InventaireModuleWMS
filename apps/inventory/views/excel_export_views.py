@@ -25,19 +25,30 @@ class ConsolidatedArticleExcelExportView(APIView):
         super().__init__(*args, **kwargs)
         self.service = ExcelExportService()
     
-    def get(self, request, inventory_id: int, *args, **kwargs):
+    def get(
+        self,
+        request,
+        inventory_id: int,
+        warehouse_id: int,
+        *args,
+        **kwargs,
+    ):
         """
-        Exporte un fichier Excel consolidé par article pour un inventaire.
+        Exporte un fichier Excel consolidé par article pour un inventaire / magasin.
         
         Args:
             inventory_id: ID de l'inventaire
+            warehouse_id: ID du magasin
             
         Returns:
             Fichier Excel avec les données consolidées par article
         """
         try:
             # Générer le fichier Excel
-            excel_buffer = self.service.generate_consolidated_excel(inventory_id)
+            excel_buffer = self.service.generate_consolidated_excel(
+                inventory_id,
+                warehouse_id,
+            )
             
             # Récupérer les informations de l'inventaire pour le nom du fichier
             try:
@@ -48,7 +59,9 @@ class ConsolidatedArticleExcelExportView(APIView):
                 inventory_ref = f"inventaire_{inventory_id}"
             
             # Définir le nom du fichier
-            filename = f"articles_consolides_{inventory_ref}.xlsx"
+            filename = (
+                f"articles_consolides_{inventory_ref}_magasin_{warehouse_id}.xlsx"
+            )
             
             # Créer la réponse HTTP avec le fichier Excel
             response = HttpResponse(

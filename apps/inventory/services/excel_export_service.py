@@ -4,7 +4,7 @@ Service pour la génération de fichiers Excel consolidés par article
 from io import BytesIO
 from typing import Optional, Tuple
 
-from apps.inventory.constants import CountMode
+from apps.inventory.constants import CountMode, InventoryType
 from ..repositories.excel_export_repository import ExcelExportRepository
 
 
@@ -17,11 +17,18 @@ class ExcelExportService:
     def validate_countings_for_export(
         self,
         inventory_id: int,
+        inventory_type: str,
     ) -> Tuple[bool, Optional[str]]:
         """
-        Règle métier : les comptages d'ordre 2 et 3 doivent exister
-        et être en mode "par article".
+        Valide les comptages selon le type d'inventaire.
+
+        GENERAL conserve la règle existante : les comptages d'ordre 2 et 3
+        doivent exister et être en mode « par article ».
+        MAGASIN / TOURNANT sont mono-comptage et ne nécessitent pas ces ordres.
         """
+        if inventory_type in InventoryType.SINGLE_COUNTING:
+            return True, None
+
         counting_order_2, counting_order_3 = (
             self.repository.get_countings_orders_2_and_3(inventory_id)
         )
@@ -41,8 +48,9 @@ class ExcelExportService:
         return True, None
     
     def generate_consolidated_excel(
-        self, 
-        inventory_id: int
+        self,
+        inventory_id: int,
+        warehouse_id: int,
     ) -> BytesIO:
         """
         Génère un fichier Excel consolidé par article.
@@ -53,6 +61,7 @@ class ExcelExportService:
         
         Args:
             inventory_id: ID de l'inventaire
+            warehouse_id: ID du magasin
             
         Returns:
             BytesIO: Le contenu du fichier Excel en mémoire
@@ -66,17 +75,45 @@ class ExcelExportService:
         inventory = self.repository.get_inventory_by_id(inventory_id)
         if not inventory:
             raise ValueError(f"Inventaire avec l'ID {inventory_id} non trouvé")
-        
-        # Vérifier que les comptages d'ordre 2 et 3 existent et ont le mode "par article"
-        is_valid, error_message = self.validate_countings_for_export(inventory_id)
+
+        warehouse = self.repository.get_warehouse_by_id(warehouse_id)
+        if not warehouse:
+            raise ValueError(f"Magasin avec l'ID {warehouse_id} non trouvé")
+
+        # GENERAL garde la validation historique ; MAGASIN / TOURNANT sont mono-comptage.
+        is_valid, error_message = self.validate_countings_for_export(
+            inventory_id,
+            inventory.inventory_type,
+        )
         if not is_valid:
             raise ValueError(error_message)
-        
-        # Récupérer les données consolidées
-        consolidated_data = self.repository.get_consolidated_data_by_inventory(inventory_id)
+
+        total_ecarts, resolved_ecarts = (
+            self.repository.get_ecarts_resolution_counts(
+                inventory_id,
+                warehouse_id,
+            )
+        )
+        if total_ecarts and resolved_ecarts != total_ecarts:
+            raise ValueError(
+                "Tous les écarts de comptage de cet inventaire doivent être "
+                f"résolus pour ce magasin. Écarts résolus : "
+                f"{resolved_ecarts}/{total_ecarts}"
+            )
+
+        # Limiter strictement la consolidation au magasin demandé.
+        consolidated_data = (
+            self.repository.get_consolidated_data_by_inventory_and_warehouse(
+                inventory_id,
+                warehouse_id,
+            )
+        )
         
         if not consolidated_data:
-            raise ValueError(f"Aucune donnée trouvée pour l'inventaire {inventory_id}")
+            raise ValueError(
+                f"Aucune donnée trouvée pour l'inventaire {inventory_id} "
+                f"et le magasin {warehouse_id}"
+            )
         
         # Vérifier que pandas et openpyxl sont disponibles
         try:

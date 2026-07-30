@@ -1,10 +1,13 @@
-from typing import Any, List
+from typing import List
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, Q
+
+from apps.inventory.exceptions.warehouse_exceptions import WarehouseNotFoundError
+from apps.masterdata.models import Warehouse
 
 from ..models import EcartComptage, CountingDetail, Inventory
-from ..exceptions import InventoryNotFoundError, InventoryValidationError
+from ..exceptions import InventoryNotFoundError
 
 
 class EcartComptageRepository:
@@ -77,6 +80,49 @@ class EcartComptageRepository:
                 f"Inventaire avec l'ID {inventory_id} non trouvé."
             ) from exc
 
+    def get_warehouse_by_id(self, warehouse_id: int) -> Warehouse:
+        """
+        Récupère un entrepôt / magasin par son ID.
+        """
+        try:
+            return Warehouse.objects.get(id=warehouse_id)
+        except Warehouse.DoesNotExist as exc:
+            raise WarehouseNotFoundError(
+                f"Entrepôt avec l'ID {warehouse_id} non trouvé."
+            ) from exc
+
+    @transaction.atomic
+    def bulk_resolve_ecarts_by_inventory_and_warehouse(
+        self,
+        inventory_id: int,
+        warehouse_id: int,
+        min_sequences: int,
+    ) -> int:
+        """
+        Marque comme résolus les EcartComptage d'un inventaire / magasin qui :
+        - ont un final_result non nul
+        - ont au moins ``min_sequences`` ComptageSequence (selon type inventaire)
+
+        Retourne le nombre d'écarts mis à jour.
+        """
+        eligible_ids = list(
+            EcartComptage.objects.filter(
+                inventory_id=inventory_id,
+                final_result__isnull=False,
+                counting_sequences__counting_detail__job__warehouse_id=warehouse_id,
+            )
+            .annotate(seq_count=Count("counting_sequences", distinct=True))
+            .filter(seq_count__gte=min_sequences)
+            .values_list("id", flat=True)
+            .distinct()
+        )
+        if not eligible_ids:
+            return 0
+        return EcartComptage.objects.filter(id__in=eligible_ids).update(
+            resolved=True,
+            stopped_reason="RESOLU_MANUEL",
+        )
+
     @transaction.atomic
     def bulk_resolve_ecarts_by_inventory(self, inventory_id: int) -> int:
         """
@@ -87,9 +133,9 @@ class EcartComptageRepository:
         """
         return EcartComptage.objects.filter(
             inventory_id=inventory_id,
-            final_result__isnull=False  # Uniquement ceux qui ont un final_result
+            final_result__isnull=False,
         ).update(
             resolved=True,
-            stopped_reason="RESOLU_MANUEL"
+            stopped_reason="RESOLU_MANUEL",
         )
 

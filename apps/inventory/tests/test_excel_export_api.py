@@ -32,7 +32,8 @@ from apps.masterdata.models import (
 class ExcelExportAPITestCase(TestCase):
     """
     Suite de tests pour l'API d'export Excel consolidé :
-    - GET /inventory/{inventory_id}/articles-consolides/export/
+    - GET /inventory/{inventory_id}/warehouse/{warehouse_id}/
+      articles-consolides/export/
     """
 
     def setUp(self) -> None:
@@ -108,6 +109,7 @@ class ExcelExportAPITestCase(TestCase):
             label="Inventaire Excel Test",
             date=timezone.now(),
             status="EN PREPARATION",
+            inventory_type="GENERAL",
         )
 
         # Créer les comptages d'ordre 2 et 3 (requis pour l'export)
@@ -161,11 +163,25 @@ class ExcelExportAPITestCase(TestCase):
             quantity=10,  # Quantité du premier comptage
         )
 
+    def _export_url(
+        self,
+        inventory_id: int = None,
+        warehouse_id: int = None,
+    ) -> str:
+        """Construit l'URL d'export par inventaire et magasin."""
+        return reverse(
+            "inventory-articles-consolides-export",
+            kwargs={
+                "inventory_id": inventory_id or self.inventory.id,
+                "warehouse_id": warehouse_id or self.warehouse.id,
+            },
+        )
+
     def test_export_excel_consolidated_success(self):
         """
         Test de l'export Excel consolidé avec succès
         """
-        url = reverse('inventory-articles-consolides-export', kwargs={'inventory_id': self.inventory.id})
+        url = self._export_url()
 
         response = self.client.get(url)
 
@@ -185,7 +201,7 @@ class ExcelExportAPITestCase(TestCase):
         """
         Test de l'export Excel avec un inventaire inexistant
         """
-        url = reverse('inventory-articles-consolides-export', kwargs={'inventory_id': 99999})
+        url = self._export_url(inventory_id=99999)
 
         response = self.client.get(url)
 
@@ -199,7 +215,7 @@ class ExcelExportAPITestCase(TestCase):
         # Supprimer le comptage d'ordre 3
         self.counting_order_3.delete()
 
-        url = reverse('inventory-articles-consolides-export', kwargs={'inventory_id': self.inventory.id})
+        url = self._export_url()
 
         response = self.client.get(url)
 
@@ -214,7 +230,7 @@ class ExcelExportAPITestCase(TestCase):
         self.counting_order_2.count_mode = "par emplacement"
         self.counting_order_2.save()
 
-        url = reverse('inventory-articles-consolides-export', kwargs={'inventory_id': self.inventory.id})
+        url = self._export_url()
 
         response = self.client.get(url)
 
@@ -230,7 +246,7 @@ class ExcelExportAPITestCase(TestCase):
         self.ecart_comptage.resolved = False
         self.ecart_comptage.save()
 
-        url = reverse('inventory-articles-consolides-export', kwargs={'inventory_id': self.inventory.id})
+        url = self._export_url()
 
         response = self.client.get(url)
 
@@ -252,7 +268,7 @@ class ExcelExportAPITestCase(TestCase):
         self.ecart_comptage.final_result = 15  # différent de quantity_inventoried = 10
         self.ecart_comptage.save()
 
-        url = reverse('inventory-articles-consolides-export', kwargs={'inventory_id': self.inventory.id})
+        url = self._export_url()
 
         response = self.client.get(url)
 
@@ -270,10 +286,79 @@ class ExcelExportAPITestCase(TestCase):
         self.assertTrue(self.ecart_comptage.resolved)
         self.assertIsNotNone(self.ecart_comptage.final_result)
 
-        url = reverse('inventory-articles-consolides-export', kwargs={'inventory_id': self.inventory.id})
+        url = self._export_url()
 
         response = self.client.get(url)
 
         # L'export doit réussir car tous les écarts sont résolus
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response['Content-Type'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+    def test_export_magasin_without_countings_orders_2_and_3(self):
+        """
+        MAGASIN est mono-comptage : les comptages d'ordre 2 et 3
+        ne sont pas requis pour exporter.
+        """
+        self.inventory.inventory_type = "MAGASIN"
+        self.inventory.save(update_fields=["inventory_type"])
+        counting_order_1 = Counting.objects.create(
+            reference="CNT-EXCEL-001",
+            inventory=self.inventory,
+            order=1,
+            count_mode="par emplacement",
+        )
+        self.counting_detail.counting = counting_order_1
+        self.counting_detail.save(update_fields=["counting"])
+        self.counting_order_2.delete()
+        self.counting_order_3.delete()
+
+        response = self.client.get(self._export_url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn(
+            f"magasin_{self.warehouse.id}",
+            response["Content-Disposition"],
+        )
+
+    def test_export_is_limited_to_requested_warehouse(self):
+        """La consolidation ne doit pas inclure les résultats d'un autre magasin."""
+        other_warehouse = Warehouse.objects.create(
+            reference="WH-EXCEL-OTHER",
+            warehouse_name="Autre magasin Excel",
+        )
+        other_job = Job.objects.create(
+            reference="JOB-EXCEL-OTHER",
+            inventory=self.inventory,
+            warehouse=other_warehouse,
+        )
+        other_detail = CountingDetail.objects.create(
+            reference="CD-EXCEL-OTHER",
+            quantity_inventoried=99,
+            product=self.product,
+            location=self.location,
+            counting=self.counting_order_2,
+            job=other_job,
+        )
+        other_ecart = EcartComptage.objects.create(
+            reference="ECT-EXCEL-OTHER",
+            inventory=self.inventory,
+            final_result=99,
+            resolved=True,
+        )
+        ComptageSequence.objects.create(
+            reference="CS-EXCEL-OTHER",
+            ecart_comptage=other_ecart,
+            sequence_number=1,
+            counting_detail=other_detail,
+            quantity=99,
+        )
+
+        response = self.client.get(self._export_url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        from io import BytesIO
+        from openpyxl import load_workbook
+
+        workbook = load_workbook(BytesIO(response.content), data_only=True)
+        worksheet = workbook["Articles Consolidés"]
+        self.assertEqual(worksheet["G2"].value, 15)

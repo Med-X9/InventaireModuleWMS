@@ -246,62 +246,236 @@ class EcartComptageAPITestCase(TestCase):
 
     def test_bulk_resolve_ecarts_only_with_final_result(self) -> None:
         """
-        Vérifie que l'API de résolution en masse ne marque comme résolus
-        que les écarts qui ont un final_result non nul.
+        Vérifie que l'API de résolution en masse (par magasin) ne marque
+        comme résolus que les écarts du magasin avec final_result et
+        assez de séquences (GENERAL ≥ 2).
         """
-        # Créer plusieurs écarts pour l'inventaire
+        other_warehouse = Warehouse.objects.create(
+            reference="WH-ECART-OTHER",
+            warehouse_name="Autre magasin",
+            warehouse_type="CENTRAL",
+            status="ACTIVE",
+        )
+        other_job = Job.objects.create(
+            reference="JOB-ECART-OTHER",
+            status="EN ATTENTE",
+            warehouse=other_warehouse,
+            inventory=self.inventory,
+        )
+
+        # Écart magasin courant — 2 séquences + final_result → éligible
         ecart_with_result1 = EcartComptage.objects.create(
             reference="ECT-WITH-RESULT-1",
             inventory=self.inventory,
             total_sequences=2,
             resolved=False,
-            final_result=100,  # A un résultat final
+            final_result=100,
         )
-        ecart_with_result2 = EcartComptage.objects.create(
-            reference="ECT-WITH-RESULT-2",
+        detail_a1 = CountingDetail.objects.create(
+            reference="CD-BR-A1",
+            counting=self.counting1,
+            location=self.location,
+            job=self.job,
+            quantity_inventoried=10,
+        )
+        detail_a2 = CountingDetail.objects.create(
+            reference="CD-BR-A2",
+            counting=self.counting2,
+            location=self.location,
+            job=self.job,
+            quantity_inventoried=12,
+        )
+        ComptageSequence.objects.create(
+            reference="CS-BR-A1",
+            ecart_comptage=ecart_with_result1,
+            sequence_number=1,
+            counting_detail=detail_a1,
+            quantity=10,
+        )
+        ComptageSequence.objects.create(
+            reference="CS-BR-A2",
+            ecart_comptage=ecart_with_result1,
+            sequence_number=2,
+            counting_detail=detail_a2,
+            quantity=12,
+            ecart_with_previous=2,
+        )
+
+        # Écart magasin courant — final_result mais 1 seule séquence → NON résolu (GENERAL)
+        ecart_one_seq = EcartComptage.objects.create(
+            reference="ECT-ONE-SEQ",
             inventory=self.inventory,
-            total_sequences=2,
+            total_sequences=1,
             resolved=False,
-            final_result=200,  # A un résultat final
+            final_result=50,
         )
+        detail_one = CountingDetail.objects.create(
+            reference="CD-BR-ONE",
+            counting=self.counting1,
+            location=self.location,
+            job=self.job,
+            quantity_inventoried=5,
+        )
+        ComptageSequence.objects.create(
+            reference="CS-BR-ONE",
+            ecart_comptage=ecart_one_seq,
+            sequence_number=1,
+            counting_detail=detail_one,
+            quantity=5,
+        )
+
+        # Écart magasin courant — 2 séquences sans final_result → NON résolu
         ecart_without_result = EcartComptage.objects.create(
             reference="ECT-WITHOUT-RESULT",
             inventory=self.inventory,
             total_sequences=2,
             resolved=False,
-            final_result=None,  # Pas de résultat final
+            final_result=None,
+        )
+        detail_b1 = CountingDetail.objects.create(
+            reference="CD-BR-B1",
+            counting=self.counting1,
+            location=self.location,
+            job=self.job,
+            quantity_inventoried=8,
+        )
+        detail_b2 = CountingDetail.objects.create(
+            reference="CD-BR-B2",
+            counting=self.counting2,
+            location=self.location,
+            job=self.job,
+            quantity_inventoried=9,
+        )
+        ComptageSequence.objects.create(
+            reference="CS-BR-B1",
+            ecart_comptage=ecart_without_result,
+            sequence_number=1,
+            counting_detail=detail_b1,
+            quantity=8,
+        )
+        ComptageSequence.objects.create(
+            reference="CS-BR-B2",
+            ecart_comptage=ecart_without_result,
+            sequence_number=2,
+            counting_detail=detail_b2,
+            quantity=9,
+            ecart_with_previous=1,
         )
 
-        # URL pour la résolution en masse
+        # Écart autre magasin — éligible mais hors scope → NON touché
+        ecart_other_wh = EcartComptage.objects.create(
+            reference="ECT-OTHER-WH",
+            inventory=self.inventory,
+            total_sequences=2,
+            resolved=False,
+            final_result=300,
+        )
+        detail_o1 = CountingDetail.objects.create(
+            reference="CD-BR-O1",
+            counting=self.counting1,
+            location=self.location,
+            job=other_job,
+            quantity_inventoried=3,
+        )
+        detail_o2 = CountingDetail.objects.create(
+            reference="CD-BR-O2",
+            counting=self.counting2,
+            location=self.location,
+            job=other_job,
+            quantity_inventoried=3,
+        )
+        ComptageSequence.objects.create(
+            reference="CS-BR-O1",
+            ecart_comptage=ecart_other_wh,
+            sequence_number=1,
+            counting_detail=detail_o1,
+            quantity=3,
+        )
+        ComptageSequence.objects.create(
+            reference="CS-BR-O2",
+            ecart_comptage=ecart_other_wh,
+            sequence_number=2,
+            counting_detail=detail_o2,
+            quantity=3,
+            ecart_with_previous=0,
+        )
+
         bulk_resolve_url = reverse(
             "ecart-comptage-bulk-resolve",
-            kwargs={"inventory_id": self.inventory.id},
+            kwargs={
+                "inventory_id": self.inventory.id,
+                "warehouse_id": self.warehouse.id,
+            },
         )
 
-        # Appeler l'API
         response = self.client.patch(
             bulk_resolve_url,
             data={},
             format="json",
         )
 
-        # Vérifier la réponse
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.data["success"])
-        self.assertEqual(response.data["data"]["resolved_count"], 2)  # 2 écarts résolus
+        self.assertEqual(response.data["data"]["resolved_count"], 1)
+        self.assertEqual(response.data["data"]["warehouse_id"], self.warehouse.id)
+        self.assertEqual(response.data["data"]["min_sequences_required"], 2)
+        self.assertEqual(response.data["data"]["inventory_type"], "GENERAL")
 
-        # Vérifier que les écarts avec résultat final sont résolus
         ecart_with_result1.refresh_from_db()
-        ecart_with_result2.refresh_from_db()
+        ecart_one_seq.refresh_from_db()
         ecart_without_result.refresh_from_db()
+        ecart_other_wh.refresh_from_db()
 
         self.assertTrue(ecart_with_result1.resolved)
-        self.assertTrue(ecart_with_result2.resolved)
-        self.assertFalse(ecart_without_result.resolved)  # Celui sans résultat reste non résolu
-
-        # Vérifier les stopped_reason
         self.assertEqual(ecart_with_result1.stopped_reason, "RESOLU_MANUEL")
-        self.assertEqual(ecart_with_result2.stopped_reason, "RESOLU_MANUEL")
+        self.assertFalse(ecart_one_seq.resolved)
+        self.assertFalse(ecart_without_result.resolved)
+        self.assertFalse(ecart_other_wh.resolved)
+
+    def test_bulk_resolve_ecarts_magasin_one_sequence(self) -> None:
+        """
+        MAGASIN : un seul comptage suffit pour bulk-resolve si final_result est renseigné.
+        """
+        self.inventory.inventory_type = "MAGASIN"
+        self.inventory.save(update_fields=["inventory_type"])
+
+        ecart = EcartComptage.objects.create(
+            reference="ECT-MAG-1",
+            inventory=self.inventory,
+            total_sequences=1,
+            resolved=False,
+            final_result=15,
+        )
+        detail = CountingDetail.objects.create(
+            reference="CD-MAG-1",
+            counting=self.counting1,
+            location=self.location,
+            job=self.job,
+            quantity_inventoried=15,
+        )
+        ComptageSequence.objects.create(
+            reference="CS-MAG-1",
+            ecart_comptage=ecart,
+            sequence_number=1,
+            counting_detail=detail,
+            quantity=15,
+        )
+
+        bulk_resolve_url = reverse(
+            "ecart-comptage-bulk-resolve",
+            kwargs={
+                "inventory_id": self.inventory.id,
+                "warehouse_id": self.warehouse.id,
+            },
+        )
+        response = self.client.patch(bulk_resolve_url, data={}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["data"]["resolved_count"], 1)
+        self.assertEqual(response.data["data"]["min_sequences_required"], 1)
+        self.assertEqual(response.data["data"]["inventory_type"], "MAGASIN")
+        ecart.refresh_from_db()
+        self.assertTrue(ecart.resolved)
 
     def test_bulk_resolve_ecarts_inventory_not_found(self) -> None:
         """
@@ -309,7 +483,10 @@ class EcartComptageAPITestCase(TestCase):
         """
         bulk_resolve_url = reverse(
             "ecart-comptage-bulk-resolve",
-            kwargs={"inventory_id": 99999},  # ID qui n'existe pas
+            kwargs={
+                "inventory_id": 99999,
+                "warehouse_id": self.warehouse.id,
+            },
         )
 
         response = self.client.patch(

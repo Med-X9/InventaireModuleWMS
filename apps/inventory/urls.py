@@ -608,8 +608,13 @@ urlpatterns = [
     # URL POUR L'EXPORT EXCEL CONSOLIDE
     # ========================================
     
-    # API pour exporter un fichier Excel consolidé par article
-    path('inventory/<int:inventory_id>/articles-consolides/export/', ConsolidatedArticleExcelExportView.as_view(), name='inventory-articles-consolides-export'),
+    # API pour exporter un fichier Excel consolidé par article et par magasin
+    path(
+        'inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/'
+        'articles-consolides/export/',
+        ConsolidatedArticleExcelExportView.as_view(),
+        name='inventory-articles-consolides-export',
+    ),
     
     # ========================================
     # URLs POUR L'AFFECTATION DES RESSOURCES AUX JOBS
@@ -644,7 +649,7 @@ urlpatterns = [
     ),
     # API pour marquer comme résolus les EcartComptage d'un inventaire qui ont un final_result
     path(
-        'ecarts-comptage/bulk-resolve/<int:inventory_id>/',
+        'ecarts-comptage/bulk-resolve/<int:inventory_id>/warehouse/<int:warehouse_id>/',
         EcartComptageBulkResolveView.as_view(),
         name='ecart-comptage-bulk-resolve',
     ),

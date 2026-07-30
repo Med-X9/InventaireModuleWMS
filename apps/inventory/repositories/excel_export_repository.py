@@ -1,10 +1,11 @@
 """
 Repository pour les opérations de données pour l'export Excel consolidé
 """
-from typing import List, Dict, Any, Optional, Tuple
-from django.db.models import Q
-from ..models import Inventory, CountingDetail, Counting, EcartComptage, ComptageSequence
-from apps.masterdata.models import Location
+from typing import Any, Dict, List, Optional, Tuple
+
+from apps.masterdata.models import Product, Warehouse
+
+from ..models import Counting, EcartComptage, Inventory
 
 
 class ExcelExportRepository:
@@ -15,6 +16,13 @@ class ExcelExportRepository:
         try:
             return Inventory.objects.get(id=inventory_id)
         except Inventory.DoesNotExist:
+            return None
+
+    def get_warehouse_by_id(self, warehouse_id: int) -> Optional[Warehouse]:
+        """Récupère un magasin par ID."""
+        try:
+            return Warehouse.objects.get(id=warehouse_id)
+        except Warehouse.DoesNotExist:
             return None
     
     def get_counting_by_order(self, inventory_id: int, order: int) -> Optional[Counting]:
@@ -33,13 +41,26 @@ class ExcelExportRepository:
             self.get_counting_by_order(inventory_id, 2),
             self.get_counting_by_order(inventory_id, 3),
         )
-    
-    def get_consolidated_data_by_inventory(
+
+    def get_ecarts_resolution_counts(
         self,
-        inventory_id: int
+        inventory_id: int,
+        warehouse_id: int,
+    ) -> Tuple[int, int]:
+        """Retourne (total, résolus) pour l'inventaire et le magasin."""
+        ecarts = EcartComptage.objects.filter(
+            inventory_id=inventory_id,
+            counting_sequences__counting_detail__job__warehouse_id=warehouse_id,
+        ).distinct()
+        return ecarts.count(), ecarts.filter(resolved=True).count()
+    
+    def get_consolidated_data_by_inventory_and_warehouse(
+        self,
+        inventory_id: int,
+        warehouse_id: int,
     ) -> List[Dict[str, Any]]:
         """
-        Récupère les données consolidées par article pour un inventaire.
+        Récupère les données consolidées par article pour un inventaire / magasin.
 
         Utilise UNIQUEMENT le final_result des EcartComptage RÉSOLUS.
 
@@ -54,6 +75,7 @@ class ExcelExportRepository:
 
         Args:
             inventory_id: ID de l'inventaire
+            warehouse_id: ID du magasin
 
         Returns:
             Liste de dictionnaires avec les données consolidées
@@ -62,11 +84,7 @@ class ExcelExportRepository:
         # Logique simplifiée : Σ(final_result) par produit depuis EcartComptage résolus
         # Plus de jointures complexes avec counting_sequences
 
-        from django.db.models import Sum, F
-        from ..models import Product
-
         # Étape 1 : Récupérer les IDs des produits à exclure (code test)
-        from apps.masterdata.models import Product
         excluded_product_ids = Product.objects.filter(
             Internal_Product_Code='111111111111111'
         ).values_list('id', flat=True)
@@ -79,7 +97,8 @@ class ExcelExportRepository:
         ecart_product_pairs = EcartComptage.objects.filter(
             inventory_id=inventory_id,
             resolved=True,
-            final_result__isnull=False
+            final_result__isnull=False,
+            counting_sequences__counting_detail__job__warehouse_id=warehouse_id,
         ).values(
             'id',  # EcartComptage ID pour unicité
             'counting_sequences__counting_detail__product_id'
