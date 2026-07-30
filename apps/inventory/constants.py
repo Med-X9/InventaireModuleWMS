@@ -154,6 +154,13 @@ class StockGapGrouping:
 
     # Code produit test exclu des consolidations (aligné export Excel)
     EXCLUDED_INTERNAL_CODE: Final[str] = "111111111111111"
+    # Article technique pour clôture forcée MAGASIN (qté 0)
+    FORCE_COMPLETE_BARCODE: Final[str] = "11111111111"
+    # Variantes historiques présentes en base (13 chiffres)
+    FORCE_COMPLETE_BARCODE_FALLBACKS: Final[Tuple[str, ...]] = (
+        "11111111111",
+        "1111111111111",
+    )
 
 
 # ---------------------------------------------------------------------------

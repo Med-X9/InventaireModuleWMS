@@ -56,6 +56,7 @@ from .views.ecart_analyse_export_views import (
 
 
 from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRemoveEmplacementsView, JobAddEmplacementsView, JobDeleteView, JobValidateView, JobAutoValidateView, JobListWithLocationsView, WarehouseJobsView, JobReadyView, JobSetReadyView, JobAutoSetReadyView, JobFullDetailListView, JobPendingListView, JobResetAssignmentsView, JobReassignmentView, JobTransferView, JobTransferAllView, JobManualEntryView, JobCancelView, JobProgressByCountingView, InventoryProgressByCountingView, JobsWithAssignmentsByWarehouseAndCountingView, JobDetailsByJobAndCountingView
+from .views.magasin_jobs_force_complete_views import MagasinJobsForceCompleteView
 from .views.inventory_location_job_import_views import InventoryLocationJobImportView, InventoryLocationJobImportSyncView, InventoryLocationJobImportStatusView
 from .views.job_discrepancy_views import JobDiscrepancyView
 from .views.job_unresolved_discrepancy_views import (
@@ -518,6 +519,11 @@ urlpatterns = [
     path('inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/validate-all/', JobAutoValidateView.as_view(), name='jobs-validate-all'),
     path('inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/set-ready/', JobAutoSetReadyView.as_view(), name='jobs-auto-set-ready'),
     path('jobs/cancel/', JobCancelView.as_view(), name='jobs-cancel'),
+    path(
+        'jobs/magasin/force-complete/',
+        MagasinJobsForceCompleteView.as_view(),
+        name='jobs-magasin-force-complete',
+    ),
     path('jobs/reset-assignments/', JobResetAssignmentsView.as_view(), name='job-reset-assignments'),
     path('jobs/launch-counting/', CountingLaunchView.as_view(), name='job-launch-counting'),
     

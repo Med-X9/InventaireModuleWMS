@@ -9,11 +9,11 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from apps.inventory.exceptions.inventory_exceptions import InventoryNotFoundError
 from apps.inventory.exceptions.warehouse_exceptions import WarehouseNotFoundError
-from apps.inventory.models import Inventory
+from apps.inventory.models import CountingDetail, Inventory
 from apps.inventory.repositories.ecart_stock_theorique_repository import (
     EcartStockTheoriqueRepository,
 )
-from apps.masterdata.models import Stock, Warehouse
+from apps.masterdata.models import Warehouse
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +23,9 @@ class EcartAnalyseExportService:
     Exports liés à l'analyse magasin (EcartStockTheorique).
 
     - Excel : toutes les lignes d'analyse (théorique / pratique / écart)
-    - PDF : uniquement écart ≠ 0, tableau recomptage
-      (emplacement, désignation, barcode, qté vide) + header magasin
+    - PDF : lignes écart ≠ 0 via CountingDetail (job + emplacements inventoriés)
+      Colonnes : N° | Job | Emplacement | Désignation | Barcode | 3e | 4e | 5e comptage
+      (colonnes comptage vides pour saisie terrain) + header magasin
     """
 
     def __init__(
@@ -120,9 +121,10 @@ class EcartAnalyseExportService:
         warehouse_id: int,
     ) -> Tuple[Warehouse, Inventory, List[Dict[str, str]]]:
         """
-        Lignes PDF : écart ≠ 0, une ligne par emplacement stock trouvé.
+        Lignes PDF : écart ≠ 0, job + emplacements via CountingDetail (pas Stock).
 
-        Colonnes : emplacement, designation, barcode, qte (toujours vide).
+        Colonnes : job, emplacement, designation, barcode,
+        comptage_3 / comptage_4 / comptage_5 (vides pour saisie).
         """
         inventory, warehouse = self._get_inventory_and_warehouse(
             inventory_id, warehouse_id
@@ -138,22 +140,44 @@ class EcartAnalyseExportService:
         product_ids: Set[int] = {
             e.product_id for e in ecarts if e.product_id is not None
         }
-        stocks_by_product: Dict[int, List[Stock]] = {pid: [] for pid in product_ids}
+
+        # Job + emplacements inventoriés par produit (CountingDetail du magasin)
+        placements_by_product: Dict[int, List[Tuple[str, str]]] = {
+            pid: [] for pid in product_ids
+        }
         if product_ids:
-            stock_qs = (
-                Stock.objects.filter(
-                    inventory_id=inventory_id,
-                    warehouse_id=warehouse_id,
+            cd_rows = (
+                CountingDetail.objects.filter(
+                    job__inventory_id=inventory_id,
+                    job__warehouse_id=warehouse_id,
                     product_id__in=product_ids,
                 )
-                .select_related("location", "product")
-                .order_by("location__location_reference", "id")
+                .select_related("location", "job")
+                .order_by("job__reference", "location__location_reference", "id")
+                .values_list(
+                    "product_id",
+                    "job__reference",
+                    "location_id",
+                    "location__location_reference",
+                )
+                .distinct()
             )
-            for stock in stock_qs:
-                stocks_by_product.setdefault(stock.product_id, []).append(stock)
+            seen_placement: Dict[int, Set[Tuple[str, int]]] = {
+                pid: set() for pid in product_ids
+            }
+            for product_id, job_ref, location_id, location_ref in cd_rows:
+                if product_id is None:
+                    continue
+                placement_key = ((job_ref or "").strip(), location_id or 0)
+                if placement_key in seen_placement.setdefault(product_id, set()):
+                    continue
+                seen_placement[product_id].add(placement_key)
+                placements_by_product.setdefault(product_id, []).append(
+                    ((job_ref or "").strip(), (location_ref or "").strip())
+                )
 
         rows: List[Dict[str, str]] = []
-        seen: Set[Tuple[str, str, str]] = set()
+        seen_keys: Set[Tuple[str, str, str, str]] = set()
 
         for ecart in ecarts:
             barcode = ""
@@ -163,46 +187,34 @@ class EcartAnalyseExportService:
                 barcode = (ecart.article_cle or "").strip()
             designation = (ecart.designation or "").strip()
 
-            stock_list = (
-                stocks_by_product.get(ecart.product_id, [])
+            placements = (
+                placements_by_product.get(ecart.product_id, [])
                 if ecart.product_id
                 else []
             )
-            if stock_list:
-                for stock in stock_list:
-                    emplacement = (
-                        stock.location.location_reference
-                        if stock.location_id and stock.location
-                        else ""
-                    )
-                    key = (emplacement, barcode, designation)
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    rows.append(
-                        {
-                            "emplacement": emplacement,
-                            "designation": designation,
-                            "barcode": barcode,
-                            "qte": "",
-                        }
-                    )
-            else:
-                key = ("", barcode, designation)
-                if key in seen:
+            if not placements:
+                placements = [("", "")]
+
+            for job_reference, emplacement in placements:
+                key = (job_reference, emplacement, barcode, designation)
+                if key in seen_keys:
                     continue
-                seen.add(key)
+                seen_keys.add(key)
                 rows.append(
                     {
-                        "emplacement": "",
+                        "job": job_reference,
+                        "emplacement": emplacement,
                         "designation": designation,
                         "barcode": barcode,
-                        "qte": "",
+                        "comptage_3": "",
+                        "comptage_4": "",
+                        "comptage_5": "",
                     }
                 )
 
         rows.sort(
             key=lambda r: (
+                r["job"] or "zzz",
                 r["emplacement"] or "zzz",
                 r["barcode"] or "",
                 r["designation"] or "",
@@ -218,6 +230,7 @@ class EcartAnalyseExportService:
         """
         PDF tableau recomptage des lignes avec écart.
         Header : nom du magasin.
+        Colonnes : N° | Job | Emplacement | Désignation | Barcode | 3e | 4e | 5e comptage.
         """
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4, landscape
@@ -239,8 +252,8 @@ class EcartAnalyseExportService:
         doc = SimpleDocTemplate(
             buffer,
             pagesize=landscape(A4),
-            leftMargin=1.5 * cm,
-            rightMargin=1.5 * cm,
+            leftMargin=1.2 * cm,
+            rightMargin=1.2 * cm,
             topMargin=1.5 * cm,
             bottomMargin=1.5 * cm,
         )
@@ -277,24 +290,48 @@ class EcartAnalyseExportService:
         )
         story.append(Spacer(1, 0.4 * cm))
 
-        table_data = [["Emplacement", "Désignation", "Barcode", "Qté"]]
+        table_data = [
+            [
+                "N°",
+                "Job",
+                "Emplacement",
+                "Désignation",
+                "Barcode",
+                "3e comptage",
+                "4e comptage",
+                "5e comptage",
+            ]
+        ]
         cell_style = ParagraphStyle(
             "EcartCell",
             parent=styles["Normal"],
             fontSize=8,
             leading=10,
         )
-        for row in rows:
+        for index, row in enumerate(rows, start=1):
             table_data.append(
                 [
+                    Paragraph(str(index), cell_style),
+                    Paragraph(row.get("job") or "—", cell_style),
                     Paragraph(row["emplacement"] or "—", cell_style),
                     Paragraph(row["designation"] or "—", cell_style),
                     Paragraph(row["barcode"] or "—", cell_style),
-                    Paragraph("", cell_style),
+                    Paragraph(row.get("comptage_3") or "", cell_style),
+                    Paragraph(row.get("comptage_4") or "", cell_style),
+                    Paragraph(row.get("comptage_5") or "", cell_style),
                 ]
             )
 
-        col_widths = [4.5 * cm, 12 * cm, 5 * cm, 3 * cm]
+        col_widths = [
+            1.4 * cm,
+            2.4 * cm,
+            3.4 * cm,
+            7.0 * cm,
+            3.4 * cm,
+            3.0 * cm,
+            3.0 * cm,
+            3.0 * cm,
+        ]
         table = Table(table_data, colWidths=col_widths, repeatRows=1)
         table.setStyle(
             TableStyle(
@@ -302,16 +339,22 @@ class EcartAnalyseExportService:
                     ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1F4E79")),
                     ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
                     ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                    ("FONTSIZE", (0, 0), (-1, 0), 10),
+                    ("FONTSIZE", (0, 0), (-1, 0), 9),
                     ("ALIGN", (0, 0), (-1, 0), "CENTER"),
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                     ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F2F2F2")]),
+                    (
+                        "ROWBACKGROUNDS",
+                        (0, 1),
+                        (-1, -1),
+                        [colors.white, colors.HexColor("#F2F2F2")],
+                    ),
                     ("LEFTPADDING", (0, 0), (-1, -1), 4),
                     ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-                    ("TOPPADDING", (0, 0), (-1, -1), 4),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-                    ("ALIGN", (3, 1), (3, -1), "CENTER"),
+                    ("TOPPADDING", (0, 0), (-1, -1), 6),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                    ("ALIGN", (0, 1), (1, -1), "CENTER"),
+                    ("ALIGN", (5, 1), (7, -1), "CENTER"),
                 ]
             )
         )

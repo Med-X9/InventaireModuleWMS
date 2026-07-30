@@ -64,7 +64,8 @@ class EcartAnalysePdfExportView(APIView):
     """
     Export PDF des lignes avec écart (théorique vs physique).
 
-    Tableau : Emplacement | Désignation | Barcode | Qté (vide)
+    Tableau : N° | Job | Emplacement | Désignation | Barcode | 3e | 4e | 5e comptage
+    Job et emplacements issus de CountingDetail (pas Stock).
     Header : nom du magasin
 
     GET /web/api/inventory/{inventory_id}/warehouse/{warehouse_id}/analyse/export/pdf/

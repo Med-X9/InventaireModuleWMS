@@ -493,7 +493,34 @@ class JobCancelRequestSerializer(serializers.Serializer):
         allow_empty=False,
         min_length=1,
         help_text="Liste des IDs des jobs à annuler"
-    ) 
+    )
+
+
+class MagasinJobsForceCompleteSerializer(serializers.Serializer):
+    """
+    Clôture forcée MAGASIN : article technique + qté 0.
+    Interdit pour GENERAL / TOURNANT.
+    """
+
+    job_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+        min_length=1,
+        help_text="Liste des IDs des jobs MAGASIN à terminer",
+    )
+    barcode = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        default="11111111111",
+        help_text="Barcode article technique (défaut: 11111111111)",
+    )
+    quantity = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Quantité inventoriée (défaut: 0)",
+    )
+
 
 class JobProgressByCountingSerializer(serializers.Serializer):
     """
