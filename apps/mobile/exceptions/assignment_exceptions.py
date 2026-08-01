@@ -44,5 +44,5 @@ class AssignmentNotBloqueException(Exception):
 
 
 class MaxEntameAssignmentsException(Exception):
-    """Exception levée quand l'utilisateur a déjà atteint le maximum d'assignments ENTAME (2) pour le même inventaire"""
+    """Exception levée quand l'utilisateur a déjà atteint le maximum d'assignments ENTAME (5) pour le même inventaire"""
     pass

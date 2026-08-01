@@ -417,10 +417,6 @@ urlpatterns = [
 
 
 
-
-
-
-
     # ========================================
 
     path('inventory/<int:inventory_id>/warehouses/<int:warehouse_id>/stocks/import/', StockImportView.as_view(), name='stock-import'),

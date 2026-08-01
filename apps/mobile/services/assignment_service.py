@@ -20,7 +20,7 @@ from apps.mobile.exceptions import (
 
 logger = logging.getLogger(__name__)
 
-MAX_ENTAME_ASSIGNMENTS_PER_INVENTORY = 2
+MAX_ENTAME_ASSIGNMENTS_PER_INVENTORY = 5
 
 
 class AssignmentService:
