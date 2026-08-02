@@ -24,8 +24,9 @@ class EcartAnalyseExportService:
 
     - Excel : toutes les lignes d'analyse (théorique / pratique / écart)
     - PDF : lignes écart ≠ 0 via CountingDetail (job + emplacements inventoriés)
-      Colonnes : N° | Job | Emplacement | Désignation | Barcode | 3e | 4e | 5e comptage
-      (colonnes comptage vides pour saisie terrain) + header magasin
+      Colonnes : N° | Job | Emplacement | Désignation | Barcode | |Écart| |
+      Positif/Négatif | 3e | 4e | 5e comptage
+      Tri décroissant sur |écart| + header magasin
     """
 
     def __init__(
@@ -119,12 +120,15 @@ class EcartAnalyseExportService:
         self,
         inventory_id: int,
         warehouse_id: int,
-    ) -> Tuple[Warehouse, Inventory, List[Dict[str, str]]]:
+    ) -> Tuple[Warehouse, Inventory, List[Dict[str, Any]]]:
         """
         Lignes PDF : écart ≠ 0, job + emplacements via CountingDetail (pas Stock).
 
         Colonnes : job, emplacement, designation, barcode,
+        ecart_abs, signe (Positif/Négatif),
         comptage_3 / comptage_4 / comptage_5 (vides pour saisie).
+
+        Tri : |écart| décroissant.
         """
         inventory, warehouse = self._get_inventory_and_warehouse(
             inventory_id, warehouse_id
@@ -176,8 +180,8 @@ class EcartAnalyseExportService:
                     ((job_ref or "").strip(), (location_ref or "").strip())
                 )
 
-        rows: List[Dict[str, str]] = []
-        seen_keys: Set[Tuple[str, str, str, str]] = set()
+        rows: List[Dict[str, Any]] = []
+        seen_keys: Set[Tuple[str, str, str, str, int]] = set()
 
         for ecart in ecarts:
             barcode = ""
@@ -186,6 +190,14 @@ class EcartAnalyseExportService:
             if not barcode:
                 barcode = (ecart.article_cle or "").strip()
             designation = (ecart.designation or "").strip()
+            ecart_value = int(ecart.ecart or 0)
+            ecart_abs = abs(ecart_value)
+            if ecart_value > 0:
+                signe = "Positif"
+            elif ecart_value < 0:
+                signe = "Négatif"
+            else:
+                continue
 
             placements = (
                 placements_by_product.get(ecart.product_id, [])
@@ -196,7 +208,13 @@ class EcartAnalyseExportService:
                 placements = [("", "")]
 
             for job_reference, emplacement in placements:
-                key = (job_reference, emplacement, barcode, designation)
+                key = (
+                    job_reference,
+                    emplacement,
+                    barcode,
+                    designation,
+                    ecart_value,
+                )
                 if key in seen_keys:
                     continue
                 seen_keys.add(key)
@@ -206,14 +224,19 @@ class EcartAnalyseExportService:
                         "emplacement": emplacement,
                         "designation": designation,
                         "barcode": barcode,
+                        "ecart": ecart_value,
+                        "ecart_abs": ecart_abs,
+                        "signe": signe,
                         "comptage_3": "",
                         "comptage_4": "",
                         "comptage_5": "",
                     }
                 )
 
+        # Tri décroissant par valeur absolue de l'écart
         rows.sort(
             key=lambda r: (
+                -int(r["ecart_abs"]),
                 r["job"] or "zzz",
                 r["emplacement"] or "zzz",
                 r["barcode"] or "",
@@ -230,7 +253,9 @@ class EcartAnalyseExportService:
         """
         PDF tableau recomptage des lignes avec écart.
         Header : nom du magasin.
-        Colonnes : N° | Job | Emplacement | Désignation | Barcode | 3e | 4e | 5e comptage.
+        Colonnes : N° | Job | Emplacement | Désignation | Barcode |
+        |Écart| | Positif/Négatif | 3e | 4e | 5e comptage.
+        Tri : |écart| décroissant.
         """
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4, landscape
@@ -252,8 +277,8 @@ class EcartAnalyseExportService:
         doc = SimpleDocTemplate(
             buffer,
             pagesize=landscape(A4),
-            leftMargin=1.2 * cm,
-            rightMargin=1.2 * cm,
+            leftMargin=1.0 * cm,
+            rightMargin=1.0 * cm,
             topMargin=1.5 * cm,
             bottomMargin=1.5 * cm,
         )
@@ -297,6 +322,8 @@ class EcartAnalyseExportService:
                 "Emplacement",
                 "Désignation",
                 "Barcode",
+                "|Écart|",
+                "Positif/Négatif",
                 "3e comptage",
                 "4e comptage",
                 "5e comptage",
@@ -305,8 +332,8 @@ class EcartAnalyseExportService:
         cell_style = ParagraphStyle(
             "EcartCell",
             parent=styles["Normal"],
-            fontSize=8,
-            leading=10,
+            fontSize=7,
+            leading=9,
         )
         for index, row in enumerate(rows, start=1):
             table_data.append(
@@ -316,6 +343,8 @@ class EcartAnalyseExportService:
                     Paragraph(row["emplacement"] or "—", cell_style),
                     Paragraph(row["designation"] or "—", cell_style),
                     Paragraph(row["barcode"] or "—", cell_style),
+                    Paragraph(str(row.get("ecart_abs", "")), cell_style),
+                    Paragraph(row.get("signe") or "", cell_style),
                     Paragraph(row.get("comptage_3") or "", cell_style),
                     Paragraph(row.get("comptage_4") or "", cell_style),
                     Paragraph(row.get("comptage_5") or "", cell_style),
@@ -323,14 +352,16 @@ class EcartAnalyseExportService:
             )
 
         col_widths = [
-            1.4 * cm,
+            1.2 * cm,
+            2.2 * cm,
+            2.8 * cm,
+            5.4 * cm,
+            2.8 * cm,
+            1.8 * cm,
             2.4 * cm,
-            3.4 * cm,
-            7.0 * cm,
-            3.4 * cm,
-            3.0 * cm,
-            3.0 * cm,
-            3.0 * cm,
+            2.6 * cm,
+            2.6 * cm,
+            2.6 * cm,
         ]
         table = Table(table_data, colWidths=col_widths, repeatRows=1)
         table.setStyle(
@@ -339,7 +370,7 @@ class EcartAnalyseExportService:
                     ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1F4E79")),
                     ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
                     ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                    ("FONTSIZE", (0, 0), (-1, 0), 9),
+                    ("FONTSIZE", (0, 0), (-1, 0), 8),
                     ("ALIGN", (0, 0), (-1, 0), "CENTER"),
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                     ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
@@ -349,12 +380,12 @@ class EcartAnalyseExportService:
                         (-1, -1),
                         [colors.white, colors.HexColor("#F2F2F2")],
                     ),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-                    ("TOPPADDING", (0, 0), (-1, -1), 6),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 3),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
                     ("ALIGN", (0, 1), (1, -1), "CENTER"),
-                    ("ALIGN", (5, 1), (7, -1), "CENTER"),
+                    ("ALIGN", (5, 1), (9, -1), "CENTER"),
                 ]
             )
         )

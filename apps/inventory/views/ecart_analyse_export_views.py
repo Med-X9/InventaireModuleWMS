@@ -64,7 +64,9 @@ class EcartAnalysePdfExportView(APIView):
     """
     Export PDF des lignes avec écart (théorique vs physique).
 
-    Tableau : N° | Job | Emplacement | Désignation | Barcode | 3e | 4e | 5e comptage
+    Tableau : N° | Job | Emplacement | Désignation | Barcode | |Écart| |
+    Positif/Négatif | 3e | 4e | 5e comptage
+    Tri décroissant sur |écart|.
     Job et emplacements issus de CountingDetail (pas Stock).
     Header : nom du magasin
 

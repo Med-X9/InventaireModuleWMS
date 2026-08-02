@@ -33,9 +33,9 @@ class StockImportExcelView(APIView):
         - file: Fichier Excel à importer
         
         Format Excel attendu:
-        - article: Référence du produit
-        - emplacement: Référence de l'emplacement  
-        - quantite: Quantité disponible
+        - article: Code produit (obligatoire)
+        - quantite: Quantité disponible (obligatoire)
+        - emplacement: optionnel pour MAGASIN/TOURNANT, obligatoire pour GENERAL
         """
         try:
             # Vérifier que le fichier est présent

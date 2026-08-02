@@ -1929,9 +1929,10 @@ class StockImportView(APIView):
             request.FILES['file']: Le fichier Excel à importer
             
         Format attendu du fichier Excel:
-        - Colonnes requises: 'article', 'emplacement', 'quantite'
-        - 'article': Référence du produit
-        - 'emplacement': Référence de l'emplacement
+        - Colonnes requises: 'article', 'quantite'
+        - 'emplacement' : obligatoire pour GENERAL, optionnel pour MAGASIN/TOURNANT
+        - 'article': Code produit (Internal_Product_Code)
+        - 'emplacement': Référence de l'emplacement (nullable MAGASIN)
         - 'quantite': Quantité disponible
         """
         try:
