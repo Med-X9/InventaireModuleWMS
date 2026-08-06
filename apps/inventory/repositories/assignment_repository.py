@@ -198,4 +198,41 @@ class AssignmentRepository(IAssignmentRepository):
             'job__warehouse',
             'counting',
             'session'
-        ).order_by('-created_at') 
+        ).order_by('-created_at')
+
+    def get_finished_unprinted_assignments(
+        self, inventory_id: int, warehouse_id: int
+    ):
+        """
+        Assignments en statut TERMINE non encore imprimés pour un inventaire/magasin.
+
+        Returns:
+            QuerySet[Assigment]
+        """
+        return Assigment.objects.filter(
+            status='TERMINE',
+            imprime=False,
+            job__inventory_id=inventory_id,
+            job__warehouse_id=warehouse_id,
+        ).select_related(
+            'job',
+            'counting',
+            'session',
+        ).order_by('job_id', 'counting__order', 'id')
+
+    def get_assignments_by_ids_and_status(
+        self, assignment_ids: List[int], status: str
+    ) -> List[Assigment]:
+        """Récupère des assignments par IDs et statut."""
+        if not assignment_ids:
+            return []
+        return list(
+            Assigment.objects.filter(
+                id__in=assignment_ids,
+                status=status,
+            ).select_related(
+                'job',
+                'counting',
+                'session',
+            )
+        )

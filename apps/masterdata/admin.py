@@ -179,68 +179,60 @@ class AutoCreateRegroupementWidget(widgets.ForeignKeyWidget):
                         except Account.DoesNotExist:
                             pass
                 
-                # Option 2: Si pas d'account dans la ligne, chercher via la sous_zone
+                # Option 2: warehouse (et éventuellement account) via la sous-zone
                 warehouse = None
-                if not account and row:
+                if row:
                     sous_zone_name = row.get('sous zone', '')
                     if sous_zone_name:
                         try:
                             from .models import SousZone
-                            sous_zone = SousZone.objects.get(sous_zone_name=sous_zone_name)
-                            # Essayer de trouver l'account et le warehouse via la zone -> warehouse
-                            if hasattr(sous_zone, 'zone') and sous_zone.zone:
-                                zone = sous_zone.zone
-                                if hasattr(zone, 'warehouse') and zone.warehouse:
-                                    warehouse = zone.warehouse
-                                    # Si le warehouse a un account, l'utiliser
-                                    if hasattr(warehouse, 'account'):
-                                        account = warehouse.account
+                            sous_zone = SousZone.objects.select_related(
+                                'zone__warehouse'
+                            ).get(sous_zone_name=sous_zone_name)
+                            if sous_zone.zone and sous_zone.zone.warehouse:
+                                warehouse = sous_zone.zone.warehouse
                         except Exception:
                             pass
-                
-                # Option 3: Utiliser le premier account disponible comme fallback
+
+                # Option 3: premier account disponible comme fallback
                 if not account:
                     account = Account.objects.first()
                     if not account:
-                        raise ValueError("Aucun compte disponible pour créer le regroupement. Veuillez créer un compte d'abord.")
-                
-                # Si le warehouse n'a pas été trouvé via la sous_zone, essayer de le trouver via l'account
+                        raise ValueError(
+                            "Aucun compte disponible pour créer le regroupement. "
+                            "Veuillez créer un compte d'abord."
+                        )
+
                 if not warehouse:
-                    # Chercher un warehouse associé à l'account (si une telle relation existe)
-                    # Sinon, utiliser le premier warehouse disponible comme fallback
                     from .models import Warehouse
                     warehouse = Warehouse.objects.first()
                     if not warehouse:
-                        raise ValueError("Aucun warehouse disponible pour créer le regroupement. Veuillez créer un warehouse d'abord.")
-                
-                # Vérifier si l'account a déjà un regroupement (OneToOneField)
-                if hasattr(account, 'regroupement_emplacement'):
-                    # Si l'account a déjà un regroupement, vérifier qu'il a le même warehouse
-                    existing_regroupement = account.regroupement_emplacement
-                    if existing_regroupement.warehouse.id != warehouse.id:
                         raise ValueError(
-                            f"Le regroupement existant '{existing_regroupement.nom}' pour le compte '{account.account_name}' "
-                            f"appartient au warehouse '{existing_regroupement.warehouse.warehouse_name}', "
-                            f"mais l'emplacement appartient au warehouse '{warehouse.warehouse_name}'. "
-                            f"Les warehouses doivent correspondre."
+                            "Aucun warehouse disponible pour créer le regroupement. "
+                            "Veuillez créer un warehouse d'abord."
                         )
-                    return existing_regroupement
-                
-                # Vérifier si un regroupement avec ce nom existe déjà pour un autre account
-                existing_regroupement = RegroupementEmplacement.objects.filter(nom=value).first()
+
+                # account.regroupement_emplacement est un RelatedManager (FK reverse)
+                existing_for_account = account.regroupement_emplacement.filter(
+                    warehouse=warehouse
+                ).first()
+                if existing_for_account:
+                    return existing_for_account
+
+                existing_regroupement = RegroupementEmplacement.objects.filter(
+                    nom=value
+                ).first()
                 if existing_regroupement:
-                    # Vérifier que le warehouse correspond
-                    if existing_regroupement.warehouse.id != warehouse.id:
+                    if existing_regroupement.warehouse_id != warehouse.id:
                         raise ValueError(
                             f"Le regroupement '{value}' existe déjà mais appartient au warehouse "
                             f"'{existing_regroupement.warehouse.warehouse_name}', "
-                            f"alors que l'emplacement appartient au warehouse '{warehouse.warehouse_name}'. "
+                            f"alors que l'emplacement appartient au warehouse "
+                            f"'{warehouse.warehouse_name}'. "
                             f"Les warehouses doivent correspondre."
                         )
-                    # Si un regroupement avec ce nom existe déjà, le retourner
                     return existing_regroupement
-                
-                # Créer le nouveau regroupement pour l'account avec le warehouse
+
                 regroupement = RegroupementEmplacement.objects.create(
                     account=account,
                     warehouse=warehouse,

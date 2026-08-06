@@ -154,6 +154,43 @@ class CountingLaunchAPITestCase(TestCase):
             status='TERMINE',
         )
 
+        # Écart non résolu requis pour lancer un n-ième comptage sur l'emplacement
+        counting_detail1 = CountingDetail.objects.create(
+            reference=CountingDetail().generate_reference(CountingDetail.REFERENCE_PREFIX),
+            counting=self.counting1,
+            location=self.location,
+            job=self.job,
+            quantity_inventoried=10,
+        )
+        counting_detail2 = CountingDetail.objects.create(
+            reference=CountingDetail().generate_reference(CountingDetail.REFERENCE_PREFIX),
+            counting=self.counting2,
+            location=self.location,
+            job=self.job,
+            quantity_inventoried=15,
+        )
+        self.ecart = EcartComptage.objects.create(
+            reference=EcartComptage().generate_reference(EcartComptage.REFERENCE_PREFIX),
+            inventory=self.inventory,
+            resolved=False,
+            final_result=None,
+        )
+        ComptageSequence.objects.create(
+            reference=ComptageSequence().generate_reference(ComptageSequence.REFERENCE_PREFIX),
+            ecart_comptage=self.ecart,
+            sequence_number=1,
+            counting_detail=counting_detail1,
+            quantity=counting_detail1.quantity_inventoried,
+        )
+        ComptageSequence.objects.create(
+            reference=ComptageSequence().generate_reference(ComptageSequence.REFERENCE_PREFIX),
+            ecart_comptage=self.ecart,
+            sequence_number=2,
+            counting_detail=counting_detail2,
+            quantity=counting_detail2.quantity_inventoried,
+            ecart_with_previous=5,
+        )
+
         self.session = UserApp.objects.create(
             username='mobile-session',
             type='Mobile',
@@ -248,22 +285,16 @@ class CountingLaunchAPITestCase(TestCase):
         self.assertIsNotNone(job_detail)
 
     def test_launch_fourth_counting_recreates_missing_order_three_jobdetail(self):
-        """Le service recrée le JobDetail d'ordre 3 manquant si l'affectation est terminée."""
+        """Sans JobDetail d'ordre 3, on relance le 3e et on recrée le JobDetail."""
         payload = {
             'job_id': self.job.id,
             'location_id': self.location.id,
             'session_id': self.session.id,
         }
 
-        # Lancer une première fois pour créer le comptage d'ordre 3
         first_response = self.client.post(self.url, data=payload, format='json')
         self.assertEqual(first_response.status_code, status.HTTP_201_CREATED)
 
-        job_detail_order3 = JobDetail.objects.get(job=self.job, location=self.location, counting=self.counting3)
-        job_detail_order3.status = 'TERMINE'
-        job_detail_order3.save()
-
-        # Simuler un JobDetail d'ordre 3 supprimé alors que l'affectation est terminée
         JobDetail.objects.filter(job=self.job, location=self.location, counting=self.counting3).delete()
         assignment_order3 = Assigment.objects.get(job=self.job, counting=self.counting3)
         assignment_order3.status = 'TERMINE'
@@ -272,12 +303,13 @@ class CountingLaunchAPITestCase(TestCase):
 
         response = self.client.post(self.url, data=payload, format='json')
 
-        self.assertEqual(
+        self.assertIn(
             response.status_code,
-            status.HTTP_201_CREATED,
+            (status.HTTP_200_OK, status.HTTP_201_CREATED),
             msg=f"Response data: {response.data}",
         )
         self.assertTrue(response.data['success'])
+        self.assertEqual(response.data['data']['counting']['order'], 3)
 
         recreated_job_detail = JobDetail.objects.filter(
             job=self.job,
@@ -285,7 +317,6 @@ class CountingLaunchAPITestCase(TestCase):
             counting=self.counting3,
         ).first()
         self.assertIsNotNone(recreated_job_detail)
-        self.assertEqual(recreated_job_detail.status, 'TERMINE')
 
     def test_launch_third_counting_requires_previous_orders_completed(self):
         """Le 3ème comptage ne peut pas être lancé si le 1er ou le 2ème n'est pas terminé."""

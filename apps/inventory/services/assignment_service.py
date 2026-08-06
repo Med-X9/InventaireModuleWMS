@@ -448,3 +448,44 @@ class AssignmentService(IAssignmentService):
             'location_ids_updated': list(requested_ids),
             'updated_at': current_time,
         }
+
+    def get_finished_unprinted_assignments(
+        self, inventory_id: int, warehouse_id: int
+    ):
+        """
+        Assignments TERMINE non imprimés pour un inventaire et un magasin.
+
+        Utilisé par l'API PDF finished-assignments/async.
+
+        Args:
+            inventory_id: ID inventaire
+            warehouse_id: ID magasin
+
+        Returns:
+            QuerySet des assignments concernés
+        """
+        if not inventory_id or inventory_id <= 0:
+            raise AssignmentValidationError("inventory_id invalide")
+        if not warehouse_id or warehouse_id <= 0:
+            raise AssignmentValidationError("warehouse_id invalide")
+
+        return self.repository.get_finished_unprinted_assignments(
+            inventory_id, warehouse_id
+        )
+
+    def get_assignments_by_ids_and_status(
+        self, assignment_ids: List[int], status: str
+    ) -> List[Assigment]:
+        """
+        Récupère des assignments filtrés par IDs et statut (ex. TERMINE).
+
+        Args:
+            assignment_ids: Liste d'IDs
+            status: Statut cible
+
+        Returns:
+            List[Assigment]
+        """
+        return self.repository.get_assignments_by_ids_and_status(
+            assignment_ids, status
+        )

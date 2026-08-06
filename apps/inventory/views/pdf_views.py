@@ -267,40 +267,64 @@ class InventoryWarehouseFinishedAssignmentsPdfAsyncStartView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        assignments = self.pdf_task_service.get_finished_unprinted_assignments(
-            inventory_id, warehouse_id
-        )
+        try:
+            assignments = self.pdf_task_service.get_finished_unprinted_assignments(
+                inventory_id, warehouse_id
+            )
 
-        if not assignments.exists():
+            if not assignments.exists():
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            "Aucun assignment TERMINE non imprimé trouvé "
+                            "pour cet inventaire et entrepôt"
+                        ),
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            assignment_ids = list(assignments.values_list("id", flat=True))
+            job_ids = list(assignments.values_list("job_id", flat=True).distinct())
+
+            task = enqueue_inventory_jobs_pdf_task(
+                inventory_id=int(inventory_id),
+                job_ids=job_ids,
+                assignment_statuses=[AssignmentStatus.TERMINE],
+                job_statuses=[],
+                assignment_ids_to_mark=assignment_ids,
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "task_id": str(task.id),
+                    "status": task.status,
+                    "jobs_count": len(job_ids),
+                    "assignments_count": len(assignment_ids),
+                },
+                status=status.HTTP_202_ACCEPTED,
+            )
+        except Exception as e:
+            logger.error(
+                "Erreur finished-assignments PDF async inv=%s wh=%s: %s",
+                inventory_id,
+                warehouse_id,
+                str(e),
+                exc_info=True,
+            )
             return Response(
                 {
                     "success": False,
-                    "message": "Aucun assignment TERMINE non imprimé trouvé pour cet inventaire et entrepôt",
+                    "message": (
+                        "Erreur lors du lancement de la génération PDF "
+                        "des assignments terminés"
+                    ),
+                    "error": str(e),
                 },
-                status=status.HTTP_404_NOT_FOUND,
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        assignment_ids = list(assignments.values_list("id", flat=True))
-        job_ids = list(assignments.values_list("job_id", flat=True).distinct())
-
-        task = enqueue_inventory_jobs_pdf_task(
-            inventory_id=int(inventory_id),
-            job_ids=job_ids,
-            assignment_statuses=[AssignmentStatus.TERMINE],
-            job_statuses=[],
-            assignment_ids_to_mark=assignment_ids,
-        )
-
-        return Response(
-            {
-                "success": True,
-                "task_id": str(task.id),
-                "status": task.status,
-                "jobs_count": len(job_ids),
-                "assignments_count": len(assignment_ids),
-            },
-            status=status.HTTP_202_ACCEPTED,
-        )
 
 
 class JobAssignmentPdfAsyncStartView(APIView):
