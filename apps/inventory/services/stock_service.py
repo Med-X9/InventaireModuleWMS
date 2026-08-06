@@ -19,6 +19,32 @@ class StockService(IStockService):
     def __init__(self, repository: StockRepository = None):
         self.repository = repository or StockRepository()
         self.inventory_repository = InventoryRepository()
+
+    def _import_rules_for_inventory_type(self, inventory_type: str) -> Dict[str, bool]:
+        """
+        Strategy d'import stock selon le type d'inventaire.
+
+        GENERAL :
+          - article optionnel
+          - emplacement obligatoire
+          - quantite optionnelle (null si vide)
+        MAGASIN / TOURNANT :
+          - article obligatoire
+          - emplacement optionnel
+          - quantite obligatoire
+        """
+        if inventory_type in InventoryType.SINGLE_COUNTING:
+            return {
+                "article_required": True,
+                "location_required": False,
+                "quantity_required": True,
+            }
+        # GENERAL
+        return {
+            "article_required": False,
+            "location_required": True,
+            "quantity_required": False,
+        }
     
     def import_stocks_from_excel(self, inventory_id: int, warehouse_id: int, excel_file) -> Dict[str, Any]:
         """
@@ -38,11 +64,19 @@ class StockService(IStockService):
         """
         try:
             inventory = self.inventory_repository.get_by_id(inventory_id)
-            location_required = inventory.inventory_type not in InventoryType.SINGLE_COUNTING
+            rules = self._import_rules_for_inventory_type(inventory.inventory_type)
+            location_required = rules["location_required"]
+            article_required = rules["article_required"]
+            quantity_required = rules["quantity_required"]
 
             df = self._read_excel_file(excel_file)
             self._normalize_excel_columns(df)
-            self._validate_excel_structure(df, location_required=location_required)
+            self._validate_excel_structure(
+                df,
+                location_required=location_required,
+                article_required=article_required,
+                quantity_required=quantity_required,
+            )
 
             # Valider les emplacements fournis (ignoré s'il n'y en a aucun pour MAGASIN)
             self._validate_locations_belong_to_account_regroupement(
@@ -69,6 +103,8 @@ class StockService(IStockService):
                     validation_errors = self.validate_stock_data(
                         stock_data,
                         location_required=location_required,
+                        article_required=article_required,
+                        quantity_required=quantity_required,
                     )
 
                     if validation_errors:
@@ -80,7 +116,7 @@ class StockService(IStockService):
                         results['invalid_rows'] += 1
                     else:
                         clean_stock_data = {
-                            'product': stock_data['product'],
+                            'product': stock_data.get('product'),
                             'location': stock_data.get('location'),
                             'quantity_available': stock_data['quantity_available'],
                             'inventory_id': stock_data['inventory_id'],
@@ -107,8 +143,9 @@ class StockService(IStockService):
             seen = set()
             duplicates = []
             for idx, stock in enumerate(valid_stocks_data):
+                product_id = stock['product'].id if stock['product'] else None
                 location_id = stock['location'].id if stock['location'] else None
-                key = (stock['product'].id, location_id, stock['inventory_id'])
+                key = (product_id, location_id, stock['inventory_id'])
                 if key in seen:
                     duplicates.append(idx)
                 else:
@@ -133,10 +170,15 @@ class StockService(IStockService):
                             if stock['location']
                             else "sans emplacement"
                         )
+                        product_label = (
+                            stock['product']
+                            if stock['product']
+                            else "sans article"
+                        )
                         results['success'] = False
                         results['message'] = (
                             f"Import échoué: un stock existe déjà pour le produit "
-                            f"{stock['product']} ({location_label}) "
+                            f"{product_label} ({location_label}) "
                             f"pour cet inventaire de type {inventory.inventory_type}."
                         )
                         return results
@@ -203,6 +245,8 @@ class StockService(IStockService):
         self,
         data: Dict[str, Any],
         location_required: bool = True,
+        article_required: bool = True,
+        quantity_required: bool = True,
     ) -> List[str]:
         """
         Valide les données d'un stock.
@@ -210,25 +254,30 @@ class StockService(IStockService):
         Args:
             data: Les données du stock
             location_required: True pour GENERAL ; False pour MAGASIN/TOURNANT
+            article_required: False pour GENERAL ; True pour MAGASIN/TOURNANT
+            quantity_required: False pour GENERAL ; True pour MAGASIN/TOURNANT
 
         Returns:
             List[str]: Liste des erreurs de validation
         """
         errors = []
 
-        if not data.get('product_reference'):
+        product_reference = data.get('product_reference')
+        if article_required and not product_reference:
             errors.append("La référence du produit est obligatoire")
-        else:
+        elif product_reference:
             try:
                 product = Product.objects.get(
-                    Internal_Product_Code=data['product_reference']
+                    Internal_Product_Code=product_reference
                 )
                 data['product'] = product
             except Product.DoesNotExist:
                 errors.append(
-                    f"Le produit avec la référence '{data['product_reference']}' "
+                    f"Le produit avec la référence '{product_reference}' "
                     f"n'existe pas"
                 )
+        else:
+            data['product'] = None
 
         location_reference = data.get('location_reference')
         if location_required and not location_reference:
@@ -247,9 +296,22 @@ class StockService(IStockService):
         else:
             data['location'] = None
 
+        # Une ligne doit au moins porter un article ou un emplacement
+        if (
+            not data.get('product')
+            and not data.get('location')
+            and not errors
+        ):
+            errors.append(
+                "Au moins un article ou un emplacement doit être renseigné"
+            )
+
         quantity = data.get('quantity_available')
         if quantity is None:
-            errors.append("La quantité est obligatoire")
+            if quantity_required:
+                errors.append("La quantité est obligatoire")
+            else:
+                data['quantity_available'] = None
         elif not isinstance(quantity, (int, float)) or quantity < 0:
             errors.append("La quantité doit être un nombre positif")
 
@@ -298,16 +360,29 @@ class StockService(IStockService):
         self,
         df: pd.DataFrame,
         location_required: bool = True,
+        article_required: bool = True,
+        quantity_required: bool = True,
     ) -> None:
         """
-        Valide la structure du fichier Excel.
+        Valide la structure du fichier Excel selon la strategy type inventaire.
 
-        GENERAL : article, emplacement, quantite obligatoires.
-        MAGASIN / TOURNANT : article, quantite obligatoires ; emplacement optionnel.
+        GENERAL : emplacement obligatoire ; article et quantite optionnels.
+        MAGASIN / TOURNANT : article + quantite obligatoires ; emplacement optionnel.
         """
-        required_columns = ['article', 'quantite']
+        required_columns: List[str] = []
+        if article_required:
+            required_columns.append('article')
         if location_required:
-            required_columns.insert(1, 'emplacement')
+            required_columns.append('emplacement')
+        if quantity_required:
+            required_columns.append('quantite')
+
+        # Au minimum, le fichier doit être lisible avec une structure attendue
+        if not required_columns and 'emplacement' not in df.columns and 'article' not in df.columns:
+            raise StockValidationError(
+                "Le fichier Excel doit contenir au moins une colonne "
+                "'emplacement' ou 'article'."
+            )
 
         missing_columns = [col for col in required_columns if col not in df.columns]
 
@@ -409,12 +484,16 @@ class StockService(IStockService):
 
     def _row_to_stock_data(self, row: pd.Series, inventory_id: int) -> Dict[str, Any]:
         """Convertit une ligne Excel en données de stock."""
+        article_value = row['article'] if 'article' in row.index else None
         location_value = row['emplacement'] if 'emplacement' in row.index else None
+        quantity: Optional[float]
+        if 'quantite' not in row.index or pd.isna(row['quantite']):
+            quantity = None
+        else:
+            quantity = float(row['quantite'])
         return {
-            'product_reference': self._normalize_optional_text(row.get('article')),
+            'product_reference': self._normalize_optional_text(article_value),
             'location_reference': self._normalize_optional_text(location_value),
-            'quantity_available': (
-                float(row['quantite']) if pd.notna(row['quantite']) else 0
-            ),
+            'quantity_available': quantity,
             'inventory_id': inventory_id
         }

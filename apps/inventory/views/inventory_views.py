@@ -1928,11 +1928,11 @@ class StockImportView(APIView):
             warehouse_id: L'ID de l'entrepôt
             request.FILES['file']: Le fichier Excel à importer
             
-        Format attendu du fichier Excel:
-        - Colonnes requises: 'article', 'quantite'
-        - 'emplacement' : obligatoire pour GENERAL, optionnel pour MAGASIN/TOURNANT
+        Format attendu du fichier Excel (strategy selon type inventaire) :
+        - GENERAL : emplacement obligatoire ; article et quantite optionnels (qté null si vide)
+        - MAGASIN/TOURNANT : article + quantite obligatoires ; emplacement optionnel
         - 'article': Code produit (Internal_Product_Code)
-        - 'emplacement': Référence de l'emplacement (nullable MAGASIN)
+        - 'emplacement': Référence de l'emplacement
         - 'quantite': Quantité disponible
         """
         try:

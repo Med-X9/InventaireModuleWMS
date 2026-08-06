@@ -391,7 +391,12 @@ class Stock(TimeStampedModel):
         help_text='Optionnel — extractions ERP article/quantité sans emplacement',
     )
     product = models.ForeignKey(Product, on_delete=models.CASCADE,blank=True,null=True)
-    quantity_available = models.IntegerField(validators=[MinValueValidator(0)])
+    quantity_available = models.IntegerField(
+        validators=[MinValueValidator(0)],
+        blank=True,
+        null=True,
+        help_text='Optionnel — vide si non renseignée à l\'import (GENERAL)',
+    )
     quantity_reserved = models.IntegerField(validators=[MinValueValidator(0)], blank=True, null=True)
     quantity_in_transit = models.IntegerField(validators=[MinValueValidator(0)], blank=True, null=True)
     quantity_in_receiving = models.IntegerField(validators=[MinValueValidator(0)], blank=True, null=True)

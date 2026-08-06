@@ -32,10 +32,9 @@ class StockImportExcelView(APIView):
         - inventory_id: ID de l'inventaire
         - file: Fichier Excel à importer
         
-        Format Excel attendu:
-        - article: Code produit (obligatoire)
-        - quantite: Quantité disponible (obligatoire)
-        - emplacement: optionnel pour MAGASIN/TOURNANT, obligatoire pour GENERAL
+        Format Excel attendu (selon type inventaire) :
+        - GENERAL : emplacement obligatoire ; article et quantite optionnels
+        - MAGASIN/TOURNANT : article + quantite ; emplacement optionnel
         """
         try:
             # Vérifier que le fichier est présent
