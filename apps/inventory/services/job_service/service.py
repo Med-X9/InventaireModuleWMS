@@ -13,6 +13,7 @@ from ...repositories.job_repository import JobRepository
 from ...exceptions.job_exceptions import JobCreationError
 from ...models import Job, JobDetail, Assigment, JobDetailRessource, CountingDetail, Counting
 from django.utils import timezone
+from apps.inventory.utils.counting_layout import is_single_counting_inventory
 from ...interfaces.job_interface import JobServiceInterface
 from typing import List, Dict, Any
 from django.db.models import Q, Count, Case, When, IntegerField
@@ -50,7 +51,7 @@ class JobService(JobServiceInterface):
             countings = self.repository.get_countings_by_inventory(inventory)
             counting1 = next((c for c in countings if c.order == 1), None)
             counting2 = next((c for c in countings if c.order == 2), None)
-            is_single = inventory.inventory_type in InventoryType.SINGLE_COUNTING
+            is_single = is_single_counting_inventory(inventory)
 
             if is_single:
                 if not counting1:

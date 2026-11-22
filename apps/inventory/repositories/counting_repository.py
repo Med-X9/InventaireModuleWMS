@@ -460,4 +460,75 @@ class CountingRepository(ICountingRepository):
         result_list = list(aggregated_queryset)
         logger.debug(f"✅ Nombre de résultats agrégés retournés: {len(result_list)}")
         
+        # Écart par emplacement (MAGASIN 3 comptages) : l'écart et le résultat final sont portés
+        # par l'emplacement. Deux types de lignes :
+        #   - EMPLACEMENT : totaux de chaque comptage, écarts, résultat final (modifiable)
+        #   - ARTICLE     : quantités par article (comptages « par article »), résultat final
+        #                   par article repris du comptage retenu (lecture seule)
+        from ..models import ComptageSequence, Inventory
+        from ..utils.location_ecart_results import location_ecart_results
+
+        inventory = Inventory.objects.filter(id=inventory_id).first()
+        location_results = location_ecart_results(inventory, warehouse_id=warehouse_id) if inventory else {}
+        if location_results:
+            rows_by_location: Dict[int, List[Dict[str, Any]]] = {}
+            for row in result_list:
+                rows_by_location.setdefault(row['location_id'], []).append(row)
+
+            enriched: List[Dict[str, Any]] = []
+            for location_id, rows in rows_by_location.items():
+                info = location_results.get(location_id)
+                if info is None:
+                    enriched.extend(rows)
+                    continue
+                ecart = info['ecart']
+                template = rows[0]
+
+                # Totaux par comptage (une séquence par comptage et par emplacement)
+                totals = {
+                    seq.counting_detail.counting.order: seq.quantity
+                    for seq in ComptageSequence.objects.filter(ecart_comptage=ecart)
+                    .select_related('counting_detail__counting')
+                }
+                location_rows = {
+                    r['counting_order_alias']: r for r in rows if r['product_id'] is None
+                }
+                for order, total in totals.items():
+                    row = location_rows.get(order)
+                    if row is None:
+                        row = dict(template)
+                        row.update(
+                            counting_order_alias=order,
+                            product_id=None,
+                            product_reference_alias=None,
+                            product_barcode_alias=None,
+                            product_description_alias=None,
+                            product_internal_code_alias=None,
+                            product_family_name_alias=None,
+                        )
+                        location_rows[order] = row
+                    row['total_quantity'] = total
+
+                for row in location_rows.values():
+                    row['row_type'] = 'EMPLACEMENT'
+                    row['ecart_id_alias'] = ecart.id
+                    row['resolved_agg'] = 1 if ecart.resolved else 0
+                    row['manual_result_agg'] = 1 if ecart.manual_result else 0
+                    row['final_result_agg'] = ecart.final_result
+                    enriched.append(row)
+
+                for row in rows:
+                    if row['product_id'] is None:
+                        continue
+                    row['row_type'] = 'ARTICLE'
+                    row['ecart_id_alias'] = None  # pas de résolution par article
+                    row['resolved_agg'] = 1 if ecart.resolved else 0
+                    row['manual_result_agg'] = None
+                    row['final_result_agg'] = (
+                        None if ecart.final_result is None
+                        else info['product_quantities'].get(row['product_id'], 0)
+                    )
+                    enriched.append(row)
+            result_list = enriched
+
         return result_list

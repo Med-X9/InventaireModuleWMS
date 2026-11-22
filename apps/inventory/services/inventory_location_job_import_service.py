@@ -19,6 +19,7 @@ from apps.inventory.constants import InventoryType
 from apps.inventory.interfaces.location_job_import_session_strategy_interface import (
     ILocationJobImportSessionStrategy,
 )
+from apps.inventory.utils.counting_layout import effective_counting_type, is_single_counting_inventory
 from apps.inventory.usecases.location_job_import_session_dispatcher import (
     LocationJobImportSessionDispatcher,
 )
@@ -273,7 +274,7 @@ class InventoryLocationJobImportService:
             # Vérifier que l'inventaire existe
             inventory = self.inventory_repo.get_by_id(inventory_id)
             session_strategy = self.session_dispatcher.get_strategy(
-                getattr(inventory, "inventory_type", "") or ""
+                effective_counting_type(inventory) or ""
             )
             logger.info(
                 "Import location-jobs inventaire %s type=%s strategy=%s",
@@ -657,7 +658,7 @@ class InventoryLocationJobImportService:
         """
         if session_strategy is None:
             session_strategy = self.session_dispatcher.get_strategy(
-                getattr(inventory, "inventory_type", "") or ""
+                effective_counting_type(inventory) or ""
             )
         errors = []
         
@@ -1499,7 +1500,7 @@ class InventoryLocationJobImportService:
             
             # GENERAL : 2 comptages ; MAGASIN/TOURNANT : 1 comptage
             countings = Counting.objects.filter(inventory=inventory).order_by('order')
-            is_single = inventory.inventory_type in InventoryType.SINGLE_COUNTING
+            is_single = is_single_counting_inventory(inventory)
             counting1 = countings.filter(order=1).first()
             counting2 = countings.filter(order=2).first() if not is_single else None
 

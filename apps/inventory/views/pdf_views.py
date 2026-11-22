@@ -55,6 +55,46 @@ def _parse_job_ids_from_request_data(data):
     return [int(job_ids)]
 
 
+_EXPORTABLE_ASSIGNMENT_STATUSES = {"PRET", "TRANSFERT", "ENTAME", "TERMINE"}
+
+
+def _as_list(value):
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return [v.strip() for v in value.split(",") if v.strip()]
+    return list(value)
+
+
+def _parse_pdf_export_options(data):
+    """
+    Options facultatives de l'export PDF asynchrone des jobs.
+
+    Returns:
+        (counting_order | None, assignment_statuses | None, job_statuses | None)
+    Raises:
+        ValueError si une valeur est invalide.
+    """
+    raw_order = data.get("counting_order", None)
+    counting_order = None
+    if raw_order not in (None, ""):
+        counting_order = int(raw_order)
+        if counting_order < 1:
+            raise ValueError("counting_order doit être un entier >= 1")
+
+    assignment_statuses = _as_list(data.get("assignment_statuses", None))
+    if assignment_statuses is not None:
+        invalid = [s for s in assignment_statuses if s not in _EXPORTABLE_ASSIGNMENT_STATUSES]
+        if invalid or not assignment_statuses:
+            raise ValueError(
+                "assignment_statuses invalide : valeurs autorisées "
+                + ", ".join(sorted(_EXPORTABLE_ASSIGNMENT_STATUSES))
+            )
+
+    job_statuses = _as_list(data.get("job_statuses", None))
+    return counting_order, assignment_statuses, job_statuses
+
+
 class InventoryJobsPdfView(APIView):
     """Vue pour generer le PDF des jobs d'inventaire"""
 
@@ -239,9 +279,25 @@ class InventoryJobsPdfAsyncStartView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Options d'export (toutes facultatives) :
+        #   counting_order     : transfert du Ne comptage (assignments de cet ordre uniquement)
+        #   assignment_statuses: ex. ["PRET", "TRANSFERT"] (fiches à remplir, défaut)
+        #                        ou ["TERMINE"] (fiches remplies)
+        #   job_statuses       : [] = ne pas filtrer le statut du job (utile pour TERMINE)
+        try:
+            counting_order, assignment_statuses, job_statuses = _parse_pdf_export_options(request.data)
+        except ValueError as e:
+            return Response(
+                {"success": False, "message": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         task = enqueue_inventory_jobs_pdf_task(
             inventory_id=int(inventory_id),
             job_ids=job_ids,
+            counting_order=counting_order,
+            assignment_statuses=assignment_statuses,
+            job_statuses=job_statuses,
         )
 
         return Response(

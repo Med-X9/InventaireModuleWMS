@@ -151,6 +151,7 @@ class PdfTaskService:
         assignment_statuses: Optional[List[str]] = None,
         job_statuses: Optional[List[str]] = None,
         assignment_ids_to_mark: Optional[List[int]] = None,
+        counting_order: Optional[int] = None,
     ) -> PdfTask:
         """Crée et lance une tâche PDF jobs d'inventaire."""
         task = PdfTask.objects.create(
@@ -161,6 +162,7 @@ class PdfTaskService:
                 "assignment_statuses": assignment_statuses,
                 "job_statuses": job_statuses,
                 "assignment_ids_to_mark": assignment_ids_to_mark,
+                "counting_order": counting_order,
             },
             status=PdfTask.STATUS_PENDING,
         )
@@ -203,6 +205,9 @@ class PdfTaskService:
             else:
                 assignment_ids_to_mark = None
 
+            counting_order = task.params.get("counting_order", None)
+            counting_order = int(counting_order) if counting_order else None
+
             use_case = InventoryJobsPdfUseCase()
             result = use_case.execute(
                 inventory_id,
@@ -210,6 +215,7 @@ class PdfTaskService:
                 job_ids=job_ids,
                 assignment_statuses=assignment_statuses,
                 job_statuses=job_statuses,
+                counting_order=counting_order,
             )
             pdf_buffer = result["pdf_buffer"]
             pdf_content = pdf_buffer.getvalue()

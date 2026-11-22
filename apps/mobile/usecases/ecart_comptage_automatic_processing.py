@@ -21,6 +21,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from apps.inventory.constants import InventoryType
+from apps.inventory.utils.counting_layout import effective_counting_type, has_multi_counting
+
 
 class EcartComptageAutomaticProcessingUseCase:
     """
@@ -98,7 +101,7 @@ class EcartComptageAutomaticProcessingUseCase:
             for s in sorted(cache_entry["sequences"], key=lambda s: s.sequence_number)
         ]
         inventory = counting_detail.counting.inventory
-        inventory_type = getattr(inventory, "inventory_type", None) or ""
+        inventory_type = effective_counting_type(inventory) or ""
         final_result = self.ecart_final_result_use_case.apply_to_ecart(
             inventory_type,
             ecart,
@@ -124,7 +127,12 @@ class EcartComptageAutomaticProcessingUseCase:
         Raises:
             ValidationError: Si product ou location manquants
         """
-        if not counting_detail.product or not counting_detail.location:
+        # Sans produit : uniquement pour l'écart par emplacement (MAGASIN 3 comptages)
+        inventory = counting_detail.counting.inventory
+        location_ecart = (
+            inventory.inventory_type == InventoryType.MAGASIN and has_multi_counting(inventory)
+        )
+        if not counting_detail.location or (not counting_detail.product and not location_ecart):
             raise ValidationError("Product et Location sont obligatoires pour créer un EcartComptage")
     
     def _get_or_create_ecart(
@@ -143,7 +151,7 @@ class EcartComptageAutomaticProcessingUseCase:
             tuple: (ecart, cache_entry)
         """
         key = (
-            counting_detail.product.id, 
+            counting_detail.product.id if counting_detail.product else None, 
             counting_detail.location.id, 
             counting_detail.counting.inventory.id
         )

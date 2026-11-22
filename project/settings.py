@@ -113,6 +113,9 @@ WSGI_APPLICATION = 'project.wsgi.application'
 PDA_OFFLINE_THRESHOLD_SECONDS = config('PDA_OFFLINE_THRESHOLD_SECONDS', default=120, cast=int)
 PDA_HEARTBEAT_MIN_INTERVAL_SECONDS = config('PDA_HEARTBEAT_MIN_INTERVAL_SECONDS', default=25, cast=int)
 
+# Mobile : nombre max d'assignments ENTAME (lancés) par utilisateur et par inventaire
+MOBILE_MAX_ENTAME_ASSIGNMENTS_PER_INVENTORY = config('MOBILE_MAX_ENTAME_ASSIGNMENTS_PER_INVENTORY', default=2, cast=int)
+
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases

@@ -136,6 +136,7 @@ class InventoryCreationUseCase:
             date=data['date'],
             status=InventoryStatus.EN_CONFIGURATION,
             inventory_type=data.get('inventory_type', 'GENERAL'),
+            max_entame_assignments=data.get('max_entame_assignments'),
             en_configuration_status_date=timezone.now(),
         )
         

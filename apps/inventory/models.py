@@ -89,6 +89,8 @@ class Inventory(TimeStampedModel, ReferenceMixin):
     en_realisation_status_date = models.DateTimeField(null=True, blank=True)
     termine_status_date = models.DateTimeField(null=True, blank=True)
     cloture_status_date = models.DateTimeField(null=True, blank=True)
+    # Mobile : nb max d'assignments ENTAME par utilisateur pour cet inventaire (null = valeur par défaut des settings)
+    max_entame_assignments = models.PositiveSmallIntegerField(null=True, blank=True)
 
     history = HistoricalRecords()
 

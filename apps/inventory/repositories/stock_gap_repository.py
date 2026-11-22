@@ -64,6 +64,23 @@ class StockGapRepository:
         Les articles inventoriés absents du stock théorique apparaissent
         via cette map (union côté StockGapService).
         """
+        # Écart par emplacement (MAGASIN 3 comptages) : quantité par article reprise des lignes
+        # du comptage « par article » dont le total égale le résultat final de l'emplacement
+        from apps.inventory.models import Inventory
+        from apps.inventory.utils.location_ecart_results import location_ecart_results
+
+        inventory = Inventory.objects.filter(id=inventory_id).first()
+        location_results = location_ecart_results(inventory, warehouse_id=warehouse_id) if inventory else {}
+        if location_results:
+            location_sums: Dict[int, int] = {}
+            for info in location_results.values():
+                # Résultat final vide (3e comptage à lancer) : emplacement non pris en compte
+                if info['ecart'].final_result is None:
+                    continue
+                for product_id, qty in info['product_quantities'].items():
+                    location_sums[product_id] = location_sums.get(product_id, 0) + qty
+            return location_sums
+
         product_sums: Dict[int, int] = {}
         covered_detail_ids: Set[int] = set()
 

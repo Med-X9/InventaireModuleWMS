@@ -35,6 +35,7 @@ class InventoryResultService:
         self,
         inventory_id: int,
         warehouse_id: int,
+        view: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Calcule les résultats d'un inventaire pour un entrepôt spécifique.
@@ -169,6 +170,9 @@ class InventoryResultService:
                 },
             )
 
+            if row.get("row_type"):
+                entry_data["row_type"] = row["row_type"]
+
             if row.get("product_id"):
                 entry_data["product"] = {
                     "reference": row["product_reference_alias"],
@@ -203,6 +207,20 @@ class InventoryResultService:
 
         formatted_results: List[Dict[str, Any]] = []
 
+        # Écart par emplacement (MAGASIN 3 comptages) : affichage par emplacement par défaut,
+        # « detail » = détail par article, « all » = les deux (usage interne / tests)
+        entry_view = (view or "emplacement").lower()
+        if entry_view not in ("emplacement", "detail", "all"):
+            raise InventoryValidationError(
+                "Paramètre view invalide : valeurs autorisées emplacement, detail."
+            )
+        if entry_view != "all":
+            wanted_row_type = "ARTICLE" if entry_view == "detail" else "EMPLACEMENT"
+            entries = {
+                key: value for key, value in entries.items()
+                if not value.get("row_type") or value.get("row_type") == wanted_row_type
+            }
+
         for entry in sorted(
             entries.values(),
             key=lambda item: (
@@ -220,7 +238,10 @@ class InventoryResultService:
                 "location_id": entry["location"]["id"],
             }
 
-            if mode == "par article" and entry["product"]:
+            if entry.get("row_type"):
+                result_row["row_type"] = entry["row_type"]
+
+            if (mode == "par article" or entry.get("row_type") == "ARTICLE") and entry["product"]:
                 # Code-barres : utiliser le barcode s'il existe, sinon l'internal_code
                 barcode = entry["product"].get("barcode")
                 internal_code = entry["product"].get("internal_code")

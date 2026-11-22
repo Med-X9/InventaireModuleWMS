@@ -46,7 +46,9 @@ class CountingDetailEcartFinalResultUseCase:
             Job.DoesNotExist: job introuvable.
         """
         job = Job.objects.select_related("inventory").get(id=job_id)
-        inventory_type = job.inventory.inventory_type
+        from apps.inventory.utils.counting_layout import effective_counting_type
+
+        inventory_type = effective_counting_type(job.inventory)
         return {
             "inventory_id": job.inventory_id,
             "inventory_type": inventory_type,

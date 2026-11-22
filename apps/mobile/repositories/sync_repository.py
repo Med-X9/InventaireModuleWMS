@@ -1,3 +1,4 @@
+from apps.inventory.utils.counting_layout import counting_count_type
 from django.utils import timezone
 from apps.inventory.models import Inventory, Job, Assigment, Counting, Setting, JobDetail
 from apps.mobile.exceptions.inventory_exceptions import (
@@ -381,6 +382,7 @@ class SyncRepository:
             'reference': counting.reference,
             'order': counting.order,
             'count_mode': counting.count_mode,
+            'count_type': counting_count_type(counting),
             'unit_scanned': counting.unit_scanned,
             'entry_quantity': counting.entry_quantity,
             'is_variant': counting.is_variant,

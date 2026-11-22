@@ -81,6 +81,28 @@ class ExcelExportRepository:
             Liste de dictionnaires avec les données consolidées
         """
 
+        # Écart par emplacement (MAGASIN 3 comptages) : quantité par article reprise des lignes
+        # du comptage « par article » dont le total égale le résultat final (écarts résolus)
+        from apps.inventory.models import Inventory
+        from apps.inventory.utils.location_ecart_results import location_ecart_results
+
+        inventory = Inventory.objects.filter(id=inventory_id).first()
+        location_results = (
+            location_ecart_results(inventory, warehouse_id=warehouse_id, only_resolved=True)
+            if inventory else {}
+        )
+        if inventory is not None and (
+            location_results or self._uses_location_ecart(inventory)
+        ):
+            excluded = Product.objects.filter(
+                Internal_Product_Code='111111111111111'
+            ).values_list('id', flat=True)
+            sums: Dict[int, int] = {}
+            for info in location_results.values():
+                for product_id, qty in info['product_quantities'].items():
+                    sums[product_id] = sums.get(product_id, 0) + qty
+            return self._build_consolidated_rows(sums, excluded)
+
         # Logique simplifiée : Σ(final_result) par produit depuis EcartComptage résolus
         # Plus de jointures complexes avec counting_sequences
 
@@ -126,6 +148,12 @@ class ExcelExportRepository:
                 product_sums[product_id] = 0
             product_sums[product_id] += ecart.final_result
 
+        return self._build_consolidated_rows(product_sums, excluded_product_ids)
+    
+
+    def _build_consolidated_rows(self, product_sums, excluded_product_ids) -> List[Dict[str, Any]]:
+        """Construit les lignes consolidées (détails produit) à partir des sommes par produit."""
+        consolidated_data = []
         # Convertir en format attendu
         for product_id, total_quantity in product_sums.items():
             consolidated_data.append({
@@ -168,5 +196,8 @@ class ExcelExportRepository:
                 result.append(product_data)
 
         return result
-    
 
+    @staticmethod
+    def _uses_location_ecart(inventory) -> bool:
+        from apps.inventory.utils.counting_layout import uses_location_ecart
+        return uses_location_ecart(inventory)

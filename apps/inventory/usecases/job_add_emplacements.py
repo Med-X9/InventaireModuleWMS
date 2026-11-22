@@ -7,6 +7,7 @@ from django.utils import timezone
 from ..models import Job, JobDetail, Assigment, Counting, Location
 from ..exceptions import JobCreationError
 import logging
+from apps.inventory.utils.counting_layout import is_single_counting_inventory
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,7 @@ class JobAddEmplacementsUseCase:
                 )
                 counting1 = countings.filter(order=1).first()
                 counting2 = countings.filter(order=2).first()
-                is_single = job.inventory.inventory_type in InventoryType.SINGLE_COUNTING
+                is_single = is_single_counting_inventory(job.inventory)
 
                 if is_single:
                     if not counting1:

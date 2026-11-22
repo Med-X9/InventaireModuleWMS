@@ -33,6 +33,7 @@ from ..serializers.inventory_serializer import (
     InventoryWarehousesSerializer,
     InventoryCountingsSerializer,
     MagasinCountingConfigSerializer,
+    MagasinCountingsConfigSerializer,
     GeneralCountingConfigSerializer,
     InventoryTeamDetailSerializer,
     InventoryResourcesDetailSerializer,
@@ -849,6 +850,19 @@ class InventoryCountingsView(APIView):
                 result = self.management_service.configure_general_countings(
                     pk, serializer.validated_data['comptages']
                 )
+            elif (
+                inventory.inventory_type == InventoryType.MAGASIN
+                and 'comptages' in request.data
+            ):
+                serializer = MagasinCountingsConfigSerializer(data=request.data)
+                if not serializer.is_valid():
+                    return validation_error_response(
+                        serializer.errors,
+                        message="Erreur de validation des comptages MAGASIN",
+                    )
+                result = self.management_service.configure_magasin_counting(
+                    pk, {'comptages': serializer.validated_data['comptages']}
+                )
             elif inventory.inventory_type in InventoryType.SINGLE_COUNTING:
                 serializer = MagasinCountingConfigSerializer(data=request.data)
                 if not serializer.is_valid():
@@ -1113,7 +1127,11 @@ class InventoryResultByWarehouseView(ServerSideDataTableView):
             raise InventoryValidationError("inventory_id et warehouse_id sont requis")
         
         # Récupérer les données depuis le service
-        data_list = self.service.get_inventory_results_for_warehouse(inventory_id, warehouse_id)
+        # view=detail : détail par article (MAGASIN à 3 comptages) ; défaut : par emplacement
+        view = self.request.query_params.get('view')
+        data_list = self.service.get_inventory_results_for_warehouse(
+            inventory_id, warehouse_id, view=view
+        )
         
         return DataSourceFactory.create(data_list)
     

@@ -51,15 +51,20 @@ class JobSerializer(serializers.ModelSerializer):
 class CountingSerializer(serializers.ModelSerializer):
     """Serializer pour un comptage avec ses jobs et emplacements"""
     jobs = serializers.SerializerMethodField()
+    count_type = serializers.SerializerMethodField()
     
     class Meta:
         model = Counting
         fields = [
-            'id', 'reference', 'order', 'count_mode', 'unit_scanned', 'entry_quantity',
+            'id', 'reference', 'order', 'count_mode', 'count_type', 'unit_scanned', 'entry_quantity',
             'is_variant', 'n_lot', 'n_serie', 'dlc', 'show_product', 'stock_situation',
             'quantity_show', 'jobs'
         ]
     
+    def get_count_type(self, obj):
+        from ..utils.counting_layout import counting_count_type
+        return counting_count_type(obj)
+
     def get_jobs(self, obj):
         """
         Récupère les jobs associés à ce comptage via Assignment

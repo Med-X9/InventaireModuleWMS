@@ -131,6 +131,7 @@ class PDFRepository(PDFRepositoryInterface):
         job_ids: Optional[List[int]] = None,
         assignment_statuses: Optional[List[str]] = None,
         job_statuses: Optional[List[str]] = None,
+        counting_order: Optional[int] = None,
     ) -> List[Assigment]:
         """
         Récupère tous les assignments d'un inventaire avec counting.order et session
@@ -166,6 +167,10 @@ class PDFRepository(PDFRepositoryInterface):
             # Si job_ids est fourni, filtrer uniquement ces jobs
             if job_ids:
                 queryset = queryset.filter(job_id__in=job_ids)
+
+            # Transfert du Ne comptage : uniquement les assignments de cet ordre
+            if counting_order:
+                queryset = queryset.filter(counting__order=counting_order)
             
             assignments = list(
                 queryset.select_related(

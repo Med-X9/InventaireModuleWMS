@@ -18,6 +18,7 @@ from ..models import (
 from ..repositories.ecart_comptage_repository import EcartComptageRepository
 from ..exceptions import InventoryValidationError
 from ..utils.ecart_consensus import calculate_ecart_consensus_result
+from ..utils.counting_layout import is_single_counting_inventory, uses_location_ecart
 
 
 class EcartComptageService:
@@ -35,7 +36,7 @@ class EcartComptageService:
         - GENERAL : 2 séquences (double comptage)
         - MAGASIN / TOURNANT : 1 séquence (mono-comptage)
         """
-        if inventory and inventory.inventory_type in InventoryType.SINGLE_COUNTING:
+        if inventory and is_single_counting_inventory(inventory):
             return 1
         return 2
 
@@ -382,6 +383,10 @@ class EcartComptageService:
         # Vérifier que l'inventaire et l'entrepôt existent
         inventory = self.repository.get_inventory_by_id(inventory_id)
         warehouse = Warehouse.objects.get(id=warehouse_id)
+
+        # Écart par emplacement (MAGASIN 3 comptages) : recalcul à partir des séquences de chaque écart
+        if uses_location_ecart(inventory):
+            return self._recalculate_location_ecarts(inventory, warehouse)
         
         # Récupérer tous les jobs de cet inventaire/entrepôt
         jobs = Job.objects.filter(
@@ -515,6 +520,57 @@ class EcartComptageService:
             'stats': stats
         }
 
+    def _recalculate_location_ecarts(self, inventory: Inventory, warehouse: Warehouse) -> Dict[str, Any]:
+        """
+        Recalcule écarts entre séquences et résultat final pour un inventaire à écart
+        par emplacement : chaque EcartComptage porte une séquence par comptage (quantité
+        totale de l'emplacement), sans notion de produit.
+        """
+        stats = {
+            'total_counting_details': 0,
+            'total_sequences': 0,
+            'ecarts_processed': 0,
+            'ecarts_updated': 0,
+            'final_results_calculated': 0,
+            'errors': []
+        }
+        ecarts = EcartComptage.objects.filter(
+            inventory=inventory,
+            counting_sequences__counting_detail__job__warehouse=warehouse,
+        ).distinct()
+
+        for ecart in ecarts:
+            try:
+                sequences = list(ecart.counting_sequences.order_by('sequence_number'))
+                stats['total_sequences'] += len(sequences)
+                if not sequences:
+                    continue
+
+                to_update = []
+                for i, seq in enumerate(sequences):
+                    new_ecart = abs(seq.quantity - sequences[i - 1].quantity) if i > 0 else None
+                    if seq.ecart_with_previous != new_ecart:
+                        seq.ecart_with_previous = new_ecart
+                        to_update.append(seq)
+                if to_update:
+                    ComptageSequence.objects.bulk_update(to_update, ['ecart_with_previous'])
+
+                old_final = ecart.final_result
+                final_result = calculate_ecart_consensus_result(
+                    [s.quantity for s in sequences], ecart.final_result
+                )
+                stats['ecarts_processed'] += 1
+                if final_result != old_final:
+                    ecart.final_result = final_result
+                    ecart.save()
+                    stats['ecarts_updated'] += 1
+                if final_result is not None:
+                    stats['final_results_calculated'] += 1
+            except Exception as e:
+                stats['errors'].append(f"Erreur pour écart {ecart.id}: {str(e)}")
+
+        return {'success': True, 'message': 'Recalcul terminé avec succès', 'stats': stats}
+
     @transaction.atomic
     def create_missing_counting_sequences_by_inventory(self, inventory_id: int) -> Dict[str, Any]:
         """
@@ -528,6 +584,15 @@ class EcartComptageService:
         """
         # Valider que l'inventaire existe
         inventory = self.repository.get_inventory_by_id(inventory_id)
+
+        # Écart par emplacement : séquences créées à l'enregistrement des saisies (somme par
+        # comptage et emplacement) ; reconstruction par produit non applicable.
+        if uses_location_ecart(inventory):
+            return {
+                'success': False,
+                'message': "Écart par emplacement : les séquences sont créées à l'enregistrement des saisies",
+                'stats': {}
+            }
         
         # Récupérer tous les jobs liés à cet inventaire
         jobs = Job.objects.filter(inventory=inventory)

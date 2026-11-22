@@ -34,6 +34,9 @@ class InventoryCreateSerializer(serializers.Serializer):
         child=serializers.DictField(),
         required=True
     )
+    max_entame_assignments = serializers.IntegerField(
+        required=False, allow_null=True, min_value=1, max_value=100
+    )
     # Ignoré / refusé à la création (configuration séparée)
     comptages = serializers.ListField(
         child=serializers.DictField(),
@@ -138,6 +141,7 @@ class InventoryDetailSerializer(serializers.ModelSerializer):
         model = Inventory
         fields = [
             'id','reference', 'label', 'date', 'status', 'inventory_type',
+            'max_entame_assignments',
             'en_preparation_status_date',
             'en_realisation_status_date', 'termine_status_date',
             'cloture_status_date', 'account_name', 'account_reference', 
@@ -238,6 +242,9 @@ class InventoryUpdateSerializer(serializers.Serializer):
     inventory_type = serializers.ChoiceField(
         choices=[(t, t) for t in InventoryType.ALL],
         required=False
+    )
+    max_entame_assignments = serializers.IntegerField(
+        required=False, allow_null=True, min_value=1, max_value=100
     )
     warehouse = serializers.ListField(
         child=serializers.DictField(),
@@ -575,6 +582,10 @@ class MagasinCountingConfigSerializer(serializers.Serializer):
         ]
     )
     order = serializers.IntegerField(required=False, default=1, min_value=1)
+    # MAGASIN en vrac (3 comptages) : méthode des comptages 1 et 3 ; le 2e est toujours « qté par emplacement »
+    en_vrac_method = serializers.ChoiceField(
+        choices=['scan_unite', 'qte_article'], required=False
+    )
     n_lot = serializers.BooleanField(required=False, default=False)
     n_serie = serializers.BooleanField(required=False, default=False)
     dlc = serializers.BooleanField(required=False, default=False)
@@ -599,6 +610,11 @@ class MagasinCountingConfigSerializer(serializers.Serializer):
             if not data.get('unit_scanned') and not data.get('entry_quantity'):
                 data['entry_quantity'] = True
 
+        if data.get('en_vrac_method') and data['count_mode'] != CountMode.IN_BULK:
+            raise serializers.ValidationError(
+                "La méthode en vrac n'est applicable qu'au mode 'en vrac'."
+            )
+
         # Pour par article : forcer les contraintes habituelles
         if data['count_mode'] == CountMode.BY_ARTICLE:
             data['unit_scanned'] = False
@@ -613,6 +629,40 @@ class MagasinCountingConfigSerializer(serializers.Serializer):
         data['stock_situation'] = data.get('stock_situation', False)
         data['is_variant'] = data.get('is_variant', False)
         return data
+
+
+class MagasinCountingsConfigSerializer(serializers.Serializer):
+    """
+    Configuration d'un inventaire MAGASIN avec 1 ou 3 comptages (wizard front).
+
+    Chaque comptage suit les règles de MagasinCountingConfigSerializer
+    (modes en vrac / par article). Les ordres sont forcés à 1..n.
+    """
+    comptages = serializers.ListField(
+        child=serializers.DictField(),
+        allow_empty=False,
+    )
+
+    def validate_comptages(self, comptages):
+        if len(comptages) not in (1, 3):
+            raise serializers.ValidationError(
+                "Un inventaire MAGASIN se configure avec 1 ou 3 comptages."
+            )
+
+        normalized = []
+        for index, raw in enumerate(comptages, start=1):
+            item = MagasinCountingConfigSerializer(data=raw)
+            if not item.is_valid():
+                raise serializers.ValidationError(
+                    {f"comptage_{index}": item.errors}
+                )
+            data = dict(item.validated_data)
+            data.pop('en_vrac_method', None)
+            data['order'] = index
+            if data['count_mode'] == CountMode.IN_BULK:
+                data['stock_situation'] = False
+            normalized.append(data)
+        return normalized
 
 
 class GeneralCountingConfigSerializer(serializers.Serializer):

@@ -95,6 +95,7 @@ class PDFService(PDFServiceInterface):
         job_ids: Optional[List[int]] = None,
         assignment_statuses: Optional[List[str]] = None,
         job_statuses: Optional[List[str]] = None,
+        counting_order: Optional[int] = None,
     ) -> BytesIO:
         """
         Genere un PDF des jobs d'un inventaire
@@ -152,6 +153,7 @@ class PDFService(PDFServiceInterface):
                 job_ids=job_ids,
                 assignment_statuses=assignment_statuses,
                 job_statuses=job_statuses,
+                counting_order=counting_order,
             )
         except PDFRepositoryError:
             raise

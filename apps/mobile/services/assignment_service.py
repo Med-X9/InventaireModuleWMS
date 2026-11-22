@@ -1,10 +1,12 @@
 from typing import Optional, List, Set, Tuple, Dict, Any
+from django.conf import settings
 from django.utils import timezone
 from django.db import transaction
 from apps.inventory.models import Assigment, Job, JobDetail, Personne, EcartComptage, CountingDetail, Counting, ComptageSequence, Inventory
 from apps.inventory.utils.ecart_consensus import calculate_ecart_consensus_result
 from apps.users.models import UserApp
 import logging
+from apps.inventory.utils.counting_layout import uses_location_ecart
 from apps.mobile.exceptions import (
     AssignmentNotFoundException,
     UserNotAssignedException,
@@ -20,7 +22,15 @@ from apps.mobile.exceptions import (
 
 logger = logging.getLogger(__name__)
 
-MAX_ENTAME_ASSIGNMENTS_PER_INVENTORY = 5
+
+
+def get_max_entame_assignments(inventory=None) -> int:
+    """Limite paramétrable par inventaire (Inventory.max_entame_assignments),
+    sinon valeur par défaut (settings / .env: MOBILE_MAX_ENTAME_ASSIGNMENTS_PER_INVENTORY)."""
+    value = getattr(inventory, 'max_entame_assignments', None)
+    if value is not None:
+        return value
+    return settings.MOBILE_MAX_ENTAME_ASSIGNMENTS_PER_INVENTORY
 
 
 class AssignmentService:
@@ -154,10 +164,11 @@ class AssignmentService:
                 status='ENTAME'
             ).exclude(id=assignment_id).count()
             
-            if entame_count >= MAX_ENTAME_ASSIGNMENTS_PER_INVENTORY:
+            max_entame = get_max_entame_assignments(inventory)
+            if entame_count >= max_entame:
                 raise MaxEntameAssignmentsException(
                     f"Vous ne pouvez pas lancer (entamer) cet assignment car vous avez déjà {entame_count} assignments "
-                    f"en statut ENTAME pour le même inventaire. Maximum autorisé: {MAX_ENTAME_ASSIGNMENTS_PER_INVENTORY}."
+                    f"en statut ENTAME pour le même inventaire. Maximum autorisé: {max_entame}."
                 )
         
         # Mettre à jour le statut de l'assignment et la date correspondante
@@ -537,6 +548,14 @@ class AssignmentService:
         Returns:
             Dictionnaire avec les informations de synchronisation
         """
+        # Écart par emplacement (MAGASIN 3 comptages) : les comptages n'ont pas les mêmes
+        # lignes (par article / par emplacement) -> aucune ligne à zéro à créer
+        if uses_location_ecart(job.inventory):
+            return {
+                'synchronized': False,
+                'reason': "Écart par emplacement : synchronisation par produit non applicable"
+            }
+
         counting_order = assignment.counting.order
         
         # Ne synchroniser que si counting_order est 1 ou 2
@@ -975,10 +994,11 @@ class AssignmentService:
             status='ENTAME'
         ).exclude(id=assignment_id).count()
         
-        if entame_count >= MAX_ENTAME_ASSIGNMENTS_PER_INVENTORY:
+        max_entame = get_max_entame_assignments(inventory)
+        if entame_count >= max_entame:
             raise MaxEntameAssignmentsException(
                 f"Vous ne pouvez pas débloquer cet assignment car vous avez déjà {entame_count} assignments en statut ENTAME "
-                f"pour le même inventaire (maximum: {MAX_ENTAME_ASSIGNMENTS_PER_INVENTORY}). "
+                f"pour le même inventaire (maximum: {max_entame}). "
                 f"Pour débloquer, vous devez terminer ou bloquer un assignment."
             )
         

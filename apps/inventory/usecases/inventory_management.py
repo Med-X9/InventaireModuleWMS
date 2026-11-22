@@ -109,20 +109,59 @@ class InventoryManagementUseCase:
             existing = list(
                 Counting.objects.filter(inventory=inventory).order_by('order')
             )
-            if len(existing) > 1:
+            if any(c.order > 3 for c in existing):
                 raise InventoryValidationError(
-                    f"Cet inventaire {inventory.inventory_type} a déjà plusieurs comptages — état incohérent."
+                    f"Cet inventaire {inventory.inventory_type} a déjà un comptage supplémentaire lancé "
+                    "— reconfiguration impossible."
                 )
 
-            # Remplacer le comptage unique s'il existe déjà (reconfiguration)
+            multi_payloads = counting_data.get('comptages')
+            payload = dict(counting_data)
+            en_vrac_method = payload.pop('en_vrac_method', None)
+            # MAGASIN en vrac → 3 comptages (1er et 3e : même méthode ; 2e : qté par emplacement)
+            is_magasin_in_bulk = (
+                inventory.inventory_type == InventoryType.MAGASIN
+                and payload.get('count_mode') == 'en vrac'
+            )
+
+            # Remplacer les comptages existants (reconfiguration)
             if existing:
                 Counting.objects.filter(inventory=inventory).delete()
 
-            payload = dict(counting_data)
             payload['inventory_id'] = inventory.id
             payload.setdefault('order', 1)
 
-            countings = self._create_countings_for_inventory(inventory, [payload])
+            payloads = [payload]
+            if multi_payloads:
+                # Wizard MAGASIN : 1 ou 3 comptages configurés individuellement
+                payloads = [dict(p, inventory_id=inventory.id) for p in multi_payloads]
+            elif is_magasin_in_bulk:
+                method = en_vrac_method or (
+                    'scan_unite' if payload.get('unit_scanned') else 'qte_article'
+                )
+
+                def in_bulk_counting(order: int, kind: str) -> Dict[str, Any]:
+                    # show_product / quantity_show : faux par défaut en vrac (sauf valeur fournie)
+                    data = dict(
+                        payload,
+                        order=order,
+                        stock_situation=False,
+                        show_product=bool(payload.get('show_product', False)),
+                        quantity_show=bool(payload.get('quantity_show', False)),
+                    )
+                    if kind == 'scan_unite':
+                        data.update(unit_scanned=True, entry_quantity=False)
+                    else:  # qte_article / qte_emplacement : saisie quantité
+                        data.update(unit_scanned=False, entry_quantity=True)
+                    return data
+
+                payloads = [
+                    in_bulk_counting(1, method),
+                    in_bulk_counting(2, 'qte_emplacement'),
+                    in_bulk_counting(3, method),
+                ]
+
+            countings = self._create_countings_for_inventory(inventory, payloads)
             counting = countings[0]
             self._transition_to_preparation(inventory)
 
@@ -132,6 +171,13 @@ class InventoryManagementUseCase:
                 "inventory_id": inventory.id,
                 "inventory_type": inventory.inventory_type,
                 "status": inventory.status,
+                "comptages_count": len(countings),
+                "countings": [
+                    {"id": c.id, "order": c.order, "count_mode": c.count_mode,
+                     "unit_scanned": c.unit_scanned, "entry_quantity": c.entry_quantity,
+                     "show_product": c.show_product}
+                    for c in countings
+                ],
                 "counting": {
                     "id": counting.id,
                     "reference": counting.reference,
@@ -339,6 +385,7 @@ class InventoryManagementUseCase:
             date=data['date'],
             status=InventoryStatus.EN_CONFIGURATION,
             inventory_type=data.get('inventory_type', 'GENERAL'),
+            max_entame_assignments=data.get('max_entame_assignments'),
             en_configuration_status_date=timezone.now(),
         )
         
@@ -391,7 +438,9 @@ class InventoryManagementUseCase:
             inventory.date = data['date']
         if 'inventory_type' in data:
             inventory.inventory_type = data['inventory_type']
-        
+        if 'max_entame_assignments' in data:
+            inventory.max_entame_assignments = data['max_entame_assignments']
+
         inventory.save()
         
         # Mise à jour des settings si fournis

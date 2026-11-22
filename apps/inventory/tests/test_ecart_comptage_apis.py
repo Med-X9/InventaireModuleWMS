@@ -438,6 +438,8 @@ class EcartComptageAPITestCase(TestCase):
         """
         self.inventory.inventory_type = "MAGASIN"
         self.inventory.save(update_fields=["inventory_type"])
+        # MAGASIN mono-comptage : pas de comptage d'ordre 2 (sinon écart multi-comptages)
+        Counting.objects.filter(inventory=self.inventory, order__gt=1).delete()
 
         ecart = EcartComptage.objects.create(
             reference="ECT-MAG-1",

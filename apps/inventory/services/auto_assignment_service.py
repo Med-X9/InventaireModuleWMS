@@ -7,6 +7,7 @@ from django.db import transaction
 from django.utils import timezone
 from ..repositories.auto_assignment_repository import AutoAssignmentRepository
 from ..models import Assigment
+from apps.inventory.utils.counting_layout import effective_counting_type, is_single_counting_inventory
 from ..usecases.location_job_import_session_dispatcher import (
     LocationJobImportSessionDispatcher,
 )
@@ -75,7 +76,7 @@ class AutoAssignmentService:
             }
 
         session_strategy = self.session_dispatcher.get_strategy(
-            getattr(inventory, "inventory_type", "") or ""
+            effective_counting_type(inventory) or ""
         )
         session_2_required = session_strategy.session_2_required()
         logger.info(

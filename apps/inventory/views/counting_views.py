@@ -7,6 +7,7 @@ from django.http import HttpResponse
 
 from ..serializers.counting_serializer import LaunchCountingRequestSerializer
 from ..services.counting_launch_service import CountingLaunchService
+from ..usecases.counting_launch_dispatcher import CountingLaunchDispatcher
 from ..services.job_export_service import JobExportService
 from ..exceptions.counting_exceptions import (
     CountingValidationError,
@@ -30,6 +31,7 @@ class CountingLaunchView(APIView):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.service = CountingLaunchService()
+        self.launch_dispatcher = CountingLaunchDispatcher()
         self.job_repository = JobRepository()
         self.export_service = JobExportService()
 
@@ -65,7 +67,8 @@ class CountingLaunchView(APIView):
         Gère le format ancien : un seul job et un seul emplacement.
         """
         try:
-            result = self.service.launch_counting(job_id, location_id, session_id)
+            service = self.launch_dispatcher.get_service_for_job(job_id, default=self.service)
+            result = service.launch_counting(job_id, location_id, session_id)
             status_code = status.HTTP_201_CREATED if (
                 result['counting']['new_counting_created'] or result['assignment']['created']
             ) else status.HTTP_200_OK
@@ -101,7 +104,8 @@ class CountingLaunchView(APIView):
         """
         try:
             # Traiter tous les jobs et leurs emplacements avec écart
-            result = self.service.launch_counting_for_jobs(job_ids, session_id)
+            service = self.launch_dispatcher.get_service_for_job(job_ids[0], default=self.service)
+            result = service.launch_counting_for_jobs(job_ids, session_id)
             
             # Vérifier si aucun emplacement avec écart n'a été trouvé
             if result['total_locations_found'] == 0:

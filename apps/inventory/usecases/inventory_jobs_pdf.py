@@ -31,6 +31,7 @@ class InventoryJobsPdfUseCase(PDFUseCaseInterface):
         job_ids: Optional[List[int]] = None,
         assignment_statuses: Optional[List[str]] = None,
         job_statuses: Optional[List[str]] = None,
+        counting_order: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Execute la generation du PDF des jobs d'inventaire
@@ -59,6 +60,7 @@ class InventoryJobsPdfUseCase(PDFUseCaseInterface):
                 job_ids=job_ids,
                 assignment_statuses=assignment_statuses,
                 job_statuses=job_statuses,
+                counting_order=counting_order,
             )
             
             # Retourner le resultat
@@ -70,6 +72,7 @@ class InventoryJobsPdfUseCase(PDFUseCaseInterface):
                 'job_ids': job_ids,
                 'assignment_statuses': assignment_statuses,
                 'job_statuses': job_statuses,
+                'counting_order': counting_order,
             }
             
         except (PDFValidationError, PDFNotFoundError, PDFEmptyContentError) as e:

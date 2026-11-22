@@ -16,6 +16,7 @@ from apps.inventory.usecases.ecart_final_result_dispatcher import (
 from apps.mobile.usecases.counting_detail_ecart_final_result import (
     CountingDetailEcartFinalResultUseCase,
 )
+from apps.inventory.utils.counting_layout import effective_counting_type, counting_count_type
 import logging
 
 logger = logging.getLogger(__name__)
@@ -536,12 +537,22 @@ class CountingDetailService:
         if not counting_details:
             return {}
         
+        # Inventaires où l'écart est calculé par emplacement (MAGASIN en vrac multi-comptages)
+        aggregate_inventory_ids = {
+            cd.counting.inventory_id
+            for cd in counting_details
+            if cd.location and cd.counting.inventory and self._is_location_ecart_inventory(cd.counting.inventory)
+        }
+
         # Extraire toutes les combinaisons uniques
         combinations = set()
         for cd in counting_details:
-            if cd.product and cd.location and cd.counting.inventory:
+            # Sans produit : uniquement pour l'écart par emplacement (MAGASIN 3 comptages)
+            if cd.location and cd.counting.inventory and (
+                cd.product or cd.counting.inventory_id in aggregate_inventory_ids
+            ):
                 combinations.add((
-                    cd.product_id,
+                    None if cd.counting.inventory_id in aggregate_inventory_ids else cd.product_id,
                     cd.location_id,
                     cd.counting.inventory_id
                 ))
@@ -549,15 +560,32 @@ class CountingDetailService:
         if not combinations:
             return {}
         
-        product_ids = [c[0] for c in combinations]
-        location_ids = [c[1] for c in combinations]
-        inventory_ids = [c[2] for c in combinations]
+        regular = [c for c in combinations if c[2] not in aggregate_inventory_ids]
+        aggregate = [c for c in combinations if c[2] in aggregate_inventory_ids]
+        
+        # Sans produit (mode en vrac) : écart au niveau de l'emplacement (product NULL)
+        from django.db.models import Q
+        combined_filter = Q(pk__in=[])
+        if regular:
+            product_ids = [c[0] for c in regular if c[0] is not None]
+            product_filter = Q(counting_detail__product_id__in=product_ids)
+            if any(c[0] is None for c in regular):
+                product_filter |= Q(counting_detail__product__isnull=True)
+            combined_filter |= (
+                product_filter
+                & Q(counting_detail__location_id__in=[c[1] for c in regular])
+                & Q(counting_detail__counting__inventory_id__in=[c[2] for c in regular])
+            )
+        if aggregate:
+            # Écart par emplacement : tous les produits confondus
+            combined_filter |= (
+                Q(counting_detail__location_id__in=[c[1] for c in aggregate])
+                & Q(counting_detail__counting__inventory_id__in=[c[2] for c in aggregate])
+            )
         
         # Récupérer les séquences correspondantes en une seule requête optimisée
         sequences_query = ComptageSequence.objects.filter(
-            counting_detail__product_id__in=product_ids,
-            counting_detail__location_id__in=location_ids,
-            counting_detail__counting__inventory_id__in=inventory_ids
+            combined_filter
         ).select_related(
             'ecart_comptage', 
             'counting_detail__product', 
@@ -577,7 +605,8 @@ class CountingDetailService:
         
         for seq in sequences_query:
             key = (
-                seq.counting_detail.product_id, 
+                None if seq.counting_detail.counting.inventory_id in aggregate_inventory_ids
+                else seq.counting_detail.product_id,
                 seq.counting_detail.location_id, 
                 seq.counting_detail.counting.inventory_id
             )
@@ -624,6 +653,12 @@ class CountingDetailService:
         
         return cache
     
+    def _is_location_ecart_inventory(self, inventory) -> bool:
+        """MAGASIN multi-comptages en vrac : l'écart est calculé par emplacement (tous articles)."""
+        from apps.inventory.constants import InventoryType
+        from apps.inventory.utils.counting_layout import has_multi_counting
+        return inventory.inventory_type == InventoryType.MAGASIN and has_multi_counting(inventory)
+
     def traiter_comptage_automatique_optimized(
         self, 
         counting_detail: CountingDetail,
@@ -649,10 +684,12 @@ class CountingDetailService:
         location = counting_detail.location
         inventory = counting_detail.counting.inventory
         
-        if not product or not location:
+        # Sans produit : uniquement pour l'écart par emplacement (MAGASIN 3 comptages)
+        location_ecart = self._is_location_ecart_inventory(inventory)
+        if not location or (not product and not location_ecart):
             raise ValidationError("Product et Location sont obligatoires pour créer un EcartComptage")
         
-        key = (product.id, location.id, inventory.id)
+        key = (None if (location_ecart or not product) else product.id, location.id, inventory.id)
         cache_entry = ecart_cache.get(key)
         entry_has_ecart = cache_entry and cache_entry.get('ecart')
         
@@ -701,6 +738,24 @@ class CountingDetailService:
         # Vérifier si une séquence existe déjà pour ce CountingDetail (cas de mise à jour)
         existing_sequence = cache_entry['counting_detail_sequences'].get(counting_detail.id)
         
+        # Quantité de la séquence : pour l'écart par emplacement, total de tous les
+        # CountingDetail (articles) du même comptage + emplacement + job
+        seq_quantity = counting_detail.quantity_inventoried
+        if location_ecart:
+            from django.db.models import Sum
+            seq_quantity = CountingDetail.objects.filter(
+                counting_id=counting_detail.counting_id,
+                location_id=counting_detail.location_id,
+                job_id=counting_detail.job_id,
+            ).aggregate(total=Sum('quantity_inventoried'))['total'] or 0
+            if not existing_sequence:
+                # Une seule séquence par comptage et par emplacement
+                for seq in cache_entry['sequences']:
+                    if seq.counting_detail.counting_id == counting_detail.counting_id:
+                        existing_sequence = seq
+                        cache_entry['counting_detail_sequences'][counting_detail.id] = seq
+                        break
+        
         if existing_sequence:
             # MISE À JOUR : La séquence existe déjà pour ce CountingDetail
             # On met à jour la séquence existante au lieu d'en créer une nouvelle
@@ -710,7 +765,7 @@ class CountingDetailService:
             old_quantity = existing_sequence.quantity
             
             # Mettre à jour la quantité
-            existing_sequence.quantity = counting_detail.quantity_inventoried
+            existing_sequence.quantity = seq_quantity
             
             # Recalculer l'écart avec la séquence précédente (pas celle du même CountingDetail)
             # Trouver la séquence précédente dans la liste (excluant celle qu'on met à jour)
@@ -727,7 +782,7 @@ class CountingDetailService:
                         break
                 
                 if previous_sequence:
-                    ecart_value = abs(counting_detail.quantity_inventoried - previous_sequence.quantity)
+                    ecart_value = abs(seq_quantity - previous_sequence.quantity)
                     existing_sequence.ecart_with_previous = ecart_value
                 else:
                     # Aucune séquence précédente trouvée (c'est la première)
@@ -758,14 +813,14 @@ class CountingDetailService:
             # Calculer l'écart avec le précédent
             ecart_value = None
             if last_sequence:
-                ecart_value = abs(counting_detail.quantity_inventoried - last_sequence.quantity)
+                ecart_value = abs(seq_quantity - last_sequence.quantity)
             
             # Créer la nouvelle séquence (sera sauvegardée après)
             nouvelle_sequence = ComptageSequence(
                 ecart_comptage=ecart,
                 sequence_number=nouveau_numero,
                 counting_detail=counting_detail,
-                quantity=counting_detail.quantity_inventoried,
+                quantity=seq_quantity,
                 ecart_with_previous=ecart_value
             )
             
@@ -789,7 +844,7 @@ class CountingDetailService:
         )
         quantities = [seq.quantity for seq in sequences_sorted]
         if inventory_type is None:
-            inventory_type = getattr(inventory, "inventory_type", None) or ""
+            inventory_type = effective_counting_type(inventory) or ""
         final_result = self._apply_ecart_final_result_strategy(
             inventory_type,
             ecart,
@@ -945,6 +1000,18 @@ class CountingDetailService:
                         result['error'] = "Le produit est obligatoire pour le mode 'par article'"
                         results.append(result)
                         continue
+
+                # En vrac « qté par article » (MAGASIN 3 comptages) : produit obligatoire
+                # (QTE_EMPLACEMENT : sans produit)
+                if (
+                    not product_id
+                    and counting.count_mode == "en vrac"
+                    and counting_count_type(counting) == 'QTE_ARTICLE'
+                ):
+                    result['valid'] = False
+                    result['error'] = "Le produit est obligatoire pour une saisie quantité par article"
+                    results.append(result)
+                    continue
                 
                 # Validation Assignment
                 if not assignment_id:
@@ -1625,7 +1692,7 @@ class CountingDetailService:
         if not quantities or quantities[-1] != counting_detail.quantity_inventoried:
             quantities.append(counting_detail.quantity_inventoried)
         inventory = counting_detail.counting.inventory
-        inventory_type = getattr(inventory, "inventory_type", None) or ""
+        inventory_type = effective_counting_type(inventory) or ""
         final_result = self._apply_ecart_final_result_strategy(
             inventory_type,
             ecart,

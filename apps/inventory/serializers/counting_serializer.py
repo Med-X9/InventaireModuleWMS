@@ -9,9 +9,15 @@ class CountingCreateSerializer(serializers.ModelSerializer):
 
 class CountingDetailSerializer(serializers.ModelSerializer):
     """Serializer pour les détails des comptages."""
+    count_type = serializers.SerializerMethodField()
+
     class Meta:
         model = Counting
-        fields = ['order', 'count_mode', 'unit_scanned', 'entry_quantity', 'stock_situation', 'is_variant', 'n_lot', 'n_serie', 'dlc', 'show_product', 'quantity_show']
+        fields = ['order', 'count_mode', 'count_type', 'unit_scanned', 'entry_quantity', 'stock_situation', 'is_variant', 'n_lot', 'n_serie', 'dlc', 'show_product', 'quantity_show']
+
+    def get_count_type(self, obj):
+        from ..utils.counting_layout import counting_count_type
+        return counting_count_type(obj)
 
 class CountingSerializer(serializers.ModelSerializer):
     class Meta:

@@ -10,6 +10,7 @@ from apps.inventory.constants import InventoryType, CountMode
 from ..models import Job, JobDetail, Assigment, Counting, Inventory, Warehouse, Location
 from ..exceptions import JobCreationError
 import logging
+from apps.inventory.utils.counting_layout import is_single_counting_inventory
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +43,7 @@ class JobCreationUseCase:
                 counting1 = countings.filter(order=1).first()
                 counting2 = countings.filter(order=2).first()
 
-                is_single_counting = (
-                    inventory.inventory_type in InventoryType.SINGLE_COUNTING
-                )
+                is_single_counting = is_single_counting_inventory(inventory)
 
                 if is_single_counting:
                     if not counting1:
