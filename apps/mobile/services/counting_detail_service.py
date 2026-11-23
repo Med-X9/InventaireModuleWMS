@@ -593,7 +593,7 @@ class CountingDetailService:
             'counting_detail__counting__inventory'
         ).order_by(
             'counting_detail__product_id',
-            'counting_detail__location_id', 
+            'counting_detail__location_id',
             'counting_detail__counting__inventory_id',
             'sequence_number'
         )
@@ -629,6 +629,16 @@ class CountingDetailService:
                 # Mapper le counting_detail à sa séquence
                 cache[key].setdefault('counting_detail_sequences', {})[seq.counting_detail_id] = seq
         
+        # Écart par emplacement (MAGASIN multi-comptages) uniquement : les séquences de plusieurs
+        # produits partagent la même clé et arrivent triées par produit. Les remettre dans l'ordre
+        # des numéros pour que « la dernière séquence » soit bien la plus grande (sinon doublon de numéro).
+        # Les autres types d'inventaire (GENERAL, par article) ne sont pas touchés.
+        for key, item in cache.items():
+            if key[0] is None and key[2] in aggregate_inventory_ids and item['sequences']:
+                item['sequences'].sort(key=lambda s: s.sequence_number)
+                item['last_sequence'] = item['sequences'][-1]
+                item['last_sequence_number'] = item['last_sequence'].sequence_number
+
         # Charger les écarts résolus pour vérification en une seule requête
         ecart_ids = list({item['ecart'].id for item in cache.values() if item.get('ecart')})
         if ecart_ids:
