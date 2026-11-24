@@ -237,23 +237,47 @@ class ExcelExportAPITestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('mode de comptage', response.data['message'])
 
-    def test_export_excel_not_all_ecarts_resolved(self):
+    def test_export_excel_ecart_non_resolu_sans_condition(self):
         """
-        Test de l'export Excel quand TOUS les écarts ne sont pas résolus
-        (nouvelle logique : tous les écarts de l'inventaire doivent être resolved=True)
+        Aucune condition « résolu » : un écart non résolu est exporté.
+        Sans résultat final, la quantité du dernier comptage (10) est utilisée.
         """
-        # Marquer l'écart comme non résolu
+        import io
+
+        import openpyxl
+
+        self.ecart_comptage.resolved = False
+        self.ecart_comptage.final_result = None
+        self.ecart_comptage.save()
+
+        response = self.client.get(self._export_url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        sheet = openpyxl.load_workbook(io.BytesIO(response.content)).active
+        quantities = [
+            cell.value for row in sheet.iter_rows(min_row=2)
+            for cell in row if isinstance(cell.value, (int, float))
+        ]
+        self.assertIn(10, quantities)
+
+    def test_export_excel_ecart_non_resolu_avec_resultat_final(self):
+        """Écart non résolu avec un résultat final : le résultat final (15) est utilisé."""
+        import io
+
+        import openpyxl
+
         self.ecart_comptage.resolved = False
         self.ecart_comptage.save()
 
-        url = self._export_url()
+        response = self.client.get(self._export_url())
 
-        response = self.client.get(url)
-
-        # L'export doit échouer car tous les écarts ne sont pas résolus
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('Tous les écarts de comptage de cet inventaire doivent être résolus', response.data['message'])
-        self.assertIn('Écarts résolus : 0/1', response.data['message'])
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        sheet = openpyxl.load_workbook(io.BytesIO(response.content)).active
+        quantities = [
+            cell.value for row in sheet.iter_rows(min_row=2)
+            for cell in row if isinstance(cell.value, (int, float))
+        ]
+        self.assertIn(15, quantities)
 
     def test_export_excel_final_result_logic(self):
         """

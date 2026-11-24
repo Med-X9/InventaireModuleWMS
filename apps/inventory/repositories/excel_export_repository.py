@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from apps.masterdata.models import Product, Warehouse
 
-from ..models import Counting, EcartComptage, Inventory
+from ..models import ComptageSequence, Counting, EcartComptage, Inventory
 
 
 class ExcelExportRepository:
@@ -62,14 +62,11 @@ class ExcelExportRepository:
         """
         Récupère les données consolidées par article pour un inventaire / magasin.
 
-        Utilise UNIQUEMENT le final_result des EcartComptage RÉSOLUS.
+        Aucune condition « résolu » : tous les écarts du magasin sont consolidés.
+        Quantité d'un écart = son final_result s'il existe, sinon la quantité du dernier comptage.
 
-        Pour chaque produit apparaissant dans des EcartComptage résolus,
-        la quantité consolidée est la SOMME des final_result de TOUS les EcartComptage
-        résolus associés à ce produit.
-
-        Contrairement à l'ancienne logique qui additionnait les quantités de comptage (5+3+2=10),
-        cette logique utilise les résultats finaux validés après résolution des écarts.
+        Pour chaque produit, la quantité consolidée est la SOMME de ces quantités
+        (et non l'addition des quantités de comptage 5+3+2=10).
 
         Exclut les articles avec le code produit '1111111111111' de la consolidation.
 
@@ -81,29 +78,22 @@ class ExcelExportRepository:
             Liste de dictionnaires avec les données consolidées
         """
 
-        # Écart par emplacement (MAGASIN 3 comptages) : quantité par article reprise des lignes
-        # du comptage « par article » dont le total égale le résultat final (écarts résolus)
-        from apps.inventory.models import Inventory
-        from apps.inventory.utils.location_ecart_results import location_ecart_results
+        # Strategy : MAGASIN multi-comptages (écart par emplacement) ou logique d'origine (par article)
+        from apps.inventory.usecases.consolidation_strategy import ConsolidationDispatcher
 
         inventory = Inventory.objects.filter(id=inventory_id).first()
-        location_results = (
-            location_ecart_results(inventory, warehouse_id=warehouse_id, only_resolved=True)
-            if inventory else {}
-        )
-        if inventory is not None and (
-            location_results or self._uses_location_ecart(inventory)
-        ):
-            excluded = Product.objects.filter(
-                Internal_Product_Code='111111111111111'
-            ).values_list('id', flat=True)
-            sums: Dict[int, int] = {}
-            for info in location_results.values():
-                for product_id, qty in info['product_quantities'].items():
-                    sums[product_id] = sums.get(product_id, 0) + qty
-            return self._build_consolidated_rows(sums, excluded)
+        if inventory is None:
+            return self.get_consolidated_data_general(inventory_id, warehouse_id)
+        strategy = ConsolidationDispatcher().get_strategy(inventory)
+        return strategy.consolidated_rows(self, inventory, warehouse_id)
 
-        # Logique simplifiée : Σ(final_result) par produit depuis EcartComptage résolus
+    def get_consolidated_data_general(
+        self,
+        inventory_id: int,
+        warehouse_id: int,
+    ) -> List[Dict[str, Any]]:
+        """Logique par article (GENERAL) : Σ(final_result) des écarts par produit, résolus ou non."""
+        # Logique simplifiée : Σ(final_result) par produit depuis EcartComptage
         # Plus de jointures complexes avec counting_sequences
 
         # Étape 1 : Récupérer les IDs des produits à exclure (code test)
@@ -118,8 +108,6 @@ class ExcelExportRepository:
         # Étape 2a : Récupérer les paires (ecart_id, product_id) uniques
         ecart_product_pairs = EcartComptage.objects.filter(
             inventory_id=inventory_id,
-            resolved=True,
-            final_result__isnull=False,
             counting_sequences__counting_detail__job__warehouse_id=warehouse_id,
         ).values(
             'id',  # EcartComptage ID pour unicité
@@ -142,11 +130,21 @@ class ExcelExportRepository:
             id__in=ecart_to_product.keys()
         ).select_related()
 
+        # Écart sans résultat final (non résolu) : quantité du dernier comptage
+        last_quantity = {}
+        for seq in ComptageSequence.objects.filter(
+            ecart_comptage_id__in=ecart_to_product.keys()
+        ).order_by('ecart_comptage_id', 'sequence_number'):
+            last_quantity[seq.ecart_comptage_id] = seq.quantity
+
         for ecart in ecart_comptages:
             product_id = ecart_to_product[ecart.id]
             if product_id not in product_sums:
                 product_sums[product_id] = 0
-            product_sums[product_id] += ecart.final_result
+            quantity = ecart.final_result
+            if quantity is None:
+                quantity = last_quantity.get(ecart.id) or 0
+            product_sums[product_id] += quantity
 
         return self._build_consolidated_rows(product_sums, excluded_product_ids)
     

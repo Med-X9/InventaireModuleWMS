@@ -88,18 +88,8 @@ class ExcelExportService:
         if not is_valid:
             raise ValueError(error_message)
 
-        total_ecarts, resolved_ecarts = (
-            self.repository.get_ecarts_resolution_counts(
-                inventory_id,
-                warehouse_id,
-            )
-        )
-        if total_ecarts and resolved_ecarts != total_ecarts:
-            raise ValueError(
-                "Tous les écarts de comptage de cet inventaire doivent être "
-                f"résolus pour ce magasin. Écarts résolus : "
-                f"{resolved_ecarts}/{total_ecarts}"
-            )
+        # Pas de condition « écarts résolus » : un écart non résolu est consolidé avec
+        # son résultat final s'il existe, sinon avec la quantité du dernier comptage.
 
         # Limiter strictement la consolidation au magasin demandé.
         consolidated_data = (

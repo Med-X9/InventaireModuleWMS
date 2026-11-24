@@ -67,7 +67,7 @@ class MonitoringService:
             countings = Counting.objects.filter(
                 inventory_id=inventory_id,
                 order__in=[1, 2, 3]
-            ).only('id', 'reference', 'order').order_by('order')
+            ).only('id', 'reference', 'order', 'count_mode').order_by('order')
 
             # Construire les statistiques par zone
             zone_stats = []
@@ -148,7 +148,7 @@ class MonitoringService:
             countings = Counting.objects.filter(
                 inventory_id=inventory_id,
                 order__in=[1, 2, 3]
-            ).order_by('order').only('id', 'order', 'reference')
+            ).order_by('order').only('id', 'order', 'reference', 'count_mode')
 
             # Compter les jobs qui ont au moins un assignment (jobs affectés)
             # Utilisation d'une sous-requête optimisée
@@ -216,6 +216,9 @@ class MonitoringService:
                         "jobs_termines": jobs_termines,
                         "jobs_termines_percent": round(
                             jobs_termines_percent, 2
+                        ),
+                        **self._get_counting_location_stats(
+                            inventory_id, warehouse_id, counting
                         ),
                     }
                 )
@@ -297,7 +300,59 @@ class MonitoringService:
             'counting_id': counting.id,
             'counting_reference': counting.reference,
             'counting_order': counting.order,
-            'assignments': assignments_stats
+            'nombre_jobs': len(set(job_ids_in_zone)),
+            'assignments': assignments_stats,
+            **self._get_counting_location_stats(
+                inventory_id, warehouse_id, counting, zone_id=zone_id
+            ),
+        }
+
+    def _get_counting_location_stats(
+        self,
+        inventory_id: int,
+        warehouse_id: int,
+        counting: Counting,
+        zone_id: int = None,
+    ) -> Dict[str, Any]:
+        """
+        Avancement des emplacements pour un comptage (terminés / en attente + %).
+
+        Un emplacement = un JobDetail du comptage (même granularité pour « par article »
+        et « en vrac » : le JobDetail passe à TERMINE dès qu'une saisie est envoyée
+        pour l'emplacement). Les JobDetail ANNULE sont exclus.
+        count_mode du comptage est renvoyé pour que l'affichage s'adapte.
+        """
+        from django.db.models import Count
+        from ..constants import JobDetailStatus
+
+        details = JobDetail.objects.filter(
+            job__inventory_id=inventory_id,
+            job__warehouse_id=warehouse_id,
+            counting_id=counting.id,
+        ).exclude(status=JobDetailStatus.ANNULE)
+        if zone_id is not None:
+            details = details.filter(location__sous_zone__zone_id=zone_id)
+
+        by_status = {
+            row['status']: row['n']
+            for row in details.values('status').annotate(
+                n=Count('location', distinct=True)
+            )
+        }
+        termines = by_status.get(JobDetailStatus.TERMINE, 0)
+        total = sum(by_status.values())
+        en_attente = total - termines
+
+        def pct(value: int) -> float:
+            return round(value / total * 100, 2) if total else 0.0
+
+        return {
+            'count_mode': counting.count_mode,
+            'total_emplacements': total,
+            'emplacements_termines': termines,
+            'emplacements_termines_percent': pct(termines),
+            'emplacements_en_attente': en_attente,
+            'emplacements_en_attente_percent': pct(en_attente),
         }
 
     def _calculate_zone_status_optimized(

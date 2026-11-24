@@ -13,7 +13,19 @@ class AssignmentDetailSerializer(serializers.Serializer):
     percentage = serializers.FloatField()
 
 
-class CountingMonitoringSerializer(serializers.Serializer):
+class LocationProgressSerializer(serializers.Serializer):
+    """
+    Avancement des emplacements d'un comptage (par article ou en vrac).
+    """
+    count_mode = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    total_emplacements = serializers.IntegerField(required=False)
+    emplacements_termines = serializers.IntegerField(required=False)
+    emplacements_termines_percent = serializers.FloatField(required=False)
+    emplacements_en_attente = serializers.IntegerField(required=False)
+    emplacements_en_attente_percent = serializers.FloatField(required=False)
+
+
+class CountingMonitoringSerializer(LocationProgressSerializer):
     """
     Serializer pour les statistiques de monitoring d'un comptage
     """
@@ -43,7 +55,7 @@ class MonitoringResponseSerializer(serializers.Serializer):
     zones = ZoneMonitoringSerializer(many=True)
 
 
-class CountingGlobalMonitoringSerializer(serializers.Serializer):
+class CountingGlobalMonitoringSerializer(LocationProgressSerializer):
     """
     Serializer pour les statistiques globales d'un comptage
     (toutes zones confondues).
