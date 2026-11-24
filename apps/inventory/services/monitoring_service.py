@@ -101,7 +101,10 @@ class MonitoringService:
                     'zone_name': zone.zone_name,
                     'nombre_jobs': nombre_jobs,
                     'nombre_emplacements': nombre_emplacements,
-                    'countings': counting_stats
+                    'countings': counting_stats,
+                    'jobs': self._get_zone_jobs_with_teams(
+                        inventory_id, warehouse_id, zone.id
+                    ),
                 })
 
             return zone_stats
@@ -306,6 +309,68 @@ class MonitoringService:
                 inventory_id, warehouse_id, counting, zone_id=zone_id
             ),
         }
+
+    def _get_zone_jobs_with_teams(
+        self,
+        inventory_id: int,
+        warehouse_id: int,
+        zone_id: int,
+    ) -> List[Dict[str, Any]]:
+        """
+        Jobs d'une zone avec leurs équipes (une équipe par assignment, par comptage).
+
+        Équipe = session (ex. equipe-1001) sinon les personnes de l'assignment.
+        Les emplacements sont ceux du job situés dans la zone.
+        """
+        from django.db.models import Count
+
+        jobs = list(
+            Job.objects.filter(
+                inventory_id=inventory_id,
+                warehouse_id=warehouse_id,
+                jobdetail__location__sous_zone__zone_id=zone_id,
+            ).distinct().order_by('reference').only('id', 'reference', 'status')
+        )
+        if not jobs:
+            return []
+        job_ids = [j.id for j in jobs]
+
+        locations_by_job = {
+            row['job_id']: row['n']
+            for row in JobDetail.objects.filter(
+                job_id__in=job_ids,
+                location__sous_zone__zone_id=zone_id,
+            ).values('job_id').annotate(n=Count('location', distinct=True))
+        }
+
+        teams_by_job: Dict[int, List[Dict[str, Any]]] = {}
+        assignments = Assigment.objects.filter(job_id__in=job_ids).select_related(
+            'session', 'personne', 'personne_two', 'counting'
+        ).order_by('counting__order', 'id')
+        for a in assignments:
+            members = [
+                p.full_name or p.numero
+                for p in (a.personne, a.personne_two) if p is not None
+            ]
+            name = (a.session.username if a.session else None) or ' / '.join(members) or '—'
+            teams_by_job.setdefault(a.job_id, []).append({
+                'assignment_id': a.id,
+                'team_name': name,
+                'members': members,
+                'counting_order': a.counting.order if a.counting else None,
+                'status': a.status,
+            })
+
+        return [
+            {
+                'job_id': j.id,
+                'job_reference': j.reference,
+                'status': j.status,
+                'nombre_emplacements': locations_by_job.get(j.id, 0),
+                'equipes': teams_by_job.get(j.id, []),
+            }
+            for j in jobs
+        ]
 
     def _get_counting_location_stats(
         self,

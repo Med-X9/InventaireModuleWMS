@@ -36,6 +36,24 @@ class CountingMonitoringSerializer(LocationProgressSerializer):
     assignments = AssignmentDetailSerializer(many=True)
 
 
+class JobTeamSerializer(serializers.Serializer):
+    """Équipe (assignment) d'un job pour un comptage."""
+    assignment_id = serializers.IntegerField()
+    team_name = serializers.CharField()
+    members = serializers.ListField(child=serializers.CharField(), required=False)
+    counting_order = serializers.IntegerField(allow_null=True)
+    status = serializers.CharField()
+
+
+class ZoneJobSerializer(serializers.Serializer):
+    """Job d'une zone avec ses équipes."""
+    job_id = serializers.IntegerField()
+    job_reference = serializers.CharField()
+    status = serializers.CharField()
+    nombre_emplacements = serializers.IntegerField()
+    equipes = JobTeamSerializer(many=True)
+
+
 class ZoneMonitoringSerializer(serializers.Serializer):
     """
     Serializer pour les statistiques de monitoring d'une zone
@@ -46,6 +64,7 @@ class ZoneMonitoringSerializer(serializers.Serializer):
     nombre_jobs = serializers.IntegerField()
     nombre_emplacements = serializers.IntegerField()
     countings = CountingMonitoringSerializer(many=True)
+    jobs = ZoneJobSerializer(many=True, required=False)
 
 
 class MonitoringResponseSerializer(serializers.Serializer):
