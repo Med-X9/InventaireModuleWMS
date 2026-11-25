@@ -1,7 +1,8 @@
 """
 Strategy : feuilles supplémentaires de l'export Excel des résultats (détail).
 
-- Inventaire « en vrac » : une feuille « Matrice » (lignes = articles, colonnes = emplacements,
+- Inventaire « en vrac » : une feuille « Emplacement x Article » (tableau d'agrégation, une ligne par
+  combinaison emplacement × article, mêmes colonnes que « Résultats ») et une feuille « Matrice » (lignes = articles, colonnes = emplacements,
   cellule = quantité retenue de l'article dans l'emplacement) en plus de la feuille « Résultats ».
   * MAGASIN multi-comptages (écart par emplacement) → MagasinLocationMatrixStrategy
     (quantités reprises du comptage « par article » égal au résultat final de l'emplacement).
@@ -88,6 +89,105 @@ def build_matrix_rows(
     return columns, rows
 
 
+FLAT_SHEET_NAME = 'Emplacement x Article'
+
+
+def _counting_label(order: int) -> str:
+    return f"{order}er Comptage" if order == 1 else f"{order}e Comptage"
+
+
+def build_flat_table(
+    inventory,
+    warehouse_id: int,
+    retained: Dict[Tuple[int, int], int],
+    location_results: Dict[int, Dict[str, Any]] = None,
+) -> Tuple[List[str], List[Dict[str, Any]]]:
+    """
+    Tableau d'agrégation : une ligne par combinaison emplacement × article.
+
+    Mêmes colonnes que la feuille « Résultats » (job, statut job, emplacement, produit,
+    quantité et statut par comptage, écarts, résultat final, résolu), avec en plus
+    « Quantité Retenue » (quantité de l'article retenue pour l'emplacement).
+
+    Args:
+        retained: {(product_id, location_id): quantité retenue}
+        location_results: résultat d'écart par emplacement (MAGASIN multi-comptages) :
+            fournit Résultat Final / Résolu au niveau de l'emplacement.
+    """
+    from apps.inventory.models import Assigment, Job
+
+    details = (
+        CountingDetail.objects.filter(
+            counting__inventory_id=inventory.id,
+            job__warehouse_id=warehouse_id,
+            product__isnull=False,
+        )
+        .values('location_id', 'product_id', 'job_id', 'counting__order')
+        .annotate(total=Sum('quantity_inventoried'))
+    )
+    by_key: Dict[Tuple[int, int, int], Dict[int, int]] = {}
+    for r in details:
+        key = (r['location_id'], r['product_id'], r['job_id'])
+        by_key.setdefault(key, {})[r['counting__order']] = int(r['total'] or 0)
+    # Combinaisons retenues sans ligne article brute (sécurité) : ignorées, la source est CountingDetail
+    if not by_key:
+        return [], []
+
+    orders = sorted({o for q in by_key.values() for o in q})
+    job_ids = {k[2] for k in by_key}
+    jobs = {j.id: j for j in Job.objects.filter(id__in=job_ids)}
+    statuses: Dict[Tuple[int, int], str] = {}
+    for a in Assigment.objects.filter(job_id__in=job_ids).select_related('counting'):
+        if a.counting:
+            statuses[(a.job_id, a.counting.order)] = a.status
+    products = {
+        p.id: p
+        for p in Product.objects.filter(id__in={k[1] for k in by_key}).select_related('Product_Family')
+    }
+    locations = _location_labels({k[0] for k in by_key})
+
+    columns = ['Référence Job', 'Statut Job', 'Emplacement'] + PRODUCT_COLUMNS
+    for o in orders:
+        columns += [_counting_label(o), f'Statut Comptage {o}']
+        if o >= 2:
+            columns += [f'Écart Comptage {o - 1}-{o}'] if (o - 1) in orders else []
+    columns += ['Quantité Retenue', 'Résultat Final', 'Résolu']
+
+    rows: List[Dict[str, Any]] = []
+    for key in sorted(
+        by_key,
+        key=lambda k: (locations.get(k[0], ''), products[k[1]].Internal_Product_Code or '', k[2]),
+    ):
+        location_id, product_id, job_id = key
+        quantities = by_key[key]
+        job = jobs.get(job_id)
+        row: Dict[str, Any] = {
+            'Référence Job': job.reference if job else '',
+            'Statut Job': job.status if job else '',
+            'Emplacement': locations.get(location_id, ''),
+            **_product_columns(products[product_id]),
+        }
+        for o in orders:
+            row[_counting_label(o)] = quantities.get(o)
+            row[f'Statut Comptage {o}'] = statuses.get((job_id, o))
+            if o >= 2 and (o - 1) in orders:
+                cur, prev = quantities.get(o), quantities.get(o - 1)
+                row[f'Écart Comptage {o - 1}-{o}'] = (
+                    cur - prev if cur is not None and prev is not None else None
+                )
+        last = quantities[max(quantities)]
+        row['Quantité Retenue'] = retained.get((product_id, location_id), last)
+        info = (location_results or {}).get(location_id)
+        if info:
+            row['Résultat Final'] = info['ecart'].final_result
+            row['Résolu'] = info['ecart'].resolved
+        else:
+            row['Résultat Final'] = row['Quantité Retenue']
+            row['Résolu'] = None
+        rows.append(row)
+    return columns, rows
+
+
 def _location_labels(location_ids) -> Dict[int, str]:
     from apps.masterdata.models import Location
 
@@ -129,12 +229,16 @@ class MagasinLocationMatrixStrategy(ResultsExportStrategy):
                 quantities[(product_id, location_id)] = qty
         if not quantities:
             return []
+        sheets = []
+        flat_columns, flat_rows = build_flat_table(inventory, warehouse_id, quantities, results)
+        if flat_rows:
+            sheets.append((FLAT_SHEET_NAME, flat_columns, flat_rows))
         columns, rows = build_matrix_rows(
             quantities, _location_labels({loc for _, loc in quantities})
         )
-        if len(columns) > MAX_EXCEL_COLUMNS:
-            return []
-        return [(MATRIX_SHEET_NAME, columns, rows)]
+        if len(columns) <= MAX_EXCEL_COLUMNS:
+            sheets.append((MATRIX_SHEET_NAME, columns, rows))
+        return sheets
 
 
 class EnVracMatrixStrategy(ResultsExportStrategy):
@@ -162,12 +266,16 @@ class EnVracMatrixStrategy(ResultsExportStrategy):
                 quantities[(r['product_id'], r['location_id'])] = int(r['total'] or 0)
         if not quantities:
             return []
+        sheets = []
+        flat_columns, flat_rows = build_flat_table(inventory, warehouse_id, quantities)
+        if flat_rows:
+            sheets.append((FLAT_SHEET_NAME, flat_columns, flat_rows))
         columns, rows = build_matrix_rows(
             quantities, _location_labels({loc for _, loc in quantities})
         )
-        if len(columns) > MAX_EXCEL_COLUMNS:
-            return []
-        return [(MATRIX_SHEET_NAME, columns, rows)]
+        if len(columns) <= MAX_EXCEL_COLUMNS:
+            sheets.append((MATRIX_SHEET_NAME, columns, rows))
+        return sheets
 
 
 class ResultsExportDispatcher:

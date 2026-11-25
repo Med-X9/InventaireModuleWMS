@@ -1563,7 +1563,7 @@ class InventoryResultExportExcelView(APIView):
                 longest = max([len(str(col))] + [len(str(v)) for v in df[col].head(500)])
                 sheet.column_dimensions[get_column_letter(idx)].width = min(longest + 2, 40)
             # Figer les colonnes produit et l'en-tête
-            sheet.freeze_panes = sheet.cell(row=2, column=6)
+            sheet.freeze_panes = sheet.cell(row=2, column=4 if 'Référence Job' in df.columns else 6)
 
     def _enrich_results_with_statuses(
         self,

@@ -88,3 +88,69 @@ class BuildMatrixTests(TestCase):
     def test_libelles_emplacement_en_double_restent_uniques(self):
         columns, _ = build_matrix_rows({(self.p1.id, 1): 1, (self.p1.id, 2): 1}, {1: 'DUP', 2: 'DUP'})
         self.assertEqual(columns[5:7], ['DUP', 'DUP (2)'])
+
+
+class BuildFlatTableTests(TestCase):
+    """Tableau d'agrégation : une ligne par combinaison emplacement × article."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        from apps.inventory.models import CountingDetail, Job
+        from apps.masterdata.models import (
+            Location, LocationType, SousZone, Warehouse, Zone, ZoneType,
+        )
+
+        account = Account.objects.create(reference='ACC-F', account_name='A', account_statuts='ACTIVE')
+        family = Family.objects.create(
+            reference='F-F', family_name='Famille F', compte=account, family_status='ACTIVE'
+        )
+        self.product = Product.objects.create(
+            reference='PF1', Internal_Product_Code='CODE1', Short_Description='Produit F1',
+            Product_Family=family,
+        )
+        warehouse = Warehouse.objects.create(reference='WH-F', warehouse_name='WH')
+        zone_type = ZoneType.objects.create(reference='ZT-F', type_name='T', status='ACTIVE')
+        zone = Zone.objects.create(reference='Z-F', zone_name='Z', zone_type=zone_type, warehouse=warehouse)
+        sous_zone = SousZone.objects.create(reference='SZ-F', sous_zone_name='SZ', zone=zone)
+        location_type = LocationType.objects.create(reference='LT-F', name='LT')
+        self.location = Location.objects.create(
+            reference='LOC-F', location_reference='LOC-F-REF', location_type=location_type,
+            sous_zone=sous_zone,
+        )
+        self.warehouse = warehouse
+        self.inventory = Inventory.objects.create(
+            reference='INV-F', label='F', date=timezone.now(), status='EN PREPARATION',
+            inventory_type='MAGASIN',
+        )
+        c1 = Counting.objects.create(reference='C-F1', inventory=self.inventory, order=1, count_mode='en vrac')
+        c2 = Counting.objects.create(reference='C-F2', inventory=self.inventory, order=2, count_mode='en vrac')
+        job = Job.objects.create(reference='JOB-F', inventory=self.inventory, warehouse=warehouse)
+        CountingDetail.objects.create(
+            reference='CD-F1', quantity_inventoried=4, product=self.product,
+            location=self.location, counting=c1, job=job,
+        )
+        CountingDetail.objects.create(
+            reference='CD-F2', quantity_inventoried=6, product=self.product,
+            location=self.location, counting=c2, job=job,
+        )
+
+    def test_une_ligne_par_emplacement_et_article_avec_les_memes_colonnes(self):
+        from apps.inventory.usecases.results_export_strategy import build_flat_table
+
+        columns, rows = build_flat_table(
+            self.inventory, self.warehouse.id, {(self.product.id, self.location.id): 5}
+        )
+
+        for expected in ['Référence Job', 'Statut Job', 'Emplacement', 'Code Barre', 'Code Interne',
+                         'BarCode', 'Désignation', 'Famille', '1er Comptage', 'Statut Comptage 1',
+                         '2e Comptage', 'Écart Comptage 1-2', 'Quantité Retenue', 'Résultat Final', 'Résolu']:
+            self.assertIn(expected, columns)
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row['Emplacement'], 'LOC-F-REF')
+        self.assertEqual(row['Code Interne'], 'CODE1')
+        self.assertEqual(row['1er Comptage'], 4)
+        self.assertEqual(row['2e Comptage'], 6)
+        self.assertEqual(row['Écart Comptage 1-2'], 2)
+        self.assertEqual(row['Quantité Retenue'], 5)
