@@ -1530,12 +1530,40 @@ class InventoryResultExportExcelView(APIView):
                         # Si l'ajustement de la largeur échoue, utiliser une largeur par défaut
                         logger.warning(f"Impossible d'ajuster la largeur de la colonne {col}: {e}")
                         worksheet.column_dimensions[get_column_letter(idx)].width = 15
+
+                # Strategy : feuille « Matrice » (articles × emplacements) pour l'en vrac.
+                # La feuille « Résultats » ci-dessus reste inchangée.
+                self._write_extra_sheets(writer, inventory_id, warehouse_id)
         except Exception as e:
             logger.error(f"Erreur lors de la génération du fichier Excel: {e}", exc_info=True)
             raise ValueError(f"Impossible de générer le fichier Excel: {str(e)}")
         
         excel_buffer.seek(0)
         return excel_buffer
+
+    def _write_extra_sheets(self, writer, inventory_id: int, warehouse_id: int) -> None:
+        """Ajoute les feuilles supplémentaires fournies par la stratégie d'export."""
+        import pandas as pd
+        from openpyxl.styles import Alignment, Font, PatternFill
+        from openpyxl.utils import get_column_letter
+        from apps.inventory.usecases.results_export_strategy import ResultsExportDispatcher
+
+        inventory = Inventory.objects.filter(id=inventory_id).first()
+        strategy = ResultsExportDispatcher().get_strategy(inventory)
+        for sheet_name, columns, rows in strategy.extra_sheets(inventory, warehouse_id):
+            df = pd.DataFrame(rows, columns=columns)
+            df.to_excel(writer, index=False, sheet_name=sheet_name)
+            sheet = writer.sheets[sheet_name]
+            header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+            for cell in sheet[1]:
+                cell.fill = header_fill
+                cell.font = Font(bold=True, color="FFFFFF")
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            for idx, col in enumerate(df.columns, start=1):
+                longest = max([len(str(col))] + [len(str(v)) for v in df[col].head(500)])
+                sheet.column_dimensions[get_column_letter(idx)].width = min(longest + 2, 40)
+            # Figer les colonnes produit et l'en-tête
+            sheet.freeze_panes = sheet.cell(row=2, column=6)
 
     def _enrich_results_with_statuses(
         self,
