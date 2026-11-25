@@ -16,8 +16,19 @@ from .counting_launch_service import CountingLaunchService
 class MagasinCountingLaunchService(CountingLaunchService):
     """Lancement du comptage suivant pour un MAGASIN (écart par emplacement)."""
 
+    def _ecart_results(self, job):
+        """
+        Écarts par emplacement de l'inventaire/entrepôt du job, calculés une seule fois par
+        requête (le lancement d'un comptage ne modifie ni les saisies ni les résultats finaux).
+        """
+        cache = self._cache()
+        key = ('location_ecart_results', job.inventory_id, job.warehouse_id)
+        if key not in cache:
+            cache[key] = location_ecart_results(job.inventory, warehouse_id=job.warehouse_id)
+        return cache[key]
+
     def _get_job_or_raise(self, job_id: int):
-        job = self.job_repository.get_job_by_id(job_id)
+        job = self._get_job(job_id)
         if not job:
             raise CountingNotFoundError(f"Job introuvable pour l'identifiant {job_id}.")
         return job
@@ -28,7 +39,7 @@ class MagasinCountingLaunchService(CountingLaunchService):
         ce sont ceux qui attendent le comptage suivant.
         """
         job = self._get_job_or_raise(job_id)
-        results = location_ecart_results(job.inventory, warehouse_id=job.warehouse_id)
+        results = self._ecart_results(job)
         return [
             location_id
             for location_id, info in results.items()
@@ -40,9 +51,9 @@ class MagasinCountingLaunchService(CountingLaunchService):
         Vérifie l'écart par emplacement, puis délègue la création du comptage
         (job detail, assignment) au service de base.
         """
-        job = self.job_repository.get_job_by_id(job_id) if job_id and job_id > 0 else None
+        job = self._get_job(job_id) if job_id and job_id > 0 else None
         if job is not None:
-            info = location_ecart_results(job.inventory, warehouse_id=job.warehouse_id).get(location_id)
+            info = self._ecart_results(job).get(location_id)
             if info is None or info['job_id'] != job.id or info['ecart'].final_result is not None:
                 raise CountingValidationError(
                     "L'emplacement n'a pas d'écart non résolu (écart par emplacement : "

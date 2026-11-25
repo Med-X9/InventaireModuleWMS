@@ -61,15 +61,15 @@ class CountingLaunchService:
 
         try:
             # Étape 1 : récupérer les entités nécessaires
-            job = self.job_repository.get_job_by_id(job_id)
+            job = self._get_job(job_id)
             if not job:
                 raise CountingNotFoundError(f"Job introuvable pour l'identifiant {job_id}.")
 
-            location = self.job_repository.get_location_by_id(location_id)
+            location = self._get_location(location_id)
             if not location:
                 raise CountingValidationError(f"Emplacement introuvable pour l'identifiant {location_id}.")
 
-            session = UserApp.objects.filter(id=session_id, type='Mobile').first()
+            session = self._get_mobile_session(session_id)
             if not session:
                 raise CountingValidationError("La session fournie n'existe pas ou n'est pas de type 'Mobile'.")
 
@@ -159,10 +159,7 @@ class CountingLaunchService:
                 raise CountingValidationError(error_msg)
 
             # Étape 2 : récupérer le comptage de référence (ordre 3)
-            counting_order_three = self.counting_repository.get_by_inventory_and_order(
-                job.inventory_id,
-                3,
-            )
+            counting_order_three = self._get_counting_by_order(job.inventory_id, 3)
             if not counting_order_three:
                 raise CountingNotFoundError(
                     f"Aucun comptage d'ordre 3 n'est défini pour l'inventaire {job.inventory_id}."
@@ -180,6 +177,12 @@ class CountingLaunchService:
                 # → C'est le lancement du comptage 3
                 self._ensure_previous_countings_completed(job.id, location.id, target_order=3)
                 target_counting = counting_order_three
+            elif self._is_job_detail_pending(job, location, highest_order_with_jobdetail):
+                # Le comptage déjà lancé pour cet emplacement n'est pas terminé (EN ATTENTE) :
+                # c'est un relancement du MÊME comptage (3e → 3e), pas du comptage suivant.
+                target_counting = self._get_counting_by_order(
+                    job.inventory_id, highest_order_with_jobdetail
+                )
             else:
                 # Un JobDetail existe déjà pour un comptage >= 3
                 # → C'est un comptage supplémentaire (4, 5, etc.)
@@ -188,10 +191,7 @@ class CountingLaunchService:
                 self._ensure_previous_countings_completed(job.id, location.id, target_order=target_order)
                 
                 # Vérifier si le comptage cible existe déjà (créé par un autre emplacement)
-                existing_target_counting = self.counting_repository.get_by_inventory_and_order(
-                    job.inventory_id,
-                    target_order,
-                )
+                existing_target_counting = self._get_counting_by_order(job.inventory_id, target_order)
                 
                 if existing_target_counting:
                     # Le comptage existe déjà (créé pour un autre emplacement) → l'utiliser
@@ -275,6 +275,52 @@ class CountingLaunchService:
         except Exception as exc:
             raise CountingCreationError(f"Erreur lors du lancement du comptage: {exc}") from exc
 
+    # --- Accès mis en cache (une instance de service = une requête) -------------------------
+
+    def _cache(self) -> Dict[Any, Any]:
+        cache = getattr(self, '_lookup_cache', None)
+        if cache is None:
+            cache = {}
+            self._lookup_cache = cache
+        return cache
+
+    def _get_job(self, job_id: int):
+        cache = self._cache()
+        key = ('job', job_id)
+        if key not in cache:
+            cache[key] = self.job_repository.get_job_by_id(job_id)
+        return cache[key]
+
+    def _get_location(self, location_id: int):
+        cache = self._cache()
+        key = ('location', location_id)
+        if key not in cache:
+            cache[key] = self.job_repository.get_location_by_id(location_id)
+        return cache[key]
+
+    def _get_mobile_session(self, session_id: int):
+        cache = self._cache()
+        key = ('session', session_id)
+        if key not in cache:
+            cache[key] = UserApp.objects.filter(id=session_id, type='Mobile').first()
+        return cache[key]
+
+    def _get_counting_by_order(self, inventory_id: int, order: int):
+        cache = self._cache()
+        key = ('counting', inventory_id, order)
+        value = cache.get(key)
+        if value is None:
+            value = self.counting_repository.get_by_inventory_and_order(inventory_id, order)
+            if value is not None:  # ne jamais mémoriser une absence (le comptage peut être créé ensuite)
+                cache[key] = value
+        return value
+
+    def _is_job_detail_pending(self, job, location, order: int) -> bool:
+        """Vrai si le JobDetail du comptage `order` pour cet emplacement est EN ATTENTE."""
+        return JobDetail.objects.filter(
+            job=job, location=location, counting__order=order, status='EN ATTENTE'
+        ).exists()
+
     def _find_highest_counting_order_with_jobdetail(self, job, location) -> Optional[int]:
         """
         Trouve le plus haut ordre de comptage pour lequel un JobDetail existe
@@ -290,16 +336,12 @@ class CountingLaunchService:
         from ..models import JobDetail
         
         # Récupérer tous les JobDetails pour ce job et cet emplacement
-        job_details = JobDetail.objects.filter(
+        highest_job_detail = JobDetail.objects.filter(
             job=job,
             location=location
-        ).select_related('counting').order_by('-counting__order')
-        
-        if not job_details.exists():
-            return None
-        
+        ).select_related('counting').order_by('-counting__order').first()
+
         # Retourner l'ordre du comptage le plus élevé
-        highest_job_detail = job_details.first()
         if highest_job_detail and highest_job_detail.counting:
             return highest_job_detail.counting.order
         
@@ -324,18 +366,18 @@ class CountingLaunchService:
             required_orders = [target_order - 1]
 
         # Récupérer le job et l'emplacement
-        job = self.job_repository.get_job_by_id(job_id)
+        job = self._get_job(job_id)
         if not job:
             raise CountingNotFoundError(f"Job introuvable pour l'identifiant {job_id}.")
         
-        location = self.job_repository.get_location_by_id(location_id)
+        location = self._get_location(location_id)
         if not location:
             raise CountingValidationError(f"Emplacement introuvable pour l'identifiant {location_id}.")
 
         # Pour chaque comptage précédent requis, vérifier qu'il est terminé pour cet emplacement
         for order in required_orders:
             # Récupérer le comptage correspondant à cet ordre
-            counting = self.counting_repository.get_by_inventory_and_order(job.inventory_id, order)
+            counting = self._get_counting_by_order(job.inventory_id, order)
             if not counting:
                 if target_order == 3:
                     raise CountingValidationError(
@@ -403,7 +445,7 @@ class CountingLaunchService:
         
         logger_debug = logging.getLogger(__name__)
         
-        job = self.job_repository.get_job_by_id(job_id)
+        job = self._get_job(job_id)
         if not job:
             raise CountingNotFoundError(f"Job introuvable pour l'identifiant {job_id}.")
         
@@ -492,7 +534,7 @@ class CountingLaunchService:
         if session_id <= 0:
             raise CountingValidationError("L'identifiant de l'équipe doit être strictement positif.")
         
-        session = UserApp.objects.filter(id=session_id, type='Mobile').first()
+        session = self._get_mobile_session(session_id)
         if not session:
             raise CountingValidationError("La session fournie n'existe pas ou n'est pas de type 'Mobile'.")
         

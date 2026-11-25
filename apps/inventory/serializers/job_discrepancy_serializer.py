@@ -43,9 +43,11 @@ class JobDiscrepancySerializer(serializers.Serializer):
         for key, value in instance.items():
             if key.startswith('discrepancy_count_') and key.endswith('er'):
                 data[key] = value
+            elif key == 'locations':
+                data[key] = value
             # Emplacements terminés / en attente (job et par comptage)
             elif key.startswith('emplacements_') or (
-                key.startswith('counting_') and '_emplacements_' in key
+                key.startswith('counting_') and ('_emplacements_' in key or '_sur_' in key)
             ):
                 data[key] = value
 

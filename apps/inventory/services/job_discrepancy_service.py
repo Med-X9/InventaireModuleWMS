@@ -87,6 +87,7 @@ class JobDiscrepancyService:
 
         strategy = JobDiscrepancyDispatcher().get_strategy(inventory_id, self)
         location_stats = self._get_location_stats_by_job(job_ids)
+        locations_by_job = self._get_locations_by_job(inventory_id, warehouse_id)
 
         result = []
         for job in jobs:
@@ -146,6 +147,8 @@ class JobDiscrepancyService:
             job_data.update(discrepancy_counts)
             # Emplacements terminés / en attente (job + par comptage)
             job_data.update(location_stats.get(job.id) or self._empty_location_stats())
+            # Pivot des emplacements du job (détail dépliable dans la ligne)
+            job_data['locations'] = locations_by_job.get(job.id, [])
 
             result.append(job_data)
         
@@ -169,6 +172,66 @@ class JobDiscrepancyService:
 
         return standardized_result
     
+    def _get_locations_by_job(self, inventory_id: int, warehouse_id: int) -> Dict[int, List[Dict[str, Any]]]:
+        """Emplacements de chaque job avec leur statut par comptage (counting_{n}_status)."""
+        pivot = self.get_location_status_pivot(inventory_id, warehouse_id)
+        by_job: Dict[int, List[Dict[str, Any]]] = defaultdict(list)
+        for r in pivot['rows']:
+            item: Dict[str, Any] = {
+                'id': r['location_id'],
+                'location_reference': r['location_reference'],
+            }
+            for order, st in r['statuses'].items():
+                item[f'counting_{order}_status'] = st
+            by_job[r['job_id']].append(item)
+        return by_job
+
+    def get_location_status_pivot(self, inventory_id: int, warehouse_id: int) -> Dict[str, Any]:
+        """
+        Tableau pivot : une ligne par emplacement et par job, une colonne par comptage,
+        la cellule donne le statut du JobDetail (EN ATTENTE / TERMINE) ou None si
+        l'emplacement n'est pas dans ce comptage. Les JobDetail ANNULE sont exclus.
+        """
+        from ..constants import JobDetailStatus
+        from ..models import JobDetail
+
+        details = (
+            JobDetail.objects.filter(
+                job__inventory_id=inventory_id,
+                job__warehouse_id=warehouse_id,
+                counting__isnull=False,
+            )
+            .exclude(status=JobDetailStatus.ANNULE)
+            .values(
+                'job_id', 'job__reference', 'location_id',
+                'location__location_reference', 'counting__order', 'status',
+            )
+        )
+        rows: Dict[tuple, Dict[str, Any]] = {}
+        orders = set()
+        for d in details:
+            order = d['counting__order']
+            orders.add(order)
+            key = (d['job_id'], d['location_id'])
+            row = rows.setdefault(key, {
+                'job_id': d['job_id'],
+                'job_reference': d['job__reference'],
+                'location_id': d['location_id'],
+                'location_reference': d['location__location_reference'],
+                'statuses': {},
+            })
+            current = row['statuses'].get(order)
+            # Un emplacement n'est terminé que si toutes ses lignes du comptage le sont
+            if current is None or d['status'] != JobDetailStatus.TERMINE:
+                row['statuses'][order] = d['status']
+
+        ordered_rows = sorted(
+            rows.values(), key=lambda r: (r['job_reference'] or '', r['location_reference'] or '')
+        )
+        for r in ordered_rows:
+            r['statuses'] = {str(k): v for k, v in r['statuses'].items()}
+        return {'countings': sorted(orders), 'rows': ordered_rows}
+
     @staticmethod
     def _empty_location_stats() -> Dict[str, Any]:
         return {
@@ -212,6 +275,9 @@ class JobDiscrepancyService:
         for job_id, by_order in per_job.items():
             data: Dict[str, Any] = {}
             total = termines = 0
+            # Base « total des emplacements du job » = emplacements du 1er comptage
+            base_total = (by_order.get(1) or by_order[min(by_order)])['total']
+            data['emplacements_base_total'] = base_total
             for order, c in by_order.items():
                 waiting = c['total'] - c['termines']
                 data[f'counting_{order}_emplacements_total'] = c['total']
@@ -219,6 +285,11 @@ class JobDiscrepancyService:
                 data[f'counting_{order}_emplacements_en_attente'] = waiting
                 data[f'counting_{order}_emplacements_termines_percent'] = pct(c['termines'], c['total'])
                 data[f'counting_{order}_emplacements_en_attente_percent'] = pct(waiting, c['total'])
+                if order >= 3:
+                    # 3e comptage et suivants : emplacements en écart rapportés au total du job
+                    data[f'counting_{order}_ecart_sur_total_percent'] = pct(c['total'], base_total)
+                    data[f'counting_{order}_termines_sur_total_percent'] = pct(c['termines'], base_total)
+                    data[f'counting_{order}_termines_sur_ecart_percent'] = pct(c['termines'], c['total'])
                 total += c['total']
                 termines += c['termines']
             data.update({

@@ -4,6 +4,7 @@ Vue API DataTable pour récupérer les jobs avec leurs assignments et les écart
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 import logging
 
 from ..services.job_discrepancy_service import JobDiscrepancyService
@@ -12,6 +13,26 @@ from ..utils.response_utils import success_response, error_response
 from apps.core.datatables.mixins import ServerSideDataTableView
 
 logger = logging.getLogger(__name__)
+
+
+class JobLocationStatusPivotView(APIView):
+    """
+    Pivot emplacement x comptage avec le statut de chaque emplacement.
+
+    URL: /api/inventory/{inventory_id}/warehouse/{warehouse_id}/jobs/locations-pivot/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, inventory_id: int, warehouse_id: int):
+        try:
+            data = JobDiscrepancyService().get_location_status_pivot(inventory_id, warehouse_id)
+            return success_response(data=data, message="Pivot des emplacements récupéré")
+        except Exception as e:
+            logger.error(f"Erreur pivot emplacements: {e}", exc_info=True)
+            return error_response(
+                message=f"Erreur lors de la récupération du pivot: {e}",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 class JobDiscrepancyView(ServerSideDataTableView):
