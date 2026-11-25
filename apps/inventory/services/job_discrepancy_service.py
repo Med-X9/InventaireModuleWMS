@@ -7,6 +7,7 @@ from django.db.models import Q
 from ..repositories.job_repository import JobRepository
 from ..models import Job, Assigment, CountingDetail, EcartComptage, ComptageSequence
 from ..usecases.job_discrepancy_standardization import JobDiscrepancyStandardizationUseCase
+from ..usecases.job_discrepancy_strategy import JobDiscrepancyDispatcher
 import logging
 
 logger = logging.getLogger(__name__)
@@ -84,6 +85,9 @@ class JobDiscrepancyService:
                 if assignment.counting and assignment.counting.order > max_counting_order:
                     max_counting_order = assignment.counting.order
 
+        strategy = JobDiscrepancyDispatcher().get_strategy(inventory_id, self)
+        location_stats = self._get_location_stats_by_job(job_ids)
+
         result = []
         for job in jobs:
             # Récupérer les assignments du job
@@ -117,16 +121,13 @@ class JobDiscrepancyService:
                     'username': assignment.session.username if assignment.session else None,
                 })
             
-            # Calculer les écarts entre le 1er et 2ème comptage (pour compatibilité avec l'ancien format)
-            discrepancy_info_1_2 = self._calculate_discrepancies(job)
+            # Écarts : stratégie historique (par article) ou en vrac (par emplacement)
+            computed = strategy.compute(job, max_counting_order)
+            discrepancy_info_1_2 = computed
 
-            # Calculer dynamiquement les écarts pour tous les comptages (à partir du 3ème)
-            # par rapport au premier comptage
+            # Écarts dynamiques par comptage (à partir du 3ème)
             discrepancy_counts = {}
-            for counting_order in range(3, max_counting_order + 1):
-                discrepancy_count = self._calculate_discrepancy_count_with_first_counting(
-                    counting_details_by_order, counting_order
-                )
+            for counting_order, discrepancy_count in computed['counts'].items():
                 # Format original pour compatibilité
                 discrepancy_counts[f'discrepancy_count_{counting_order}er'] = discrepancy_count
                 # Alias pour le nouveau mapping
@@ -143,6 +144,8 @@ class JobDiscrepancyService:
 
             # Ajouter les écarts dynamiques
             job_data.update(discrepancy_counts)
+            # Emplacements terminés / en attente (job + par comptage)
+            job_data.update(location_stats.get(job.id) or self._empty_location_stats())
 
             result.append(job_data)
         
@@ -166,6 +169,68 @@ class JobDiscrepancyService:
 
         return standardized_result
     
+    @staticmethod
+    def _empty_location_stats() -> Dict[str, Any]:
+        return {
+            'emplacements_total': 0,
+            'emplacements_termines': 0,
+            'emplacements_en_attente': 0,
+            'emplacements_termines_percent': 0.0,
+            'emplacements_en_attente_percent': 0.0,
+        }
+
+    def _get_location_stats_by_job(self, job_ids: List[int]) -> Dict[int, Dict[str, Any]]:
+        """
+        Emplacements terminés / en attente par job (une ligne par job) et par comptage.
+
+        Un emplacement = un JobDetail du comptage (les ANNULE sont exclus). Le total du job
+        additionne les emplacements de ses comptages.
+        """
+        from django.db.models import Count
+        from ..constants import JobDetailStatus
+        from ..models import JobDetail
+
+        rows = (
+            JobDetail.objects.filter(job_id__in=job_ids, counting__isnull=False)
+            .exclude(status=JobDetailStatus.ANNULE)
+            .values('job_id', 'counting__order', 'status')
+            .annotate(n=Count('location', distinct=True))
+        )
+        per_job: Dict[int, Dict[int, Dict[str, int]]] = {}
+        for r in rows:
+            counts = per_job.setdefault(r['job_id'], {}).setdefault(
+                r['counting__order'], {'termines': 0, 'total': 0}
+            )
+            counts['total'] += r['n']
+            if r['status'] == JobDetailStatus.TERMINE:
+                counts['termines'] += r['n']
+
+        def pct(value: int, total: int) -> float:
+            return round(value / total * 100, 2) if total else 0.0
+
+        result: Dict[int, Dict[str, Any]] = {}
+        for job_id, by_order in per_job.items():
+            data: Dict[str, Any] = {}
+            total = termines = 0
+            for order, c in by_order.items():
+                waiting = c['total'] - c['termines']
+                data[f'counting_{order}_emplacements_total'] = c['total']
+                data[f'counting_{order}_emplacements_termines'] = c['termines']
+                data[f'counting_{order}_emplacements_en_attente'] = waiting
+                data[f'counting_{order}_emplacements_termines_percent'] = pct(c['termines'], c['total'])
+                data[f'counting_{order}_emplacements_en_attente_percent'] = pct(waiting, c['total'])
+                total += c['total']
+                termines += c['termines']
+            data.update({
+                'emplacements_total': total,
+                'emplacements_termines': termines,
+                'emplacements_en_attente': total - termines,
+                'emplacements_termines_percent': pct(termines, total),
+                'emplacements_en_attente_percent': pct(total - termines, total),
+            })
+            result[job_id] = data
+        return result
+
     def _calculate_discrepancies(self, job: Job) -> Dict[str, Any]:
         """
         Calcule les écarts entre le 1er et le 2ème comptage pour un job.
