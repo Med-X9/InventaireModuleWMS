@@ -59,6 +59,7 @@ from .views.job_views import JobCreateAPIView, PendingJobsReferencesView, JobRem
 from .views.magasin_jobs_force_complete_views import MagasinJobsForceCompleteView
 from .views.inventory_location_job_import_views import InventoryLocationJobImportView, InventoryLocationJobImportSyncView, InventoryLocationJobImportStatusView
 from .views.job_discrepancy_views import JobDiscrepancyView, JobLocationStatusPivotView
+from .views.team_tracking_views import TeamTrackingView
 from .views.job_unresolved_discrepancy_views import (
     JobsWithUnresolvedDiscrepanciesByCountingView,
 )
@@ -538,6 +539,11 @@ urlpatterns = [
         'inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/discrepancies/',
         JobDiscrepancyView.as_view(),
         name='job-discrepancies',
+    ),
+    path(
+        'inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/teams-tracking/',
+        TeamTrackingView.as_view(),
+        name='team-tracking',
     ),
     path(
         'inventory/<int:inventory_id>/warehouse/<int:warehouse_id>/jobs/locations-pivot/',
