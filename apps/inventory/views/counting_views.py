@@ -149,6 +149,18 @@ class CountingLaunchView(APIView):
                     status=status.HTTP_404_NOT_FOUND,
                 )
             
+            # MAGASIN en vrac (écart par emplacement) : aucun fichier d'export au lancement
+            from ..utils.counting_layout import uses_location_ecart
+            if uses_location_ecart(first_job.inventory):
+                return Response(
+                    {
+                        'success': True,
+                        'message': 'Comptage(s) lancé(s) avec succès.',
+                        'data': result,
+                    },
+                    status=status.HTTP_200_OK,
+                )
+
             try:
                 # Appeler l'export
                 excel_buffer = self.export_service.generate_excel_export(

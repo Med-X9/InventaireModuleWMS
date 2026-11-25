@@ -543,6 +543,12 @@ class JobDiscrepancyService:
             status='ENTAME'
         )
 
+        # MAGASIN à plusieurs comptages (en vrac) : prochain comptage déterminé par emplacement
+        from ..utils.counting_layout import uses_location_ecart
+        if uses_location_ecart(inventory):
+            from ..usecases.next_counting_strategy import EnVracNextCountingStrategy
+            return EnVracNextCountingStrategy().group_jobs(inventory, warehouse_id, jobs)
+
         # Analyser chaque job pour déterminer le prochain comptage nécessaire
         jobs_needing_next_counting = defaultdict(list)
 
