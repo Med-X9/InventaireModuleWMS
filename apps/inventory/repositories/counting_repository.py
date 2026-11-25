@@ -521,9 +521,9 @@ class CountingRepository(ICountingRepository):
                     if row['product_id'] is None:
                         continue
                     row['row_type'] = 'ARTICLE'
-                    row['ecart_id_alias'] = None  # pas de résolution par article
+                    row['ecart_id_alias'] = ecart.id  # modification du résultat par article (product_id)
                     row['resolved_agg'] = 1 if ecart.resolved else 0
-                    row['manual_result_agg'] = None
+                    row['manual_result_agg'] = 1 if ecart.manual_result else 0
                     row['final_result_agg'] = (
                         None if ecart.final_result is None
                         else info['product_quantities'].get(row['product_id'], 0)

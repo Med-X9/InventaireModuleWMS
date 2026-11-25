@@ -70,6 +70,8 @@ class EcartComptageService:
 
         ecart.final_result = final_result
         ecart.manual_result = True
+        # Résultat de l'emplacement saisi directement : les résultats article ne s'appliquent plus
+        ecart.article_results.all().delete()
 
         if justification is not None:
             ecart.justification = justification
@@ -80,6 +82,53 @@ class EcartComptageService:
                 # Marquer explicitement que l'écart a été résolu manuellement
                 ecart.stopped_reason = "RESOLU_MANUEL"
 
+        return self.repository.save(ecart)
+
+    @transaction.atomic
+    def update_article_result(
+        self,
+        ecart_id: int,
+        product_id: int,
+        quantity: int,
+        justification: Optional[str] = None,
+        resolved: Optional[bool] = None,
+    ) -> EcartComptage:
+        """
+        Modifie le résultat final d'UN article d'un emplacement (écart par emplacement).
+
+        Le résultat final de l'emplacement devient la somme des résultats de ses articles.
+        """
+        from ..models import EcartComptageArticle
+        from ..utils.location_ecart_results import location_ecart_results
+
+        ecart = self.repository.get_by_id(ecart_id)
+        inventory = ecart.inventory
+        if not uses_location_ecart(inventory):
+            raise InventoryValidationError(
+                "La modification par article n'est disponible que pour les inventaires "
+                "à écart par emplacement (MAGASIN à plusieurs comptages en vrac)."
+            )
+        if quantity is None or quantity < 0:
+            raise InventoryValidationError("La quantité doit être un entier positif ou nul.")
+
+        results = location_ecart_results(inventory, ecart_id=ecart.id)
+        info = next(iter(results.values()), None)
+        if info is None or product_id not in info['product_quantities']:
+            raise InventoryValidationError("Cet article ne fait pas partie des résultats de l'emplacement.")
+
+        EcartComptageArticle.objects.update_or_create(
+            ecart_comptage=ecart, product_id=product_id, defaults={'quantity': quantity}
+        )
+        quantities = dict(info['product_quantities'])
+        quantities[product_id] = quantity
+        ecart.final_result = sum(quantities.values())
+        ecart.manual_result = True
+        if justification is not None:
+            ecart.justification = justification
+        if resolved is not None:
+            ecart.resolved = resolved
+            if resolved and not ecart.stopped_reason:
+                ecart.stopped_reason = "RESOLU_MANUEL"
         return self.repository.save(ecart)
 
     @transaction.atomic
@@ -562,6 +611,7 @@ class EcartComptageService:
                 stats['ecarts_processed'] += 1
                 if final_result != old_final:
                     ecart.final_result = final_result
+                    ecart.article_results.all().delete()  # le consensus remplace les saisies article
                     ecart.save()
                     stats['ecarts_updated'] += 1
                 if final_result is not None:

@@ -23,6 +23,7 @@ def location_ecart_results(
     inventory,
     warehouse_id: Optional[int] = None,
     only_resolved: bool = False,
+    ecart_id: Optional[int] = None,
 ) -> Dict[int, Dict[str, Any]]:
     """
     Résultats par emplacement d'un inventaire à écart par emplacement.
@@ -41,11 +42,14 @@ def location_ecart_results(
         return {}
 
     ecarts = EcartComptage.objects.filter(inventory=inventory)
+    if ecart_id is not None:
+        ecarts = ecarts.filter(id=ecart_id)
     if warehouse_id is not None:
         ecarts = ecarts.filter(counting_sequences__counting_detail__job__warehouse_id=warehouse_id)
     if only_resolved:
         ecarts = ecarts.filter(resolved=True, final_result__isnull=False)
     ecarts = ecarts.distinct().prefetch_related(
+        'article_results',
         Prefetch(
             'counting_sequences',
             queryset=ComptageSequence.objects.select_related(
@@ -93,6 +97,10 @@ def location_ecart_results(
             info['product_quantities'] = {
                 int(r['product_id']): int(r['total'] or 0) for r in rows
             }
+
+        # Résultats article modifiés manuellement : prioritaires sur le comptage retenu
+        for override in ecart.article_results.all():
+            info['product_quantities'][override.product_id] = override.quantity
 
         results[first_detail.location_id] = info
     return results

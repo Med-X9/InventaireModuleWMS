@@ -53,13 +53,24 @@ class EcartComptageUpdateFinalResultView(APIView):
         justification = serializer.validated_data.get("justification")
         resolved = serializer.validated_data.get("resolved")
 
+        product_id = request.data.get("product_id")
         try:
-            ecart = self.service.update_final_result(
-                ecart_id=ecart_id,
-                final_result=final_result,
-                justification=justification,
-                resolved=resolved,
-            )
+            if product_id not in (None, ""):
+                # Écart par emplacement : modification du résultat d'un seul article
+                ecart = self.service.update_article_result(
+                    ecart_id=ecart_id,
+                    product_id=int(product_id),
+                    quantity=final_result,
+                    justification=justification,
+                    resolved=resolved,
+                )
+            else:
+                ecart = self.service.update_final_result(
+                    ecart_id=ecart_id,
+                    final_result=final_result,
+                    justification=justification,
+                    resolved=resolved,
+                )
         except InventoryNotFoundError as exc:
             return Response(
                 {

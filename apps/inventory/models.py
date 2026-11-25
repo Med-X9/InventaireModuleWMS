@@ -488,6 +488,27 @@ class EcartComptage(TimeStampedModel, ReferenceMixin):
         return f"{self.reference} - {self.inventory} ({status})"
 
 
+class EcartComptageArticle(models.Model):
+    """
+    Résultat final modifié manuellement pour UN article d'un emplacement
+    (inventaire à écart par emplacement : MAGASIN à plusieurs comptages en vrac).
+    Le résultat final de l'emplacement est la somme des résultats de ses articles.
+    """
+    ecart_comptage = models.ForeignKey(
+        EcartComptage, on_delete=models.CASCADE, related_name='article_results'
+    )
+    product = models.ForeignKey('masterdata.Product', on_delete=models.CASCADE, related_name='+')
+    quantity = models.IntegerField(verbose_name="Quantité retenue")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Résultat article d'un écart"
+        verbose_name_plural = "Résultats articles d'écarts"
+        constraints = [
+            models.UniqueConstraint(fields=['ecart_comptage', 'product'], name='ecart_article_unique'),
+        ]
+
+
 class ComptageSequence(TimeStampedModel, ReferenceMixin):
     REFERENCE_PREFIX = 'CS'
     reference = models.CharField(unique=True, max_length=20, null=False)

@@ -175,6 +175,7 @@ class InventoryResultService:
 
             if row.get("product_id"):
                 entry_data["product"] = {
+                    "id": row["product_id"],
                     "reference": row["product_reference_alias"],
                     "barcode": row.get("product_barcode_alias"),
                     "description": row.get("product_description_alias"),
@@ -250,6 +251,9 @@ class InventoryResultService:
                 # Debug logging pour diagnostiquer le problème
                 if barcode or internal_code:
                     self.logger.debug(f"🔍 Produit debug - barcode: '{barcode}', internal_code: '{internal_code}', reference: '{reference}'")
+
+                if entry.get("row_type") == "ARTICLE":
+                    result_row["product_id"] = entry["product"].get("id")
 
                 # Toujours ajouter product_barcode avec le barcode réel du produit
                 result_row["product_barcode"] = barcode.strip() if barcode and barcode.strip() else ""
