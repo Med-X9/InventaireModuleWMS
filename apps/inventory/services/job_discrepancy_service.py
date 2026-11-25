@@ -86,6 +86,7 @@ class JobDiscrepancyService:
                     max_counting_order = assignment.counting.order
 
         strategy = JobDiscrepancyDispatcher().get_strategy(inventory_id, self)
+        strategy.prepare(job_ids)
         location_stats = self._get_location_stats_by_job(job_ids)
         locations_by_job = self._get_locations_by_job(inventory_id, warehouse_id)
 

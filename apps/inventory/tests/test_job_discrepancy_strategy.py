@@ -42,12 +42,37 @@ class EnVracStrategyTests(SimpleTestCase):
 
 
 class LegacyStrategyTests(SimpleTestCase):
-    def test_delegue_au_service_existant(self):
-        service = SimpleNamespace(
-            _calculate_discrepancies=lambda job: {'discrepancy_count': 2, 'discrepancy_rate': 10.0},
-            _calculate_discrepancy_count_with_first_counting=lambda by_order, order: order,
-        )
-        job = SimpleNamespace(_counting_details_by_order={})
-        result = LegacyJobDiscrepancyStrategy(service).compute(job, 4)
-        self.assertEqual(result['discrepancy_count'], 2)
-        self.assertEqual(result['counts'], {3: 3, 4: 4})
+    """GENERAL : écart par article + emplacement, comptage n comparé au comptage n-1."""
+
+    def _strategy(self, lines):
+        strategy = LegacyJobDiscrepancyStrategy()
+        strategy._lines = {1: lines}
+        return strategy
+
+    def test_2e_vs_1er_par_article_et_emplacement(self):
+        # Même emplacement (10), deux articles : un seul article diffère
+        strategy = self._strategy({
+            1: {(10, 100): 5, (10, 200): 3},
+            2: {(10, 100): 5, (10, 200): 4},
+        })
+        result = strategy.compute(SimpleNamespace(id=1), 2)
+        self.assertEqual(result['discrepancy_count'], 1)
+        self.assertEqual(result['discrepancy_rate'], 50.0)
+
+    def test_article_absent_dun_comptage_vaut_zero(self):
+        strategy = self._strategy({1: {(10, 100): 5}, 2: {(10, 100): 5, (10, 200): 2}})
+        self.assertEqual(strategy.compute(SimpleNamespace(id=1), 2)['discrepancy_count'], 1)
+
+    def test_3e_compare_au_2e_et_4e_au_3e(self):
+        strategy = self._strategy({
+            1: {(10, 100): 5, (10, 200): 3},
+            2: {(10, 100): 6, (10, 200): 4},
+            3: {(10, 100): 6, (10, 200): 3},
+            4: {(10, 200): 3},
+        })
+        counts = strategy.compute(SimpleNamespace(id=1), 4)['counts']
+        self.assertEqual(counts, {3: 1, 4: 0})
+
+    def test_comptage_non_saisi_donne_none(self):
+        strategy = self._strategy({1: {(10, 100): 5}, 2: {(10, 100): 6}})
+        self.assertEqual(strategy.compute(SimpleNamespace(id=1), 3)['counts'], {3: None})
