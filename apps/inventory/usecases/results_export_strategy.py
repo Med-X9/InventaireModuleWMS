@@ -133,7 +133,11 @@ def build_flat_table(
     if not by_key:
         return [], []
 
-    orders = sorted({o for q in by_key.values() for o in q})
+    # Tous les comptages de l'inventaire (même sans saisie) pour garder des colonnes stables
+    orders = sorted(
+        {o for q in by_key.values() for o in q}
+        | set(Counting.objects.filter(inventory_id=inventory.id).values_list('order', flat=True))
+    )
     job_ids = {k[2] for k in by_key}
     jobs = {j.id: j for j in Job.objects.filter(id__in=job_ids)}
     statuses: Dict[Tuple[int, int], str] = {}
