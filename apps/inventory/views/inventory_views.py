@@ -1176,10 +1176,18 @@ class InventoryResultExportExcelView(APIView):
             Fichier Excel avec les résultats
         """
         try:
+            # En vrac (écart par emplacement) : une ligne emplacement suivie de ses lignes article
+            from apps.inventory.utils.counting_layout import uses_location_ecart
+            export_view = (
+                'all'
+                if uses_location_ecart(Inventory.objects.filter(id=inventory_id).first())
+                else None
+            )
             # Récupérer les résultats via le service
             results = self.service.get_inventory_results_for_warehouse(
                 inventory_id=inventory_id,
                 warehouse_id=warehouse_id,
+                view=export_view,
             )
             
             if not results:
@@ -1349,6 +1357,9 @@ class InventoryResultExportExcelView(APIView):
         # 2. Colonne d'emplacement
         if 'location' in df.columns:
             column_order.append('location')
+        # Ligne emplacement / ligne article (en vrac : détail dans la même feuille)
+        if 'row_type' in df.columns:
+            column_order.append('row_type')
 
         # 3. Colonnes produit
         if 'product' in df.columns:
@@ -1452,6 +1463,7 @@ class InventoryResultExportExcelView(APIView):
         # Mapping des noms de colonnes techniques vers des noms conviviaux en français
         column_name_mapping = {
             'location': 'Emplacement',
+            'row_type': 'Type',
             'job_reference': 'Référence Job',
             'job_status': 'Statut Job',
             'product': 'Code Barre',
@@ -1499,6 +1511,8 @@ class InventoryResultExportExcelView(APIView):
         
         # Renommer les colonnes avec les noms conviviaux
         df = df.rename(columns=column_name_mapping)
+        if 'Type' in df.columns:
+            df['Type'] = df['Type'].map({'EMPLACEMENT': 'Emplacement', 'ARTICLE': 'Article'}).fillna('')
         
         # Créer le fichier Excel en mémoire
         excel_buffer = io.BytesIO()
@@ -1508,6 +1522,16 @@ class InventoryResultExportExcelView(APIView):
                 
                 # Récupérer la feuille pour appliquer des formats
                 worksheet = writer.sheets['Résultats']
+
+                # Détail en vrac : ligne emplacement en gras sur fond clair, lignes article dessous
+                if 'Type' in df.columns:
+                    from openpyxl.styles import Font, PatternFill
+                    location_fill = PatternFill(start_color="DCE6F1", end_color="DCE6F1", fill_type="solid")
+                    for excel_row, row_type in enumerate(df['Type'].tolist(), start=2):
+                        if row_type == 'Emplacement':
+                            for cell in worksheet[excel_row]:
+                                cell.font = Font(bold=True)
+                                cell.fill = location_fill
                 
                 # Ajuster la largeur des colonnes
                 from openpyxl.utils import get_column_letter
